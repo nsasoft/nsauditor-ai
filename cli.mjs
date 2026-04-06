@@ -634,6 +634,32 @@ function maxSeverityInConclusion(conclusion) {
 async function main() {
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports } = await parseArgs(process.argv);
 
+  if (cmd === 'license') {
+    const { getTierFromEnv } = await import('./utils/license.mjs');
+    const { resolveCapabilities } = await import('./utils/capabilities.mjs');
+    const tier = getTierFromEnv();
+    const caps = resolveCapabilities(tier);
+    const key = process.env.NSAUDITOR_LICENSE_KEY;
+    const rawArgs = process.argv.slice(2);
+
+    if (rawArgs.includes('--status')) {
+      const tierLabel = { ce: 'Community Edition (CE)', pro: 'Pro', enterprise: 'Enterprise' };
+      console.log(`License status: ${tierLabel[tier] ?? tier}`);
+      console.log(`License key: ${key ? `set (${key.slice(0, 8)}...)` : 'not set — running CE'}`);
+      if (!key) {
+        console.log('\n→ Start a free 14-day Pro trial: https://nsauditor.com/trial');
+      }
+    } else if (rawArgs.includes('--capabilities')) {
+      console.log(`Active capabilities for tier: ${tier}\n`);
+      for (const [name, enabled] of Object.entries(caps)) {
+        console.log(`  ${enabled ? '✓' : '✗'} ${name}`);
+      }
+    } else {
+      console.log('Usage: nsauditor-ai license --status | --capabilities');
+    }
+    process.exit(0);
+  }
+
   if (cmd !== 'scan') {
     console.error(`Unknown command: ${cmd}`);
     process.exit(2);
