@@ -322,16 +322,24 @@ export function describeSkipReason(mod, ctx) {
   return 'unknown';
 }
 
-export default class PluginManager {
+export class PluginManager {
   constructor(directory = "./plugins") {
     this.directory = directory;
     this.plugins = [];
   }
 
   // ---- Backward-compatible factory ----
-  static async create(directory = "./plugins") {
-    vlog(`Initializing PluginManager with directory: ${directory}`);
-    const mgr = new PluginManager(directory);
+  // Accepts either a directory string or an options object { plugins: [...] }
+  static async create(directoryOrOpts = "./plugins") {
+    if (directoryOrOpts && typeof directoryOrOpts === 'object' && !Array.isArray(directoryOrOpts)) {
+      const { plugins = [] } = directoryOrOpts;
+      const mgr = new PluginManager('/nonexistent');
+      mgr.plugins = plugins;
+      vlog("PluginManager initialized with injected plugins");
+      return mgr;
+    }
+    vlog(`Initializing PluginManager with directory: ${directoryOrOpts}`);
+    const mgr = new PluginManager(directoryOrOpts);
     await mgr.loadPlugins();
     vlog("PluginManager initialized successfully");
     return mgr;
@@ -593,6 +601,12 @@ export default class PluginManager {
     return this._resolveSelection(parts);
   }
 
+  _hasCapabilities(plugin, capabilities) {
+    if (!plugin.requiredCapabilities?.length) return true;
+    if (!capabilities) return true; // No cap object = CE permissive
+    return plugin.requiredCapabilities.every(cap => Boolean(capabilities[cap]));
+  }
+
   /* -------------------- Orchestrated execution path -------------------- */
   async _runOrchestrated(host, selection, opts = {}) {
     // Shared context flows through all plugins (+ OUI helpers injected)
@@ -620,6 +634,18 @@ export default class PluginManager {
           name: mod.name || 'Plugin',
           status: 'skipped',
           reason: describeSkipReason(mod, ctx),
+          duration_ms: 0,
+        });
+        continue;
+      }
+
+      if (!this._hasCapabilities(mod, opts?.capabilities)) {
+        vlog(`Skipping ${mod.name} (priority ${getPriority(mod)}) due to missing capabilities: ${mod.requiredCapabilities?.join(',')}`);
+        manifest.push({
+          id: String(mod.id || ''),
+          name: mod.name || 'Plugin',
+          status: 'skipped',
+          reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`,
           duration_ms: 0,
         });
         continue;
@@ -758,3 +784,5 @@ export default class PluginManager {
     };
   }
 }
+
+export default PluginManager;
