@@ -101,7 +101,7 @@ git commit -m "chore: initial CE import from nsauditor-plugin-manager v0.1.12"
 ```json
 {
   "name": "nsauditor-ai",
-  "version": "2.0.0",
+  "version": "0.1.0",
   "description": "Modular AI-assisted network security audit platform — Community Edition",
   "type": "module",
   "private": false,
@@ -1436,17 +1436,17 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | node mcp_ser
 # Expected: JSON response with scan_host, list_plugins, probe_service (with upsell note), get_vulnerabilities
 ```
 
-- [ ] **Step 4: Tag v2.0.0-ce.1**
+- [ ] **Step 4: Tag v0.1.0**
 
 ```bash
-git tag v2.0.0-ce.1
+git tag v0.1.0
 ```
 
 - [ ] **Step 5: Final commit**
 
 ```bash
 git add .
-git commit -m "chore: Phase 1 complete — CE baseline v2.0.0-ce.1"
+git commit -m "chore: Phase 1 complete — CE baseline v0.1.0"
 ```
 
 ---
