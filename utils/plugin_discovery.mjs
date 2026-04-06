@@ -1,0 +1,89 @@
+// utils/plugin_discovery.mjs
+// Multi-path plugin loader: CE built-in, EE package (optional), custom (env var)
+
+import { readdir } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
+import { createRequire } from 'node:module';
+
+const _require = createRequire(import.meta.url);
+
+const SAFE_PREFIXES = Object.freeze(
+  [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : `${p}/`)
+);
+
+function isSafePath(absPath) {
+  // Allow exact match (e.g. NSAUDITOR_PLUGIN_PATH=./plugins resolves to cwd itself)
+  // or any subtree under cwd or HOME.
+  // Symlinks are dereferenced via realpathSync before this check is called.
+  return SAFE_PREFIXES.some(prefix => absPath === prefix.slice(0, -1) || absPath.startsWith(prefix));
+}
+
+async function loadPluginsFromDir(dir, source) {
+  let files;
+  try {
+    files = await readdir(dir);
+  } catch {
+    return [];
+  }
+
+  const plugins = [];
+  for (const file of files.filter(f => f.endsWith('.mjs'))) {
+    try {
+      const mod = await import(join(dir, file));
+      const plugin = mod.default;
+      if (plugin?.id && plugin?.name && typeof plugin?.run === 'function') {
+        // Attach conclude from named export or plugin default
+        const conclude = mod.conclude ?? plugin.conclude;
+        plugins.push({ ...plugin, _source: source, ...(conclude ? { conclude } : {}) });
+      }
+    } catch (e) {
+      if (process.env.NSA_VERBOSE) {
+        console.error(`[plugin_discovery] Failed to load ${file}: ${e.message}`);
+      }
+    }
+  }
+  return plugins;
+}
+
+export async function discoverPlugins(baseDir) {
+  const plugins = [];
+
+  // Source 1: CE built-in plugins
+  plugins.push(...await loadPluginsFromDir(join(baseDir, 'plugins'), 'ce'));
+
+  // Source 2: EE package (@nsasoft/nsauditor-ai-ee)
+  try {
+    const eePkgPath = _require.resolve('@nsasoft/nsauditor-ai-ee/package.json');
+    const eePluginsDir = join(dirname(eePkgPath), 'plugins');
+    if (existsSync(eePluginsDir)) {
+      plugins.push(...await loadPluginsFromDir(eePluginsDir, 'ee'));
+    }
+  } catch {
+    // EE not installed — CE operates standalone
+  }
+
+  // Source 3: Custom plugin paths (colon-separated)
+  const customPaths = process.env.NSAUDITOR_PLUGIN_PATH;
+
+  if (customPaths) {
+    for (const dir of customPaths.split(':')) {
+      const abs = resolve(dir);
+      let real;
+      try {
+        real = realpathSync(abs);
+      } catch {
+        // Path doesn't exist or is inaccessible — skip silently unless verbose
+        if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Cannot resolve real path for: ${abs}`);
+        continue;
+      }
+      if (!isSafePath(real)) {
+        if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Skipping unsafe NSAUDITOR_PLUGIN_PATH entry: ${real}`);
+        continue;
+      }
+      plugins.push(...await loadPluginsFromDir(real, 'custom'));
+    }
+  }
+
+  return plugins.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+}

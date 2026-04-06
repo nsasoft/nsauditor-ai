@@ -1,0 +1,19 @@
+# Development & internal files — not needed by package consumers
+.claude/
+tasks/
+tests/
+docs/architecture.md
+
+# Secrets & runtime output
+.env
+.env.*
+out/
+.scan_history/
+*.log
+.DS_Store
+**/.DS_Store
+
+# CI / editor
+.github/
+.vscode/
+*.tgz

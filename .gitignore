@@ -1,0 +1,9 @@
+node_modules/
+out/
+.env
+.scan_history/
+tasks/
+*.log
+.DS_Store
+**/.DS_Store
+.worktrees/
