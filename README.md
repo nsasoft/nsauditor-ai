@@ -10,7 +10,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 
 ---
 
-NSAuditor AI is the open-source core of a privacy-first security intelligence platform built by [Nsasoft US LLC](https://nsauditor.com). It orchestrates 20+ specialized scanning plugins against target hosts, fuses their results through an intelligent concluder, and optionally produces AI-powered vulnerability reports — all running entirely on your machine.
+NSAuditor AI is the open-source core of a privacy-first security intelligence platform built by [Nsasoft US LLC](https://www.nsauditor.com/ai/). It orchestrates 20+ specialized scanning plugins against target hosts, fuses their results through an intelligent concluder, and optionally produces AI-powered vulnerability reports — all running entirely on your machine.
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
@@ -52,9 +52,9 @@ NSAuditor AI is available in three editions:
 | Docker per-scan isolation | — | — | ✅ |
 | Air-gapped deployment | — | — | ✅ |
 
-**This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions. Pro and Enterprise features are available via the [`@nsasoft/nsauditor-ai-ee`](https://nsauditor.com/pricing) package.
+**This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions. Pro and Enterprise features are available via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package.
 
-→ [Start a free 14-day Pro trial](https://nsauditor.com/trial) (no credit card)
+→ [Start a free 14-day Pro trial](https://www.nsauditor.com/ai/trial) (no credit card)
 
 ---
 
@@ -462,7 +462,7 @@ nsauditor-ai license --capabilities
 
 No license key? Everything in this repository works perfectly without one. The CE is not crippled — it's a complete, production-ready security scanner.
 
-→ [Pricing](https://nsauditor.com/pricing) · [Start free trial](https://nsauditor.com/trial) · [Enterprise contact](https://nsauditor.com/enterprise)
+→ [Pricing](https://www.nsauditor.com/ai/pricing) · [Start free trial](https://www.nsauditor.com/ai/trial) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
 
 ---
 
@@ -515,7 +515,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 3. Include tests for any new or changed behavior
 4. Submit a PR
 
-**All contributions to this repository are under the MIT license.** For Enterprise Edition contributions, see the [nsauditor-ai-ee](https://nsauditor.com/enterprise) repository which requires a signed IP Assignment Agreement.
+**All contributions to this repository are under the MIT license.** For Enterprise Edition contributions, see the [nsauditor-ai-ee](https://www.nsauditor.com/ai/enterprise) repository which requires a signed IP Assignment Agreement.
 
 **What we won't accept:** Code that phones home, transmits scan data externally, or weakens the Zero Data Exfiltration boundary.
 
@@ -560,4 +560,4 @@ Nsasoft US LLC is not a data processor, data controller, or business associate u
 
 © 2024-present Nsasoft US LLC. "NSAuditor" and "NSAuditor AI" are trademarks of Nsasoft US LLC.
 
-The Pro and Enterprise features available via `@nsasoft/nsauditor-ai-ee` are licensed under a separate proprietary license. See [nsauditor.com/pricing](https://nsauditor.com/pricing) for details.
+The Pro and Enterprise features available via `@nsasoft/nsauditor-ai-ee` are licensed under a separate proprietary license. See [www.nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing) for details.

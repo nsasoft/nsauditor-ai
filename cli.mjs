@@ -647,7 +647,7 @@ async function main() {
       console.log(`License status: ${tierLabel[tier] ?? tier}`);
       console.log(`License key: ${key ? `set (${key.slice(0, 8)}...)` : 'not set — running CE'}`);
       if (!key) {
-        console.log('\n→ Start a free 14-day Pro trial: https://nsauditor.com/trial');
+        console.log('\n→ Start a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
       }
     } else if (rawArgs.includes('--capabilities')) {
       console.log(`Active capabilities for tier: ${tier}\n`);

@@ -1255,7 +1255,7 @@ function requireCapability(capabilities, cap, toolName) {
     return {
       content: [{
         type: 'text',
-        text: `🔒 ${toolName} requires a Pro license.\n\nUpgrade at https://nsauditor.com/pricing or start a free 14-day trial at https://nsauditor.com/trial\n\nCE tools available: scan_host, list_plugins`
+        text: `🔒 ${toolName} requires a Pro license.\n\nUpgrade at https://www.nsauditor.com/ai/pricing or start a free 14-day trial at https://www.nsauditor.com/ai/trial\n\nCE tools available: scan_host, list_plugins`
       }],
       isError: true,
     };
@@ -1374,7 +1374,7 @@ case 'license': {
     console.log(`License status: ${tierLabel[tier] ?? tier}`);
     console.log(`Key: ${key ? `set (${key.slice(0, 8)}...)` : 'not set — running CE'}`);
     if (!key) {
-      console.log('\nStart a free 14-day Pro trial: https://nsauditor.com/trial');
+      console.log('\nStart a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
     }
   } else if (args.includes('--capabilities')) {
     console.log(`Active capabilities for tier: ${tier}\n`);

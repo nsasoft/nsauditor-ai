@@ -66,7 +66,7 @@ You shall not:
 
 ## 4. SUBSCRIPTION TERMS
 
-**4.1 Fees.** Pro and Enterprise Edition features require an active paid subscription. Fees are as stated on nsauditor.com/pricing at the time of purchase.
+**4.1 Fees.** Pro and Enterprise Edition features require an active paid subscription. Fees are as stated on www.nsauditor.com/ai/pricing at the time of purchase.
 
 **4.2 Renewal.** Subscriptions renew automatically unless canceled before the renewal date. You may cancel at any time through Your account portal.
 
@@ -309,7 +309,7 @@ USA
 
 Legal inquiries: legal@nsasoft.us
 General support: support@nsasoft.us
-Website: https://nsauditor.com
+Website: https://www.nsauditor.com/ai/
 
 ---
 

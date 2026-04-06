@@ -39,7 +39,7 @@ function requireProCapability(toolName) {
   return {
     content: [{
       type: 'text',
-      text: `🔒 **${toolName}** requires a Pro license.\n\nUpgrade at https://nsauditor.com/pricing or start a free 14-day trial (no credit card) at https://nsauditor.com/trial\n\n**CE tools available:** scan_host, list_plugins`,
+      text: `🔒 **${toolName}** requires a Pro license.\n\nUpgrade at https://www.nsauditor.com/ai/pricing or start a free 14-day trial (no credit card) at https://www.nsauditor.com/ai/trial\n\n**CE tools available:** scan_host, list_plugins`,
     }],
     isError: false,
   };
