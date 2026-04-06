@@ -17,6 +17,7 @@ import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
 import { pathToFileURL, fileURLToPath } from "url";
+import { discoverPlugins } from './utils/plugin_discovery.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -329,18 +330,47 @@ export class PluginManager {
   }
 
   // ---- Backward-compatible factory ----
-  // Accepts either a directory string or an options object { plugins: [...] }
-  static async create(directoryOrOpts = "./plugins") {
-    if (directoryOrOpts && typeof directoryOrOpts === 'object' && !Array.isArray(directoryOrOpts)) {
-      const { plugins = [] } = directoryOrOpts;
+  // Accepts:
+  //   - a directory string (legacy CLI path)
+  //   - an options object { plugins: [...] }  ← test injection (Task 2.3)
+  //   - an options object { baseDir: '...' }  ← explicit base dir for discovery
+  //   - no args → uses process.cwd() for discovery
+  static async create(dirOrOpts = {}) {
+    // Test injection path: pass plugins array directly, skip discovery
+    if (dirOrOpts && typeof dirOrOpts === 'object' && !Array.isArray(dirOrOpts) && dirOrOpts.plugins) {
       const mgr = new PluginManager('/nonexistent');
-      mgr.plugins = plugins;
+      mgr.plugins = dirOrOpts.plugins;
       vlog("PluginManager initialized with injected plugins");
       return mgr;
     }
-    vlog(`Initializing PluginManager with directory: ${directoryOrOpts}`);
-    const mgr = new PluginManager(directoryOrOpts);
-    await mgr.loadPlugins();
+
+    // Resolve baseDir from string arg or options object
+    const baseDir = typeof dirOrOpts === 'string'
+      ? path.resolve(dirOrOpts, '..')   // legacy: dir was './plugins', baseDir is parent
+      : (dirOrOpts?.baseDir ?? process.cwd());
+
+    vlog(`Initializing PluginManager via discoverPlugins, baseDir: ${baseDir}`);
+    const rawPlugins = await discoverPlugins(baseDir);
+
+    // Normalize plugin fields (same as loadPlugins() did inline)
+    for (const plugin of rawPlugins) {
+      plugin.protocols = Array.isArray(plugin.protocols) ? plugin.protocols : [];
+      plugin.ports = Array.isArray(plugin.ports) ? plugin.ports : [];
+      if (plugin.runStrategy && String(plugin.runStrategy).toLowerCase() !== 'single') {
+        plugin.runStrategy = undefined;
+      }
+      if (String(plugin.runStrategy).toLowerCase() === 'single') {
+        plugin.runStrategy = 'single';
+      }
+      if (!Array.isArray(plugin.dependencies)) {
+        plugin.dependencies = plugin.dependencies != null
+          ? [plugin.dependencies].filter(Boolean)
+          : [];
+      }
+    }
+
+    const mgr = new PluginManager(baseDir);
+    mgr.plugins = rawPlugins;
     vlog("PluginManager initialized successfully");
     return mgr;
   }
