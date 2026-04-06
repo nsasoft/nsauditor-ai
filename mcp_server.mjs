@@ -15,9 +15,35 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { getTierFromEnv } from './utils/license.mjs';
+import { resolveCapabilities } from './utils/capabilities.mjs';
 
 const _require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = _require('./package.json');
+
+// ---------------------------------------------------------------------------
+// License tier & capability resolution (module-level, overridable for tests)
+// ---------------------------------------------------------------------------
+
+let _tier = getTierFromEnv();
+let _capabilities = resolveCapabilities(_tier);
+
+/** Allow tests to override tier without touching env vars. */
+export function _setTier(tier) {
+  _tier = tier ?? getTierFromEnv();
+  _capabilities = resolveCapabilities(_tier);
+}
+
+function requireProCapability(toolName) {
+  if (_capabilities.proMCP) return null; // Pro/Enterprise: allow
+  return {
+    content: [{
+      type: 'text',
+      text: `🔒 **${toolName}** requires a Pro license.\n\nUpgrade at https://nsauditor.com/pricing or start a free 14-day trial (no credit card) at https://nsauditor.com/trial\n\n**CE tools available:** scan_host, list_plugins`,
+    }],
+    isError: false,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Lazy singletons — initialised on first use, overridable for tests
@@ -277,8 +303,24 @@ export function createServer() {
       };
     }
 
+    // Gate Pro-tier tools at the MCP dispatch layer
+    if (name === 'probe_service' || name === 'get_vulnerabilities') {
+      const denied = requireProCapability(name);
+      if (denied) return denied;
+    }
+
     try {
       const result = await handler(args ?? {});
+
+      // Append tier info to list_plugins response
+      if (name === 'list_plugins') {
+        const tierLabel = { ce: 'Community Edition (CE)', pro: 'Pro', enterprise: 'Enterprise' };
+        const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service, get_vulnerabilities, risk_summary, and more.'}`;
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) + tierSuffix }],
+        };
+      }
+
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       };
