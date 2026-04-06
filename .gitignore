@@ -3,3 +3,5 @@ out/
 .env
 .scan_history/
 *.log
+.DS_Store
+**/.DS_Store
