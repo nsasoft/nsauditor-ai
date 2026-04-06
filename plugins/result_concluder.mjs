@@ -12,7 +12,7 @@ function pickResultsFromArgs(args) {
 function slugify(name, id) {
   const base = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   if (base) return base;
-  const map = { '001':'ping_checker','002':'ssh_scanner','003':'port_scanner','004':'ftp_banner_check','005':'host_up_check','006':'http_probe','007':'snmp_scanner','009':'dns_scanner','010':'webapp_detector','011':'tls_scanner','012':'opensearch_scanner','013':'os_detector','014':'netbios__smb_scanner','015':'sunrpc_scanner','020':'cloud_aws','021':'cloud_gcp','022':'cloud_azure','024':'syn_scanner','025':'db_scanner','026':'arp_scanner','027':'mdns_scanner','028':'upnp_scanner' };
+  const map = { '001':'ping_checker','002':'ssh_scanner','003':'port_scanner','004':'ftp_banner_check','005':'host_up_check','006':'http_probe','007':'snmp_scanner','009':'dns_scanner','010':'webapp_detector','011':'tls_scanner','012':'opensearch_scanner','013':'os_detector','014':'netbios__smb_scanner','015':'sunrpc_scanner','024':'syn_scanner','025':'db_scanner','026':'arp_scanner','027':'mdns_scanner','028':'upnp_scanner' };
   return map[String(id)] || String(id);
 }
 
