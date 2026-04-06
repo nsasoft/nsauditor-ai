@@ -1,0 +1,304 @@
+{
+  "services": [
+    {
+      "name": "web",
+      "port": 80,
+      "protocol": "http",
+      "description": "HTTP web server"
+    },
+    {
+      "name": "api",
+      "port": 8080,
+      "protocol": "http",
+      "description": "HTTP API server"
+    },
+    {
+      "name": "database",
+      "port": 5432,
+      "protocol": "tcp",
+      "description": "PostgreSQL database"
+    },
+    {
+      "name": "messaging",
+      "port": 5672,
+      "protocol": "amqp",
+      "description": "AMQP messaging service"
+    },
+    {
+      "name": "cache",
+      "port": 6379,
+      "protocol": "tcp",
+      "description": "Redis caching service"
+    },
+    {
+      "name": "monitoring",
+      "port": 9090,
+      "protocol": "http",
+      "description": "Prometheus monitoring service"
+    },
+    {
+      "name": "ftp-data",
+      "port": 20,
+      "protocol": "tcp",
+      "description": "FTP data transfer"
+    },
+    {
+      "name": "ftp-control",
+      "port": 21,
+      "protocol": "tcp",
+      "description": "FTP control channel"
+    },
+    {
+      "name": "ssh",
+      "port": 22,
+      "protocol": "tcp",
+      "description": "Secure shell access"
+    },
+    {
+      "name": "telnet",
+      "port": 23,
+      "protocol": "tcp",
+      "description": "Unencrypted remote access"
+    },
+    {
+      "name": "smtp",
+      "port": 25,
+      "protocol": "tcp",
+      "description": "Email delivery"
+    },
+    {
+      "name": "dns",
+      "port": 53,
+      "protocol": "tcp/udp",
+      "description": "Domain name resolution"
+    },
+    {
+      "name": "dhcp-server",
+      "port": 67,
+      "protocol": "udp",
+      "description": "DHCP server (BOOTP server)"
+    },
+    {
+      "name": "dhcp-client",
+      "port": 68,
+      "protocol": "udp",
+      "description": "DHCP client (BOOTP client)"
+    },
+    {
+      "name": "tftp",
+      "port": 69,
+      "protocol": "udp",
+      "description": "Trivial file transfer"
+    },
+    {
+      "name": "https",
+      "port": 443,
+      "protocol": "tcp",
+      "description": "Secure HTTP web server"
+    },
+    {
+      "name": "imap",
+      "port": 143,
+      "protocol": "tcp",
+      "description": "Email retrieval"
+    },
+    {
+      "name": "snmp",
+      "port": 161,
+      "protocol": "udp",
+      "description": "Network management"
+    },
+    {
+      "name": "ntp",
+      "port": 123,
+      "protocol": "udp",
+      "description": "Time synchronization"
+    },
+    {
+      "name": "sunrpc",
+      "port": 111,
+      "protocol": "tcp/udp",
+      "description": "Sun RPC portmapper (rpcbind)"
+    },
+    {
+      "name": "mysql",
+      "port": 3306,
+      "protocol": "tcp",
+      "description": "MySQL database"
+    },
+    {
+      "name": "rdp",
+      "port": 3389,
+      "protocol": "tcp",
+      "description": "Remote desktop access"
+    },
+    {
+      "name": "http-alt1",
+      "port": 81,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt2",
+      "port": 88,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "pop3",
+      "port": 110,
+      "protocol": "tcp",
+      "description": "Email retrieval (POP3)"
+    },
+    {
+      "name": "nntp",
+      "port": 119,
+      "protocol": "tcp",
+      "description": "Usenet news transfer"
+    },
+    {
+      "name": "msrpc",
+      "port": 135,
+      "protocol": "tcp",
+      "description": "Microsoft RPC service"
+    },
+    {
+      "name": "netbios-ns",
+      "port": 137,
+      "protocol": "udp",
+      "description": "NetBIOS name service"
+    },
+    {
+      "name": "netbios-dgm",
+      "port": 138,
+      "protocol": "udp",
+      "description": "NetBIOS datagram service"
+    },
+    {
+      "name": "netbios",
+      "port": 139,
+      "protocol": "tcp",
+      "description": "NetBIOS session service"
+    },
+    {
+      "name": "ldap",
+      "port": 389,
+      "protocol": "tcp/udp",
+      "description": "Directory access protocol"
+    },
+    {
+      "name": "smb",
+      "port": 445,
+      "protocol": "tcp",
+      "description": "Server Message Block"
+    },
+    {
+      "name": "smtps",
+      "port": 465,
+      "protocol": "tcp",
+      "description": "Secure email delivery"
+    },
+    {
+      "name": "nntps",
+      "port": 563,
+      "protocol": "tcp",
+      "description": "Secure Usenet transfer"
+    },
+    {
+      "name": "submission",
+      "port": 587,
+      "protocol": "tcp",
+      "description": "Email submission (STARTTLS)"
+    },
+    {
+      "name": "ipp",
+      "port": 631,
+      "protocol": "tcp",
+      "description": "Internet printing protocol"
+    },
+    {
+      "name": "http-alt3",
+      "port": 688,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "win-rm",
+      "port": 5985,
+      "protocol": "tcp/udp",
+      "description": "Windows Remote Management"
+    },
+    {
+      "name": "http-alt4",
+      "port": 8081,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt5",
+      "port": 8088,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "https-alt",
+      "port": 8443,
+      "protocol": "tcp",
+      "description": "Alternative secure HTTP server"
+    },
+    {
+      "name": "http-alt6",
+      "port": 8888,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt7",
+      "port": 9000,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "elasticsearch",
+      "port": 9200,
+      "protocol": "tcp",
+      "description": "Elasticsearch search engine"
+    },
+    {
+      "name": "imaps",
+      "port": 993,
+      "protocol": "tcp",
+      "description": "Secure email retrieval"
+    },
+    {
+      "name": "pop3s",
+      "port": 995,
+      "protocol": "tcp",
+      "description": "Secure email retrieval (POP3)"
+    },
+    {
+      "name": "http-alt8",
+      "port": 1990,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt9",
+      "port": 20005,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt10",
+      "port": 5000,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    },
+    {
+      "name": "http-alt11",
+      "port": 5555,
+      "protocol": "tcp",
+      "description": "Alternative HTTP server"
+    }
+  ]
+}
