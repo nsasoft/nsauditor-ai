@@ -1,13 +1,17 @@
 {
-  "name": "nsauditor-plugin-manager-user-plugins",
-  "version": "0.1.12",
+  "name": "nsauditor-ai",
+  "version": "2.0.0",
+  "description": "Modular AI-assisted network security audit platform — Community Edition",
   "type": "module",
-  "private": true,
+  "private": false,
   "scripts": {
     "start": "node cli.mjs",
-    "scan": "node cli.mjs scan --host 192.168.1.1 --plugins all",
     "test": "node --test",
     "mcp": "node mcp_server.mjs"
+  },
+  "bin": {
+    "nsauditor-ai": "./cli.mjs",
+    "nsauditor-ai-mcp": "./mcp_server.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
@@ -15,7 +19,6 @@
     "dnssd": "^0.4.1",
     "dotenv": "^17.2.1",
     "markdown-it": "^14.1.0",
-    "mdns": "^2.7.2",
     "multicast-dns": "^7.2.5",
     "node-upnp-utils": "^1.0.3",
     "openai": "^4.104.0",
@@ -25,7 +28,17 @@
     "uuid": "^13.0.0",
     "xml2js": "^0.6.2"
   },
-  "bin": {
-    "nsauditor": "./cli.mjs"
-  }
+  "optionalDependencies": {
+    "mdns": "^2.7.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nsasoft/nsauditor-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nsasoft/nsauditor-ai.git"
+  },
+  "keywords": ["network", "security", "audit", "scanner", "vulnerability", "mcp"]
 }

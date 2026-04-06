@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // mcp_server.mjs
 // MCP (Model Context Protocol) server for nsauditor plugin manager.
 // Exposes scan, probe, vulnerability lookup, and plugin listing tools.
