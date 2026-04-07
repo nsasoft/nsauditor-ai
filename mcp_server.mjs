@@ -165,12 +165,12 @@ const TOOLS = [
 export async function validateHost(host) {
   const h = String(host).trim().toLowerCase();
   if (!h) throw new Error('Empty host');
-  // Reject decimal-encoded IPs (e.g. 2130706433 = 127.0.0.1) and all loopback/link-local forms
-  const isDecimalLoopback = /^\d+$/.test(h) && (() => {
-    const n = Number(h);
-    // 127.0.0.0/8 = 0x7F000000..0x7FFFFFFF
-    return n >= 0x7F000000 && n <= 0x7FFFFFFF;
-  })();
+  // Fast-path: reject decimal-encoded loopback IPs (127.0.0.0/8).
+  // Other private/link-local ranges (RFC 1918, 169.254.x.x) are caught by the regex below
+  // and by the DNS resolveAndValidate() layer for all encoding forms.
+  const _isAllDigits = /^\d+$/.test(h);
+  const _n = _isAllDigits && h.length <= 10 ? Number(h) : -1;
+  const isDecimalLoopback = _n >= 0x7F000000 && _n <= 0x7FFFFFFF;
   if (isDecimalLoopback || /^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
     throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
   }

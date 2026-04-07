@@ -263,6 +263,38 @@ describe('MCP Server — validateHost()', () => {
       /not allowed/
     );
   });
+
+  it('blocks lower boundary decimal loopback 2130706432 (127.0.0.0)', async () => {
+    const { validateHost } = await import('../mcp_server.mjs');
+    await assert.rejects(() => validateHost('2130706432'), /not allowed/);
+  });
+
+  it('blocks upper boundary decimal loopback 2147483647 (127.255.255.255)', async () => {
+    const { validateHost } = await import('../mcp_server.mjs');
+    await assert.rejects(() => validateHost('2147483647'), /not allowed/);
+  });
+
+  it('allows 2147483648 (128.0.0.0) — just above loopback range', async () => {
+    // This is NOT loopback — should pass the fast-path and go to DNS
+    // (DNS will block/allow based on resolution; here we just confirm no fast-path rejection)
+    const { validateHost } = await import('../mcp_server.mjs');
+    // It will fail at DNS resolution since 128.0.0.0 doesn't resolve, but must NOT throw /not allowed/
+    try {
+      await validateHost('2147483648');
+    } catch (err) {
+      assert.ok(!/not allowed/.test(err.message), `Should not be blocked by fast-path: ${err.message}`);
+    }
+  });
+
+  it('allows decimal string too long to be valid IPv4 (no precision loss)', async () => {
+    const { validateHost } = await import('../mcp_server.mjs');
+    // 9999999999999 is 13 digits — safely skipped by length guard
+    try {
+      await validateHost('9999999999999');
+    } catch (err) {
+      assert.ok(!/not allowed/.test(err.message), `Should not be fast-path blocked: ${err.message}`);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
