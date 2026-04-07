@@ -1,4 +1,5 @@
 // utils/finding_schema.mjs
+import { v4 as uuidv4 } from 'uuid';
 
 export const FINDING_CATEGORIES = ['AUTH', 'CRYPTO', 'CONFIG', 'SERVICE', 'EXPOSURE', 'CVE'];
 export const FINDING_STATUSES   = ['UNVERIFIED', 'VERIFIED', 'POTENTIAL', 'FALSE_POSITIVE'];
@@ -25,13 +26,11 @@ export function validateFinding(f) {
   return errors;
 }
 
-let _counter = 0;
-
 /**
- * Generate a unique finding ID in the format F-YYYY-NNNN.
- * Counter is process-scoped and resets on restart.
+ * Generate a globally unique finding ID.
+ * Format: F-<uuid-v4> (e.g. F-110e8400-e29b-41d4-a716-446655440000)
+ * UUID-based — no counter to reset, no collision risk across restarts.
  */
 export function generateFindingId() {
-  const year = new Date().getFullYear();
-  return `F-${year}-${String(++_counter).padStart(4, '0')}`;
+  return `F-${uuidv4()}`;
 }

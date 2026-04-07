@@ -50,9 +50,9 @@ test('generateFindingId returns unique IDs', () => {
   assert.equal(ids.size, 10, 'All 10 IDs should be unique');
 });
 
-test('generateFindingId format is F-YYYY-NNNN', () => {
+test('generateFindingId format is F-<uuid>', () => {
   const id = generateFindingId();
-  assert.match(id, /^F-\d{4}-\d{4}$/, `ID format wrong: ${id}`);
+  assert.match(id, /^F-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `ID format wrong: ${id}`);
 });
 
 test('FINDING_CATEGORIES includes all 6 categories', () => {
