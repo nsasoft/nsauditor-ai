@@ -9,6 +9,7 @@ import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
+import { resolveCapabilities, hasCapability } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
@@ -215,7 +216,10 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   if (redactEnabled) {
     let used = 'fallback';
     try {
-      if (typeof globalThis.redactSensitiveForAI === 'function') {
+      // Only allow external redaction override for Pro/Enterprise tiers.
+      // CE always uses the built-in redact pipeline to preserve the ZDE guarantee.
+      const _redactCaps = resolveCapabilities(getTierFromEnv());
+      if (hasCapability(_redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
         let out = globalThis.redactSensitiveForAI(payloadForAI);
         if (out && typeof out.then === 'function') out = await out;
         if (typeof out === 'string') out = JSON.parse(out);

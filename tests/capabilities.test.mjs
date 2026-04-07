@@ -38,6 +38,34 @@ test('hasCapability returns false for missing cap', () => {
   assert.ok(hasCapability(caps, 'coreScanning'));
 });
 
+test('globalThis.redactSensitiveForAI is ignored on CE tier (enhancedRedaction absent)', () => {
+  let called = false;
+  const orig = globalThis.redactSensitiveForAI;
+  globalThis.redactSensitiveForAI = () => { called = true; return {}; };
+  try {
+    const caps = resolveCapabilities('ce');
+    const allowed = hasCapability(caps, 'enhancedRedaction');
+    assert.equal(allowed, false, 'CE tier must not have enhancedRedaction');
+    // Simulate the gate: if !allowed, the globalThis fn must not be called
+    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
+      globalThis.redactSensitiveForAI();
+    }
+    assert.equal(called, false, 'globalThis.redactSensitiveForAI must not be called on CE');
+  } finally {
+    globalThis.redactSensitiveForAI = orig;
+  }
+});
+
+test('globalThis.redactSensitiveForAI is allowed on Pro tier (enhancedRedaction present)', () => {
+  const caps = resolveCapabilities('pro');
+  assert.equal(hasCapability(caps, 'enhancedRedaction'), true, 'Pro tier must have enhancedRedaction');
+});
+
+test('globalThis.redactSensitiveForAI is allowed on Enterprise tier (enhancedRedaction present)', () => {
+  const caps = resolveCapabilities('enterprise');
+  assert.equal(hasCapability(caps, 'enhancedRedaction'), true, 'Enterprise tier must have enhancedRedaction');
+});
+
 test('CAPABILITIES covers all expected keys', () => {
   const expected = [
     'coreScanning', 'localAI', 'basicCTEM', 'basicRedaction', 'basicMCP', 'findingQueue',
