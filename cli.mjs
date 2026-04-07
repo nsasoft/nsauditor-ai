@@ -92,11 +92,12 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     : aiProvider === 'ollama'
     ? toCleanPath(process.env.OLLAMA_MODEL || 'llama3')
     : toCleanPath(process.env.OPENAI_MODEL || 'gpt-4o-mini');
+  const { resolveSecret } = await import('./utils/keychain.mjs');
   const keyRaw        = aiProvider === 'claude'
-    ? process.env.ANTHROPIC_API_KEY
+    ? await resolveSecret(process.env.ANTHROPIC_API_KEY)
     : aiProvider === 'ollama'
     ? 'ollama'   // Ollama needs no real key; OpenAI SDK requires a non-empty string
-    : process.env.OPENAI_API_KEY;
+    : await resolveSecret(process.env.OPENAI_API_KEY);
   const key           = keyRaw ? String(keyRaw).trim() : null;
 
   // Base output folder (directory ONLY; if a file path is given, take its dir)
@@ -650,6 +651,27 @@ const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
  * @param {object} conclusion
  * @returns {number} highest severity rank found (0-4)
  */
+async function readSecretFromStdin(keyName) {
+  if (!process.stdin.isTTY) {
+    // Piped input
+    return new Promise((resolve) => {
+      let data = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => { data += chunk; });
+      process.stdin.on('end', () => resolve(data.trim() || null));
+    });
+  }
+  // Interactive prompt
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(`Enter value for ${keyName}: `, (answer) => {
+      rl.close();
+      resolve(answer.trim() || null);
+    });
+  });
+}
+
 function maxSeverityInConclusion(conclusion) {
   const services = conclusion?.result?.services || [];
   let max = 0;
@@ -705,6 +727,42 @@ async function main() {
       }
     } else {
       console.log('Usage: nsauditor-ai license --status | --capabilities');
+    }
+    process.exit(0);
+  }
+
+  if (cmd === 'security') {
+    const { keychainSet, keychainDelete, keychainList, keychainGet } = await import('./utils/keychain.mjs');
+    const rawArgs = process.argv.slice(2);
+    const subCmd = rawArgs[1]; // set | delete | list | get
+    const keyName = rawArgs[2];
+
+    if (subCmd === 'set' && keyName) {
+      // Read secret from stdin (piped) or prompt
+      const secret = await readSecretFromStdin(keyName);
+      if (!secret) { console.error('No secret provided.'); process.exit(1); }
+      await keychainSet(keyName, secret);
+      console.log(`Stored "${keyName}" in macOS Keychain (service: nsauditor-ai)`);
+    } else if (subCmd === 'delete' && keyName) {
+      const ok = await keychainDelete(keyName);
+      console.log(ok ? `Deleted "${keyName}" from Keychain` : `"${keyName}" not found in Keychain`);
+    } else if (subCmd === 'list') {
+      const entries = await keychainList();
+      if (entries.length === 0) {
+        console.log('No nsauditor-ai keys stored in Keychain.');
+      } else {
+        console.log('Stored keys (service: nsauditor-ai):\n');
+        for (const name of entries) {
+          const val = await keychainGet(name);
+          const masked = val ? `${val.slice(0, 8)}...(${val.length} chars)` : '(empty)';
+          console.log(`  ${name} = ${masked}`);
+        }
+      }
+    } else {
+      console.log(`Usage:
+  nsauditor-ai security set <KEY_NAME>     Store a secret in macOS Keychain
+  nsauditor-ai security delete <KEY_NAME>  Remove a secret from Keychain
+  nsauditor-ai security list               List stored secrets (masked)`);
     }
     process.exit(0);
   }

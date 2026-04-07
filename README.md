@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-487%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-493%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -300,6 +300,38 @@ Find your global install path with `npm root -g`, then append `/nsauditor-ai/mcp
 ```bash
 claude mcp add nsauditor-ai -- npx nsauditor-ai-mcp
 ```
+
+---
+
+## Secure Credential Storage
+
+Store API keys in the macOS Keychain instead of plaintext `.env` files:
+
+```bash
+# Store keys
+nsauditor-ai security set ANTHROPIC_API_KEY
+nsauditor-ai security set OPENAI_API_KEY
+
+# List stored keys (masked)
+nsauditor-ai security list
+
+# Delete a key
+nsauditor-ai security delete OPENAI_API_KEY
+```
+
+Then reference them with the `keychain:` prefix in `.env` or Claude Desktop config:
+
+```env
+ANTHROPIC_API_KEY=keychain:ANTHROPIC_API_KEY
+```
+
+```json
+"env": {
+  "ANTHROPIC_API_KEY": "keychain:ANTHROPIC_API_KEY"
+}
+```
+
+The `keychain:` prefix works anywhere an API key is read — CLI, MCP server, or programmatic API.
 
 ---
 
