@@ -3,6 +3,10 @@ import 'dotenv/config';
 import PluginManager from './plugin_manager.mjs';
 import { buildHtmlReport } from './utils/report_html.mjs';
 import fsp from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import path from 'node:path';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
@@ -790,7 +794,7 @@ async function main() {
 
   const opts = { insecureHttps };
   if (ports) opts.ports = ports;
-  const pm = await PluginManager.create('./plugins');
+  const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
 
   // --- CTEM: continuous watch mode ---
