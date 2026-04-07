@@ -54,9 +54,20 @@ export async function discoverPlugins(baseDir) {
 
   // Source 3: Custom plugin paths (colon-separated)
   const customPaths = process.env.NSAUDITOR_PLUGIN_PATH;
+
+  const SAFE_PREFIXES = [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : p + '/');
+
+  function isSafePath(absPath) {
+    return SAFE_PREFIXES.some(prefix => absPath.startsWith(prefix)) || absPath === process.cwd();
+  }
+
   if (customPaths) {
     for (const dir of customPaths.split(':')) {
       const abs = resolve(dir);
+      if (!isSafePath(abs)) {
+        if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Skipping unsafe NSAUDITOR_PLUGIN_PATH entry: ${abs}`);
+        continue;
+      }
       if (existsSync(abs)) {
         plugins.push(...await loadPluginsFromDir(abs, 'custom'));
       }

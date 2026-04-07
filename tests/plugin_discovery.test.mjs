@@ -1,7 +1,8 @@
-import { test } from 'node:test';
+import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -45,4 +46,45 @@ test('EE package missing does not throw', async () => {
   const { discoverPlugins } = await import('../utils/plugin_discovery.mjs');
   // @nsasoft/nsauditor-ai-ee is not installed — this must not throw
   await assert.doesNotReject(() => discoverPlugins(ROOT), 'Missing EE package must not throw');
+});
+
+describe('discoverPlugins — path guard', () => {
+  it('ignores NSAUDITOR_PLUGIN_PATH entries outside cwd/HOME', () => {
+    // plugin_discovery.mjs is a cached ES module — env mutation after import has no effect.
+    // Spawn a fresh subprocess with the env var pre-set so the module loads with the unsafe path.
+    const script = `
+      import { discoverPlugins } from './utils/plugin_discovery.mjs';
+      const plugins = await discoverPlugins(process.cwd());
+      const nonCE = plugins.filter(p => p._source === 'custom');
+      if (nonCE.length > 0) {
+        console.error('FAIL: loaded', nonCE.length, 'custom plugins from unsafe path');
+        process.exit(1);
+      }
+      console.log('PASS: 0 custom plugins from /etc or /usr/lib');
+    `;
+    const result = execFileSync(process.execPath, ['--input-type=module'], {
+      input: script,
+      cwd: ROOT,
+      env: { ...process.env, NSAUDITOR_PLUGIN_PATH: '/etc:/usr/lib', NSA_VERBOSE: '1' },
+      encoding: 'utf8',
+    });
+    assert.ok(result.includes('PASS'), `Expected PASS, got: ${result}`);
+  });
+
+  it('allows NSAUDITOR_PLUGIN_PATH entries within HOME', () => {
+    const script = `
+      import { discoverPlugins } from './utils/plugin_discovery.mjs';
+      // Just verify it doesn't throw and returns an array
+      const plugins = await discoverPlugins(process.cwd());
+      console.log('PASS: discovered', plugins.length, 'plugins');
+    `;
+    const result = execFileSync(process.execPath, ['--input-type=module'], {
+      input: script,
+      cwd: ROOT,
+      // Use a real HOME subpath that exists but has no .mjs files
+      env: { ...process.env, NSAUDITOR_PLUGIN_PATH: process.env.HOME + '/.nsauditor-test-plugins' },
+      encoding: 'utf8',
+    });
+    assert.ok(result.includes('PASS'), `Expected PASS, got: ${result}`);
+  });
 });
