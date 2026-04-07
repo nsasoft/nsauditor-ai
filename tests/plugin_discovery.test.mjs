@@ -62,12 +62,17 @@ describe('discoverPlugins — path guard', () => {
       }
       console.log('PASS: 0 custom plugins from /etc or /usr/lib');
     `;
-    const result = execFileSync(process.execPath, ['--input-type=module'], {
-      input: script,
-      cwd: ROOT,
-      env: { ...process.env, NSAUDITOR_PLUGIN_PATH: '/etc:/usr/lib', NSA_VERBOSE: '1' },
-      encoding: 'utf8',
-    });
+    let result;
+    try {
+      result = execFileSync(process.execPath, ['--input-type=module'], {
+        input: script,
+        cwd: ROOT,
+        env: { ...process.env, NSAUDITOR_PLUGIN_PATH: '/etc:/usr/lib', NSA_VERBOSE: '1' },
+        encoding: 'utf8',
+      });
+    } catch (e) {
+      assert.fail(`Subprocess failed:\nstdout: ${e.stdout ?? ''}\nstderr: ${e.stderr ?? ''}`);
+    }
     assert.ok(result.includes('PASS'), `Expected PASS, got: ${result}`);
   });
 
@@ -78,13 +83,18 @@ describe('discoverPlugins — path guard', () => {
       const plugins = await discoverPlugins(process.cwd());
       console.log('PASS: discovered', plugins.length, 'plugins');
     `;
-    const result = execFileSync(process.execPath, ['--input-type=module'], {
-      input: script,
-      cwd: ROOT,
-      // Use a real HOME subpath that exists but has no .mjs files
-      env: { ...process.env, NSAUDITOR_PLUGIN_PATH: process.env.HOME + '/.nsauditor-test-plugins' },
-      encoding: 'utf8',
-    });
+    let result;
+    try {
+      result = execFileSync(process.execPath, ['--input-type=module'], {
+        input: script,
+        cwd: ROOT,
+        // Use a real HOME subpath that exists but has no .mjs files
+        env: { ...process.env, NSAUDITOR_PLUGIN_PATH: process.env.HOME + '/.nsauditor-test-plugins' },
+        encoding: 'utf8',
+      });
+    } catch (e) {
+      assert.fail(`Subprocess failed:\nstdout: ${e.stdout ?? ''}\nstderr: ${e.stderr ?? ''}`);
+    }
     assert.ok(result.includes('PASS'), `Expected PASS, got: ${result}`);
   });
 });

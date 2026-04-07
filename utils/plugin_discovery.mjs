@@ -8,6 +8,17 @@ import { createRequire } from 'node:module';
 
 const _require = createRequire(import.meta.url);
 
+const SAFE_PREFIXES = Object.freeze(
+  [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : `${p}/`)
+);
+
+function isSafePath(absPath) {
+  // Allow exact match (e.g. NSAUDITOR_PLUGIN_PATH=./plugins resolves to cwd itself)
+  // or any subtree under cwd or HOME.
+  // Note: symlinks inside HOME pointing outside are NOT dereferenced — use realpathSync if needed.
+  return SAFE_PREFIXES.some(prefix => absPath === prefix.slice(0, -1) || absPath.startsWith(prefix));
+}
+
 async function loadPluginsFromDir(dir, source) {
   let files;
   try {
@@ -55,15 +66,12 @@ export async function discoverPlugins(baseDir) {
   // Source 3: Custom plugin paths (colon-separated)
   const customPaths = process.env.NSAUDITOR_PLUGIN_PATH;
 
-  const SAFE_PREFIXES = [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : p + '/');
-
-  function isSafePath(absPath) {
-    return SAFE_PREFIXES.some(prefix => absPath.startsWith(prefix)) || absPath === process.cwd();
-  }
-
   if (customPaths) {
     for (const dir of customPaths.split(':')) {
       const abs = resolve(dir);
+      // Note: resolve('') returns cwd — empty segments in NSAUDITOR_PLUGIN_PATH are treated as cwd.
+      // Symlinks inside allowed paths are NOT dereferenced; a symlink pointing outside HOME could
+      // bypass this guard. Use realpathSync(abs) instead of abs if stricter isolation is needed.
       if (!isSafePath(abs)) {
         if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Skipping unsafe NSAUDITOR_PLUGIN_PATH entry: ${abs}`);
         continue;
