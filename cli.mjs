@@ -7,7 +7,8 @@ import path from 'node:path';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
-import { recordScan, getLastScan, computeDiff, formatDiffReport } from './utils/scan_history.mjs';
+import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE } from './utils/scan_history.mjs';
+import { getTierFromEnv } from './utils/license.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
@@ -577,6 +578,10 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // Retrieve previous scan for this host before recording the new one
     const previous = await getLastScan(outRoot, host);
     await recordScan(outRoot, scanSummary);
+    // CE: enforce 7-day JSONL retention (Pro/Enterprise: unlimited)
+    if (getTierFromEnv() === 'ce') {
+      await pruneForCE(path.join(outRoot, 'scan_history.jsonl'));
+    }
 
     scanDiff = computeDiff(scanSummary, previous);
     if (previous) {

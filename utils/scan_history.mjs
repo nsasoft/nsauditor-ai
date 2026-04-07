@@ -166,6 +166,36 @@ export function computeDiff(current, previous) {
   };
 }
 
+const CE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Remove JSONL entries older than 7 days from the given history file.
+ * CE-only — call after each scan for CE tier. Pro/Enterprise: unlimited retention.
+ * Unparseable lines are preserved to avoid data loss.
+ *
+ * @param {string} filePath - absolute path to the JSONL history file
+ * @returns {Promise<void>}
+ */
+export async function pruneForCE(filePath) {
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, 'utf8');
+  } catch {
+    return; // file doesn't exist yet — nothing to prune
+  }
+  const cutoff = Date.now() - CE_RETENTION_MS;
+  const kept = raw.split('\n').filter(line => {
+    if (!line.trim()) return false;
+    try {
+      const entry = JSON.parse(line);
+      return new Date(entry.timestamp).getTime() >= cutoff;
+    } catch {
+      return true; // keep unparseable lines rather than lose data
+    }
+  });
+  await fsp.writeFile(filePath, kept.join('\n') + (kept.length ? '\n' : ''));
+}
+
 /**
  * Format a diff object into markdown-like text lines.
  * @param {object} diff - output from computeDiff()

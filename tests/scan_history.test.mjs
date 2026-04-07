@@ -4,11 +4,14 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import fs from 'node:fs';
+
 import {
   recordScan,
   getLastScan,
   computeDiff,
   formatDiffReport,
+  pruneForCE,
 } from '../utils/scan_history.mjs';
 
 // ---------------------------------------------------------------------------
@@ -276,4 +279,63 @@ test('formatDiffReport handles first-scan diff', () => {
   assert.ok(report.includes('No previous scan'));
   // No sections for new/removed/changed since diff has empty arrays
   assert.ok(!report.includes('### New Services'));
+});
+
+// ---------------------------------------------------------------------------
+// pruneForCE
+// ---------------------------------------------------------------------------
+
+test('pruneForCE removes entries older than 7 days', async () => {
+  const tmpDir = os.tmpdir();
+  const filePath = path.join(tmpDir, 'nsa_hist_prune_' + Date.now() + '.jsonl');
+
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(); // 8 days ago
+  const recent = new Date().toISOString();
+
+  fs.writeFileSync(filePath, [
+    JSON.stringify({ host: '1.1.1.1', timestamp: old, services: [] }),
+    JSON.stringify({ host: '2.2.2.2', timestamp: recent, services: [] }),
+  ].join('\n') + '\n');
+
+  await pruneForCE(filePath); // function under test
+
+  const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 1, 'Only the recent entry should survive');
+  assert.equal(JSON.parse(lines[0]).host, '2.2.2.2');
+  fs.unlinkSync(filePath);
+});
+
+test('pruneForCE keeps all entries within 7 days', async () => {
+  const tmpDir = os.tmpdir();
+  const filePath = path.join(tmpDir, 'nsa_hist_keep_' + Date.now() + '.jsonl');
+
+  const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const today = new Date().toISOString();
+
+  fs.writeFileSync(filePath, [
+    JSON.stringify({ host: '1.1.1.1', timestamp: sixDaysAgo, services: [] }),
+    JSON.stringify({ host: '2.2.2.2', timestamp: today, services: [] }),
+  ].join('\n') + '\n');
+
+  await pruneForCE(filePath);
+
+  const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 2, 'Both entries within 7 days should survive');
+  fs.unlinkSync(filePath);
+});
+
+test('pruneForCE handles non-existent file gracefully', async () => {
+  await assert.doesNotReject(() => pruneForCE('/nonexistent/path/hist.jsonl'));
+});
+
+test('pruneForCE keeps unparseable lines rather than discarding them', async () => {
+  const tmpDir = os.tmpdir();
+  const filePath = path.join(tmpDir, 'nsa_hist_corrupt_' + Date.now() + '.jsonl');
+
+  fs.writeFileSync(filePath, 'not valid json\n');
+  await pruneForCE(filePath);
+
+  const content = fs.readFileSync(filePath, 'utf8');
+  assert.ok(content.includes('not valid json'), 'Unparseable lines are preserved');
+  fs.unlinkSync(filePath);
 });
