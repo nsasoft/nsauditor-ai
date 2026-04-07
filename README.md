@@ -318,7 +318,7 @@ nsauditor-ai scan --host-file targets.txt --plugins all --parallel 4
 **AI configuration:**
 
 ```ini
-SEND_TO_OPENAI=false                 # Disable AI (local-only scan)
+AI_ENABLED=false                     # Set to true to enable AI analysis
 AI_PROVIDER=openai                   # openai | claude | ollama
 OPENAI_API_KEY=sk-...               # Your OpenAI key
 OPENAI_MODEL=gpt-4o-mini

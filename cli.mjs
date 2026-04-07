@@ -98,7 +98,7 @@ function scrubByKey(val, keywords, placeholder) {
 
 async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic' }) {
   // --- env & opts -----------------------------------------------------------
-  const sendEnabled   = parseBool(process.env.SEND_TO_OPENAI);
+  const sendEnabled   = parseBool(process.env.AI_ENABLED);
   const redactEnabled = parseBool(process.env.OPENAI_REDACT, true);
   const aiProvider    = (process.env.AI_PROVIDER || 'openai').toLowerCase().trim();
   const model         = aiProvider === 'claude'
@@ -301,7 +301,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   // --- Bail out early if sending disabled -----------------------------------
   const providerLabel = aiProvider === 'claude' ? 'Claude' : 'OpenAI';
   if (!sendEnabled || !key) {
-    console.log(`[${providerLabel}] SEND_TO_OPENAI disabled; not sending. Model=${model}`);
+    console.log(`[${providerLabel}] AI_ENABLED=false; not sending. Model=${model}`);
     return {
       file_paths: { folder: outDir, plain: null, ai_json: null, raw_json: adminRawPath, html: null, admin_html: adminHtmlPath },
       ai_conclusion: null

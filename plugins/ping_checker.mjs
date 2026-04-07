@@ -260,7 +260,8 @@ export default {
 
         // Only use ctx helpers (no OUI loading here)
         const ctx = opts?.context || {};
-        const vendor = typeof ctx.lookupVendor === "function" ? (ctx.lookupVendor(mac) || null) : null;
+        const vendorRaw = typeof ctx.lookupVendor === "function" ? (ctx.lookupVendor(mac) || null) : null;
+        const vendor = vendorRaw ? vendorRaw.replace(/[\r\n]+/g, ' ').trim() : null;
         const info = vendor ? `ARP entry found — vendor: ${vendor}` : "ARP entry found";
 
         // If OS not set from TTL, try ctx vendor heuristic

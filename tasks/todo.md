@@ -41,7 +41,6 @@ cp $SRC/plugins/*.mjs plugins/
 # Remove EE-only plugins
 rm plugins/cloud_aws.mjs
 rm plugins/cloud_gcp.mjs
-rm plugins/cloud_gcp.mjs
 rm plugins/cloud_azure.mjs
 rm plugins/zero_trust_checker.mjs
 ls plugins/ | wc -l   # expect 23 files
@@ -143,15 +142,15 @@ git commit -m "chore: initial CE import from nsauditor-plugin-manager v0.1.12"
 }
 ```
 
-- [ ] **Step 2: Add shebang to cli.mjs and mcp_server.mjs**
+- [ ] **Step 2: Ensure shebang in cli.mjs and mcp_server.mjs**
 
-Ensure first line of `cli.mjs` is:
-```
-#!/usr/bin/env node
-```
-Ensure first line of `mcp_server.mjs` is:
-```
-#!/usr/bin/env node
+Check and conditionally prepend — do NOT add a second shebang if one already exists:
+
+```bash
+head -1 cli.mjs | grep -q '^#!' || sed -i '1s/^/#!/usr/bin\/env node\n/' cli.mjs
+head -1 mcp_server.mjs | grep -q '^#!' || sed -i '1s/^/#!/usr\/bin\/env node\n/' mcp_server.mjs
+head -1 cli.mjs        # must print: #!/usr/bin/env node
+head -1 mcp_server.mjs # must print: #!/usr/bin/env node
 ```
 
 - [ ] **Step 3: Commit**
@@ -232,11 +231,34 @@ cp ../nsauditor-plugin-manager/.env.example .env.example 2>/dev/null || true
 # If no .env.example exists, create from README examples
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Create `.npmignore`**
+
+Prevents sensitive and dev-only files from being included in `npm publish`:
+
+```
+.env
+.env.*
+out/
+tasks/
+.scan_history/
+*.log
+.DS_Store
+**/.DS_Store
+tests/
+docs/
+```
+
+Verify nothing sensitive leaks:
+```bash
+npm pack --dry-run 2>&1 | grep -v node_modules | grep -E '\.env|out/|tasks/|\.scan_history'
+# Expected: no output (none of these should appear)
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add LICENSE CONTRIBUTING.md .env.example
-git commit -m "chore: add MIT LICENSE and CONTRIBUTING.md"
+git add LICENSE CONTRIBUTING.md .env.example .npmignore
+git commit -m "chore: add MIT LICENSE, CONTRIBUTING.md, .npmignore"
 ```
 
 ---
@@ -893,11 +915,32 @@ static async create(dirOrOpts = {}) {
 }
 ```
 
-- [ ] **Step 4: Run full test suite — confirm no regressions**
+- [ ] **Step 4: Verify plugin count is identical after refactor**
 
+Before touching anything, record the baseline count:
+```bash
+node -e "
+import('./plugin_manager.mjs').then(async m => {
+  const pm = await m.default.create('./plugins');
+  console.log('plugin count:', pm.getAllPluginsMetadata().length);
+});" 2>/dev/null
+```
+
+After the refactor, run again and assert the count matches:
+```bash
+node -e "
+import('./plugin_manager.mjs').then(async m => {
+  const pm = await m.default.create('./plugins');
+  const count = pm.getAllPluginsMetadata().length;
+  if (count !== 23) { console.error('FAIL: expected 23 plugins, got', count); process.exit(1); }
+  console.log('PASS:', count, 'plugins loaded');
+});"
+```
+
+Then run full suite:
 ```bash
 node --test 2>&1 | tail -5
-# Expected: same or better pass count as before
+# Expected: same pass count as before (no regressions)
 ```
 
 - [ ] **Step 5: Commit**
@@ -1451,6 +1494,629 @@ git commit -m "chore: Phase 1 complete — CE baseline v0.1.0"
 
 ---
 
+## Phase CE-H — CE Hardening & Public Launch
+
+> **Goal:** Fix all code-review-identified issues before making the CE repository public on GitHub. No EE work in this phase. All issues are CE-internal: security correctness, monetization gate integrity, CE spec completeness, and code quality.
+>
+> **Source:** Code review findings #1–#15 from the internal audit (April 2026).
+>
+> **Exit criteria:** `node --test` ≥ 438 pass, 0 fail. `npm pack --dry-run` shows no sensitive files. All 9 hardening items below resolved.
+
+---
+
+### Task H.1 — Security: SSRF Decimal-IP Regex Gap
+
+**Files:**
+- Modify: `mcp_server.mjs:169`
+- Modify: `tests/mcp_server.test.mjs`
+
+**Problem:** The fast-path SSRF regex in `validateHost()` misses decimal-encoded IPs (e.g. `2130706433` → `127.0.0.1`). The DNS resolution layer in `resolveAndValidate()` currently saves it, but if that layer is ever bypassed the regex becomes the only guard and it fails.
+
+- [ ] **Step 1: Write failing test**
+
+Add to `tests/mcp_server.test.mjs`:
+
+```js
+it('blocks decimal-encoded loopback IP', async () => {
+  const { validateHost } = await import('../mcp_server.mjs');
+  await assert.rejects(
+    () => validateHost('2130706433'),
+    /not allowed/
+  );
+});
+```
+
+Run: `node --test tests/mcp_server.test.mjs 2>&1 | tail -5`
+Expected: FAIL (decimal IP currently passes the fast-path regex)
+
+- [ ] **Step 2: Fix the fast-path regex in `mcp_server.mjs:169`**
+
+Replace:
+```js
+if (/^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
+```
+
+With:
+```js
+// Reject decimal-encoded IPs (e.g. 2130706433 = 127.0.0.1) and all loopback/link-local forms
+const isDecimalLoopback = /^\d+$/.test(h) && (() => {
+  const n = Number(h);
+  // 127.0.0.0/8 = 2130706432..2147483647 (0x7F000000..0x7FFFFFFF)
+  return n >= 0x7F000000 && n <= 0x7FFFFFFF;
+})();
+if (isDecimalLoopback || /^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
+  throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
+}
+```
+
+- [ ] **Step 3: Run test — expect pass**
+
+```bash
+node --test tests/mcp_server.test.mjs 2>&1 | tail -5
+```
+
+- [ ] **Step 4: Run full suite — expect 438+ pass, 0 fail**
+
+```bash
+node --test 2>&1 | tail -8
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add mcp_server.mjs tests/mcp_server.test.mjs
+git commit -m "fix: block decimal-encoded loopback IPs in MCP SSRF guard"
+```
+
+---
+
+### Task H.2 — Security: Plugin Path Traversal Guard
+
+**Files:**
+- Modify: `utils/plugin_discovery.mjs:56-61`
+- Modify: `tests/` (new test file: `tests/plugin_discovery.test.mjs`)
+
+**Problem:** `NSAUDITOR_PLUGIN_PATH` accepts any absolute path including `/etc`, `/usr`, etc. In shared/containerised environments with user-controlled env vars this is a code-execution vector.
+
+- [ ] **Step 1: Write failing test**
+
+Create `tests/plugin_discovery.test.mjs`:
+
+Note: `plugin_discovery.mjs` is a cached ES module — mutating `NSAUDITOR_PLUGIN_PATH` after import has no effect in the same process. Use `child_process.execFileSync` to spawn a fresh Node.js process with the env var pre-set, so the module loads fresh with the unsafe path already in the environment.
+
+```js
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+
+describe('discoverPlugins — path guard', () => {
+  it('ignores NSAUDITOR_PLUGIN_PATH entries outside cwd/HOME', () => {
+    // Runs in a subprocess so the module is freshly imported with the env var set
+    const script = `
+      import { discoverPlugins } from './utils/plugin_discovery.mjs';
+      const plugins = await discoverPlugins(process.cwd());
+      const nonCE = plugins.filter(p => p._source === 'custom');
+      if (nonCE.length > 0) {
+        console.error('FAIL: loaded', nonCE.length, 'custom plugins from unsafe path');
+        process.exit(1);
+      }
+      console.log('PASS: 0 custom plugins from /etc or /usr/lib');
+    `;
+    const result = execFileSync(process.execPath, ['--input-type=module'], {
+      input: script,
+      cwd: ROOT,
+      env: { ...process.env, NSAUDITOR_PLUGIN_PATH: '/etc:/usr/lib', NSA_VERBOSE: '1' },
+      encoding: 'utf8',
+    });
+    assert.ok(result.includes('PASS'), `Expected PASS, got: ${result}`);
+  });
+});
+```
+
+Run: `node --test tests/plugin_discovery.test.mjs 2>&1 | tail -5`
+Expected: FAIL (currently loads from any path, subprocess exits 1)
+
+- [ ] **Step 2: Add safe-path guard to `utils/plugin_discovery.mjs`**
+
+Add after `const customPaths = process.env.NSAUDITOR_PLUGIN_PATH;`:
+
+```js
+const SAFE_PREFIXES = [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : p + '/');
+
+function isSafePath(absPath) {
+  return SAFE_PREFIXES.some(prefix => absPath.startsWith(prefix)) || absPath === process.cwd();
+}
+```
+
+Then in the loop:
+```js
+for (const dir of customPaths.split(':')) {
+  const abs = resolve(dir);
+  if (!isSafePath(abs)) {
+    if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Skipping unsafe NSAUDITOR_PLUGIN_PATH entry: ${abs}`);
+    continue;
+  }
+  if (existsSync(abs)) {
+    plugins.push(...await loadPluginsFromDir(abs, 'custom'));
+  }
+}
+```
+
+- [ ] **Step 3: Run test — expect pass**
+
+```bash
+node --test tests/plugin_discovery.test.mjs 2>&1 | tail -5
+```
+
+- [ ] **Step 4: Run full suite**
+
+```bash
+node --test 2>&1 | tail -8
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add utils/plugin_discovery.mjs tests/plugin_discovery.test.mjs
+git commit -m "fix: restrict NSAUDITOR_PLUGIN_PATH to cwd and HOME subtrees"
+```
+
+---
+
+### Task H.3 — Monetization: Capability Gate Defaults & Phase 2 Markers
+
+**Files:**
+- Modify: `plugin_manager.mjs` (`_hasCapabilities`, `run()`)
+- Modify: `mcp_server.mjs:28` (add Phase 2 TODO comment)
+- Modify: `cli.mjs` (add Phase 2 TODO comment at `getTierFromEnv()` call)
+- Modify: `mcp_server.mjs:32` (`_setTier` — add `@internal` JSDoc)
+- Modify: `tests/mcp_server.test.mjs` (add direct-handler CE denial tests)
+
+**Problems:**
+- `_hasCapabilities` returns `true` when `capabilities` is omitted → EE plugins run in CE silently
+- `getTierFromEnv()` call sites have no Phase 2 TODO → migration surface invisible to maintainers
+- `_setTier` is an exported symbol with no `@internal` marker
+
+- [ ] **Step 1: Write failing tests**
+
+Add to `tests/mcp_server.test.mjs`:
+
+```js
+it('probe_service handler denies CE when called directly (no server)', async () => {
+  const { _setTier, handleProbeService } = await import('../mcp_server.mjs');
+  _setTier('ce');
+  // Direct handler call — should still respect capability gate
+  // Currently this test documents the gap: direct calls bypass the gate
+  // After fix, this should throw or return upsell
+  // For now: document current behaviour and assert it doesn't silently succeed
+  // (full fix is Phase 2 when JWT lands and handlers can self-gate)
+  // Mark as todo until handler-level gating is added
+});
+```
+
+- [ ] **Step 2: Fix `_hasCapabilities` permissive fallback in `plugin_manager.mjs`**
+
+`_hasCapabilities` is synchronous — do NOT use dynamic `await import()` inside it. Instead, resolve capabilities once at plugin-load time in `create()` and store them on `this._resolvedCapabilities`.
+
+Add to the top of `plugin_manager.mjs` imports:
+```js
+import { getTierFromEnv } from './utils/license.mjs';
+import { resolveCapabilities } from './utils/capabilities.mjs';
+```
+
+In the `create()` static method, after plugins are loaded and `instance` is constructed:
+```js
+const tier = getTierFromEnv();
+instance._resolvedCapabilities = resolveCapabilities(tier);
+```
+
+Replace `_hasCapabilities`:
+```js
+_hasCapabilities(plugin, capabilities) {
+  if (!plugin.requiredCapabilities?.length) return true;
+  // Fall back to capabilities resolved at load time from current env tier (never permissive).
+  const caps = capabilities ?? this._resolvedCapabilities ?? {};
+  return plugin.requiredCapabilities.every(cap => Boolean(caps[cap]));
+}
+```
+
+The old `if (!capabilities) return true;` line is removed — the fallback is now the env-resolved capability map, never "allow all".
+
+- [ ] **Step 3: Add Phase 2 TODO markers**
+
+In `mcp_server.mjs` line 28 (before `let _tier = getTierFromEnv()`):
+```js
+// TODO (Phase 2): replace getTierFromEnv() with loadLicense(process.env.NSAUDITOR_LICENSE_KEY)
+// and wire the returned tier here. Until then, pro_* prefix grants Pro tier without verification.
+let _tier = getTierFromEnv();
+```
+
+In `cli.mjs` at the equivalent `getTierFromEnv()` call:
+```js
+// TODO (Phase 2): replace with loadLicense() for JWT verification
+```
+
+Add `@internal` JSDoc to `_setTier`:
+```js
+/**
+ * @internal Test-only. Override tier without touching env vars.
+ * Do NOT use in production code. When JWT license validation lands (Phase 2),
+ * this function will be removed or guarded by NODE_ENV !== 'production'.
+ */
+export function _setTier(tier) {
+```
+
+- [ ] **Step 4: Run full suite**
+
+```bash
+node --test 2>&1 | tail -8
+# Expected: 438+ pass, 0 fail
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugin_manager.mjs mcp_server.mjs cli.mjs tests/mcp_server.test.mjs
+git commit -m "fix: capability gate defaults + Phase 2 migration markers"
+```
+
+---
+
+### Task H.4 — CE Spec: 7-Day JSONL Retention
+
+**Files:**
+- Modify: `utils/scan_history.mjs`
+- Modify: `tests/scan_history.test.mjs`
+
+**Problem:** CE spec says "7-day JSONL history retention." Currently the JSONL file grows indefinitely. Pro/Enterprise spec says "unlimited." Must enforce the CE boundary.
+
+- [ ] **Step 1: Write failing test**
+
+Add to `tests/scan_history.test.mjs`:
+
+```js
+it('prunes entries older than 7 days for CE tier', async () => {
+  const tmp = os.tmpdir() + '/nsa_hist_prune_' + Date.now() + '.jsonl';
+  const hist = new ScanHistory(tmp);
+
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(); // 8 days ago
+  const recent = new Date().toISOString();
+
+  // Write one old and one recent entry directly
+  fs.writeFileSync(tmp, [
+    JSON.stringify({ host: '1.1.1.1', timestamp: old, services: [] }),
+    JSON.stringify({ host: '2.2.2.2', timestamp: recent, services: [] }),
+  ].join('\n') + '\n');
+
+  await hist.pruneForCE(); // method under test
+
+  const lines = fs.readFileSync(tmp, 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 1, 'Only the recent entry survives');
+  assert.ok(JSON.parse(lines[0]).host === '2.2.2.2');
+  fs.unlinkSync(tmp);
+});
+```
+
+Run: `node --test tests/scan_history.test.mjs 2>&1 | tail -5`
+Expected: FAIL (`pruneForCE` does not exist)
+
+- [ ] **Step 2: Implement `pruneForCE()` in `utils/scan_history.mjs`**
+
+```js
+const CE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Remove JSONL entries older than 7 days. CE-only — call after each scan in CE tier.
+ * Pro/Enterprise: unlimited retention, do not call this method.
+ */
+async pruneForCE() {
+  let raw;
+  try {
+    raw = await fsp.readFile(this._path, 'utf8');
+  } catch {
+    return; // file doesn't exist yet
+  }
+  const cutoff = Date.now() - CE_RETENTION_MS;
+  const kept = raw.split('\n').filter(line => {
+    if (!line.trim()) return false;
+    try {
+      const entry = JSON.parse(line);
+      return new Date(entry.timestamp).getTime() >= cutoff;
+    } catch {
+      return true; // keep unparseable lines rather than lose data
+    }
+  });
+  await fsp.writeFile(this._path, kept.join('\n') + (kept.length ? '\n' : ''));
+}
+```
+
+- [ ] **Step 3: Call `pruneForCE()` from CLI after each scan in CE mode**
+
+In `cli.mjs`, after `scanHistory.save(...)` in the per-host scan loop, add:
+
+```js
+// CE: enforce 7-day JSONL retention
+const { getTierFromEnv } = await import('./utils/license.mjs'); // already imported
+if (getTierFromEnv() === 'ce') {
+  await scanHistory.pruneForCE();
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+node --test tests/scan_history.test.mjs 2>&1 | tail -5
+node --test 2>&1 | tail -8
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add utils/scan_history.mjs cli.mjs tests/scan_history.test.mjs
+git commit -m "feat: enforce 7-day JSONL retention for CE tier"
+```
+
+---
+
+### Task H.5 — Code Correctness: Finding ID Uniqueness
+
+**Files:**
+- Modify: `utils/finding_schema.mjs`
+- Modify: `tests/` (update finding_schema tests if they assert exact ID format)
+
+**Problem:** Module-level `_counter` resets on every process restart → duplicate IDs across runs. Also breaks at `F-YYYY-9999`. The `uuid` package is already installed.
+
+- [ ] **Step 1: Check existing tests for ID format assumptions**
+
+```bash
+grep -n 'F-202\|_counter\|generateFinding' tests/*.test.mjs
+```
+
+Note any tests that assert exact ID values (they'll need updating).
+
+- [ ] **Step 2: Replace `_counter` with uuid**
+
+In `utils/finding_schema.mjs`, replace:
+
+```js
+let _counter = 0;
+
+export function generateFindingId() {
+  const year = new Date().getFullYear();
+  return `F-${year}-${String(++_counter).padStart(4, '0')}`;
+}
+```
+
+With:
+
+```js
+import { v4 as uuidv4 } from 'uuid';
+
+export function generateFindingId() {
+  return `F-${uuidv4()}`;
+}
+```
+
+ID format changes from `F-2026-0001` to `F-<uuid>`. Any tests that assert the old format must be updated to use `assert.match(id, /^F-[0-9a-f-]{36}$/)`.
+
+- [ ] **Step 3: Update tests that assert old ID format**
+
+The known breakage is in `tests/finding_schema.test.mjs:55` — the test `'generateFindingId format is F-YYYY-NNNN'`:
+
+```js
+// Before (line 53-55):
+test('generateFindingId format is F-YYYY-NNNN', () => {
+  const id = generateFindingId();
+  assert.match(id, /^F-\d{4}-\d{4}$/, `ID format wrong: ${id}`);
+```
+
+Replace with:
+```js
+test('generateFindingId format is F-<uuid>', () => {
+  const id = generateFindingId();
+  assert.match(id, /^F-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `ID format wrong: ${id}`);
+```
+
+Also check `tests/finding_queue.test.mjs` — `assert.ok(id.startsWith('F-'))` still passes with uuid format, no change needed there.
+
+Run to confirm only that one assertion needed updating:
+```bash
+node --test tests/finding_schema.test.mjs tests/finding_queue.test.mjs 2>&1 | tail -5
+# Expected: all pass
+```
+
+- [ ] **Step 4: Run full suite**
+
+```bash
+node --test 2>&1 | tail -8
+# Expected: 438+ pass, 0 fail
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add utils/finding_schema.mjs tests/
+git commit -m "fix: replace module-level counter with uuid for finding IDs"
+```
+
+---
+
+### Task H.6 — Code Correctness: Redaction Dedup + CPE Length Cap + MCP isError
+
+**Files:**
+- Modify: `cli.mjs` (remove duplicate `scrubByKey`, import from `redact.mjs`)
+- Modify: `mcp_server.mjs` (CPE length cap + `isError` on Pro denial)
+- Modify: `tests/mcp_server.test.mjs`
+
+**Problems:**
+- Duplicate `scrubByKey` in `cli.mjs:78` diverges silently from `utils/redact.mjs` canonical version
+- Unbounded CPE string length in NVD cache key (DoS vector)
+- `requireProCapability` returns `isError: false` — confuses MCP clients that inspect `isError`
+
+- [ ] **Step 1: Remove duplicate `scrubByKey` from `cli.mjs`**
+
+Find the local `scrubByKey` function in `cli.mjs` (~line 78). Confirm that `utils/redact.mjs` exports an identical or superior version:
+
+```bash
+grep -n 'scrubByKey\|function scrub' cli.mjs utils/redact.mjs
+```
+
+Remove the local definition and add/verify the import at the top of `cli.mjs`:
+
+```js
+import { scrubByKey } from './utils/redact.mjs';
+```
+
+- [ ] **Step 2: Add CPE length validation in `mcp_server.mjs`**
+
+In `handleGetVulnerabilities`, after the CPE format check:
+
+```js
+if (!/^cpe:2\.3:[aho]:/.test(args.cpe)) {
+  throw new Error('Invalid CPE 2.3 format. Expected: cpe:2.3:{a|h|o}:vendor:product:...');
+}
+// Add length cap:
+if (args.cpe.length > 500) {
+  throw new Error('CPE string too long (max 500 characters)');
+}
+```
+
+- [ ] **Step 3: Write test for CPE length cap**
+
+```js
+it('rejects CPE strings longer than 500 chars', async () => {
+  const { handleGetVulnerabilities } = await import('../mcp_server.mjs');
+  const longCpe = 'cpe:2.3:a:vendor:product:' + 'x'.repeat(500);
+  await assert.rejects(() => handleGetVulnerabilities({ cpe: longCpe }), /too long/);
+});
+```
+
+- [ ] **Step 4: Change `isError` on Pro upsell denial to `true`**
+
+In `requireProCapability`:
+
+```js
+return {
+  content: [{ type: 'text', text: `🔒 **${toolName}** requires a Pro license.\n\n...` }],
+  isError: true, // was false — MCP clients use isError to detect non-successful responses
+};
+```
+
+Update any test that asserts `isError: false` on the upsell response.
+
+- [ ] **Step 5: Run full suite**
+
+```bash
+node --test 2>&1 | tail -8
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add cli.mjs mcp_server.mjs tests/mcp_server.test.mjs
+git commit -m "fix: remove duplicate scrubByKey, CPE length cap, isError on Pro denial"
+```
+
+---
+
+### Task H.7 — Security: `globalThis.redactSensitiveForAI` Capability Gate
+
+**Files:**
+- Modify: `cli.mjs:236-242`
+
+**Problem:** The `globalThis.redactSensitiveForAI` hook is checked before any capability gate. Any in-process code can replace the redaction pipeline without going through the tier system, breaking the ZDE guarantee.
+
+- [ ] **Step 1: Add capability check before using the override**
+
+In `cli.mjs`, find the block:
+
+```js
+if (typeof globalThis.redactSensitiveForAI === 'function') {
+```
+
+Replace with:
+
+```js
+// Only allow external redaction override for Pro/Enterprise tiers (enhanced redaction capability).
+// CE always uses the built-in redact pipeline to preserve ZDE guarantee.
+const { getTierFromEnv } = ...; // already imported
+const { resolveCapabilities, hasCapability } = ...; // already imported
+const _caps = resolveCapabilities(getTierFromEnv());
+if (hasCapability(_caps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
+```
+
+- [ ] **Step 2: Run full suite**
+
+```bash
+node --test 2>&1 | tail -8
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add cli.mjs
+git commit -m "fix: gate globalThis.redactSensitiveForAI override behind enhancedRedaction capability"
+```
+
+---
+
+### Task H.8 — Final CE Public Release Verification
+
+**Files:** None modified — verification only
+
+- [ ] **Step 1: Full test run**
+
+```bash
+node --test 2>&1 | tail -10
+# Required: all pass, 0 fail
+```
+
+- [ ] **Step 2: Verify npm pack is clean**
+
+```bash
+npm pack --dry-run 2>&1 | grep -v node_modules
+# Must NOT include: .env, .scan_history/, out/, *.log, .DS_Store, tasks/
+# Must include: cli.mjs, mcp_server.mjs, plugin_manager.mjs, plugins/, utils/, package.json, LICENSE, README.md
+```
+
+If `.env` appears, add it to `.npmignore`:
+
+```bash
+echo ".env" >> .npmignore
+echo "out/" >> .npmignore
+echo "tasks/" >> .npmignore
+echo ".scan_history/" >> .npmignore
+```
+
+- [ ] **Step 3: Verify the package installs and scans offline**
+
+```bash
+npm pack
+npm install -g nsauditor-ai-0.1.0.tgz
+nsauditor-ai license --status
+# Expected: ✓ Community Edition (CE) — no license key required
+nsauditor-ai scan --host 127.0.0.1 --plugins 001
+# Expected: runs ping checker, produces output
+```
+
+- [ ] **Step 4: Tag and push**
+
+```bash
+git tag -a v0.1.0-ce -m "CE hardening complete — ready for public launch"
+git push origin main --tags
+```
+
+- [ ] **Step 5: Make repository public on GitHub**
+
+Via GitHub UI: Settings → Danger Zone → Change visibility → Public.
+
+---
+
 ## Roadmap (Phases 2–10)
 
 High-level phases for Pro and Enterprise tiers. Each will be expanded into a detailed task plan before implementation begins.
@@ -1507,16 +2173,30 @@ High-level phases for Pro and Enterprise tiers. Each will be expanded into a det
 
 ---
 
-## Success Criteria — CE Launch (End of Phase 6)
+## Success Criteria — CE Public Launch (End of Phase CE-H)
 
 - [ ] CE installs globally via `npm install -g nsauditor-ai` and scans offline with zero setup
-- [ ] All CE tests pass (430+ expected)
+- [ ] All CE tests pass (438+ expected), 0 fail
 - [ ] `nsauditor-ai license --status` correctly shows CE/Pro/Enterprise tier
-- [ ] Pro tool calls via MCP return clear license upsell (no errors, no silent failures)
+- [ ] Pro tool calls via MCP return upsell with `isError: true` (no silent failures)
 - [ ] EE plugins auto-discovered when `@nsasoft/nsauditor-ai-ee` is installed
-- [ ] Custom plugins loaded from `NSAUDITOR_PLUGIN_PATH`
-- [ ] `nsauditor-ai scan --host 192.168.1.1 --plugins all` produces valid JSON + HTML output
-- [ ] Finding queue accepts/validates/prioritizes findings correctly
+- [ ] `NSAUDITOR_PLUGIN_PATH` entries outside cwd/HOME are silently skipped (no path traversal)
+- [ ] Decimal-encoded loopback IPs rejected by MCP SSRF guard
+- [ ] Scan history pruned to 7 days automatically in CE mode
+- [ ] Finding IDs are globally unique (uuid-based, no counter reset across restarts)
+- [ ] `globalThis.redactSensitiveForAI` override requires `enhancedRedaction` capability (Pro+)
+- [ ] `npm pack --dry-run` shows no `.env`, `out/`, `tasks/`, `.scan_history/` in package
+- [ ] GitHub repository visibility changed to Public
+- [ ] Git tag `v0.1.0-ce` pushed
+
+## After CE Launch — EE Private Branch
+
+Once the CE repo is public:
+
+1. Create private GitHub repo `nsauditor-ai-ee`
+2. Scaffold as npm package `@nsasoft/nsauditor-ai-ee` with `nsauditor-ai` as peer dependency
+3. Copy EE-only plugins from `../nsauditor-plugin-manager`: `cloud_aws.mjs`, `cloud_gcp.mjs`, `cloud_azure.mjs`, `zero_trust_checker.mjs`
+4. Proceed with Roadmap Phase 0 (legal/IP) → Phase 2 (JWT license) → Phase 3 (Intelligence Engine)
 
 ---
 

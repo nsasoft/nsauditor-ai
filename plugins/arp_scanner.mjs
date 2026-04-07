@@ -141,7 +141,8 @@ export default {
     up = true; // ARP implies L2 presence
 
     // Use ctx helpers only (no internal OUI loading)
-    const vendor = typeof ctx.lookupVendor === "function" ? (ctx.lookupVendor(mac) || null) : null;
+    const vendorRaw = typeof ctx.lookupVendor === "function" ? (ctx.lookupVendor(mac) || null) : null;
+    const vendor = vendorRaw ? vendorRaw.replace(/[\r\n]+/g, ' ').trim() : null;
     const info = vendor ? `ARP entry found — vendor: ${vendor}` : "ARP entry found";
     data.push({
       probe_protocol: "arp",
