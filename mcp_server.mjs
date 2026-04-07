@@ -165,8 +165,13 @@ const TOOLS = [
 export async function validateHost(host) {
   const h = String(host).trim().toLowerCase();
   if (!h) throw new Error('Empty host');
-  // Fast-path regex check
-  if (/^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
+  // Reject decimal-encoded IPs (e.g. 2130706433 = 127.0.0.1) and all loopback/link-local forms
+  const isDecimalLoopback = /^\d+$/.test(h) && (() => {
+    const n = Number(h);
+    // 127.0.0.0/8 = 0x7F000000..0x7FFFFFFF
+    return n >= 0x7F000000 && n <= 0x7FFFFFFF;
+  })();
+  if (isDecimalLoopback || /^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
     throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
   }
 

@@ -8,6 +8,7 @@ import {
   handleListPlugins,
   toolHandlers,
   createServer,
+  validateHost,
   _setPluginManager,
   _setNvdClient,
   _setValidateHost,
@@ -248,6 +249,19 @@ describe('MCP Server — tool handlers', () => {
     for (const name of expected) {
       assert.equal(typeof toolHandlers[name], 'function', `handler for ${name} should be a function`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateHost — SSRF fast-path guard
+// ---------------------------------------------------------------------------
+
+describe('MCP Server — validateHost()', () => {
+  it('blocks decimal-encoded loopback IP', async () => {
+    await assert.rejects(
+      () => validateHost('2130706433'),
+      /not allowed/
+    );
   });
 });
 
