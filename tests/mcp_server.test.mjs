@@ -316,10 +316,18 @@ describe('MCP Server — createServer()', () => {
 // ---------------------------------------------------------------------------
 
 describe('MCP Server — internal API markers', () => {
-  it('_setTier is marked @internal and should not be used in production', () => {
+  it('_setTier is @internal — behavioral coverage is in probe_service and get_vulnerabilities tests', () => {
     // This test documents that _setTier exists for test-only use.
     // When Phase 2 JWT lands, _setTier will be removed or NODE_ENV-gated.
     // If this test fails to import _setTier, it means Phase 2 cleanup succeeded.
     assert.ok(typeof _setTier === 'function', '_setTier must exist for test overrides');
+    // Full behavioral testing of _setTier is covered by the 'probe_service requires Pro license'
+    // and 'get_vulnerabilities requires Pro license' tests which call _setTier('ce').
+    // This test exists to document the @internal contract and will fail if Phase 2 removes the export.
+    // Verify round-trip: _setTier must not throw across valid tier values.
+    _setTier('pro');
+    _setTier('ce');
+    _setTier(undefined); // reset to env state
+    assert.ok(true, '_setTier round-trip completed without throwing');
   });
 });

@@ -329,6 +329,7 @@ export class PluginManager {
   constructor(directory = "./plugins") {
     this.directory = directory;
     this.plugins = [];
+    this._resolvedCapabilities = resolveCapabilities(getTierFromEnv());
   }
 
   // ---- Backward-compatible factory ----
@@ -342,7 +343,9 @@ export class PluginManager {
     if (dirOrOpts && typeof dirOrOpts === 'object' && !Array.isArray(dirOrOpts) && dirOrOpts.plugins) {
       const mgr = new PluginManager('/nonexistent');
       mgr.plugins = dirOrOpts.plugins;
-      mgr._resolvedCapabilities = resolveCapabilities(getTierFromEnv());
+      // Allow callers to explicitly set tier for isolation; default to env tier.
+      const tier = dirOrOpts.tier ?? getTierFromEnv();
+      mgr._resolvedCapabilities = resolveCapabilities(tier);
       vlog("PluginManager initialized with injected plugins");
       return mgr;
     }
