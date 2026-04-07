@@ -7,11 +7,12 @@ import path from 'node:path';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
-import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE } from './utils/scan_history.mjs';
+import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
+import { scrubByKey } from './utils/redact.mjs';
 
 /* ------------------------- helpers & utilities ------------------------- */
 
@@ -73,26 +74,6 @@ function redactSensitiveForAI(input, targetHost) {
   };
 
   return walk(input);
-}
-
-/** Scrub values whose KEY contains any keyword from CONFIDENTIAL_KEYWORDS. */
-function scrubByKey(val, keywords, placeholder) {
-  if (val == null) return val;
-  if (!Array.isArray(keywords) || keywords.length === 0) return val;
-
-  const walk = (v) => {
-    if (Array.isArray(v)) return v.map(walk);
-    if (v && typeof v === 'object') {
-      const out = {};
-      for (const [k, vv] of Object.entries(v)) {
-        const hit = keywords.some((word) => k.toLowerCase().includes(word));
-        out[k] = hit ? placeholder : walk(vv);
-      }
-      return out;
-    }
-    return v;
-  };
-  return walk(val);
 }
 
 /* ------------------------- OpenAI & reporting -------------------------- */
@@ -578,9 +559,11 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // Retrieve previous scan for this host before recording the new one
     const previous = await getLastScan(outRoot, host);
     await recordScan(outRoot, scanSummary);
-    // CE: enforce 7-day JSONL retention (Pro/Enterprise: unlimited)
+    // CE: enforce 7-day JSONL retention (Pro/Enterprise: unlimited).
+    // Note: concurrent parallel scans on the same outRoot can race here (TOCTOU);
+    // acceptable for CE — production deployments should use a single scan process per directory.
     if (getTierFromEnv() === 'ce') {
-      await pruneForCE(path.join(outRoot, 'scan_history.jsonl'));
+      await pruneForCE(path.join(outRoot, HISTORY_FILE));
     }
 
     scanDiff = computeDiff(scanSummary, previous);

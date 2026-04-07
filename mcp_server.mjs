@@ -47,7 +47,7 @@ function requireProCapability(toolName) {
       type: 'text',
       text: `🔒 **${toolName}** requires a Pro license.\n\nUpgrade at https://www.nsauditor.com/ai/pricing or start a free 14-day trial (no credit card) at https://www.nsauditor.com/ai/trial\n\n**CE tools available:** scan_host, list_plugins`,
     }],
-    isError: false,
+    isError: true,
   };
 }
 
@@ -249,6 +249,9 @@ export async function handleGetVulnerabilities(args) {
   }
   if (!/^cpe:2\.3:[aho]:/.test(args.cpe)) {
     throw new Error('Invalid CPE 2.3 format. Expected: cpe:2.3:{a|h|o}:vendor:product:...');
+  }
+  if (args.cpe.length > 500) {
+    throw new Error('CPE string too long (max 500 characters)');
   }
 
   const client = await getNvdClient();

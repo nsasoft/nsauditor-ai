@@ -223,6 +223,17 @@ describe('MCP Server — tool handlers', () => {
   });
 
   // -----------------------------------------------------------------------
+  // get_vulnerabilities — CPE length cap
+  // -----------------------------------------------------------------------
+  it('get_vulnerabilities rejects CPE strings longer than 500 chars', async () => {
+    const longCpe = 'cpe:2.3:a:vendor:product:' + 'x'.repeat(500);
+    await assert.rejects(
+      () => handleGetVulnerabilities({ cpe: longCpe }),
+      /too long/,
+    );
+  });
+
+  // -----------------------------------------------------------------------
   // 9. list_plugins — returns plugin metadata
   // -----------------------------------------------------------------------
   it('list_plugins returns plugin metadata array', async () => {
