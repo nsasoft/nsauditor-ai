@@ -28,7 +28,7 @@ export function validateFinding(f) {
 
 /**
  * Generate a globally unique finding ID.
- * Format: F-<uuid-v4> (e.g. F-110e8400-e29b-41d4-a716-446655440000)
+ * Format: F-<uuid-v4> (e.g. F-3d7e4b2a-91f0-4c3e-b8a6-7f2d5e9c1a04)
  * UUID-based — no counter to reset, no collision risk across restarts.
  */
 export function generateFindingId() {

@@ -52,7 +52,7 @@ test('generateFindingId returns unique IDs', () => {
 
 test('generateFindingId format is F-<uuid>', () => {
   const id = generateFindingId();
-  assert.match(id, /^F-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `ID format wrong: ${id}`);
+  assert.match(id, /^F-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, `ID format wrong: ${id}`);
 });
 
 test('FINDING_CATEGORIES includes all 6 categories', () => {
