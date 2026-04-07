@@ -12,6 +12,7 @@ import {
   _setPluginManager,
   _setNvdClient,
   _setValidateHost,
+  _setTier,
 } from '../mcp_server.mjs';
 
 // ---------------------------------------------------------------------------
@@ -307,5 +308,18 @@ describe('MCP Server — createServer()', () => {
     assert.ok(server, 'server should be truthy');
     assert.equal(typeof server.setRequestHandler, 'function');
     assert.equal(typeof server.connect, 'function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Internal API markers — Phase 2 migration documentation
+// ---------------------------------------------------------------------------
+
+describe('MCP Server — internal API markers', () => {
+  it('_setTier is marked @internal and should not be used in production', () => {
+    // This test documents that _setTier exists for test-only use.
+    // When Phase 2 JWT lands, _setTier will be removed or NODE_ENV-gated.
+    // If this test fails to import _setTier, it means Phase 2 cleanup succeeded.
+    assert.ok(typeof _setTier === 'function', '_setTier must exist for test overrides');
   });
 });

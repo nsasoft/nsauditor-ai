@@ -18,6 +18,8 @@ import fsp from "fs/promises";
 import path from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { discoverPlugins } from './utils/plugin_discovery.mjs';
+import { getTierFromEnv } from './utils/license.mjs';
+import { resolveCapabilities } from './utils/capabilities.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -340,6 +342,7 @@ export class PluginManager {
     if (dirOrOpts && typeof dirOrOpts === 'object' && !Array.isArray(dirOrOpts) && dirOrOpts.plugins) {
       const mgr = new PluginManager('/nonexistent');
       mgr.plugins = dirOrOpts.plugins;
+      mgr._resolvedCapabilities = resolveCapabilities(getTierFromEnv());
       vlog("PluginManager initialized with injected plugins");
       return mgr;
     }
@@ -371,6 +374,9 @@ export class PluginManager {
 
     const mgr = new PluginManager(baseDir);
     mgr.plugins = rawPlugins;
+    // Resolve capabilities from env tier at load time — prevents permissive fallback.
+    // TODO (Phase 2): replace getTierFromEnv() with loadLicense() result here.
+    mgr._resolvedCapabilities = resolveCapabilities(getTierFromEnv());
     vlog("PluginManager initialized successfully");
     return mgr;
   }
@@ -633,8 +639,10 @@ export class PluginManager {
 
   _hasCapabilities(plugin, capabilities) {
     if (!plugin.requiredCapabilities?.length) return true;
-    if (!capabilities) return true; // No cap object = CE permissive
-    return plugin.requiredCapabilities.every(cap => Boolean(capabilities[cap]));
+    // Fall back to capabilities resolved at load time — never "allow all".
+    // TODO (Phase 2): _resolvedCapabilities will reflect JWT-verified tier.
+    const caps = capabilities ?? this._resolvedCapabilities ?? {};
+    return plugin.requiredCapabilities.every(cap => Boolean(caps[cap]));
   }
 
   /* -------------------- Orchestrated execution path -------------------- */

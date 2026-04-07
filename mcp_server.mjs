@@ -25,10 +25,16 @@ const { version: TOOL_VERSION } = _require('./package.json');
 // License tier & capability resolution (module-level, overridable for tests)
 // ---------------------------------------------------------------------------
 
+// TODO (Phase 2): replace getTierFromEnv() with loadLicense(process.env.NSAUDITOR_LICENSE_KEY)
+// and wire the returned tier here. Until then, pro_* prefix grants Pro tier without verification.
 let _tier = getTierFromEnv();
 let _capabilities = resolveCapabilities(_tier);
 
-/** Allow tests to override tier without touching env vars. */
+/**
+ * @internal Test-only. Override tier without touching env vars.
+ * Do NOT use in production code. When JWT license validation lands (Phase 2),
+ * this function will be removed or guarded by NODE_ENV !== 'production'.
+ */
 export function _setTier(tier) {
   _tier = tier ?? getTierFromEnv();
   _capabilities = resolveCapabilities(_tier);

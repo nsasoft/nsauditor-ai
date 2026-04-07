@@ -637,6 +637,7 @@ async function main() {
   if (cmd === 'license') {
     const { getTierFromEnv } = await import('./utils/license.mjs');
     const { resolveCapabilities } = await import('./utils/capabilities.mjs');
+    // TODO (Phase 2): replace getTierFromEnv() with loadLicense() for full JWT verification
     const tier = getTierFromEnv();
     const caps = resolveCapabilities(tier);
     const key = process.env.NSAUDITOR_LICENSE_KEY;
