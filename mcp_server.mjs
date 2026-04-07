@@ -40,6 +40,9 @@ export function _setTier(tier) {
   _capabilities = resolveCapabilities(_tier);
 }
 
+/** @internal Test-only. Returns the Pro-gate denial object (or null if allowed). */
+export function _requireProCapability(toolName) { return requireProCapability(toolName); }
+
 function requireProCapability(toolName) {
   if (_capabilities.proMCP) return null; // Pro/Enterprise: allow
   return {

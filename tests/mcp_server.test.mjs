@@ -13,6 +13,7 @@ import {
   _setNvdClient,
   _setValidateHost,
   _setTier,
+  _requireProCapability,
 } from '../mcp_server.mjs';
 
 // ---------------------------------------------------------------------------
@@ -327,18 +328,37 @@ describe('MCP Server — createServer()', () => {
 // ---------------------------------------------------------------------------
 
 describe('MCP Server — internal API markers', () => {
-  it('_setTier is @internal — behavioral coverage is in probe_service and get_vulnerabilities tests', () => {
-    // This test documents that _setTier exists for test-only use.
+  it('_setTier is @internal — round-trip does not throw', () => {
+    // Documents that _setTier exists for test-only tier injection.
     // When Phase 2 JWT lands, _setTier will be removed or NODE_ENV-gated.
-    // If this test fails to import _setTier, it means Phase 2 cleanup succeeded.
+    // If this import fails, Phase 2 cleanup succeeded and this test should be deleted.
     assert.ok(typeof _setTier === 'function', '_setTier must exist for test overrides');
-    // Full behavioral testing of _setTier is covered by the 'probe_service requires Pro license'
-    // and 'get_vulnerabilities requires Pro license' tests which call _setTier('ce').
-    // This test exists to document the @internal contract and will fail if Phase 2 removes the export.
-    // Verify round-trip: _setTier must not throw across valid tier values.
     _setTier('pro');
     _setTier('ce');
     _setTier(undefined); // reset to env state
     assert.ok(true, '_setTier round-trip completed without throwing');
+  });
+
+  it('_requireProCapability returns isError:true on CE tier', () => {
+    _setTier('ce');
+    try {
+      const result = _requireProCapability('probe_service');
+      assert.ok(result !== null, 'CE tier should deny Pro capability');
+      assert.equal(result.isError, true, 'Pro denial must have isError:true');
+      assert.ok(Array.isArray(result.content), 'content must be an array');
+      assert.ok(result.content[0].text.includes('requires a Pro license'), 'denial message must mention Pro license');
+    } finally {
+      _setTier(undefined);
+    }
+  });
+
+  it('_requireProCapability returns null on Pro tier', () => {
+    _setTier('pro');
+    try {
+      const result = _requireProCapability('probe_service');
+      assert.equal(result, null, 'Pro tier should allow Pro capability');
+    } finally {
+      _setTier(undefined);
+    }
   });
 });
