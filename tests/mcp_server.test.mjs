@@ -223,7 +223,7 @@ describe('MCP Server — tool handlers', () => {
   });
 
   // -----------------------------------------------------------------------
-  // get_vulnerabilities — CPE length cap
+  // 8b. get_vulnerabilities — CPE length cap
   // -----------------------------------------------------------------------
   it('get_vulnerabilities rejects CPE strings longer than 500 chars', async () => {
     const longCpe = 'cpe:2.3:a:vendor:product:' + 'x'.repeat(500);
