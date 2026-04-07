@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resolveCapabilities, hasCapability } from '../utils/capabilities.mjs';
 
 /**
  * Mirrors the redactSensitiveForAI + top-level host/summary redaction
@@ -217,4 +218,54 @@ test('public IPs in nested services are NOT redacted by scrubPrivateIps', () => 
   const result = applyFullRedaction(payload);
   // scrubString already replaced 8.8.8.8 → [IP], scrubPrivateIps won't touch it further
   assert.ok(!result.services[0].info.includes('8.8.8.8'));
+});
+
+// ---------------------------------------------------------------------------
+// globalThis.redactSensitiveForAI gate — mirrors the condition in cli.mjs:
+//   if (hasCapability(redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function')
+// Tests here use the actual imported resolveCapabilities/hasCapability so that
+// a rename of the capability key or a change to resolveCapabilities breaks these tests.
+// ---------------------------------------------------------------------------
+
+test('globalThis.redactSensitiveForAI gate: CE tier blocks external override', () => {
+  const caps = resolveCapabilities('ce');
+  const allowed = hasCapability(caps, 'enhancedRedaction');
+  assert.equal(allowed, false, 'CE must not have enhancedRedaction');
+
+  // Simulate the gate: spy must not be invoked when allowed === false
+  let spyCalled = false;
+  const prev = globalThis.redactSensitiveForAI;
+  globalThis.redactSensitiveForAI = () => { spyCalled = true; return {}; };
+  try {
+    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
+      globalThis.redactSensitiveForAI({});
+    }
+    assert.equal(spyCalled, false, 'external override must not be called on CE tier');
+  } finally {
+    globalThis.redactSensitiveForAI = prev;
+  }
+});
+
+test('globalThis.redactSensitiveForAI gate: Pro tier allows external override', () => {
+  const caps = resolveCapabilities('pro');
+  const allowed = hasCapability(caps, 'enhancedRedaction');
+  assert.equal(allowed, true, 'Pro must have enhancedRedaction');
+
+  let spyCalled = false;
+  const prev = globalThis.redactSensitiveForAI;
+  globalThis.redactSensitiveForAI = () => { spyCalled = true; return {}; };
+  try {
+    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
+      globalThis.redactSensitiveForAI({});
+    }
+    assert.equal(spyCalled, true, 'external override must be called on Pro tier');
+  } finally {
+    globalThis.redactSensitiveForAI = prev;
+  }
+});
+
+test('globalThis.redactSensitiveForAI gate: Enterprise tier allows external override', () => {
+  const caps = resolveCapabilities('enterprise');
+  const allowed = hasCapability(caps, 'enhancedRedaction');
+  assert.equal(allowed, true, 'Enterprise must have enhancedRedaction');
 });

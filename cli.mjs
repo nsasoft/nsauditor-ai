@@ -218,8 +218,8 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     try {
       // Only allow external redaction override for Pro/Enterprise tiers.
       // CE always uses the built-in redact pipeline to preserve the ZDE guarantee.
-      const _redactCaps = resolveCapabilities(getTierFromEnv());
-      if (hasCapability(_redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
+      const redactCaps = resolveCapabilities(getTierFromEnv());
+      if (hasCapability(redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
         let out = globalThis.redactSensitiveForAI(payloadForAI);
         if (out && typeof out.then === 'function') out = await out;
         if (typeof out === 'string') out = JSON.parse(out);
@@ -227,7 +227,6 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
         payloadForAI = out;
         used = 'external';
       } else {
-        // your local helper from earlier in this file
         payloadForAI = redactSensitiveForAI(payloadForAI, host);
       }
     } catch (e) {
