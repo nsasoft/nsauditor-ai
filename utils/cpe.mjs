@@ -26,6 +26,10 @@ export const CPE_MAP = {
   'postfix':      { vendor: 'postfix',     product: 'postfix' },
   'dovecot':      { vendor: 'dovecot',     product: 'dovecot' },
   'openssl':      { vendor: 'openssl',     product: 'openssl' },
+  'dnsmasq':      { vendor: 'thekelleys', product: 'dnsmasq' },
+  'unbound':      { vendor: 'nlnetlabs',  product: 'unbound' },
+  'net-snmp':     { vendor: 'net-snmp',   product: 'net-snmp' },
+  'samba':        { vendor: 'samba',       product: 'samba' },
 };
 
 /**
