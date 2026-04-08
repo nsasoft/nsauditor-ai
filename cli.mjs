@@ -321,6 +321,10 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     promptText = openaiPromptOptimized;
   }
 
+  // Prepend EE intelligence enrichment block if present (Pro/Enterprise tier)
+  const eeBlock = conclusion?.result?.eeEnrichment?.enrichedPrompt;
+  if (eeBlock) promptText = eeBlock + '\n\n---\n\n' + promptText;
+
   // --- Send to AI provider ---------------------------------------------------
   let aiConclusionText = null;
   try {
@@ -590,6 +594,16 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     conclusion.result = conclusion.result || {};
     conclusion.result.techniques = techniques;
   }
+
+  // EE enrichment hook — no-op if @nsasoft/nsauditor-ai-ee is not installed
+  try {
+    const { enrichScan } = await import('@nsasoft/nsauditor-ai-ee');
+    const eeEnrichment = await enrichScan(conclusion, { host });
+    if (eeEnrichment?.enrichedPrompt) {
+      conclusion.result = conclusion.result || {};
+      conclusion.result.eeEnrichment = eeEnrichment;
+    }
+  } catch { /* EE not installed — CE proceeds unchanged */ }
 
   const { file_paths: ai_file_paths, ai_conclusion } = await maybeSendToOpenAI({ host, results, conclusion, promptMode });
 
