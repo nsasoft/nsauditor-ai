@@ -7,3 +7,4 @@ tasks/
 .DS_Store
 **/.DS_Store
 .worktrees/
+.nvd-cache/
