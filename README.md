@@ -21,7 +21,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 Scan → Verify → Prioritize → Track → Act
 ```
 
-- **27 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, and more
+- **26 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, and more
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
@@ -36,7 +36,7 @@ NSAuditor AI is available in three editions:
 
 | | Community (Free) | Pro ($49/mo) | Enterprise ($2k+/yr) |
 |---|:---:|:---:|:---:|
-| 20+ scanner plugins | ✅ | ✅ | ✅ |
+| 26 scanner plugins | ✅ | ✅ | ✅ |
 | AI analysis (OpenAI, Claude, Ollama) | ✅ (basic prompts) | ✅ (enriched) | ✅ (enriched) |
 | Structured finding format | ✅ | ✅ | ✅ |
 | CTEM watch mode | ✅ | ✅ | ✅ |
@@ -138,6 +138,9 @@ Results land in `./out/<host>_<timestamp>/`:
 | 015 | SUN RPC Scanner | TCP/UDP:111 | RPC portmapper service discovery (NFS, mountd) |
 | 016 | WS-Discovery | UDP:3702 | Multicast device discovery with XML metadata |
 | 024 | TCP SYN Scanner | TCP (Nmap) | SYN half-open scan via Nmap wrapper (optional) |
+| 040 | TLS Certificate & Cipher Auditor | TCP:443+ | Cert expiry, chain integrity, hostname mismatch, weak ciphers, deprecated protocols, key strength |
+| 050 | TRIBE v2 Neural API Security Probe | TCP/HTTP:8080 | Debug leak detection, stack traces in errors, header security, CORS misconfiguration, unauthenticated routes |
+| 060 | DNS Security Auditor | DNS/UDP:53 | SPF/DKIM/DMARC, dangling CNAMEs, DNSSEC, NS delegation, zone transfer exposure, MX security, CAA records |
 
 ### Discovery Plugins
 
