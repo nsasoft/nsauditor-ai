@@ -13,7 +13,7 @@ import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
-import { getTierFromEnv } from './utils/license.mjs';
+import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
@@ -722,23 +722,35 @@ function maxSeverityInConclusion(conclusion) {
 async function main() {
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports } = await parseArgs(process.argv);
 
+  // Verify license JWT at startup (~5ms for ES256). Populates _verifiedTier
+  // so all subsequent getTierFromEnv() calls return the cryptographically
+  // validated tier instead of relying on prefix detection alone.
+  await loadLicense();
+
   if (cmd === 'license') {
-    const { getTierFromEnv } = await import('./utils/license.mjs');
     const { resolveCapabilities } = await import('./utils/capabilities.mjs');
-    // TODO: replace getTierFromEnv() with loadLicense() for full license validation
-    const tier = getTierFromEnv();
-    const caps = resolveCapabilities(tier);
     const key = process.env.NSAUDITOR_LICENSE_KEY;
     const rawArgs = process.argv.slice(2);
 
     if (rawArgs.includes('--status')) {
+      const result = await loadLicense(key);
       const tierLabel = { ce: 'Community Edition (CE)', pro: 'Pro', enterprise: 'Enterprise' };
-      console.log(`License status: ${tierLabel[tier] ?? tier}`);
-      console.log(`License key: ${key ? `set (${key.slice(0, 8)}...)` : 'not set — running CE'}`);
-      if (!key) {
-        console.log('\n→ Start a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
+      if (result.valid) {
+        console.log(`✓ ${tierLabel[result.tier]} license active`);
+        console.log(`  Org: ${result.org}`);
+        console.log(`  Seats: ${result.seats}`);
+        console.log(`  License ID: ${result.licenseId}`);
+        console.log(`  Expires: ${result.expiresAt}`);
+      } else {
+        console.log(`✗ ${tierLabel[result.tier] ?? 'Community Edition (CE)'}`);
+        console.log(`  Reason: ${result.reason}`);
+        if (!key) {
+          console.log('\n→ Start a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
+        }
       }
     } else if (rawArgs.includes('--capabilities')) {
+      const tier = getTierFromEnv();
+      const caps = resolveCapabilities(tier);
       console.log(`Active capabilities for tier: ${tier}\n`);
       for (const [name, enabled] of Object.entries(caps)) {
         console.log(`  ${enabled ? '✓' : '✗'} ${name}`);

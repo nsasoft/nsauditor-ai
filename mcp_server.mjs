@@ -19,7 +19,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { getTierFromEnv } from './utils/license.mjs';
+import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 
 const _require = createRequire(import.meta.url);
@@ -29,7 +29,8 @@ const { version: TOOL_VERSION } = _require('./package.json');
 // License tier & capability resolution (module-level, overridable for tests)
 // ---------------------------------------------------------------------------
 
-// TODO: replace getTierFromEnv() with loadLicense() for full license validation.
+// Module-level: prefix-based tier for immediate use. loadLicense() runs async
+// at server startup (below) and upgrades _tier to the cryptographically verified value.
 let _tier = getTierFromEnv();
 let _capabilities = resolveCapabilities(_tier);
 
@@ -380,6 +381,12 @@ const isMainModule =
     process.argv[1].endsWith('mcp_server'));
 
 if (isMainModule) {
+  // Verify license JWT before accepting MCP requests — upgrades _tier from
+  // prefix-based to cryptographically verified.
+  await loadLicense();
+  _tier = getTierFromEnv();
+  _capabilities = resolveCapabilities(_tier);
+
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
