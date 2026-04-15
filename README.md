@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-493%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-506%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -532,17 +532,13 @@ export default {
 
 ## Pro & Enterprise Activation
 
-Install the EE package alongside the CE platform:
+After purchasing at [nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing), you'll receive an email with your license key and an npm install command. Two steps:
 
 ```bash
-npm install -g @nsasoft/nsauditor-ai-ee
-```
+# 1. Install EE package (one-time, token included in email)
+npm install -g @nsasoft/nsauditor-ai-ee --//registry.npmjs.org/:_authToken=npm_xxxxx
 
-Set your license key:
-
-```bash
-echo "NSAUDITOR_LICENSE_KEY=pro_eyJhbGci..." >> ~/.nsauditor/.env
-# or export directly
+# 2. Set your license key
 export NSAUDITOR_LICENSE_KEY=pro_eyJhbGci...
 ```
 
@@ -556,6 +552,8 @@ nsauditor-ai license --capabilities
 # ✓ intelligenceEngine  ✓ riskScoring  ✓ proAI  ✓ advancedCTEM ...
 ```
 
+License keys are delivered automatically via Stripe webhook — no manual processing. Subscription renewals generate a fresh key and email it to you before the current one expires.
+
 No license key? Everything in this repository works perfectly without one. The CE is not crippled — it's a complete, production-ready security scanner.
 
 → [Pricing](https://www.nsauditor.com/ai/pricing) · [Start free trial](https://www.nsauditor.com/ai/trial) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
@@ -564,7 +562,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 487 tests:
+Run all 506 tests:
 
 ```bash
 npm test

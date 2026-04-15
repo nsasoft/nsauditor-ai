@@ -96,51 +96,15 @@ nsauditor-ai/
 │   └── oui.mjs                    # OUI/MAC vendor lookup
 ├── config/
 │   └── services.json               # Port definitions
-└── tests/                           # 487+ tests
+└── tests/                           # 506 tests
 
 
 REPOSITORY 2: nsauditor-ai-ee (Private, Proprietary)
-PLUGIN PACKAGE — EE plugins, intelligence engines, Pro AI
+PLUGIN PACKAGE — Pro/Enterprise capabilities as a peer dependency
 ────────────────────────────────────────────────────────────────
-nsauditor-ai-ee/
-├── LICENSE                           # Nsasoft Proprietary
-├── IP_ASSIGNMENT.md                  # CLA for contributors
-├── package.json                      # peerDependencies: { "nsauditor-ai": "^2.x" }
-├── index.mjs                         # EE registration + plugin export
-├── plugins/
-│   ├── 020_aws_cloud_scanner.mjs
-│   ├── 021_gcp_cloud_scanner.mjs
-│   ├── 022_azure_cloud_scanner.mjs
-│   ├── 023_zero_trust_checker.mjs
-│   └── 025_compliance_scanner.mjs
-├── agents/                           # Parallel analysis agents (NEW)
-│   ├── agent_runner.mjs             # Agent orchestrator
-│   ├── auth_agent.mjs               # Authentication vulnerability analysis
-│   ├── crypto_agent.mjs             # TLS/crypto weakness analysis
-│   ├── config_agent.mjs             # Configuration audit agent
-│   ├── service_agent.mjs            # Service-specific CVE analysis
-│   └── exposure_agent.mjs           # Network exposure analysis
-├── verifiers/                        # Verification probes (NEW)
-│   ├── verifier_runner.mjs          # Verification orchestrator
-│   ├── ssh_verifier.mjs             # SSH vulnerability verification
-│   ├── tls_verifier.mjs             # TLS/SSL verification
-│   ├── http_verifier.mjs            # HTTP vulnerability verification
-│   ├── default_creds_verifier.mjs   # Default credential testing
-│   └── service_verifier.mjs         # Generic service verification
-├── utils/
-│   ├── intelligence_engine.mjs      # CVE matching + MITRE mapping
-│   ├── risk_scoring.mjs             # Priority scoring
-│   ├── ctem_engine.mjs              # Advanced CTEM
-│   ├── ai_proxy.mjs                 # Pro AI pipelines
-│   ├── compliance_engine.mjs        # Framework mapping
-│   ├── data_boundary.mjs            # ZDE policy engine
-│   └── report_templates.mjs         # Branded reports + PDF
-├── mcp/
-│   ├── workflow_tools.mjs           # Enterprise MCP tools
-│   └── metering.mjs                 # Usage tracking
-├── feeds/
-│   └── nvd_feed_processor.mjs       # Offline NVD feed import
-└── tests/
+Private npm package (@nsasoft/nsauditor-ai-ee). Extends CE through
+the plugin discovery system. Requires a valid license key to activate.
+See the private EE repository for full documentation.
 ```
 
 ### 2.2 Why Consumer Pattern
@@ -584,44 +548,13 @@ _hasCapabilities(plugin, capabilities) {
 
 ---
 
-## 8. License Server & Activation
+## 8. Licensing
 
-### 8.1 Architecture
+Pro and Enterprise features require a valid license key set via `NSAUDITOR_LICENSE_KEY`. The key is a signed JWT verified offline by `utils/license.mjs` — no phone-home, no network calls.
 
-```
-Nsasoft Infrastructure:              Customer Infrastructure:
-┌──────────────────────┐            ┌───────────────────────────┐
-│ Stripe Billing       │            │ License Key (.env)         │
-│     ↓                │            │     ↓                     │
-│ JWT Generator        │            │ JWT Validator (offline)    │
-│ (ES256 signing)      │  ── key →  │ (embedded public key)     │
-│     ↓                │            │     ↓                     │
-│ Email Delivery       │            │ context.capabilities      │
-│                      │            │     ↓                     │
-│ ⚠ NO SCAN DATA      │            │ Everything else runs here │
-└──────────────────────┘            └───────────────────────────┘
-```
+Without a key (or with an expired/invalid key), all features gracefully degrade to Community Edition. CE is never crippled.
 
-### 8.2 JWT License Key Format
-
-```javascript
-{
-  "alg": "ES256", "typ": "JWT", "kid": "nsauditor-2026-001",
-  // Payload:
-  "iss": "license.nsauditor.com",
-  "sub": "org_abc123",
-  "aud": "nsauditor-ai",
-  "exp": 1743724800,
-  "tier": "pro",              // "trial" | "pro" | "enterprise"
-  "org": "Acme Corp",
-  "seats": 1,
-  "capabilities": ["intelligenceEngine", "riskScoring", "proAI", ...]
-}
-```
-
-### 8.3 Validation
-
-Offline — ES256 signature verified against public key embedded in npm package. No phone-home. Graceful degradation to CE on any failure.
+Purchase at [nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing). License key architecture is documented in the private repositories.
 
 ---
 
@@ -815,15 +748,10 @@ Nsasoft US LLC is NOT a data processor, data controller, or business associate u
 | Component | Technology |
 |---|---|
 | Runtime | Node.js 20+ (ES Modules, .mjs) |
-| License | ECDSA P-256 (ES256) JWT, offline validation |
+| License | Signed JWT, offline validation |
 | AI | OpenAI SDK + Anthropic SDK + Ollama |
 | CE storage | JSONL files |
-| Pro storage | SQLite (better-sqlite3) |
-| EE storage | PostgreSQL (pg) |
 | MCP | @modelcontextprotocol/sdk, stdio transport |
-| Billing | Stripe |
-| License server | Node.js + Express (hosted) |
-| EE containers | Docker (per-scan isolation) |
 
 ---
 
