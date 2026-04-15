@@ -5,7 +5,12 @@
 
 import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getTierFromEnv, loadLicense, _resetCache } from '../utils/license.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LICENSE_MANAGER = join(__dirname, '..', '..', 'nsauditor-ai-license-manger');
 
 // ── Test Fixture JWTs ───────────────────────────────────────────────────────
 // Real JWTs signed with the production EC key pair (expire ~2036).
@@ -156,5 +161,63 @@ describe('_resetCache', () => {
     _resetCache();
     // After reset, returns CE default (not prefix-based)
     assert.equal(getTierFromEnv(), 'ce');
+  });
+});
+
+// ── Expiry warnings (subscription renewal awareness) ────────────────────────
+
+describe('loadLicense expiry warnings', () => {
+  // Dynamically generate short-lived JWTs using the license-manager keygen.
+  // This avoids hardcoding fixture JWTs that drift over time.
+  let generateLicenseKey, loadPrivateKey;
+
+  before(async () => {
+    const keygen = await import(join(LICENSE_MANAGER, 'lib', 'keygen.mjs'));
+    const jwt = await import(join(LICENSE_MANAGER, 'lib', 'jwt.mjs'));
+    generateLicenseKey = keygen.generateLicenseKey;
+    loadPrivateKey = jwt.loadPrivateKey;
+  });
+
+  async function makeKey(expiresIn) {
+    const privateKey = await loadPrivateKey(join(LICENSE_MANAGER, 'private', 'ec_private.pem'));
+    const { key } = await generateLicenseKey('pro', {
+      org: 'expiry-test@fixture.com',
+      privateKey,
+      expiresIn,
+    });
+    return key;
+  }
+
+  it('returns daysUntilExpiry and no warning for far-future keys', async () => {
+    const key = await makeKey('365d');
+    const result = await loadLicense(key);
+    assert.equal(result.valid, true);
+    assert.ok(result.daysUntilExpiry > 7);
+    assert.equal(result.expiryWarning, null);
+  });
+
+  it('returns warning when key expires in ≤7 days', async () => {
+    const key = await makeKey('5d');
+    const result = await loadLicense(key);
+    assert.equal(result.valid, true);
+    assert.ok(result.daysUntilExpiry <= 7);
+    assert.ok(result.expiryWarning.includes('expires in'));
+    assert.ok(result.expiryWarning.includes('days'));
+  });
+
+  it('returns urgent warning when key expires in ≤1 day', async () => {
+    const key = await makeKey('12h');
+    const result = await loadLicense(key);
+    assert.equal(result.valid, true);
+    assert.equal(result.daysUntilExpiry, 0);
+    assert.ok(result.expiryWarning.includes('tomorrow'));
+  });
+
+  it('returns daysUntilExpiry for valid long-lived keys', async () => {
+    const result = await loadLicense(VALID_PRO_KEY);
+    assert.equal(result.valid, true);
+    assert.equal(typeof result.daysUntilExpiry, 'number');
+    assert.ok(result.daysUntilExpiry > 300); // expires ~2036
+    assert.equal(result.expiryWarning, null);
   });
 });

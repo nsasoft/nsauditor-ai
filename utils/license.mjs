@@ -81,6 +81,21 @@ export async function loadLicense(keyStr) {
     // Cache verified tier for synchronous access
     _verifiedTier = payload.tier;
 
+    // Compute days until expiry for renewal warnings (air-gapped VPC support)
+    const expiresAt = new Date(payload.exp * 1000);
+    const daysUntilExpiry = Math.max(0, Math.floor((expiresAt - Date.now()) / 86_400_000));
+
+    let expiryWarning = null;
+    if (daysUntilExpiry <= 1) {
+      expiryWarning = 'License expires tomorrow — update NSAUDITOR_LICENSE_KEY now';
+    } else if (daysUntilExpiry <= 7) {
+      expiryWarning = `License expires in ${daysUntilExpiry} days — check email for renewal key`;
+    }
+
+    if (expiryWarning) {
+      console.warn(`\u26A0  ${expiryWarning}`);
+    }
+
     return {
       valid: true,
       tier: payload.tier,
@@ -88,7 +103,9 @@ export async function loadLicense(keyStr) {
       seats: payload.seats,
       licenseId: payload.licenseId,
       capabilities: payload.capabilities,
-      expiresAt: new Date(payload.exp * 1000).toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      daysUntilExpiry,
+      expiryWarning,
     };
   } catch {
     // Verification failure — actively downgrade to CE (prevents prefix spoofing).
