@@ -20,7 +20,14 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import dnsP from 'node:dns/promises';
+import { fileURLToPath } from 'node:url';
 import { resolveBaseOutDir } from './output_dir.mjs';
+
+// Package root — derived from THIS file's location (utils/validate.mjs) by
+// going up one directory. Used as the default plugin-discovery base so that
+// `nsauditor-ai validate` finds the plugins shipped with the package, NOT
+// whatever happens to be in the user's cwd. Fixed in v0.1.21 (Task N.25).
+const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const STATUSES = Object.freeze({
   OK:    'ok',
@@ -36,26 +43,32 @@ const DEFAULT_NETWORK_HOST = 'localhost'; // hermetic — no external dependency
 /**
  * Verify all installed plugins load without error.
  *
+ * Discovery base is the **package root** (derived from this file's location),
+ * not `process.cwd()`. Critical: when the bin shim is invoked from anywhere
+ * other than the install dir, `process.cwd()` is the user's working
+ * directory — which has no plugins. v0.1.20 had this bug; fixed in v0.1.21.
+ *
  * @param {object} [opts]
  * @param {Function} [opts.discover] - Override for testing.
+ * @param {string}   [opts.pkgRoot]  - Override package root path (test injection).
  */
-export async function checkPlugins({ discover } = {}) {
+export async function checkPlugins({ discover, pkgRoot = PKG_ROOT } = {}) {
   try {
     const fn = discover || (await import('./plugin_discovery.mjs')).discoverPlugins;
-    const result = await fn(process.cwd());
+    const result = await fn(pkgRoot);
     const plugins = Array.isArray(result) ? result : (result?.plugins ?? []);
     return {
       name: 'plugins',
       status: STATUSES.OK,
       message: `${plugins.length} plugin${plugins.length === 1 ? '' : 's'} loaded`,
-      details: { count: plugins.length },
+      details: { count: plugins.length, basePath: pkgRoot },
     };
   } catch (err) {
     return {
       name: 'plugins',
       status: STATUSES.ERROR,
       message: `Plugin discovery failed: ${err.message}`,
-      details: { error: err.message },
+      details: { error: err.message, basePath: pkgRoot },
     };
   }
 }
@@ -276,4 +289,5 @@ export const _internals = {
   FREE_SPACE_WARN_MB,
   DEFAULT_NETWORK_TIMEOUT_MS,
   DEFAULT_NETWORK_HOST,
+  PKG_ROOT,
 };

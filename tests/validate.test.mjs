@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   STATUSES,
@@ -14,6 +17,10 @@ import {
   runValidation,
   _internals,
 } from '../utils/validate.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '..');
+const CLI_PATH  = join(REPO_ROOT, 'cli.mjs');
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -357,6 +364,73 @@ test('STATUSES is a frozen enum', () => {
   assert.equal(STATUSES.WARN, 'warn');
   assert.equal(STATUSES.ERROR, 'error');
   assert.equal(STATUSES.SKIP, 'skip');
+});
+
+// ---------------------------------------------------------------------------
+// N.25 regression: plugin discovery must use package root, NOT process.cwd()
+//
+// v0.1.20 shipped with checkPlugins(process.cwd()), which broke when the bin
+// shim was invoked from anywhere other than the install dir — every npm
+// install user saw "0 plugins loaded" from any cwd. v0.1.21 derives PKG_ROOT
+// from import.meta.url instead. These tests catch the class of bug.
+// ---------------------------------------------------------------------------
+
+test('PKG_ROOT resolves to the repo root (parent of utils/)', () => {
+  // PKG_ROOT must be the directory containing plugins/, utils/, package.json, etc.
+  // Sanity: it should match the repo root computed independently from this test file.
+  assert.equal(_internals.PKG_ROOT, REPO_ROOT);
+});
+
+test('checkPlugins: defaults to PKG_ROOT (not process.cwd) and finds real plugins', async () => {
+  // No mock — exercise the real plugin_discovery against the real package.
+  // Should find the 26 CE plugins regardless of test runner cwd.
+  const result = await checkPlugins();
+  assert.equal(result.status, STATUSES.OK);
+  assert.ok(result.details.count >= 20, `expected >=20 plugins, got ${result.details.count}`);
+  assert.equal(result.details.basePath, _internals.PKG_ROOT);
+});
+
+test('checkPlugins: opts.pkgRoot override works for testing', async () => {
+  // Pointing at a known-empty dir should produce a valid (zero-plugin) result,
+  // not blow up. Confirms the override path is wired correctly.
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'nsa-pkg-root-test-'));
+  try {
+    const result = await checkPlugins({ pkgRoot: tmp });
+    assert.equal(result.status, STATUSES.OK);
+    assert.equal(result.details.count, 0);
+    assert.equal(result.details.basePath, tmp);
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('N.25 REGRESSION: `nsauditor-ai validate` finds plugins when invoked from /tmp', () => {
+  // This is the actual bug-class regression test. Spawn cli.mjs from a cwd
+  // that has NO plugins (system /tmp). Pre-fix v0.1.20 would report "0 plugins";
+  // v0.1.21+ must report the real plugin count.
+  const result = spawnSync(
+    process.execPath,
+    [CLI_PATH, 'validate', '--json'],
+    { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10000 }
+  );
+
+  // Validate exit code 0 or 1 (warn) is acceptable; only 2 (error) would indicate
+  // an unrelated failure. The test target is plugin count, not overall status.
+  assert.notEqual(result.status, 2, `validate errored: ${result.stderr || result.stdout}`);
+
+  // The CLI prints plugin-manager log lines to stdout BEFORE the JSON.
+  // Locate the JSON object in the output by finding the first '{'.
+  const jsonStart = result.stdout.indexOf('{');
+  assert.ok(jsonStart >= 0, `no JSON in stdout: ${result.stdout}`);
+  const parsed = JSON.parse(result.stdout.slice(jsonStart));
+
+  const pluginsCheck = parsed.checks.find((c) => c.name === 'plugins');
+  assert.ok(pluginsCheck, 'plugins check missing from validate output');
+  assert.equal(pluginsCheck.status, STATUSES.OK, `expected OK, got ${pluginsCheck.status}: ${pluginsCheck.message}`);
+  assert.ok(
+    pluginsCheck.details.count >= 20,
+    `N.25 REGRESSION: validate found only ${pluginsCheck.details.count} plugins from /tmp — expected ≥20. The bug is back.`
+  );
 });
 
 // Restore env helper used by some tests
