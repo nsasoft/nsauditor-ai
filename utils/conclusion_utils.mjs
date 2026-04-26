@@ -18,7 +18,17 @@ export function statusFrom({ info, banner, fallbackUp }) {
 }
 
 export function normalizeService(svc) {
+  // Preserve every field on the input record. Plugin authors attach security
+  // flags (anonymousLogin, weakAlgorithms, axfrAllowed, mcpCleartextTransport,
+  // etc.) directly to the service record so downstream consumers (sarif,
+  // export_csv, report_md, AI prompt) can read them. Stripping unknown fields
+  // here would silently kill all those readers — verified bug surfaced during
+  // Task N.30 implementation.
+  //
+  // Standard fields are explicitly normalized (type coercion, defaults). Any
+  // other field on the input is passed through verbatim via the spread.
   return {
+    ...svc,
     port: Number(svc.port),
     protocol: (svc.protocol || 'tcp').toLowerCase(),
     service: String(svc.service || 'unknown').toLowerCase(),
@@ -29,7 +39,12 @@ export function normalizeService(svc) {
     info: svc.info ?? null,
     banner: svc.banner ?? null,
     source: svc.source || 'unknown',
-    evidence: Array.isArray(svc.evidence) ? svc.evidence : []
+    // Evidence: accept either an array (legacy — list of probe rows)
+    // OR an object (FindingSchema-style { cwe, owasp, mitre } — see N.5/N.14).
+    // Both shapes are valid; downstream readers must handle both.
+    evidence: (Array.isArray(svc.evidence) || (svc.evidence && typeof svc.evidence === 'object'))
+      ? svc.evidence
+      : []
   };
 }
 
