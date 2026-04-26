@@ -44,7 +44,10 @@ nsauditor-ai/
 ├── plugin_manager.mjs                # Plugin lifecycle engine (v2)
 ├── mcp_server.mjs                    # MCP server (CE tools)
 ├── index.mjs                         # Programmatic API (exports: PluginManager, buildHtmlReport)
-├── plugins/                          # CE scanner plugins (23)
+├── plugins/                          # CE scanner plugins (26)
+│   ├── 040_tls_cert_auditor.mjs       # TLS Certificate & Cipher Auditor
+│   ├── 050_tribe_health.mjs           # TRIBE v2 Neural API Security Probe
+│   ├── 060_dns_sec_auditor.mjs        # DNS Security Auditor
 │   ├── ping_checker.mjs
 │   ├── ssh_scanner.mjs
 │   ├── port_scanner.mjs
@@ -146,7 +149,7 @@ NSAuditor AI operates as a phased pipeline with conditional execution. Phases 1�
 │  Basic redaction pipeline                                        │
 │  Basic MITRE ATT&CK tagging (per-plugin)                         │
 │  AI analysis via any provider (OpenAI/Claude/Ollama, basic prompts) │
-│  Output generation: JSON, HTML, SARIF, CSV                       │
+│  Output generation: JSON, HTML, SARIF, CSV, Markdown             │
 │                                                                  │
 │  Output: Admin RAW + AI reports + scan history entry             │
 │                                                                  │
