@@ -44,10 +44,11 @@ nsauditor-ai/
 ├── plugin_manager.mjs                # Plugin lifecycle engine (v2)
 ├── mcp_server.mjs                    # MCP server (CE tools)
 ├── index.mjs                         # Programmatic API (exports: PluginManager, buildHtmlReport)
-├── plugins/                          # CE scanner plugins (26)
+├── plugins/                          # CE scanner plugins (27)
 │   ├── 040_tls_cert_auditor.mjs       # TLS Certificate & Cipher Auditor
 │   ├── 050_tribe_health.mjs           # TRIBE v2 Neural API Security Probe
 │   ├── 060_dns_sec_auditor.mjs        # DNS Security Auditor
+│   ├── mcp_scanner.mjs                # MCP Scanner (id 070) — detects MCP servers + audits per research checklist
 │   ├── ping_checker.mjs
 │   ├── ssh_scanner.mjs
 │   ├── port_scanner.mjs
@@ -104,7 +105,7 @@ nsauditor-ai/
 │   └── validate.mjs               # Pre-flight environment validation (`nsauditor-ai validate`)
 ├── config/
 │   └── services.json               # Port definitions
-└── tests/                           # 652 tests
+└── tests/                           # 734 tests
 
 
 REPOSITORY 2: nsauditor-ai-ee (Private, Proprietary)

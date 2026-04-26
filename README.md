@@ -21,7 +21,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 Scan → Verify → Prioritize → Track → Act
 ```
 
-- **26 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, and more
+- **27 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, MCP (Model Context Protocol), and more
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
@@ -36,7 +36,7 @@ NSAuditor AI is available in three editions:
 
 | | Community (Free) | Pro ($49/mo) | Enterprise ($2k+/yr) |
 |---|:---:|:---:|:---:|
-| 26 scanner plugins | ✅ | ✅ | ✅ |
+| 27 scanner plugins | ✅ | ✅ | ✅ |
 | AI analysis (OpenAI, Claude, Ollama) | ✅ (basic prompts) | ✅ (enriched) | ✅ (enriched) |
 | Structured finding format | ✅ | ✅ | ✅ |
 | CTEM watch mode | ✅ | ✅ | ✅ |
@@ -144,6 +144,7 @@ Results land in `./out/<host>_<timestamp>/`:
 | 040 | TLS Certificate & Cipher Auditor | TCP:443+ | Cert expiry, chain integrity, hostname mismatch, weak ciphers, deprecated protocols, key strength |
 | 050 | TRIBE v2 Neural API Security Probe | TCP/HTTP:8080 | Debug leak detection, stack traces in errors, header security, CORS misconfiguration, unauthenticated routes |
 | 060 | DNS Security Auditor | DNS/UDP:53 | SPF/DKIM/DMARC, dangling CNAMEs, DNSSEC, NS delegation, zone transfer exposure, MX security, CAA records |
+| 070 | MCP Scanner | TCP/HTTP+SSE | Detects MCP (Model Context Protocol) servers on candidate ports (1967, 3000, 3005, 5173, 6274, 6277, 8000, 8090). Audits for cleartext transport (HTTP not HTTPS), missing/anonymous auth, anonymous tool enumeration, deprecated protocol versions, and Inspector exposure on non-loopback. Maps findings to CWE/OWASP/MITRE per the FindingSchema. STDIO-transport MCP servers are out of scope (no network port). |
 
 ### Discovery Plugins
 
