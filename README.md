@@ -110,6 +110,9 @@ Results land in `./out/<host>_<timestamp>/`:
 | `scan_response_ai.json` | Raw AI API response |
 | `scan_response_ai.txt` | AI conclusion (markdown) |
 | `scan_response_ai.html` | Styled HTML report with CVE links and badges |
+| `scan_results.sarif.json` | SARIF 2.1 — only with `--output-format sarif` (renamed `scan_<host>.sarif.json` for multi-host runs) |
+| `scan_results.csv` | CSV — only with `--output-format csv` |
+| `scan_report.md` | GitHub-flavored Markdown report — only with `--output-format md` (or `markdown`) |
 
 > Works on Node 20+ (tested on Node 22).
 
@@ -184,7 +187,7 @@ NSAuditor AI supports three AI providers for vulnerability analysis. **All provi
 
 **What changes by tier is the prompt content, not the provider:**
 
-- **CE** — basic scan-summary prompts (services, ports, versions detected)
+- **CE** — basic scan-summary prompts (services, ports, versions detected). Local MITRE ATT&CK mapping via `utils/attack_map.mjs`: service-context-aware CVE→technique mapping (`mapCveToAttack`, `mapServiceToAttack`), plus a CWE→technique fallback (`cweToMitre`, `cwesToMitre`) covering ~30 common CWEs (auth, crypto, injection, memory safety, info disclosure, privilege escalation, web). The CWE fallback fires only when CVE-derived mapping returns no techniques — useful for findings annotated with `evidence.cwe[]` (per FindingSchema v0.1.13+) but no CVE context, such as agent-detected misconfigurations and compliance-flagged weaknesses
 - **Pro** — intelligence-enriched prompts (CVE matches, MITRE techniques, risk scores, verification status injected into the prompt). Same API call, vastly better output
 - **Enterprise** — Pro prompts + compliance context
 
@@ -350,9 +353,9 @@ nsauditor-ai scan [options]
 | `--host-file <path>` | File with one host per line (`#` comments, blank lines OK) | — |
 | `--plugins <list>` | Comma-separated plugin IDs or `all` | `all` |
 | `--ports <list>` | Comma-separated ports to pass to plugins | — |
-| `--out <dir>` | Custom output directory | `out/` |
+| `--out <dir>` | Custom output directory — applies to the per-scan folder *and* to alternate-format files (SARIF/CSV/Markdown) | `out/` |
 | `--parallel <n>` | Concurrent host scans | `1` |
-| `--output-format <fmt>` | Output format: `sarif` for CI/CD | — |
+| `--output-format <fmt>` | Additional output format: `sarif` (CI/CD) · `csv` (spreadsheet) · `md` or `markdown` (chat/PR/Slack quotable) | — |
 | `--fail-on <sev>` | Exit code 2 if findings ≥ severity: `critical\|high\|medium\|low\|info` | — |
 | `--insecure-https` | Accept self-signed TLS certificates | `false` |
 | `--watch` | Enable CTEM continuous scanning | `false` |
@@ -388,6 +391,9 @@ nsauditor-ai scan --host 192.168.1.8 --plugins 011,006,009,013,008
 # SARIF output for CI/CD, fail on high+ findings
 nsauditor-ai scan --host 10.0.0.5 --plugins all --output-format sarif --fail-on high
 
+# Markdown report — paste straight into a GitHub issue, Slack thread, or chat
+nsauditor-ai scan --host 10.0.0.5 --plugins all --output-format md
+
 # Continuous monitoring with webhook alerts
 nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
   --watch --interval 30 \
@@ -396,6 +402,27 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 
 # Hosts from file with 4 parallel scans
 nsauditor-ai scan --host-file targets.txt --plugins all --parallel 4
+```
+
+### Pre-flight `validate` command
+
+`nsauditor-ai validate` runs a fast (<2s) environment check without scanning anything. Useful for CI/CD setups, Docker `HEALTHCHECK` probes, and first-time-user diagnosis. Each check returns a status; the overall exit code is 0 (all OK), 1 (warnings), or 2 (errors).
+
+Checks: plugin discovery, license JWT validation (if key set), AI provider configuration, output-directory writability + free space, DNS resolution.
+
+```bash
+# Human-readable output
+nsauditor-ai validate
+
+# Machine-readable JSON for CI parsing
+nsauditor-ai validate --json
+```
+
+Docker HEALTHCHECK example:
+
+```dockerfile
+HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
+  CMD nsauditor-ai validate --json | grep -q '"overall": "ok"' || exit 1
 ```
 
 ---

@@ -25,6 +25,75 @@ export const SERVICE_TECHNIQUE_MAP = {
 };
 
 /**
+ * Mapping from CWE identifiers to ATT&CK techniques.
+ *
+ * Used by `cweToMitre()` and as a fallback path in `mapServiceToAttack()` for findings
+ * that have CWE annotations but no service-context-derivable technique (e.g., agent-detected
+ * misconfigurations or compliance violations that aren't tied to a specific CVE).
+ *
+ * Coverage: ~30 CWEs spanning the most common nsauditor finding categories
+ * (authentication, crypto, injection, memory safety, info disclosure, path traversal,
+ * privilege escalation, web-specific, resource consumption).
+ *
+ * IDs are uppercased CWE-NNN format. Lookup in `cweToMitre()` is case-insensitive.
+ */
+export const CWE_TECHNIQUE_MAP = {
+  // Authentication / access control
+  'CWE-287':  [T('T1078', 'Valid Accounts')],                                                // Improper Authentication
+  'CWE-306':  [T('T1078', 'Valid Accounts')],                                                // Missing Authentication
+  'CWE-521':  [T('T1110', 'Brute Force')],                                                   // Weak Password Requirements
+  'CWE-798':  [T('T1552.001', 'Unsecured Credentials: Credentials In Files')],               // Use of Hard-coded Credentials
+  'CWE-256':  [T('T1552', 'Unsecured Credentials')],                                         // Plaintext Storage of a Password
+  'CWE-862':  [T('T1078', 'Valid Accounts')],                                                // Missing Authorization
+  'CWE-863':  [T('T1078', 'Valid Accounts')],                                                // Incorrect Authorization
+
+  // Cryptography
+  'CWE-319':  [T('T1040', 'Network Sniffing')],                                              // Cleartext Transmission of Sensitive Information
+  'CWE-326':  [T('T1557', 'Adversary-in-the-Middle')],                                       // Inadequate Encryption Strength
+  'CWE-327':  [T('T1557', 'Adversary-in-the-Middle')],                                       // Use of a Broken or Risky Cryptographic Algorithm
+  'CWE-328':  [T('T1557', 'Adversary-in-the-Middle')],                                       // Use of Weak Hash
+  'CWE-331':  [T('T1557', 'Adversary-in-the-Middle')],                                       // Insufficient Entropy
+
+  // Injection
+  'CWE-77':   [T('T1059', 'Command and Scripting Interpreter')],                             // Command Injection (generic)
+  'CWE-78':   [T('T1059', 'Command and Scripting Interpreter')],                             // OS Command Injection
+  'CWE-79':   [T('T1059.007', 'Command and Scripting Interpreter: JavaScript')],             // XSS
+  'CWE-89':   [T('T1190', 'Exploit Public-Facing Application')],                             // SQL Injection
+  'CWE-94':   [T('T1059', 'Command and Scripting Interpreter')],                             // Code Injection
+  'CWE-1336': [T('T1059', 'Command and Scripting Interpreter')],                             // Template Injection
+
+  // Memory safety / RCE primitives
+  'CWE-119':  [T('T1203', 'Exploitation for Client Execution')],                             // Buffer Errors
+  'CWE-120':  [T('T1203', 'Exploitation for Client Execution')],                             // Buffer Overflow
+  'CWE-125':  [T('T1203', 'Exploitation for Client Execution')],                             // Out-of-bounds Read
+  'CWE-416':  [T('T1203', 'Exploitation for Client Execution')],                             // Use After Free
+  'CWE-502':  [T('T1190', 'Exploit Public-Facing Application')],                             // Deserialization of Untrusted Data
+  'CWE-787':  [T('T1203', 'Exploitation for Client Execution')],                             // Out-of-bounds Write
+
+  // Information disclosure
+  'CWE-200':  [T('T1592', 'Gather Victim Host Information')],                                // Information Exposure
+  'CWE-209':  [T('T1592', 'Gather Victim Host Information')],                                // Information Exposure Through Error Messages
+
+  // Path traversal / file
+  'CWE-22':   [T('T1083', 'File and Directory Discovery')],                                  // Path Traversal
+  'CWE-434':  [T('T1190', 'Exploit Public-Facing Application')],                             // Unrestricted Upload of File with Dangerous Type
+
+  // Privilege escalation / permissions
+  'CWE-250':  [T('T1068', 'Exploitation for Privilege Escalation')],                         // Execution with Unnecessary Privileges
+  'CWE-269':  [T('T1068', 'Exploitation for Privilege Escalation')],                         // Improper Privilege Management
+  'CWE-732':  [T('T1574.005', 'Hijack Execution Flow: Executable Installer File Permissions Weakness')], // Incorrect Permission Assignment
+
+  // Web-specific
+  'CWE-352':  [T('T1185', 'Browser Session Hijacking')],                                     // CSRF
+  'CWE-601':  [T('T1204.001', 'User Execution: Malicious Link')],                            // URL Redirection to Untrusted Site
+  'CWE-918':  [T('T1071', 'Application Layer Protocol')],                                    // SSRF
+
+  // Resource consumption / DoS
+  'CWE-400':  [T('T1499', 'Endpoint Denial of Service')],                                    // Uncontrolled Resource Consumption
+  'CWE-770':  [T('T1499', 'Endpoint Denial of Service')],                                    // Allocation of Resources Without Limits or Throttling
+};
+
+/**
  * Convert a technique ID to a MITRE ATT&CK URL.
  * Sub-techniques use dot notation (T1021.004) which maps to slash paths (/T1021/004/).
  * @param {string} techniqueId - e.g. "T1021.004" or "T1190"
@@ -33,6 +102,37 @@ export const SERVICE_TECHNIQUE_MAP = {
 export function attackUrl(techniqueId) {
   const path = String(techniqueId).replace(/\./g, '/');
   return `https://attack.mitre.org/techniques/${path}/`;
+}
+
+/**
+ * Map a single CWE identifier to ATT&CK techniques.
+ * Lookup is case-insensitive and tolerates surrounding whitespace.
+ * Returns a fresh array (callers may push into it without aliasing the static map).
+ *
+ * @param {string} cwe - e.g. "CWE-326", "cwe-89"
+ * @returns {Array<{ techniqueId: string, name: string }>} Empty if unknown or invalid input.
+ */
+export function cweToMitre(cwe) {
+  if (typeof cwe !== 'string') return [];
+  const id = cwe.trim().toUpperCase();
+  const techs = CWE_TECHNIQUE_MAP[id];
+  return techs ? [...techs] : [];
+}
+
+/**
+ * Map an array (or single string) of CWE identifiers to a deduplicated set of techniques.
+ *
+ * @param {string[]|string} cwes - Array like ['CWE-326', 'CWE-89'] or single string.
+ * @returns {Array<{ techniqueId: string, name: string }>} Deduplicated by techniqueId.
+ */
+export function cwesToMitre(cwes) {
+  if (!cwes) return [];
+  const list = Array.isArray(cwes) ? cwes : [cwes];
+  const techniques = [];
+  for (const cwe of list) {
+    techniques.push(...cweToMitre(cwe));
+  }
+  return dedup(techniques);
 }
 
 /**
@@ -93,14 +193,27 @@ export function mapServiceToAttack(service) {
   }
 
   // CVE-based mappings
+  let cveDerivedCount = 0;
   const cves = service.cves || service.cve || [];
   if (Array.isArray(cves)) {
     for (const cve of cves) {
       const cveId = typeof cve === 'string' ? cve : (cve?.id || cve?.cveId || '');
       if (cveId) {
-        techniques.push(...mapCveToAttack(cveId, svcName));
+        const cveTechs = mapCveToAttack(cveId, svcName);
+        cveDerivedCount += cveTechs.length;
+        techniques.push(...cveTechs);
       }
     }
+  }
+
+  // CWE-based fallback: only applied when CVE mapping produced no techniques.
+  // Reads in priority order: service.cwes → service.cwe → service.evidence?.cwe.
+  // CVE-derived mappings are service-context-aware and authoritative; CWE mappings
+  // are heuristic and provide coverage for findings without CVE context (agent-detected
+  // misconfigurations, compliance-flagged weaknesses, etc.).
+  if (cveDerivedCount === 0) {
+    const cwes = service.cwes || service.cwe || service.evidence?.cwe || [];
+    techniques.push(...cwesToMitre(cwes));
   }
 
   return dedup(techniques).map(t => ({ ...t, url: attackUrl(t.techniqueId) }));

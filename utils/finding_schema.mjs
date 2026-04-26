@@ -6,8 +6,15 @@ export const FINDING_STATUSES   = ['UNVERIFIED', 'VERIFIED', 'POTENTIAL', 'FALSE
 export const FINDING_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 export const FINDING_EFFORTS    = ['LOW', 'MEDIUM', 'HIGH'];
 
+const CWE_ID_PATTERN = /^CWE-\d+$/;
+
 /**
  * Validate a finding object against the schema.
+ *
+ * Optional evidence fields (validated only when present):
+ *   - evidence.cwe   string[] of CWE-NNN identifiers, e.g. ['CWE-326', 'CWE-200']
+ *   - evidence.owasp string[] of OWASP categories, e.g. ['A02:2021-Cryptographic Failures']
+ *
  * @param {object} f
  * @returns {string[]} Array of error messages; empty = valid
  */
@@ -23,6 +30,29 @@ export function validateFinding(f) {
     errors.push('title required');
   if (!f?.target?.host)
     errors.push('target.host required');
+
+  if (f?.evidence?.cwe !== undefined) {
+    if (!Array.isArray(f.evidence.cwe)) {
+      errors.push('evidence.cwe must be an array');
+    } else {
+      for (const id of f.evidence.cwe) {
+        if (typeof id !== 'string' || !CWE_ID_PATTERN.test(id))
+          errors.push(`invalid cwe id: ${id}`);
+      }
+    }
+  }
+
+  if (f?.evidence?.owasp !== undefined) {
+    if (!Array.isArray(f.evidence.owasp)) {
+      errors.push('evidence.owasp must be an array');
+    } else {
+      for (const ent of f.evidence.owasp) {
+        if (typeof ent !== 'string')
+          errors.push(`invalid owasp entry: ${ent}`);
+      }
+    }
+  }
+
   return errors;
 }
 

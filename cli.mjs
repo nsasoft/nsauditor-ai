@@ -12,6 +12,7 @@ import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimi
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
+import { buildMarkdownReport } from './utils/report_md.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability } from './utils/capabilities.mjs';
@@ -21,6 +22,9 @@ import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhoo
 import { scrubByKey } from './utils/redact.mjs';
 import { isBlockedIp, resolveAndValidate } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
+import { TOOL_VERSION } from './utils/tool_version.mjs';
+import { resolveBaseOutDir } from './utils/output_dir.mjs';
+import { toCleanPath } from './utils/path_helpers.mjs';
 
 /* ------------------------- helpers & utilities ------------------------- */
 
@@ -42,7 +46,7 @@ const nowStamp = () => {
   );
 };
 const safeHost = (h) => String(h ?? 'unknown').replace(/[\/\\?%*:|"<>]/g, '_');
-const toCleanPath = (s) => String(s ?? '').trim().replace(/^['"]+|['"]+$/g, '');
+// toCleanPath imported from ./utils/path_helpers.mjs (consolidated in v0.1.20)
 
 /** Minimal redactor used if nothing external is provided. */
 function redactSensitiveForAI(input, targetHost) {
@@ -104,10 +108,10 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     : await resolveSecret(process.env.OPENAI_API_KEY);
   const key           = keyRaw ? String(keyRaw).trim() : null;
 
-  // Base output folder (directory ONLY; if a file path is given, take its dir)
-  const outHintRaw  = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out');
-  const parsedHint  = path.parse(outHintRaw);
-  const baseOutDir  = parsedHint.ext ? (parsedHint.dir || 'out') : (outHintRaw || 'out');
+  // Base output folder (resolved via the shared helper — honors --out and
+  // the SCAN_OUT_PATH / OPENAI_OUT_PATH env vars consistently with the
+  // SARIF/CSV/MD writers below).
+  const baseOutDir  = resolveBaseOutDir();
 
   await fsp.mkdir(baseOutDir, { recursive: true });
 
@@ -797,6 +801,26 @@ async function main() {
     process.exit(0);
   }
 
+  if (cmd === 'validate') {
+    const { runValidation } = await import('./utils/validate.mjs');
+    const rawArgs = process.argv.slice(2);
+    const wantJson = rawArgs.includes('--json');
+
+    const { overall, checks, exitCode } = await runValidation();
+
+    if (wantJson) {
+      console.log(JSON.stringify({ overall, exitCode, checks }, null, 2));
+    } else {
+      const glyph = { ok: '✓', warn: '⚠', error: '✗', skip: '·' };
+      console.log(`NSAuditor AI environment validation:\n`);
+      for (const c of checks) {
+        console.log(`  ${glyph[c.status] ?? '?'} [${c.status}] ${c.name}: ${c.message}`);
+      }
+      console.log(`\nOverall: ${overall.toUpperCase()} (exit ${exitCode})`);
+    }
+    process.exit(exitCode);
+  }
+
   if (cmd !== 'scan') {
     console.error(`Unknown command: ${cmd}`);
     process.exit(2);
@@ -954,7 +978,7 @@ async function main() {
   // --- SARIF output ---
   const wantSarif = outputFormat && String(outputFormat).toLowerCase().includes('sarif');
   if (wantSarif) {
-    const outDir = 'out';
+    const outDir = resolveBaseOutDir();
     await fsp.mkdir(outDir, { recursive: true });
 
     for (const scanOut of scanOutputs) {
@@ -976,7 +1000,7 @@ async function main() {
   // --- CSV output ---
   const wantCsv = outputFormat && String(outputFormat).toLowerCase().includes('csv');
   if (wantCsv) {
-    const outDir = 'out';
+    const outDir = resolveBaseOutDir();
     await fsp.mkdir(outDir, { recursive: true });
 
     for (const scanOut of scanOutputs) {
@@ -991,6 +1015,30 @@ async function main() {
       const csvPath = path.join(outDir, csvFileName);
       await fsp.writeFile(csvPath, csv, 'utf8');
       console.log(`[CSV] Wrote CSV output: ${csvPath}`);
+    }
+  }
+
+  // --- Markdown output ---
+  // Accept "md" or "markdown" in --output-format. Word-boundary match avoids matching
+  // "md" inside other tokens (e.g. a hypothetical future format with "md" as a substring).
+  const wantMd = outputFormat && /\b(md|markdown)\b/i.test(String(outputFormat));
+  if (wantMd) {
+    const outDir = resolveBaseOutDir();
+    await fsp.mkdir(outDir, { recursive: true });
+
+    for (const scanOut of scanOutputs) {
+      if (!scanOut?.conclusion) continue;
+      const md = buildMarkdownReport({
+        host: scanOut.host,
+        conclusion: scanOut.conclusion,
+        toolVersion: TOOL_VERSION,
+      });
+      const mdFileName = scanOutputs.length > 1
+        ? `scan_${safeHost(scanOut.host)}.md`
+        : 'scan_report.md';
+      const mdPath = path.join(outDir, mdFileName);
+      await fsp.writeFile(mdPath, md, 'utf8');
+      console.log(`[MD] Wrote Markdown report: ${mdPath}`);
     }
   }
 

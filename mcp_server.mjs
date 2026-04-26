@@ -21,6 +21,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
+import { buildMarkdownReport } from './utils/report_md.mjs';
 
 const _require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = _require('./package.json');
@@ -233,11 +234,28 @@ export async function handleScanHost(args) {
   // Note: timeout is controlled via PLUGIN_TIMEOUT_MS env var at startup.
   // Runtime override is not supported to avoid process-global state mutation.
   const output = await pm.run(host, 'all');
+
+  // Render a Markdown summary of the scan so AI assistants get a ready-to-quote
+  // report alongside the structured fields. Failure to render must not break the
+  // scan response (defensive: any conclusion-shape surprise should degrade to
+  // markdown=null, not error out the whole tool call).
+  let markdown = null;
+  try {
+    if (output.conclusion) {
+      markdown = buildMarkdownReport({
+        host: output.host,
+        conclusion: output.conclusion,
+        toolVersion: TOOL_VERSION,
+      });
+    }
+  } catch { /* swallow — markdown is best-effort */ }
+
   return {
     host: output.host,
     conclusion: output.conclusion ?? null,
     manifest: output.manifest ?? [],
     pluginsRan: output.results?.length ?? 0,
+    markdown,
   };
 }
 

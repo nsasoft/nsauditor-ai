@@ -93,10 +93,15 @@ nsauditor-ai/
 │   ├── cve_validator.mjs          # CVE ID validation
 │   ├── cvss.mjs                   # CVSS scoring utilities
 │   ├── nvd_cache.mjs              # NVD response caching
-│   └── oui.mjs                    # OUI/MAC vendor lookup
+│   ├── oui.mjs                    # OUI/MAC vendor lookup
+│   ├── tool_version.mjs           # TOOL_VERSION/TOOL_NAME from package.json (npm-context-independent)
+│   ├── output_dir.mjs             # resolveBaseOutDir — honors --out across all writers
+│   ├── path_helpers.mjs           # toCleanPath — quote/whitespace strip for path-like strings
+│   ├── report_md.mjs              # GitHub-flavored Markdown scan report
+│   └── validate.mjs               # Pre-flight environment validation (`nsauditor-ai validate`)
 ├── config/
 │   └── services.json               # Port definitions
-└── tests/                           # 506 tests
+└── tests/                           # 652 tests
 
 
 REPOSITORY 2: nsauditor-ai-ee (Private, Proprietary)
@@ -284,6 +289,8 @@ export const FindingSchema = {
   evidence: {
     source: "string",       // Plugin or agent that found it
     cve: "string[]",        // CVE IDs if applicable
+    cwe: "string[]",        // CWE IDs (e.g. ['CWE-326', 'CWE-200']) — optional
+    owasp: "string[]",      // OWASP categories (e.g. ['A02:2021-Cryptographic Failures']) — optional
     mitre: "string[]",      // MITRE ATT&CK technique IDs
     raw: "object|null",     // Raw probe response / banner data
     verification: {         // Set by Phase 4 verifier

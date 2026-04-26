@@ -61,3 +61,92 @@ test('FINDING_CATEGORIES includes all 6 categories', () => {
     assert.ok(FINDING_CATEGORIES.includes(cat), `Missing category: ${cat}`);
   }
 });
+
+test('validateFinding: existing finding without cwe/owasp still validates', () => {
+  assert.deepEqual(validateFinding(validFinding), []);
+});
+
+test('validateFinding: accepts evidence.cwe with valid CWE-NNN entries', () => {
+  const finding = { ...validFinding, evidence: { cwe: ['CWE-326', 'CWE-200'] } };
+  assert.deepEqual(validateFinding(finding), []);
+});
+
+test('validateFinding: accepts empty evidence.cwe array', () => {
+  const finding = { ...validFinding, evidence: { cwe: [] } };
+  assert.deepEqual(validateFinding(finding), []);
+});
+
+test('validateFinding: rejects lowercase cwe id', () => {
+  const finding = { ...validFinding, evidence: { cwe: ['cwe-326'] } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+  assert.ok(errors.some(e => e.includes('cwe')), `errors should mention cwe: ${errors}`);
+});
+
+test('validateFinding: rejects evidence.cwe as a string instead of array', () => {
+  const finding = { ...validFinding, evidence: { cwe: 'CWE-326' } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+  assert.ok(errors.some(e => e.includes('cwe')), `errors should mention cwe: ${errors}`);
+});
+
+test('validateFinding: rejects malformed cwe id (CWE-abc)', () => {
+  const finding = { ...validFinding, evidence: { cwe: ['CWE-abc'] } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+  assert.ok(errors.some(e => e.includes('cwe')), `errors should mention cwe: ${errors}`);
+});
+
+test('validateFinding: rejects cwe id without CWE- prefix', () => {
+  const finding = { ...validFinding, evidence: { cwe: ['326'] } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+});
+
+test('validateFinding: rejects non-string entry in evidence.cwe array', () => {
+  const finding = { ...validFinding, evidence: { cwe: [326] } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+});
+
+test('validateFinding: accepts evidence.owasp with valid entries', () => {
+  const finding = { ...validFinding, evidence: { owasp: ['A02:2021-Cryptographic Failures'] } };
+  assert.deepEqual(validateFinding(finding), []);
+});
+
+test('validateFinding: accepts empty evidence.owasp array', () => {
+  const finding = { ...validFinding, evidence: { owasp: [] } };
+  assert.deepEqual(validateFinding(finding), []);
+});
+
+test('validateFinding: rejects evidence.owasp as a string instead of array', () => {
+  const finding = { ...validFinding, evidence: { owasp: 'A02:2021' } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+  assert.ok(errors.some(e => e.includes('owasp')), `errors should mention owasp: ${errors}`);
+});
+
+test('validateFinding: rejects non-string entry in evidence.owasp array', () => {
+  const finding = { ...validFinding, evidence: { owasp: [42] } };
+  const errors = validateFinding(finding);
+  assert.ok(errors.length > 0);
+});
+
+test('validateFinding: accepts both cwe and owasp together', () => {
+  const finding = {
+    ...validFinding,
+    evidence: { cwe: ['CWE-326'], owasp: ['A02:2021-Cryptographic Failures'] },
+  };
+  assert.deepEqual(validateFinding(finding), []);
+});
+
+test('validateFinding: invalid cwe does not mask other validation errors', () => {
+  const finding = {
+    ...validFinding,
+    category: 'INVALID',
+    evidence: { cwe: ['cwe-326'] },
+  };
+  const errors = validateFinding(finding);
+  assert.ok(errors.some(e => e.includes('category')), `category error should still surface: ${errors}`);
+  assert.ok(errors.some(e => e.includes('cwe')), `cwe error should also surface: ${errors}`);
+});
