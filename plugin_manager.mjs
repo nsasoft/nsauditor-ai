@@ -123,7 +123,7 @@ function withBaseContext(ctxLike) {
   return { ...base, ...live };
 }
 
-async function callPlugin(mod, host, ctx, priorOutputs = null) {
+async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
   // Decide if we run once per matching open port, or once total.
   const req = mod?.requirements || {};
   const runs = [];
@@ -141,7 +141,10 @@ async function callPlugin(mod, host, ctx, priorOutputs = null) {
 
   const runWithCtx = (port) => {
     const extra = isOsDetector && Array.isArray(priorOutputs) ? { results: priorOutputs } : {};
-    const pluginPromise = mod.run(host, port, { context: withBaseContext(ctx), ...extra });
+    // Forward CLI-derived opts (ports, etc.) so plugins can honor flags like --ports.
+    // CLI opts come last so they don't override critical orchestration fields like
+    // `context` if the CLI ever accidentally collides on those names.
+    const pluginPromise = mod.run(host, port, { ...cliOpts, context: withBaseContext(ctx), ...extra });
 
     const timeoutMs = PLUGIN_TIMEOUT_MS;
     let timer;
@@ -694,8 +697,9 @@ export class PluginManager {
 
       vlog(`Running ${mod.name} (priority ${getPriority(mod)}) on ${host}`);
       // **FIX**: pass prior outputs into OS Detector via callPlugin(..., priorOutputs)
+      // **N.27 FIX**: forward CLI-derived opts (ports, etc.) so plugins can honor CLI flags
       const startMs = Date.now();
-      const wrappedRuns = await callPlugin(mod, host, ctx, outputs);
+      const wrappedRuns = await callPlugin(mod, host, ctx, outputs, opts);
       const duration_ms = Date.now() - startMs;
 
       // Determine manifest status from the plugin results

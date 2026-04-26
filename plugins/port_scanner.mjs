@@ -18,6 +18,45 @@ function uniqInts(arr = []) {
   return [...new Set((arr || []).map((x) => Number(x)).filter(Number.isFinite))];
 }
 
+/**
+ * Parse a CLI-style ports spec string into TCP/UDP port arrays.
+ *
+ * Accepted formats (entries comma-separated, whitespace tolerated):
+ *   "8090"                   → { tcp: [8090],          udp: [] }
+ *   "8090,9090"              → { tcp: [8090, 9090],    udp: [] }
+ *   "8090/tcp"               → { tcp: [8090],          udp: [] }
+ *   "8090/udp"               → { tcp: [],              udp: [8090] }
+ *   "8090,9090/udp"          → { tcp: [8090],          udp: [9090] }
+ *   "8090/tcp,9090/udp"      → { tcp: [8090],          udp: [9090] }
+ *
+ * Default protocol when not specified: TCP.
+ *
+ * Malformed entries (non-numeric, out-of-range 1–65535, empty, unknown
+ * protocol suffix) are silently skipped — defensive for sloppy CLI input.
+ *
+ * @param {string} spec
+ * @returns {{ tcp: number[], udp: number[] }}
+ */
+export function parsePortsSpec(spec) {
+  const out = { tcp: [], udp: [] };
+  if (typeof spec !== 'string') return out;
+  const entries = spec.split(',').map(s => s.trim()).filter(Boolean);
+  for (const entry of entries) {
+    // Reject entries with more than one '/' separator (e.g. "8090/tcp/extra")
+    const parts = entry.split('/');
+    if (parts.length > 2) continue;
+    const portStr = parts[0];
+    const proto   = (parts[1] || 'tcp').toLowerCase();
+    if (proto !== 'tcp' && proto !== 'udp') continue;
+    const port = Number(portStr);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+    out[proto].push(port);
+  }
+  out.tcp = uniqInts(out.tcp);
+  out.udp = uniqInts(out.udp);
+  return out;
+}
+
 async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
   // Supports the "array schema" used by tests:
   // { "services": [ { port, protocol }, ... ] }
@@ -179,7 +218,13 @@ export default {
     const maxBannerBytes  = toInt(process.env.TCP_BANNER_MAX_BYTES, 350);
     const udpPayload      = Buffer.from("hi");
 
-    // Port sources: opts first, else config/services.json, else empty (tests supply what they need)
+    // Port sources, in priority order:
+    //   1. Explicit opts.tcpPorts / opts.udpPorts arrays (tests, programmatic API)
+    //   2. config/services.json (default well-known port set)
+    //   3. Empty
+    // Then ADDITIVELY merge opts.ports (CLI --ports flag, comma-separated string with
+    // optional /tcp /udp suffix). Additive semantics so that --ports adds extras to the
+    // default scan rather than silently replacing it (Task N.27, fixed in v0.1.22).
     let tcpPorts = Array.isArray(opts.tcpPorts) ? uniqInts(opts.tcpPorts) : [];
     let udpPorts = Array.isArray(opts.udpPorts) ? uniqInts(opts.udpPorts) : [];
 
@@ -187,6 +232,13 @@ export default {
       const cfg = await loadConfigPortsFromServicesJson();
       tcpPorts = cfg.tcp;
       udpPorts = cfg.udp;
+    }
+
+    // Additive merge of CLI --ports flag (string spec)
+    if (typeof opts.ports === 'string' && opts.ports.trim()) {
+      const extra = parsePortsSpec(opts.ports);
+      tcpPorts = uniqInts([...tcpPorts, ...extra.tcp]);
+      udpPorts = uniqInts([...udpPorts, ...extra.udp]);
     }
 
     // If still nothing, just return empty structure
