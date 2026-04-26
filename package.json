@@ -13,6 +13,18 @@
     "nsauditor-ai": "bin/nsauditor-ai.mjs",
     "nsauditor-ai-mcp": "bin/nsauditor-ai-mcp.mjs"
   },
+  "files": [
+    "bin/",
+    "config/",
+    "docs/EULA-nsauditor-ai.md",
+    "plugins/",
+    "utils/",
+    "CONTRIBUTING.md",
+    "cli.mjs",
+    "index.mjs",
+    "mcp_server.mjs",
+    "plugin_manager.mjs"
+  ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
