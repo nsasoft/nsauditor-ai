@@ -352,7 +352,7 @@ nsauditor-ai scan [options]
 | `--host <target>` | Target: IP, hostname, CIDR, dash range. Aliases: `--ip`, `--target` | *required*\* |
 | `--host-file <path>` | File with one host per line (`#` comments, blank lines OK) | — |
 | `--plugins <list>` | Comma-separated plugin IDs or `all` | `all` |
-| `--ports <list>` | Comma-separated ports to pass to plugins | — |
+| `--ports <list>` | **Additional** ports to scan, merged into the default config-derived list. Comma-separated. Optional `/tcp` or `/udp` suffix per entry (default: `tcp`). Examples: `8090` · `8090,9090` · `8090/tcp,5353/udp`. Use this to scan custom services on non-standard ports (e.g. MCP servers on `8090`, dev servers on `3000–9000`) | — |
 | `--out <dir>` | Custom output directory — applies to the per-scan folder *and* to alternate-format files (SARIF/CSV/Markdown) | `out/` |
 | `--parallel <n>` | Concurrent host scans | `1` |
 | `--output-format <fmt>` | Additional output format: `sarif` (CI/CD) · `csv` (spreadsheet) · `md` or `markdown` (chat/PR/Slack quotable) | — |
@@ -393,6 +393,10 @@ nsauditor-ai scan --host 10.0.0.5 --plugins all --output-format sarif --fail-on 
 
 # Markdown report — paste straight into a GitHub issue, Slack thread, or chat
 nsauditor-ai scan --host 10.0.0.5 --plugins all --output-format md
+
+# Scan custom non-standard ports (e.g. an MCP server on 8090, dev service on 5000)
+# Uses --ports to add to the default scan list — additive, not replacing
+nsauditor-ai scan --host 192.168.1.28 --plugins all --ports 8090,5000/tcp
 
 # Continuous monitoring with webhook alerts
 nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
