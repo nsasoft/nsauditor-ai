@@ -198,7 +198,7 @@ NSAuditor AI supports three AI providers for vulnerability analysis. **All provi
 # .env
 AI_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...        # Your key — never sent to Nsasoft
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
+ANTHROPIC_MODEL=claude-sonnet-4-6
 OPENAI_PROMPT_MODE=optimized
 OPENAI_REDACT=true
 ```
@@ -444,7 +444,7 @@ AI_PROVIDER=openai                   # openai | claude | ollama
 OPENAI_API_KEY=sk-...               # Your OpenAI key
 OPENAI_MODEL=gpt-4o-mini
 ANTHROPIC_API_KEY=sk-ant-...        # Your Claude key
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
+ANTHROPIC_MODEL=claude-sonnet-4-6
 OPENAI_PROMPT_MODE=optimized        # basic | pro | optimized
 OPENAI_REDACT=true                  # Redact before sending to AI
 CONFIDENTIAL_KEYWORDS=serial,password,token,secret

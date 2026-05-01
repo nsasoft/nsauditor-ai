@@ -12,7 +12,7 @@ function resolveProvider(env) {
   const toCleanPath = (s) => String(s ?? '').trim().replace(/^['"]+|['"]+$/g, '');
   const aiProvider = (env.AI_PROVIDER || 'openai').toLowerCase().trim();
   const model = aiProvider === 'claude'
-    ? toCleanPath(env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
+    ? toCleanPath(env.ANTHROPIC_MODEL || 'claude-sonnet-4-6')
     : aiProvider === 'ollama'
     ? toCleanPath(env.OLLAMA_MODEL || 'llama3')
     : toCleanPath(env.OPENAI_MODEL || 'gpt-4o-mini');
@@ -38,10 +38,10 @@ test('AI Provider: selects claude when AI_PROVIDER=claude', () => {
   const r = resolveProvider({
     AI_PROVIDER: 'claude',
     ANTHROPIC_API_KEY: 'sk-ant-test',
-    ANTHROPIC_MODEL: 'claude-sonnet-4-20250514'
+    ANTHROPIC_MODEL: 'claude-sonnet-4-6'
   });
   assert.equal(r.aiProvider, 'claude');
-  assert.equal(r.model, 'claude-sonnet-4-20250514');
+  assert.equal(r.model, 'claude-sonnet-4-6');
   assert.equal(r.key, 'sk-ant-test');
   assert.equal(r.providerLabel, 'Claude');
 });
@@ -51,7 +51,7 @@ test('AI Provider: claude uses default model when ANTHROPIC_MODEL is unset', () 
     AI_PROVIDER: 'claude',
     ANTHROPIC_API_KEY: 'sk-ant-test'
   });
-  assert.equal(r.model, 'claude-sonnet-4-20250514');
+  assert.equal(r.model, 'claude-sonnet-4-6');
 });
 
 test('AI Provider: openai uses custom model from env', () => {

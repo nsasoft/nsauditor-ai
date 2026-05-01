@@ -96,7 +96,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   const redactEnabled = parseBool(process.env.OPENAI_REDACT, true);
   const aiProvider    = (process.env.AI_PROVIDER || 'openai').toLowerCase().trim();
   const model         = aiProvider === 'claude'
-    ? toCleanPath(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
+    ? toCleanPath(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6')
     : aiProvider === 'ollama'
     ? toCleanPath(process.env.OLLAMA_MODEL || 'llama3')
     : toCleanPath(process.env.OPENAI_MODEL || 'gpt-4o-mini');
