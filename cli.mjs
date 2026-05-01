@@ -350,7 +350,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
         resp = await client.messages.create({
           model,
-          max_tokens: 4096,
+          max_tokens: 16384,
           system: promptText,
           messages: [
             { role: 'user', content: userContent }
