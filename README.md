@@ -49,7 +49,12 @@ NSAuditor AI is available in three editions:
 | Advanced CTEM + trend analysis | — | ✅ | ✅ |
 | Cloud scanners (AWS/GCP/Azure) | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
-| Compliance (NIST/HIPAA/GDPR/PCI) | — | — | ✅ |
+| SOC 2 compliance (7 covered + 5 partial controls) | — | — | ✅ |
+| SLA/MTTR tracking + compensating controls | — | — | ✅ |
+| Recurring-scan attestation (Type II evidence) | — | — | ✅ |
+| GRC platform connector (Vanta) | — | — | ✅ |
+| WORM evidence storage (S3 Object Lock) | — | — | ✅ |
+| Tabletop simulation + SIEM correlation | — | — | ✅ |
 | Docker per-scan isolation | — | — | ✅ |
 | Air-gapped deployment | — | — | ✅ |
 
@@ -165,6 +170,12 @@ Results land in `./out/<host>_<timestamp>/`:
 | 021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings |
 | 022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC analysis |
 | 023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral movement scoring |
+| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 control mapping, chain-of-custody, RFC 3161 timestamps, suppression workflow |
+| — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle |
+| — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope drift (CC8.1) |
+| — | GRC Platform Connector | Enterprise | Native API push to Vanta with retry/backoff, idempotency, rate-limit handling |
+| — | WORM Evidence Storage | Enterprise | S3 Object Lock COMPLIANCE-mode, resource redaction, SHA-256 manifest |
+| — | Tabletop Simulation | Enterprise | Probe-event manifest + SIEM detection correlation, configurable coverage bands |
 
 ---
 
