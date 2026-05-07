@@ -522,6 +522,14 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 async function parseArgs(argv) {
   const args = { cmd: 'scan', host: undefined, plugins: 'all', insecureHttps: false };
   const a = argv.slice(2);
+  // Help: bare `--help`/`-h`/`help` or completely empty invocation.
+  // Recognized before the scan-default so it doesn't crash with
+  // "--host or --host-file is required" on a help request.
+  if (a.length === 0 || a[0] === '--help' || a[0] === '-h' || a[0] === 'help' ||
+      a.includes('--help') || a.includes('-h')) {
+    args.cmd = 'help';
+    return args;
+  }
   if (a.length && !a[0].startsWith('--')) args.cmd = a[0];
 
   const get = (name) => {
@@ -749,6 +757,63 @@ function maxSeverityInConclusion(conclusion) {
 
 async function main() {
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = await parseArgs(process.argv);
+
+  // Help: handled before license verification so it works without a key.
+  if (cmd === 'help') {
+    console.log(`nsauditor-ai — Modular AI-assisted network security audit platform
+
+Usage:
+  nsauditor-ai [scan] --host <ip|cidr|hostname> [options]
+  nsauditor-ai [scan] --host-file <path> [options]
+  nsauditor-ai license <subcommand>
+  nsauditor-ai security <subcommand>
+  nsauditor-ai validate
+  nsauditor-ai help
+
+Scan options:
+  --host, --ip, --target <h>   Target host, IP, or CIDR
+  --host-file <path>           File with one host per line
+  --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
+  --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
+  --out <dir>                  Output directory for scan artifacts
+  --parallel <n>               Parallel host concurrency (default 1)
+  --fail-on <severity>         Exit non-zero if any finding ≥ severity
+  --output-format <fmt>        Additional report format: sarif | csv | md
+  --insecure-https             Skip TLS validation on probed HTTPS targets
+  --watch                      CTEM continuous mode
+  --interval <minutes>         Watch interval (default 60)
+  --webhook-url <url>          Send delta alerts (must be public; private/loopback blocked)
+  --alert-severity <sev>       Min severity to alert on (default: high)
+  --compliance <framework>     Run compliance mapping (e.g. soc2). Enterprise only.
+  --compliance-scope <path>    JSON file describing the assessment scope
+
+License subcommands:
+  nsauditor-ai license --status         Show active tier, org, seats, expiry
+  nsauditor-ai license --capabilities   List active capabilities for current tier
+
+Security subcommands (macOS Keychain):
+  nsauditor-ai security set <KEY>       Store a secret (read from stdin)
+  nsauditor-ai security delete <KEY>    Remove a secret
+  nsauditor-ai security list            List stored secrets (masked)
+  nsauditor-ai security get <KEY>       Echo a secret (avoid in shared shells)
+
+Environment:
+  NSAUDITOR_LICENSE_KEY          Pro/Enterprise license JWT (env var; takes precedence)
+  NSA_ALLOW_ALL_HOSTS=1          Permit RFC1918 / loopback (local-network auditing)
+  CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022)
+  AI_PROVIDER=openai|claude|ollama   AI provider for report generation
+  COMPLIANCE_TSA_URL             RFC 3161 timestamp authority for SOC 2 attestation
+
+Examples:
+  nsauditor-ai scan --host 10.0.0.1 --plugins all
+  CLOUD_PROVIDER=aws AWS_PROFILE=default \\
+    nsauditor-ai scan --host aws --plugins 020
+  nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
+  nsauditor-ai license --status
+
+Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/pricing/`);
+    process.exit(0);
+  }
 
   // Verify license JWT at startup (~5ms for ES256). Populates _verifiedTier
   // so all subsequent getTierFromEnv() calls return the cryptographically
