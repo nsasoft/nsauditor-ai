@@ -70,6 +70,9 @@ NSAuditor AI is available in three editions:
 # Install globally
 npm install -g nsauditor-ai
 
+# See all flags, subcommands, and worked examples
+nsauditor-ai --help
+
 # Configure (optional — scans work fully offline without AI)
 cat > .env << 'EOF'
 AI_ENABLED=true
@@ -357,7 +360,13 @@ The `keychain:` prefix works anywhere an API key is read — CLI, MCP server, or
 
 ```
 nsauditor-ai scan [options]
+nsauditor-ai license <--status | --capabilities>
+nsauditor-ai security <set|delete|list|get> <KEY>
+nsauditor-ai validate
+nsauditor-ai --help
 ```
+
+> Run `nsauditor-ai --help` (or `-h`, or just `nsauditor-ai help`) for a quick reference of subcommands, flags, env vars, and worked examples — works without a license key configured.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -374,6 +383,9 @@ nsauditor-ai scan [options]
 | `--interval <min>` | Rescan interval in minutes (requires `--watch`) | `60` |
 | `--webhook-url <url>` | Webhook URL for delta alerts | — |
 | `--alert-severity <sev>` | Minimum severity for webhook alerts | `high` |
+| `--compliance <fw>` | Compliance framework to map findings into (e.g. `soc2`). **Enterprise license required.** See `@nsasoft/nsauditor-ai-ee` README for supported frameworks | — |
+| `--compliance-scope <path>` | Optional JSON file describing the assessment scope (passed to the compliance engine for cover-page attestation) | — |
+| `--help`, `-h` | Print usage block (subcommands, flags, env vars, examples) and exit 0 | — |
 
 \* Either `--host` or `--host-file` is required.
 
