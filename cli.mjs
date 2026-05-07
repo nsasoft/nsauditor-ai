@@ -90,7 +90,7 @@ function redactSensitiveForAI(input, targetHost) {
 
 /* ------------------------- OpenAI & reporting -------------------------- */
 
-async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic' }) {
+async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic', outDir: presetOutDir = null }) {
   // --- env & opts -----------------------------------------------------------
   const sendEnabled   = parseBool(process.env.AI_ENABLED);
   const redactEnabled = parseBool(process.env.OPENAI_REDACT, true);
@@ -108,17 +108,17 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     : await resolveSecret(process.env.OPENAI_API_KEY);
   const key           = keyRaw ? String(keyRaw).trim() : null;
 
-  // Base output folder (resolved via the shared helper — honors --out and
-  // the SCAN_OUT_PATH / OPENAI_OUT_PATH env vars consistently with the
-  // SARIF/CSV/MD writers below).
-  const baseOutDir  = resolveBaseOutDir();
-
-  await fsp.mkdir(baseOutDir, { recursive: true });
-
-  // Per-scan folder
-  const ts       = nowStamp();
-  const runDir   = `${safeHost(host)}_${ts}`;
-  const outDir   = path.join(baseOutDir, runDir);
+  // Per-scan folder. Caller (scanSingleHost) may pass a pre-computed outDir so
+  // that EE enrichment + compliance artifacts share the same folder as the AI
+  // outputs — otherwise compute one here for legacy callers.
+  let outDir = presetOutDir;
+  if (!outDir) {
+    const baseOutDir = resolveBaseOutDir();
+    await fsp.mkdir(baseOutDir, { recursive: true });
+    const ts     = nowStamp();
+    const runDir = `${safeHost(host)}_${ts}`;
+    outDir       = path.join(baseOutDir, runDir);
+  }
   await fsp.mkdir(outDir, { recursive: true });
 
   // Paths (fixed names inside per-scan folder)
@@ -536,7 +536,7 @@ async function parseArgs(argv) {
   const p = get('plugins');
   if (p && p !== true && p.toLowerCase() !== 'all') {
     args.plugins = p.split(',').map((s) => s.trim()).filter(Boolean);
-  } else if (p && p.toLowerCase() === 'all') {
+  } else if (p && p !== true && p.toLowerCase() === 'all') {
     args.plugins = 'all';
   }
   args.insecureHttps = !!(get('insecure-https') || get('insecure_https'));
@@ -570,6 +570,13 @@ async function parseArgs(argv) {
   const alertSev = get('alert-severity') || get('alert_severity') || null;
   args.alertSeverity = (alertSev && alertSev !== true) ? alertSev.toLowerCase() : 'high';
 
+  // Compliance: framework selector + scope file. Forwarded to EE's
+  // runCompliancePhase via enrichScan(). No-op without an EE Enterprise license.
+  const complianceVal = get('compliance');
+  args.compliance = (complianceVal && complianceVal !== true) ? complianceVal : null;
+  const complianceScopeVal = get('compliance-scope') || get('compliance_scope');
+  args.complianceScope = (complianceScopeVal && complianceScopeVal !== true) ? complianceScopeVal : null;
+
   return args;
 }
 
@@ -599,17 +606,34 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     conclusion.result.techniques = techniques;
   }
 
+  // Pre-compute the per-scan output folder so EE enrichment, compliance
+  // artifacts, and AI outputs all land in the same directory. maybeSendToOpenAI
+  // will reuse this presetOutDir below.
+  const baseOutDir = resolveBaseOutDir();
+  await fsp.mkdir(baseOutDir, { recursive: true });
+  const ts        = nowStamp();
+  const outDir    = path.join(baseOutDir, `${safeHost(host)}_${ts}`);
+  await fsp.mkdir(outDir, { recursive: true });
+
   // EE enrichment hook — no-op if @nsasoft/nsauditor-ai-ee is not installed
+  // or the license tier doesn't grant intelligenceEngine. Compliance + outDir
+  // are forwarded so EE can write scan_finding_queue.json and SOC 2 artifacts.
   try {
     const { enrichScan } = await import('@nsasoft/nsauditor-ai-ee');
-    const eeEnrichment = await enrichScan(conclusion, { host });
+    const eeEnrichment = await enrichScan(conclusion, {
+      host,
+      outDir,
+      compliance:      opts.compliance ?? process.env.COMPLIANCE_FRAMEWORKS ?? null,
+      complianceScope: opts.complianceScope ?? null,
+      onWarn: (msg) => console.warn(`[EE] ${msg}`),
+    });
     if (eeEnrichment?.enrichedPrompt) {
       conclusion.result = conclusion.result || {};
       conclusion.result.eeEnrichment = eeEnrichment;
     }
   } catch { /* EE not installed — CE proceeds unchanged */ }
 
-  const { file_paths: ai_file_paths, ai_conclusion } = await maybeSendToOpenAI({ host, results, conclusion, promptMode });
+  const { file_paths: ai_file_paths, ai_conclusion } = await maybeSendToOpenAI({ host, results, conclusion, promptMode, outDir });
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
@@ -724,7 +748,7 @@ function maxSeverityInConclusion(conclusion) {
 }
 
 async function main() {
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports } = await parseArgs(process.argv);
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = await parseArgs(process.argv);
 
   // Verify license JWT at startup (~5ms for ES256). Populates _verifiedTier
   // so all subsequent getTierFromEnv() calls return the cryptographically
@@ -844,6 +868,8 @@ async function main() {
 
   const opts = { insecureHttps };
   if (ports) opts.ports = ports;
+  if (compliance) opts.compliance = compliance;
+  if (complianceScope) opts.complianceScope = complianceScope;
   const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
 
