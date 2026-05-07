@@ -60,7 +60,7 @@ NSAuditor AI is available in three editions:
 
 **This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions. Pro and Enterprise features are available via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package.
 
-→ [Start a free 14-day Pro trial](https://www.nsauditor.com/ai/trial) (no credit card)
+→ [Get Pro or Enterprise](https://www.nsauditor.com/ai/pricing/)
 
 ---
 
@@ -599,7 +599,7 @@ License keys are delivered automatically via Stripe webhook — no manual proces
 
 No license key? Everything in this repository works perfectly without one. The CE is not crippled — it's a complete, production-ready security scanner.
 
-→ [Pricing](https://www.nsauditor.com/ai/pricing) · [Start free trial](https://www.nsauditor.com/ai/trial) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
+→ [Pricing](https://www.nsauditor.com/ai/pricing/) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
 
 ---
 
