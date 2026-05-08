@@ -15,6 +15,17 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.30)
+
+The 0.1.30 line is a paired release with `@nsasoft/nsauditor-ai-ee@0.3.2` that closes the customer-onboarding gap and a critical false-clean SOC 2 reporting bug:
+
+- **`nsauditor-ai license install <KEY>`** — verifies the JWT *before* persisting; writes to macOS Keychain or `~/.nsauditor/.env` (mode 0600) depending on platform. Three-line install flow: `npm install -g` → `license install` → `license --status`. No more shell-rc edits.
+- **Multi-source license loader** — `loadLicense()` resolves keys from env var → platform Keychain → `~/.nsauditor/.env`, in that order. CI/CD env-var override still wins.
+- **`nsauditor-ai license --plugins`** — real enumeration of discovered plugins, grouped by source (CE / EE / custom), with active-or-required-tier status.
+- **`nsauditor-ai --version` / `-v`** — prints version and exits 0 (parallel to `--help`'s discovery-flag UX).
+- **Cloud-sentinel SSRF bypass** — `--host aws|gcp|azure` no longer requires `NSA_ALLOW_ALL_HOSTS=1`. The sentinel literals route to EE cloud-scanner plugins via the provider's API; the SSRF guard's RFC 1918 / loopback protection is preserved for real network targets.
+- **EE-0.3.2.1 hard dep** — CE forwards the per-plugin `results` array to `enrichScan()`. Without this, EE 0.3.2's cloud-finding harvester sees nothing and produces false-clean SOC 2 reports against AWS accounts. EE emits a runtime version-skew warning when this opt is missing.
+
 ## What It Does
 
 ```
@@ -49,7 +60,7 @@ NSAuditor AI is available in three editions:
 | Advanced CTEM + trend analysis | — | ✅ | ✅ |
 | Cloud scanners (AWS/GCP/Azure) | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
-| SOC 2 compliance (7 covered + 5 partial controls) | — | — | ✅ |
+| SOC 2 compliance (8 covered + 5 partial controls) | — | — | ✅ |
 | SLA/MTTR tracking + compensating controls | — | — | ✅ |
 | Recurring-scan attestation (Type II evidence) | — | — | ✅ |
 | GRC platform connector (Vanta) | — | — | ✅ |
@@ -360,13 +371,15 @@ The `keychain:` prefix works anywhere an API key is read — CLI, MCP server, or
 
 ```
 nsauditor-ai scan [options]
-nsauditor-ai license <--status | --capabilities>
+nsauditor-ai license install <KEY>
+nsauditor-ai license <--status | --capabilities | --plugins>
 nsauditor-ai security <set|delete|list|get> <KEY>
 nsauditor-ai validate
-nsauditor-ai --help
+nsauditor-ai --help        (or -h, or `help`)
+nsauditor-ai --version     (or -v, or `version`)
 ```
 
-> Run `nsauditor-ai --help` (or `-h`, or just `nsauditor-ai help`) for a quick reference of subcommands, flags, env vars, and worked examples — works without a license key configured.
+> Run `nsauditor-ai --help` (or `-h`, or just `nsauditor-ai help`) for a quick reference of subcommands, flags, env vars, and worked examples — works without a license key configured. `--version` / `-v` (CE 0.1.30+) prints `nsauditor-ai <version>` and exits 0.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -386,6 +399,7 @@ nsauditor-ai --help
 | `--compliance <fw>` | Compliance framework to map findings into (e.g. `soc2`). **Enterprise license required.** See `@nsasoft/nsauditor-ai-ee` README for supported frameworks | — |
 | `--compliance-scope <path>` | Optional JSON file describing the assessment scope (passed to the compliance engine for cover-page attestation) | — |
 | `--help`, `-h` | Print usage block (subcommands, flags, env vars, examples) and exit 0 | — |
+| `--version`, `-v` | Print `nsauditor-ai <version>` and exit 0 (CE 0.1.30+) | — |
 
 \* Either `--host` or `--host-file` is required.
 
