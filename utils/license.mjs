@@ -9,9 +9,9 @@
 import { jwtVerify, importSPKI } from 'jose';
 import { promises as fsp } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import dotenv from 'dotenv';
-import { keychainGet } from './keychain.mjs';
+import { keychainGet, keychainSet } from './keychain.mjs';
 
 // ES256 public key — embedded directly so it works in npm package (no file read).
 // Corresponding private key is in the license-manager service (NEVER shipped here).
@@ -117,6 +117,156 @@ function defaultLicenseFilePath() {
     return join(process.env.XDG_CONFIG_HOME, 'nsauditor', '.env');
   }
   return join(homedir(), '.nsauditor', '.env');
+}
+
+/**
+ * CE-0.1.30.4 — persist a verified license key to a platform-appropriate
+ * location so subsequent `loadLicense()` calls find it via the resolver
+ * chain (CE-0.1.30.2).
+ *
+ * Platform routing:
+ *   - macOS:    keychainSet('NSAUDITOR_LICENSE_KEY', key) via the existing
+ *               utils/keychain.mjs helper. If Keychain is unavailable
+ *               (e.g., headless mac without `security` daemon, user
+ *               denied the prompt), falls back to the file path so
+ *               install does not silently fail.
+ *   - Linux:    write $XDG_CONFIG_HOME/nsauditor/.env (or ~/.nsauditor/.env)
+ *               with mode 0600 (parent dir 0700). Preserves any OTHER
+ *               env-vars the operator has in the file — only the
+ *               NSAUDITOR_LICENSE_KEY line is replaced/added.
+ *   - Windows:  same file path (%USERPROFILE%\.nsauditor\.env). No DPAPI
+ *               yet — defer to a future release; the file ACL inherits
+ *               from the user profile which is typically restrictive
+ *               enough on Windows 10+.
+ *
+ * The caller MUST verify the key via loadLicense() BEFORE calling
+ * persistLicenseKey() — this function does not validate. Persisting an
+ * invalid or expired key would store garbage and the next loadLicense()
+ * call would just reject it again, but doing so silently undermines the
+ * `install` command's contract ("we only persist verified keys").
+ *
+ * @param {string} key - The full prefixed key (`pro_eyJ...` or `enterprise_eyJ...`).
+ * @param {object} [opts]
+ * @param {string} [opts._platform]         - Test seam (override Node's platform()).
+ * @param {Function} [opts._keychainSet]    - Test seam (replace Keychain writer).
+ * @param {string} [opts._homeFileOverride] - Test seam (override the file path).
+ * @returns {Promise<{ok: true, location: string} | {ok: false, error: string}>}
+ *   On success, `location` is a human-readable string ("macOS Keychain
+ *   (service=nsauditor-ai)" or the filesystem path). The `install`
+ *   command surfaces this so the operator knows where the key landed.
+ */
+export async function persistLicenseKey(key, opts = {}) {
+  if (typeof key !== 'string' || key.length === 0) {
+    return { ok: false, error: 'persistLicenseKey: key must be a non-empty string' };
+  }
+
+  const plat = opts._platform ?? platform();
+  const kset = opts._keychainSet ?? keychainSet;
+
+  // 1. macOS: try Keychain first.
+  // Reviewer M1 fold: track Keychain-fallback reason so the caller can
+  // surface it to the operator. Pre-fix, the fallback was silent — the
+  // operator only learned about it implicitly via the `location` line
+  // showing a filesystem path instead of "macOS Keychain (...)".
+  let keychainFallbackReason = null;
+  if (plat === 'darwin') {
+    try {
+      await kset('NSAUDITOR_LICENSE_KEY', key);
+      return { ok: true, location: 'macOS Keychain (service=nsauditor-ai)' };
+    } catch (err) {
+      // Fall through to file-based storage. Examples: `security` daemon
+      // unavailable on headless mac; user denied the Keychain prompt;
+      // SIP-restricted environment.
+      keychainFallbackReason = err && err.message ? err.message : String(err);
+    }
+  }
+
+  // 2. File-based storage (Linux, Windows, macOS Keychain fallback).
+  try {
+    const filePath = opts._homeFileOverride ?? defaultLicenseFilePath();
+    const dir = dirname(filePath);
+    // Create dir with 0700 if missing (recursive=true is a no-op if it
+    // already exists; mode is only applied to NEW dirs along the path).
+    await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
+
+    // Preserve other env-vars in an existing file. Read-modify-write
+    // pattern: parse current contents, replace/add the
+    // NSAUDITOR_LICENSE_KEY line, write back.
+    let existingContent = '';
+    try {
+      existingContent = await fsp.readFile(filePath, 'utf8');
+    } catch { /* missing file — fine, we'll create one */ }
+
+    const newContent = mergeLicenseIntoEnvFile(existingContent, key);
+    await fsp.writeFile(filePath, newContent, { mode: 0o600 });
+
+    // Re-chmod in case the file pre-existed with a more permissive mode
+    // (writeFile only sets mode on CREATE, not overwrite).
+    if (plat !== 'win32') {
+      await fsp.chmod(filePath, 0o600);
+    }
+
+    const result = { ok: true, location: filePath };
+    if (keychainFallbackReason !== null) {
+      result.warning =
+        `macOS Keychain unavailable (${keychainFallbackReason}); fell back to file storage. ` +
+        `Re-run after granting Keychain access for stronger protection.`;
+    }
+    return result;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Merge a license key into the existing dotenv-format file content,
+ * preserving every OTHER line. If a NSAUDITOR_LICENSE_KEY line already
+ * exists, replace it; otherwise append. If the file was empty/new,
+ * write a header comment.
+ *
+ * Reviewer M2 / M2b folds:
+ *  - **Multi-occurrence safety**: a corrupted file with TWO+ existing
+ *    `NSAUDITOR_LICENSE_KEY=` lines previously had only the first
+ *    replaced. dotenv parses last-wins, so `--status` would show the
+ *    OLD value while install reported success. Now we replace the first
+ *    occurrence and remove the rest, collapsing blank lines.
+ *  - **CRLF preservation**: the regex anchors on `[ \t]*` (not `\s*`,
+ *    which matches `\r`) and the value-tail uses `[^\r\n]*` so Windows-
+ *    style line endings are not mangled. The replacement line itself
+ *    uses `\n` regardless — Notepad and dotenv both accept mixed
+ *    endings, but this avoids producing them from `\r`-stripped tails.
+ *
+ * Exported for test coverage of the merge semantics specifically.
+ * @internal
+ */
+export function mergeLicenseIntoEnvFile(existingContent, key) {
+  const KEY_LINE_RE = /^[ \t]*NSAUDITOR_LICENSE_KEY[ \t]*=[^\r\n]*$/gm;
+  const newLine = `NSAUDITOR_LICENSE_KEY=${key}`;
+
+  // Count matches (regex needs the global flag for matchAll-equivalence).
+  const matches = existingContent.match(KEY_LINE_RE);
+  if (matches && matches.length > 0) {
+    // Replace the first occurrence in place; remove any duplicates
+    // (corrupted-file defense). Collapse the blank lines that result.
+    let firstReplaced = false;
+    let merged = existingContent.replace(KEY_LINE_RE, () => {
+      if (firstReplaced) return '__NSAUDITOR_PURGE__';   // sentinel for removal
+      firstReplaced = true;
+      return newLine;
+    });
+    // Drop sentinel lines + their trailing newline.
+    merged = merged.replace(/__NSAUDITOR_PURGE__\r?\n?/g, '');
+    return merged;
+  }
+
+  if (existingContent.trim().length === 0) {
+    // Empty/new file — write a header.
+    return `# NSAuditor AI license — set via \`nsauditor-ai license install\`\n${newLine}\n`;
+  }
+
+  // Append to existing content (with a separating newline if needed).
+  const sep = existingContent.endsWith('\n') ? '' : '\n';
+  return `${existingContent}${sep}${newLine}\n`;
 }
 
 /**

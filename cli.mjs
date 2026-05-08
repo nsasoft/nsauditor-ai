@@ -845,6 +845,9 @@ Scan options:
   --compliance-scope <path>    JSON file describing the assessment scope
 
 License subcommands:
+  nsauditor-ai license install <KEY>    Verify and persist a license key (Keychain
+                                        on macOS, ~/.nsauditor/.env on Linux/Windows
+                                        with mode 0600). Rejects invalid/expired keys.
   nsauditor-ai license --status         Show active tier, org, seats, expiry
   nsauditor-ai license --capabilities   List active capabilities for current tier
 
@@ -874,6 +877,7 @@ Examples:
   CLOUD_PROVIDER=aws AWS_PROFILE=default \\
     nsauditor-ai scan --host aws --plugins 020 --compliance soc2
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
+  nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
   nsauditor-ai license --status
 
 Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/pricing/`);
@@ -913,8 +917,68 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       for (const [name, enabled] of Object.entries(caps)) {
         console.log(`  ${enabled ? '✓' : '✗'} ${name}`);
       }
+    } else if (rawArgs.includes('install')) {
+      // CE-0.1.30.4 — install command. Verify the JWT FIRST, then persist
+      // to a platform-appropriate location (macOS Keychain / file).
+      // Closes the customer-onboarding gap where new customers had no
+      // friendly way to register a license without manually editing
+      // shell-rc / .env files.
+      const installIdx = rawArgs.indexOf('install');
+      const rawKey = rawArgs[installIdx + 1];
+      const installKey = typeof rawKey === 'string' ? rawKey.trim() : '';
+
+      if (!installKey || installKey.startsWith('-')) {
+        console.error('Usage: nsauditor-ai license install <KEY>');
+        console.error('  KEY is the JWT from your purchase confirmation (starts with `pro_` or `enterprise_`).');
+        console.error('  Verifies the signature before persisting; invalid keys are rejected.');
+        console.error('');
+        console.error('Storage locations (chosen by platform):');
+        console.error('  macOS:    Keychain — service "nsauditor-ai", account "NSAUDITOR_LICENSE_KEY"');
+        console.error('  Linux:    $XDG_CONFIG_HOME/nsauditor/.env (or ~/.nsauditor/.env), mode 0600');
+        console.error('  Windows:  %USERPROFILE%\\.nsauditor\\.env (DPAPI integration on roadmap)');
+        process.exit(2);
+      }
+
+      // 1. Verify the key BEFORE persisting. Bypasses the resolver chain
+      //    by passing the key explicitly to loadLicense().
+      const verified = await loadLicense(installKey);
+      if (!verified.valid) {
+        console.error(`✗ License key rejected: ${verified.reason}`);
+        console.error('  No changes made. Confirm the key matches your purchase email exactly.');
+        process.exit(1);
+      }
+
+      // 2. Persist (Keychain on macOS / file elsewhere). Lazy import to
+      //    avoid loading the persistor unless install is actually invoked.
+      const { persistLicenseKey } = await import('./utils/license.mjs');
+      const persisted = await persistLicenseKey(installKey);
+      if (!persisted.ok) {
+        console.error(`✗ Verification succeeded but storage failed: ${persisted.error}`);
+        console.error('  Fall-back: set NSAUDITOR_LICENSE_KEY env var manually:');
+        console.error('    export NSAUDITOR_LICENSE_KEY="<your-key>"');
+        process.exit(1);
+      }
+
+      // 3. Confirm. Same shape as `license --status` so customers see
+      //    the persisted key reflected back. NEVER print the key value
+      //    itself — it's a secret. Reviewer M1 fold: surface the
+      //    Keychain-fallback warning if the persistor returned one
+      //    (silent fallback would leave macOS users believing they
+      //    have Keychain protection when they don't).
+      const tierLabel = { ce: 'Community Edition (CE)', pro: 'Pro', enterprise: 'Enterprise' };
+      if (persisted.warning) {
+        console.warn(`⚠  ${persisted.warning}`);
+      }
+      console.log(`✓ ${tierLabel[verified.tier]} license installed`);
+      console.log(`  Stored at: ${persisted.location}`);
+      console.log(`  Org: ${verified.org}`);
+      console.log(`  Seats: ${verified.seats}`);
+      console.log(`  License ID: ${verified.licenseId}`);
+      console.log(`  Expires: ${verified.expiresAt}`);
+      console.log('');
+      console.log('  Verify with: nsauditor-ai license --status');
     } else {
-      console.log('Usage: nsauditor-ai license --status | --capabilities');
+      console.log('Usage: nsauditor-ai license --status | --capabilities | install <KEY>');
     }
     process.exit(0);
   }
