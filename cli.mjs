@@ -644,6 +644,17 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // EE enrichment hook — no-op if @nsasoft/nsauditor-ai-ee is not installed
   // or the license tier doesn't grant intelligenceEngine. Compliance + outDir
   // are forwarded so EE can write scan_finding_queue.json and SOC 2 artifacts.
+  //
+  // CE-0.1.30.5: forward the per-plugin `results` array. This is the hard
+  // dependency that makes EE-0.3.2.1's cloud-finding harvester actually
+  // work in production — pre-CE-0.1.30, EE only saw the concluder object
+  // (single plugin output) and could not harvest findings from cloud
+  // plugins (020/030/etc.) that live in pm.run().results[]. Without this
+  // line, EE 0.3.2 emits a runtime warning ("CE 0.1.30+ … running with
+  // older CE") AND continues to produce false-clean SOC 2 reports against
+  // AWS accounts. EE 0.3.2 + CE 0.1.30 ship as a paired release; mixing
+  // versions is supported but the EE-side cloud-harvest behavior requires
+  // CE-0.1.30+ to take effect.
   try {
     const { enrichScan } = await import('@nsasoft/nsauditor-ai-ee');
     const eeEnrichment = await enrichScan(conclusion, {
@@ -651,6 +662,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       outDir,
       compliance:      opts.compliance ?? process.env.COMPLIANCE_FRAMEWORKS ?? null,
       complianceScope: opts.complianceScope ?? null,
+      results,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
     });
     if (eeEnrichment?.enrichedPrompt) {
