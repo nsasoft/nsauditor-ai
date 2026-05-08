@@ -7,6 +7,11 @@
 // become invalid. See license-manager docs/architecture.md for full procedure.
 
 import { jwtVerify, importSPKI } from 'jose';
+import { promises as fsp } from 'node:fs';
+import { homedir, platform } from 'node:os';
+import { join } from 'node:path';
+import dotenv from 'dotenv';
+import { keychainGet } from './keychain.mjs';
 
 // ES256 public key — embedded directly so it works in npm package (no file read).
 // Corresponding private key is in the license-manager service (NEVER shipped here).
@@ -42,18 +47,96 @@ export function getTierFromEnv() {
 }
 
 /**
+ * CE-0.1.30.2 — multi-source license-key resolution chain.
+ *
+ * Resolution order (first non-empty wins):
+ *   1. process.env.NSAUDITOR_LICENSE_KEY   — CI/CD takes precedence
+ *   2. macOS Keychain (service=nsauditor-ai, account=NSAUDITOR_LICENSE_KEY)
+ *      — set by `nsauditor-ai license install <KEY>` on macOS
+ *   3. $XDG_CONFIG_HOME/nsauditor/.env (or ~/.nsauditor/.env) — universal
+ *      file fallback; set by `license install` on Linux/Windows OR
+ *      manually edited by the operator. Mode 0600 expected; permissive
+ *      mode triggers a warning (still loaded — operator's choice).
+ *
+ * @param {object} [opts]
+ * @param {string} [opts._homeFileOverride]  — test seam. Path to a .env-format
+ *   file to read instead of ~/.nsauditor/.env. Bypasses XDG resolution.
+ * @param {Function} [opts._keychainGet]      — test seam. Replaces the macOS
+ *   Keychain reader.
+ * @returns {Promise<string|null>} The license key string, or null if no
+ *   source had one.
+ */
+export async function resolveLicenseKey(opts = {}) {
+  // 1. env var
+  if (process.env.NSAUDITOR_LICENSE_KEY) return process.env.NSAUDITOR_LICENSE_KEY;
+
+  // 2. platform secret store (macOS Keychain today; Linux/Windows skip)
+  const kget = opts._keychainGet ?? keychainGet;
+  try {
+    const fromKeychain = await kget('NSAUDITOR_LICENSE_KEY');
+    if (fromKeychain) return fromKeychain;
+  } catch { /* keychain unavailable — fall through */ }
+
+  // 3. ~/.nsauditor/.env (or $XDG_CONFIG_HOME/nsauditor/.env)
+  const filePath = opts._homeFileOverride ?? defaultLicenseFilePath();
+  try {
+    const stat = await fsp.stat(filePath);
+    // Warn (non-fatal) if mode is more permissive than 0600 on POSIX.
+    // Windows has no concept of POSIX file mode; skip the check there.
+    // Reviewer M10 fold: only warn once per path per process to avoid
+    // spamming the console under repeated CLI invocations.
+    if (platform() !== 'win32' && stat.isFile() && (stat.mode & 0o077) !== 0) {
+      if (!_permissiveWarnedPaths.has(filePath)) {
+        const modeStr = (stat.mode & 0o777).toString(8).padStart(3, '0');
+        console.warn(`⚠  ${filePath} has permissive mode ${modeStr} — recommend chmod 0600`);
+        _permissiveWarnedPaths.add(filePath);
+      }
+    }
+    const buf = await fsp.readFile(filePath, 'utf8');
+    const parsed = dotenv.parse(buf);
+    if (parsed.NSAUDITOR_LICENSE_KEY) return parsed.NSAUDITOR_LICENSE_KEY;
+  } catch { /* file missing / unreadable — fall through */ }
+
+  return null;
+}
+
+// CE-0.1.30.2 reviewer M10: one-shot permissive-mode warning per path per
+// process. Without this, every `loadLicense()` call against a 0644 file
+// emits a console.warn — and CE re-resolves on every CLI invocation
+// (plus the `cmd === 'license'` branch double-calls today, see reviewer
+// M7 follow-up). Module-scoped Set keeps memory bounded (~1 path per
+// install) and silences the noise without hiding the message from
+// operators who haven't seen it yet.
+const _permissiveWarnedPaths = new Set();
+
+function defaultLicenseFilePath() {
+  // Honor $XDG_CONFIG_HOME (Linux convention; some macOS users set it).
+  // Falls back to ~/.nsauditor/.env which is what the existing README
+  // method-2 docs already promise.
+  if (process.env.XDG_CONFIG_HOME) {
+    return join(process.env.XDG_CONFIG_HOME, 'nsauditor', '.env');
+  }
+  return join(homedir(), '.nsauditor', '.env');
+}
+
+/**
  * Full async JWT verification. Call once at startup.
  * On success, caches verified tier so subsequent getTierFromEnv() calls
  * return the cryptographically validated result.
  *
  * Never throws — degrades to 'ce' on any failure.
  *
- * @param {string} [keyStr] - License key; defaults to NSAUDITOR_LICENSE_KEY env var.
+ * @param {string} [keyStr] - License key; if omitted, runs the multi-source
+ *   resolution chain (env var → Keychain → ~/.nsauditor/.env). See
+ *   resolveLicenseKey() above.
  * @returns {Promise<{valid: boolean, tier: string, org?: string, seats?: number,
  *   licenseId?: string, capabilities?: string[], expiresAt?: string, reason?: string}>}
  */
 export async function loadLicense(keyStr) {
-  const raw = keyStr ?? process.env.NSAUDITOR_LICENSE_KEY;
+  // Explicit keyStr argument wins (preserves the existing behavior for
+  // callers like the `license --status` subcommand which passes the env
+  // var directly). When omitted, run the multi-source resolution chain.
+  const raw = keyStr ?? (await resolveLicenseKey());
   if (!raw) return { valid: false, tier: 'ce', reason: 'no key provided' };
 
   // Strip tier prefix
@@ -124,4 +207,5 @@ export function _resetCache() {
     throw new Error('_resetCache is test-only and disabled in production');
   }
   _verifiedTier = null;
+  _permissiveWarnedPaths.clear();
 }
