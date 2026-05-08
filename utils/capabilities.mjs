@@ -51,3 +51,29 @@ export function resolveCapabilities(tier = 'ce') {
 export function hasCapability(capabilities, cap) {
   return Boolean(capabilities?.[cap]);
 }
+
+// CE-0.1.30.3 reviewer M2 fold: derive the highest tier among a plugin's
+// required capabilities. Used by `license --plugins` to render
+// "✗ requires: <tier>" accurately when a plugin doesn't declare a `tier`
+// field. Pre-fold the CLI fell back to `'pro'` for plugins like 021/022/023
+// (no `tier` field, but require `cloudScanners` which is enterprise-gated)
+// — which misled customers about what license they needed.
+//
+// Returns 'ce' / 'pro' / 'enterprise' (the highest tier among all required
+// caps), or null when the plugin has no requiredCapabilities.
+const _TIER_RANK = { ce: 0, pro: 1, enterprise: 2 };
+const _RANK_TO_TIER = ['ce', 'pro', 'enterprise'];
+
+export function inferRequiredTier(requiredCapabilities) {
+  if (!Array.isArray(requiredCapabilities) || requiredCapabilities.length === 0) {
+    return null;
+  }
+  let maxRank = 0;
+  for (const cap of requiredCapabilities) {
+    const def = CAPABILITIES[cap];
+    if (!def) continue;
+    const rank = _TIER_RANK[def.tier] ?? 0;
+    if (rank > maxRank) maxRank = rank;
+  }
+  return _RANK_TO_TIER[maxRank];
+}

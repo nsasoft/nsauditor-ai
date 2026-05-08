@@ -15,7 +15,7 @@ import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
-import { resolveCapabilities, hasCapability } from './utils/capabilities.mjs';
+import { resolveCapabilities, hasCapability, inferRequiredTier } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
@@ -850,6 +850,8 @@ License subcommands:
                                         with mode 0600). Rejects invalid/expired keys.
   nsauditor-ai license --status         Show active tier, org, seats, expiry
   nsauditor-ai license --capabilities   List active capabilities for current tier
+  nsauditor-ai license --plugins        List discovered plugins grouped by source
+                                        (CE / EE / custom) with active-or-required-tier
 
 Security subcommands (macOS Keychain):
   nsauditor-ai security set <KEY>       Store a secret (read from stdin)
@@ -917,6 +919,72 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       for (const [name, enabled] of Object.entries(caps)) {
         console.log(`  ${enabled ? '✓' : '✗'} ${name}`);
       }
+    } else if (rawArgs.includes('--plugins')) {
+      // CE-0.1.30.3 — real enumeration of discovered plugins, grouped by
+      // source (CE / EE / custom NSAUDITOR_PLUGIN_PATH). Pre-fix this
+      // branch crashed with `TypeError: p.toLowerCase is not a function`
+      // (since hotfixed in 0.1.28 to a Usage fallback). Now: discover
+      // plugins, group by `_source`, format with active/required-tier
+      // status. Output format matches the EE README "Quick Start" example.
+      const tier = getTierFromEnv();
+      const caps = resolveCapabilities(tier);
+      const pm = await PluginManager.create(`${__dirname}/plugins`);
+
+      const groups = { ce: [], ee: [], custom: [] };
+      for (const plugin of pm.plugins) {
+        const source = plugin._source ?? 'ce';
+        if (!groups[source]) groups[source] = [];
+        groups[source].push(plugin);
+      }
+
+      const sourceLabels = {
+        ce: 'CE plugins (from nsauditor-ai)',
+        ee: 'EE plugins (from @nsasoft/nsauditor-ai-ee)',
+        custom: 'Custom plugins (from NSAUDITOR_PLUGIN_PATH)',
+      };
+
+      // Render in fixed order: ce → ee → custom (then any unknown sources alphabetical).
+      const renderOrder = ['ce', 'ee', 'custom', ...Object.keys(groups).filter((k) => !['ce','ee','custom'].includes(k)).sort()];
+      let totalRendered = 0;
+      for (const source of renderOrder) {
+        const plugins = groups[source];
+        if (!plugins || plugins.length === 0) continue;
+        if (totalRendered > 0) console.log('');
+        console.log(`${sourceLabels[source] ?? `${source} plugins`}:`);
+
+        // Sort by id (string-compare keeps zero-padded ids in numeric order).
+        const sorted = [...plugins].sort((a, b) =>
+          String(a.id ?? '').localeCompare(String(b.id ?? ''))
+        );
+        for (const plugin of sorted) {
+          const required = Array.isArray(plugin.requiredCapabilities) ? plugin.requiredCapabilities : [];
+          const allMet = required.length === 0 || required.every((c) => Boolean(caps[c]));
+          // Reviewer M2 fold: derive the required tier from the unmet
+          // capability set so the "requires: …" label is accurate even
+          // when the plugin doesn't declare a `tier` field. EE plugins
+          // 021/022/023 (no `tier` declaration) require `cloudScanners`
+          // which is enterprise-gated — pre-fold they showed
+          // "requires: pro" misleadingly. Now they show "requires:
+          // enterprise" via inferRequiredTier(). plugin.tier is the
+          // operator-declared override; fall back to inference.
+          const inferredTier = inferRequiredTier(required);
+          const requiresLabel = plugin.tier ?? inferredTier ?? 'pro';
+          const status = allMet ? '✓ active' : `✗ requires: ${requiresLabel}`;
+          // Layout matches the EE README example:
+          //   "  003 SSH Scanner            ✓ active"
+          const idStr = String(plugin.id ?? '?').padEnd(3);
+          const nameStr = String(plugin.name ?? '<unnamed>').padEnd(28);
+          console.log(`  ${idStr} ${nameStr} ${status}`);
+        }
+        totalRendered += sorted.length;
+      }
+
+      if (totalRendered === 0) {
+        console.log('No plugins discovered. Re-install nsauditor-ai or check NSAUDITOR_PLUGIN_PATH.');
+      } else {
+        console.log('');
+        console.log(`  ${totalRendered} plugin${totalRendered === 1 ? '' : 's'} total · current tier: ${tier}`);
+      }
     } else if (rawArgs.includes('install')) {
       // CE-0.1.30.4 — install command. Verify the JWT FIRST, then persist
       // to a platform-appropriate location (macOS Keychain / file).
@@ -978,7 +1046,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('');
       console.log('  Verify with: nsauditor-ai license --status');
     } else {
-      console.log('Usage: nsauditor-ai license --status | --capabilities | install <KEY>');
+      console.log('Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY>');
     }
     process.exit(0);
   }

@@ -6,11 +6,19 @@ import { fileURLToPath } from "url";
 
 let OUI_DB = null;
 
+// CE-0.1.30.3 reviewer M1 fold: gate startup chatter behind NSA_VERBOSE so
+// operator-facing flags like `nsauditor-ai license --plugins` and
+// `nsauditor-ai --version` do not pollute stdout with debug banners.
+// Errors remain unconditional (console.error, stderr) — the operator
+// should still see real failure modes.
+const VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NSA_VERBOSE || ''));
+const vlog = VERBOSE ? (...a) => console.log(...a) : () => {};
+
 // Try to import oui-data module, fall back to local file if it fails
 async function loadOuiData() {
   try {
     const ouiData = await import("oui-data", { with: { type: "json" } }).then(module => module.default);
-    console.log("[oui.mjs] Successfully loaded oui-data module with", Object.keys(ouiData).length, "entries");
+    vlog("[oui.mjs] Successfully loaded oui-data module with", Object.keys(ouiData).length, "entries");
     return ouiData;
   } catch (e) {
     console.error("[oui.mjs] Failed to load oui-data module:", e.message);
@@ -19,7 +27,7 @@ async function loadOuiData() {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const localPath = path.join(__dirname, "oui-data.json");
       const data = JSON.parse(await fs.readFile(localPath, "utf8"));
-      console.log("[oui.mjs] Loaded fallback oui-data.json from", localPath, "with", Object.keys(data).length, "entries");
+      vlog("[oui.mjs] Loaded fallback oui-data.json from", localPath, "with", Object.keys(data).length, "entries");
       return data;
     } catch (fallbackError) {
       console.error("[oui.mjs] Failed to load fallback oui-data.json:", fallbackError.message);
@@ -65,7 +73,7 @@ export function lookupVendor(mac) {
     const oui = macToOUI(mac);
     const entry = OUI_DB[oui];
     const vendor = pickOrgName(entry);
-    console.log(`[oui.mjs] Lookup for MAC ${mac} (OUI: ${oui}) -> Vendor: ${vendor || 'Not found'}`);
+    vlog(`[oui.mjs] Lookup for MAC ${mac} (OUI: ${oui}) -> Vendor: ${vendor || 'Not found'}`);
     return vendor;
   } catch (e) {
     console.error("[oui.mjs] Lookup error:", e.message);
