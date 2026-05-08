@@ -588,10 +588,28 @@ async function parseArgs(argv) {
   return args;
 }
 
+// EE-0.3.2.5 (CE side): cloud-provider sentinel hosts ('aws' / 'gcp' /
+// 'azure', case-insensitive) are NOT real DNS names — they're scoping
+// tokens that EE cloud-scanner plugins (020/021/022/023/030) interpret
+// as "this run targets the cloud provider via its API, not a network
+// address." resolveAndValidate() returns ENOTFOUND for these, so pre-
+// 0.3.2.5 customers had to set NSA_ALLOW_ALL_HOSTS=1 to bypass — which
+// is undocumented AND disables the guard for legitimate RFC 1918 / IP
+// targets in the same scan. Whitelist the sentinels in scanSingleHost
+// so cloud scans Just Work and the env-var bypass remains scoped to
+// its documented use case (local-network auditing).
+//
+// Hoisted to module scope so the Set is built once at module load
+// rather than per scanSingleHost() call (reviewer L1 fold).
+const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
+
 async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // SSRF guard — block loopback, private ranges, cloud metadata endpoints.
   // Set NSA_ALLOW_ALL_HOSTS=1 to scan RFC 1918 / private ranges (local network auditing).
-  if (!process.env.NSA_ALLOW_ALL_HOSTS) {
+  // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
+  const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
+
+  if (!process.env.NSA_ALLOW_ALL_HOSTS && !isCloudSentinel) {
     if (isBlockedIp(host)) {
       throw new Error(`Scanning blocked address range is not allowed: ${host}`);
     }
@@ -800,14 +818,22 @@ Security subcommands (macOS Keychain):
 Environment:
   NSAUDITOR_LICENSE_KEY          Pro/Enterprise license JWT (env var; takes precedence)
   NSA_ALLOW_ALL_HOSTS=1          Permit RFC1918 / loopback (local-network auditing)
-  CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022)
+  CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022/023/030)
   AI_PROVIDER=openai|claude|ollama   AI provider for report generation
   COMPLIANCE_TSA_URL             RFC 3161 timestamp authority for SOC 2 attestation
+
+Cloud-scan hosts:
+  --host aws | gcp | azure       Sentinel literals (case-insensitive). These are not
+                                 DNS-resolved; they route the scan to the matching
+                                 cloud-scanner plugin via the provider's control-plane
+                                 API. Pair with --plugins 020,030 (or similar) — using
+                                 --plugins all on a sentinel host produces noisy
+                                 unreachable-host findings from non-cloud plugins.
 
 Examples:
   nsauditor-ai scan --host 10.0.0.1 --plugins all
   CLOUD_PROVIDER=aws AWS_PROFILE=default \\
-    nsauditor-ai scan --host aws --plugins 020
+    nsauditor-ai scan --host aws --plugins 020 --compliance soc2
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
   nsauditor-ai license --status
 
