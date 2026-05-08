@@ -525,9 +525,25 @@ async function parseArgs(argv) {
   // Help: bare `--help`/`-h`/`help` or completely empty invocation.
   // Recognized before the scan-default so it doesn't crash with
   // "--host or --host-file is required" on a help request.
+  //
+  // CE-0.1.30.1 reviewer M1: short flag `-h` only matches at `a[0]`. The
+  // long-flag `--help` matches anywhere in argv (typing `nsauditor-ai
+  // scan --help` should still print help). Pre-fix the parser had
+  // `a.includes('-h')` which would match `-h` as a value of another
+  // flag (e.g., `--alert-severity -h` would silently fire help instead
+  // of failing argv validation). Same fix mirrored in the version branch
+  // below.
   if (a.length === 0 || a[0] === '--help' || a[0] === '-h' || a[0] === 'help' ||
-      a.includes('--help') || a.includes('-h')) {
+      a.includes('--help')) {
     args.cmd = 'help';
+    return args;
+  }
+  // Version: bare `--version`/`-v`/`version`. CE-0.1.30.1 — same pre-license
+  // dispatch as help so a discovery flag never errors with
+  // "--host or --host-file is required" or with a missing-key fatal.
+  if (a[0] === '--version' || a[0] === '-v' || a[0] === 'version' ||
+      a.includes('--version')) {
+    args.cmd = 'version';
     return args;
   }
   if (a.length && !a[0].startsWith('--')) args.cmd = a[0];
@@ -788,6 +804,16 @@ function maxSeverityInConclusion(conclusion) {
 async function main() {
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = await parseArgs(process.argv);
 
+  // Version: handled before license verification so it works without a key.
+  // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
+  // `nsauditor-ai --version` errored with "Fatal: --host or --host-file
+  // is required". Output format mirrors GNU `--version` convention:
+  // "<tool> <version>" on a single line, then exit 0.
+  if (cmd === 'version') {
+    console.log(`nsauditor-ai ${TOOL_VERSION}`);
+    process.exit(0);
+  }
+
   // Help: handled before license verification so it works without a key.
   if (cmd === 'help') {
     console.log(`nsauditor-ai — Modular AI-assisted network security audit platform
@@ -798,7 +824,8 @@ Usage:
   nsauditor-ai license <subcommand>
   nsauditor-ai security <subcommand>
   nsauditor-ai validate
-  nsauditor-ai help
+  nsauditor-ai version          (or --version / -v)
+  nsauditor-ai help             (or --help / -h)
 
 Scan options:
   --host, --ip, --target <h>   Target host, IP, or CIDR
