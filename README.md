@@ -15,6 +15,20 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New in Enterprise Edition (0.3.3)
+
+The Enterprise Edition (`@nsasoft/nsauditor-ai-ee`) shipped a 0.3.3 point release on 2026-05-08. CE stays at 0.1.30 — no bump required, the EE upgrade is single-line: `npm install -g @nsasoft/nsauditor-ai-ee@latest`. The release closes a Critical false-clean SOC 2 reporting bug that mirrored the AWS-side bug fixed in 0.3.2 — this time in the Azure cloud scanner — and extends mapped SOC 2 coverage to multi-cloud:
+
+- **Azure plugin (022) finding-shape rewrite** — the EE-0.3.2.1 cloud-finding harvester only recognized one canonical shape (`{resource, severity, issues[]}`); plugin 022 was emitting `{severity, finding, resource}` (singular `finding`). Findings reached the engine but were silently dropped — Azure customers running `--compliance soc2` saw "6/6 covered controls passing" against subscriptions with real RBAC + NSG + Storage issues. Caught at internal dogfood against a live Azure subscription.
+- **GCP plugin (021) preventive shape port** — plugin 021 had the same `{finding}` singular shape; pre-emptively migrated to the canonical shape so the same bug doesn't re-emerge for GCP customers in v0.4.0 when GCP `mapsToFindings` rules ship.
+- **Azure → SOC 2 mapping rules added** — RBAC `Owner | Contributor | User Access Administrator at subscription scope` → CC6.1 (3 patterns); NSG `0.0.0.0/0 → port` anchored regex → CC6.6; Storage `allowBlobPublicAccess` + `enableHttpsTrafficOnly` → C1.1. CC6.1, CC6.6, and C1.1 now have *both* AWS-side and Azure-side evidence rows — actual multi-cloud SOC 2 evidence.
+- **Drift detector extended to all three cloud plugins** — every `azure-cloud-scanner` `titlePattern` in `soc2.json` is now asserted to match at least one canonical issue string the plugin emits, and vice versa. The class-of-bug that produced two false-clean variants in successive releases is now structurally closed.
+- **Pre-publish gate fixes** — `@azure/arm-authorization` peer-dep was pinned at `^10.0.0` (latest published is 9.0.0; clean installs would have failed); `@azure/arm-storage` was missing from `optionalDependencies` (Storage audit silently no-op'd on clean install). Both caught at the pre-publish clean-tarball smoke and corrected before ship.
+
+See [EE README](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee) for the full 0.3.3 changelog and Azure scan walkthrough.
+
+---
+
 ## What's New (0.1.30)
 
 The 0.1.30 line is a paired release with `@nsasoft/nsauditor-ai-ee@0.3.2` that closes the customer-onboarding gap and a critical false-clean SOC 2 reporting bug:
@@ -60,7 +74,7 @@ NSAuditor AI is available in three editions:
 | Advanced CTEM + trend analysis | — | ✅ | ✅ |
 | Cloud scanners (AWS/GCP/Azure) | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
-| SOC 2 compliance (8 covered + 5 partial controls) | — | — | ✅ |
+| SOC 2 compliance (8 covered + 5 partial controls; AWS + Azure evidence streams) | — | — | ✅ |
 | SLA/MTTR tracking + compensating controls | — | — | ✅ |
 | Recurring-scan attestation (Type II evidence) | — | — | ✅ |
 | GRC platform connector (Vanta) | — | — | ✅ |
@@ -182,7 +196,7 @@ Results land in `./out/<host>_<timestamp>/`:
 |---|---|---|---|
 | 020 | AWS Cloud Scanner | Enterprise | Security group + IAM policy analysis |
 | 021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings |
-| 022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC analysis |
+| 022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC role assignments + Storage account hardening; SOC 2 mapping (CC6.1, CC6.6, C1.1) shipped in EE 0.3.3 |
 | 023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral movement scoring |
 | — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 control mapping, chain-of-custody, RFC 3161 timestamps, suppression workflow |
 | — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle |
