@@ -22,7 +22,7 @@ import {
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
-import { authorizeMcpServerStartup } from './utils/mcp_auth.mjs';
+import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
 
 const _require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = _require('./package.json');
@@ -435,6 +435,47 @@ if (isMainModule) {
       );
     }
   }
+
+  // EE-SEC.1.1 (Thread I): rotation-cadence soft warning. SOC 2 CC6.1 /
+  // CC6.7 reviewers expect a credential-rotation cadence; an unrotated
+  // shared secret is treated the same way as an unrotated IAM access
+  // key.
+  //
+  // Design note (LOW #1 from Reviewer 2): soft warning, not hard
+  // refusal. Hard-refuse would break Claude Desktop integration mid-
+  // session for operators who haven't seen 30 days of warnings (Claude
+  // Desktop buries MCP server stderr in a log file most operators
+  // never check). Soft warning + `mcp status` operator-runnable
+  // evidence path is the right SOC 2 posture — auditor sees the warning
+  // fires AND that the operator chose to defer rotation.
+  //
+  // Reviewer 2 CRITICAL #1 fold: when a key is configured but the
+  // NSA_MCP_AUTH_KEY_CREATED companion is missing (operator upgraded
+  // from CE 0.1.31 without re-installing), we surface a DIFFERENT
+  // stderr message pointing at `mcp install-key <existing-key>` to
+  // backfill the timestamp. Without this hint, EE-SEC.1.1 ships dark
+  // for the entire installed base of CE 0.1.31 deployments.
+  try {
+    const status = await reportMcpAuthSource();
+    const threshold = getRotationWarningDays();
+    if (status.legacyTimestampMissing) {
+      process.stderr.write(
+        `⚠  MCP auth key is configured but the rotation-cadence timestamp ` +
+        `is missing (likely a pre-0.1.32 install). Rotation warnings will ` +
+        `not fire until you backfill the timestamp. Either:\n` +
+        `   (1) re-run \`nsauditor-ai mcp install-key <KEY>\` with your existing key ` +
+        `(use \`mcp print-key --confirm\` to retrieve it), OR\n` +
+        `   (2) rotate to a fresh key with \`nsauditor-ai mcp rotate-key --confirm\` ` +
+        `and update Claude Desktop config.\n`,
+      );
+    } else if (typeof status.ageDays === 'number' && status.ageDays > threshold) {
+      process.stderr.write(
+        `⚠  MCP auth key is ${status.ageDays} days old (> ${threshold}d threshold). ` +
+        `Consider \`nsauditor-ai mcp rotate-key --confirm\` and update Claude Desktop config. ` +
+        `SOC 2 CC6.1 / CC6.7 reviewers flag unrotated shared secrets.\n`,
+      );
+    }
+  } catch { /* age check is non-fatal — never block startup on it */ }
 
   // Verify license JWT before accepting MCP requests — upgrades _tier from
   // prefix-based to cryptographically verified.

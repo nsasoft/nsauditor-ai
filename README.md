@@ -362,7 +362,17 @@ nsauditor-ai mcp rotate-key --confirm    # generates a new key (invalidates old 
 | Future HTTP/SSE transport network exposure | ✅ — key gates server startup, not network |
 | Attacker with full operator code-exec AND can suppress macOS Keychain prompts | ⚠ partial — recent macOS versions log Keychain-access denial events |
 | Debugger-attach memory snooping | ⚠ out of scope (any shared-secret auth has this limit) |
-| Linux env-var visibility in `/proc/<pid>/environ` | ⚠ partial — only literal-key configs leak; the macOS keychain: indirection avoids this entirely |
+| Linux env-var visibility in `/proc/<pid>/environ` | ⚠ partial — see Linux note below |
+
+**Linux note (`/proc/<pid>/environ`)**: on modern Linux, `/proc/<pid>/environ` is readable only by the process owner (the same user that spawned the MCP server). Other users on a multi-user system **cannot** read your MCP auth key from `/proc` under default kernel settings. The realistic remaining risks are:
+
+- Container scenarios where multiple "users" share the same kernel UID (e.g., a Docker container running as root, with multiple processes inside) — the secret is visible to any process in the same UID namespace. Mitigation: run the MCP server in its own container / user.
+- Audit/SIEM agents with broad read access (e.g., `auditd` configured to log child-process env). Mitigation: review your `auditd` rules; modern setups exclude env from logs by default.
+- The legacy `ps eww` command on older POSIX systems (modern `ps` respects `/proc` permissions).
+
+A shell-wrapper indirection script (read key from `~/.nsauditor/.env` at exec time, pass to child) was considered for v1 but does NOT solve the underlying issue: the spawned MCP server still needs the key in its env to perform the auth check, so it appears in `/proc/<server-pid>/environ` regardless of how the parent process obtained it. v2 may add libsecret integration on Linux to mirror the macOS Keychain indirection model.
+
+**Rotation cadence (NEW in 0.1.32)**: keys older than 90 days emit a soft warning at every server startup AND in `nsauditor-ai mcp status` output. SOC 2 CC6.1 / CC6.7 reviewers expect a credential-rotation cadence; rotate with `nsauditor-ai mcp rotate-key --confirm` and update Claude Desktop config with the new key.
 
 **Escape hatch for CI / dev** (operator-acknowledged risk; emits a stderr warning every startup):
 
@@ -425,6 +435,10 @@ claude mcp add nsauditor-ai \
 **"NSA_MCP_AUTH_KEY env var does not match the key configured in storage"** → most often means you ran `nsauditor-ai mcp rotate-key --confirm` but didn't update Claude Desktop config with the new key. Run `nsauditor-ai mcp status` to confirm storage source, then either re-paste the new key or use `keychain:NSA_MCP_AUTH_KEY` indirection (macOS only) so future rotations don't require a config change.
 
 **"MCP_AUTH uses keychain: indirection but the referenced Keychain entry could not be read"** → typically a headless macOS / SSH-only CI runner where there's no GUI session to approve Keychain access. Replace the `keychain:` placeholder with the literal key value (or move auth to `~/.nsauditor/.env` with mode 0600).
+
+**`mcp status` reports `keychain-locked`** (NEW in 0.1.32) → distinct from `unconfigured`: the Keychain entry exists but the security daemon refused to unlock without a GUI prompt. Same workarounds as the previous error: approve a Keychain GUI prompt, replace `keychain:` indirection with the literal key, or move auth to `~/.nsauditor/.env`. Pre-0.1.32 the resolver silently fell through to the file branch and reported `unconfigured` — the new state distinguishes "operator never ran install-key" from "operator did run it but Keychain is locked right now".
+
+**`mcp status` shows `⚠ Created: ... — > 90d threshold`** (NEW in 0.1.32) → key is older than the 90-day rotation cadence. Run `nsauditor-ai mcp rotate-key --confirm` and update Claude Desktop config with the new key. Server emits the same warning to stderr at every startup.
 
 ---
 

@@ -34,6 +34,61 @@ export async function keychainGet(account) {
 }
 
 /**
+ * Diagnostic variant of keychainGet that distinguishes failure modes.
+ * Used by EE-SEC.1.1 (Thread I) to surface a different error message
+ * for "Keychain locked / GUI prompt needed" (headless macOS / SSH-only
+ * CI) vs "no entry exists" (operator never ran install-key).
+ *
+ * Returns { value, state, raw }:
+ *   - state='ok'           — value is the secret
+ *   - state='not-found'    — Keychain has no entry for this account
+ *   - state='locked'       — Keychain entry exists but GUI approval needed
+ *   - state='unavailable'  — security daemon error (non-mac platform,
+ *                            timeout, etc.)
+ *
+ * On non-macOS platforms, returns { value: null, state: 'unavailable' }.
+ *
+ * @param {string} account
+ * @returns {Promise<{ value: string|null, state: 'ok'|'not-found'|'locked'|'unavailable', raw?: string }>}
+ */
+export async function keychainGetDetailed(account) {
+  if (!isMac) {
+    return { value: null, state: 'unavailable', raw: 'not-macos' };
+  }
+  try {
+    const value = await exec('security', [
+      'find-generic-password', '-s', SERVICE, '-a', account, '-w'
+    ]);
+    return { value, state: 'ok' };
+  } catch (err) {
+    const raw = (err && err.message) ? err.message : String(err);
+    // `security` returns specific stderr per failure mode. We pattern-
+    // match on the stable English text — the underlying SecKeychain
+    // API error codes (errSecInteractionNotAllowed=-25308,
+    // errSecItemNotFound=-25300) are also embedded but the strings
+    // are more reliable across macOS versions.
+    // EE-SEC.1.1 LOW #2 fold (post-review): also pattern-match numeric
+    // SecKeychain error codes (-25300 errSecItemNotFound, -25308
+    // errSecInteractionNotAllowed). The English-text patterns are
+    // stable on US-locale macOS but break on localized installs
+    // (French/Japanese/etc.); the numeric codes appear in the security
+    // command's stderr regardless of locale.
+    if (/could not be found in the keychain/i.test(raw)
+        || /SecKeychainSearchCopyNext: The specified item could not be found/i.test(raw)
+        || /errSecItemNotFound/i.test(raw)
+        || /-25300\b/.test(raw)) {
+      return { value: null, state: 'not-found', raw };
+    }
+    if (/User interaction is not allowed/i.test(raw)
+        || /errSecInteractionNotAllowed/i.test(raw)
+        || /-25308\b/.test(raw)) {
+      return { value: null, state: 'locked', raw };
+    }
+    return { value: null, state: 'unavailable', raw };
+  }
+}
+
+/**
  * Store a secret in the macOS Keychain.
  * Updates existing entry if present.
  * @param {string} account - Key name

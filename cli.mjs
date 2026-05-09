@@ -1245,7 +1245,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     } else if (subCmd === 'status') {
       // Report which storage source the resolver currently honors,
       // WITHOUT printing the key value. Safe to run in screen-share,
-      // logs, etc.
+      // logs, etc. EE-SEC.1.1 (Thread I): also surfaces key age + the
+      // keychain-locked state distinction (so headless macOS / SSH
+      // sessions get an actionable error rather than a generic
+      // "unconfigured" fallthrough). MEDIUM #4 fold: rotation
+      // threshold respects NSA_MCP_AUTH_KEY_ROTATION_DAYS env override.
+      const { getRotationWarningDays: _grwd } = await import('./utils/mcp_auth.mjs');
+      const _rwd = _grwd();
       const result = await reportMcpAuthSource();
       if (result.source === 'unconfigured') {
         console.log(`✗ MCP authentication is not configured.`);
@@ -1255,9 +1261,57 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
           console.log(`  ⚠ ${MCP_AUTH_DISABLE_ENV_VAR}=1 is set — server will start without auth.`);
         }
         process.exit(1);
+      } else if (result.source === 'keychain-locked') {
+        // EE-SEC.1.1 (Reviewer 2 MEDIUM #3 from EE-SEC.1): Keychain
+        // entry exists but the security daemon refused to unlock —
+        // GUI prompt unavailable. Common on SSH sessions, headless
+        // CI runners, and login-keychain-not-unlocked-yet scenarios.
+        // MEDIUM #3 fold (post-EE-SEC.1.1): operators triggering this
+        // branch are by construction in a no-GUI context. Reorder
+        // workarounds to put the GUI-FREE options first; "approve
+        // GUI prompt" demoted to the fallback for operators who DO
+        // have GUI access (rare given they hit this branch).
+        console.log(`⚠ MCP auth key is configured in macOS Keychain, but Keychain access`);
+        console.log(`  is currently locked (security daemon refused without GUI prompt).`);
+        console.log(`  This is normal on SSH sessions and headless CI runners.`);
+        console.log('');
+        console.log(`  Detail: ${result.detail}`);
+        console.log('');
+        console.log(`  Workarounds (GUI-free paths first):`);
+        console.log(`    1. Replace the keychain: indirection in Claude Desktop config`);
+        console.log(`       with the literal key value (run \`mcp print-key --confirm\`).`);
+        console.log(`    2. Move auth to the file fallback by setting NSA_MCP_AUTH_KEY`);
+        console.log(`       in ~/.nsauditor/.env directly (mode 0600).`);
+        console.log(`    3. If you have GUI access: approve a Keychain prompt in the`);
+        console.log(`       macOS GUI session.`);
+        process.exit(1);
       } else {
         console.log(`✓ MCP auth key configured`);
         console.log(`  Source: ${result.source}${result.detail ? ` (${result.detail})` : ''}`);
+        // EE-SEC.1.1: surface key age when known. Older installs
+        // (predating the timestamp companion) get null and the
+        // CRITICAL #1 hint below instead.
+        if (typeof result.ageDays === 'number') {
+          const ageStr = result.ageDays === 0 ? 'today' : `${result.ageDays} day${result.ageDays === 1 ? '' : 's'} ago`;
+          if (result.ageDays > _rwd) {
+            console.log(`  ⚠ Created: ${result.createdAt} (${ageStr}) — > ${_rwd}d threshold`);
+            console.log(`     Consider: nsauditor-ai mcp rotate-key --confirm`);
+            console.log(`     SOC 2 CC6.1 / CC6.7 reviewers flag unrotated shared secrets.`);
+          } else {
+            console.log(`  Created: ${result.createdAt} (${ageStr})`);
+          }
+        } else if (result.legacyTimestampMissing) {
+          // CRITICAL #1 fold (post-review): existing CE 0.1.31
+          // operators upgrading have a key but no timestamp →
+          // ageDays is null → silent. Distinct hint pointing at
+          // backfill so SOC 2 evidence isn't dark for the installed base.
+          console.log(`  ⚠ Created: unknown (pre-0.1.32 install — no rotation timestamp)`);
+          console.log(`     Backfill the timestamp without invalidating the key:`);
+          console.log(`       nsauditor-ai mcp print-key --confirm   # retrieve current key`);
+          console.log(`       nsauditor-ai mcp install-key <KEY>      # re-install with timestamp`);
+          console.log(`     Or rotate to a fresh key:`);
+          console.log(`       nsauditor-ai mcp rotate-key --confirm`);
+        }
         if (process.env[MCP_AUTH_DISABLE_ENV_VAR] === '1') {
           console.log('');
           console.log(`  ⚠ ${MCP_AUTH_DISABLE_ENV_VAR}=1 is set — server will start without auth.`);

@@ -58,20 +58,26 @@ test('EE-SEC.1: persistMcpAuthKey rejects non-string', async () => {
 // 2. macOS — Keychain success path
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('EE-SEC.1: darwin platform writes to Keychain via _keychainSet', async () => {
-  let writtenAccount = null;
-  let writtenSecret = null;
+test('EE-SEC.1: darwin platform writes to Keychain via _keychainSet (key + EE-SEC.1.1 timestamp companion)', async () => {
+  // EE-SEC.1.1 (Thread I): persist now writes BOTH the key and a
+  // sibling NSA_MCP_AUTH_KEY_CREATED timestamp for rotation cadence.
+  const writes = [];
   const result = await persistMcpAuthKey(SAMPLE_KEY, {
     _platform: 'darwin',
     _keychainSet: async (account, secret) => {
-      writtenAccount = account;
-      writtenSecret = secret;
+      writes.push({ account, secret });
     },
   });
   assert.equal(result.ok, true);
-  assert.equal(writtenAccount, MCP_AUTH_ENV_VAR);
-  assert.equal(writtenSecret, SAMPLE_KEY);
   assert.ok(result.location.includes('Keychain'));
+  // EE-SEC.1.1 MEDIUM #2 fold (post-review): timestamp written FIRST,
+  // then key — half-write fails CLOSED (no usable key without timestamp).
+  assert.equal(writes.length, 2, `expected 2 writes (timestamp + key), got ${writes.length}`);
+  assert.equal(writes[0].account, 'NSA_MCP_AUTH_KEY_CREATED');
+  assert.ok(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(writes[0].secret));
+  assert.equal(writes[1].account, MCP_AUTH_ENV_VAR);
+  assert.equal(writes[1].secret, SAMPLE_KEY);
+  assert.equal(result.createdAt, writes[0].secret);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

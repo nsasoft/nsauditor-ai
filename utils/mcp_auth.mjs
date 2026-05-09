@@ -51,7 +51,7 @@ import { dirname, join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import dotenv from 'dotenv';
 
-import { keychainGet, keychainSet, resolveSecret } from './keychain.mjs';
+import { keychainGet, keychainSet, keychainGetDetailed, resolveSecret } from './keychain.mjs';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -70,6 +70,43 @@ export const MCP_AUTH_DISABLE_ENV_VAR = 'NSA_MCP_AUTH_DISABLE';
 // env var name — keeps the storage and resolution paths symmetrically
 // named so operators don't have to remember two strings.
 const MCP_AUTH_KEYCHAIN_ACCOUNT = MCP_AUTH_ENV_VAR;
+
+// EE-SEC.1.1: created-at timestamp companion. Stored alongside the key
+// so `mcp status` and the server-startup stderr can emit a soft warning
+// when the key has been in use for more than ROTATION_WARNING_DAYS.
+// SOC 2 CC6.1 / CC6.7 reviewers expect a credential rotation cadence;
+// an unrotated MCP auth key is a finding the same way an unrotated
+// IAM access key is a finding.
+export const MCP_AUTH_CREATED_ENV_VAR = 'NSA_MCP_AUTH_KEY_CREATED';
+const MCP_AUTH_CREATED_KEYCHAIN_ACCOUNT = MCP_AUTH_CREATED_ENV_VAR;
+export const ROTATION_WARNING_DAYS = 90;
+// EE-SEC.1.1 MEDIUM #4 fold (post-review): operator override env var.
+// SOC 2 doesn't fix a number — common interpretations span 30/60/90/180.
+// PCI-DSS pushes for 90d hard; NIST SP 800-63B prefers event-based rotation.
+// An operator whose customer auditor demands 60 days needs a knob; clamping
+// to [7, 365] prevents pathological values (sub-week = constant-warn-noise;
+// > 1 year = effectively no rotation).
+export const ROTATION_WARNING_DAYS_ENV_VAR = 'NSA_MCP_AUTH_KEY_ROTATION_DAYS';
+
+/**
+ * Resolve the effective rotation-warning threshold. Reads
+ * NSA_MCP_AUTH_KEY_ROTATION_DAYS from the env (or `opts._env`),
+ * clamps to [7, 365], falls back to ROTATION_WARNING_DAYS (90).
+ *
+ * @param {object} [opts]
+ * @param {Record<string, string|undefined>} [opts._env]
+ * @returns {number}
+ */
+export function getRotationWarningDays(opts = {}) {
+  const env = opts._env ?? process.env;
+  const raw = env[ROTATION_WARNING_DAYS_ENV_VAR];
+  if (!raw) return ROTATION_WARNING_DAYS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return ROTATION_WARNING_DAYS;
+  return Math.max(7, Math.min(365, parsed));
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Key prefix. Lets operators distinguish from license keys (`pro_eyJ...`,
 // `enterprise_eyJ...`) at a glance. 32 bytes of entropy → 43 chars
@@ -196,29 +233,153 @@ export async function resolveMcpAuthKey(opts = {}) {
  * verify their setup without exposing the secret to shell history /
  * tmux scrollback / screen-share.
  *
- * @param {object} [opts] — same test seams as resolveMcpAuthKey.
- * @returns {Promise<{ source: 'env'|'keychain'|'file'|'unconfigured', detail?: string }>}
+ * EE-SEC.1.1: extended with `ageDays` (when a created-at timestamp is
+ * available) so `mcp status` and the server-startup stderr can emit a
+ * soft warning when the key has been in use for more than
+ * ROTATION_WARNING_DAYS. Also distinguishes Keychain-locked from
+ * Keychain-empty so headless macOS / SSH-only CI runners get an
+ * actionable error rather than a generic "unconfigured" fallthrough.
+ *
+ * @param {object} [opts] — same test seams as resolveMcpAuthKey, plus
+ *   `_keychainGetDetailed` for the lock-state distinction and `_now`
+ *   for hermetic age computation.
+ * @returns {Promise<{
+ *   source: 'env'|'keychain'|'file'|'unconfigured'|'keychain-locked',
+ *   detail?: string,
+ *   ageDays?: number|null,
+ *   createdAt?: string|null,
+ * }>}
  */
 export async function reportMcpAuthSource(opts = {}) {
+  const now = opts._now ? new Date(opts._now).getTime() : Date.now();
+
   if (process.env[MCP_AUTH_ENV_VAR]) {
-    return { source: 'env', detail: MCP_AUTH_ENV_VAR };
+    // No createdAt available for env-supplied keys — operator-managed,
+    // we don't know the rotation history. EE-SEC.1.1 CRITICAL #1 fold:
+    // surface a `legacyTimestampMissing: false` here so callers don't
+    // mis-interpret env-supplied as "old install missing timestamp".
+    return {
+      source: 'env',
+      detail: MCP_AUTH_ENV_VAR,
+      ageDays: null,
+      createdAt: null,
+      legacyTimestampMissing: false,
+    };
   }
-  const kget = opts._keychainGet ?? keychainGet;
+
+  // EE-SEC.1.1: use detailed Keychain lookup so lock-state is preserved.
+  // Backward-compat: legacy callers (and EE-SEC.1 tests) supply
+  // _keychainGet which returns just `string|null`. Wrap it into the
+  // detailed shape so the resolver works for both APIs.
+  let kgetDetailed;
+  if (opts._keychainGetDetailed) {
+    kgetDetailed = opts._keychainGetDetailed;
+  } else if (opts._keychainGet) {
+    const legacyKget = opts._keychainGet;
+    kgetDetailed = async (account) => {
+      try {
+        const value = await legacyKget(account);
+        return value
+          ? { value, state: 'ok' }
+          : { value: null, state: 'not-found' };
+      } catch (err) {
+        return { value: null, state: 'unavailable', raw: err && err.message ? err.message : String(err) };
+      }
+    };
+  } else {
+    kgetDetailed = keychainGetDetailed;
+  }
+  let detailedResult = null;
   try {
-    const fromKeychain = await kget(MCP_AUTH_KEYCHAIN_ACCOUNT);
-    if (fromKeychain) {
-      return { source: 'keychain', detail: 'macOS Keychain (service=nsauditor-ai)' };
+    detailedResult = await kgetDetailed(MCP_AUTH_KEYCHAIN_ACCOUNT);
+  } catch { /* defensive — should never throw, but tolerate test seams that do */ }
+  if (detailedResult && detailedResult.state === 'ok' && detailedResult.value) {
+    // Read the companion timestamp (best-effort; old installs may not
+    // have it). EE-SEC.1.1: skip the timestamp lookup when the caller
+    // only supplied the legacy `_keychainGet` seam — that seam returns
+    // the same value for any account name (it's a single-account stub),
+    // so calling it for the timestamp contaminates the result with the
+    // key value. Real `keychainGetDetailed` properly distinguishes by
+    // account.
+    let createdAt = null;
+    const usedLegacySeam = !opts._keychainGetDetailed && opts._keychainGet;
+    if (!usedLegacySeam) {
+      try {
+        const ts = await kgetDetailed(MCP_AUTH_CREATED_KEYCHAIN_ACCOUNT);
+        if (ts && ts.state === 'ok' && ts.value) createdAt = ts.value;
+      } catch { /* fall through */ }
     }
-  } catch { /* fall through */ }
+    return {
+      source: 'keychain',
+      detail: 'macOS Keychain (service=nsauditor-ai)',
+      createdAt,
+      ageDays: _ageDaysFromIso(createdAt, now),
+      // EE-SEC.1.1 CRITICAL #1 fold: existing CE 0.1.31 operators
+      // upgrading to 0.1.32 have a key but no NSA_MCP_AUTH_KEY_CREATED
+      // companion — `getMcpAuthKeyAge` returns null and the rotation
+      // warning silently never fires. The auditor evidence story is
+      // broken until the operator happens to rotate. Distinguish
+      // "legacy install missing timestamp" from "env-supplied (no
+      // history known)" so cli.mjs `mcp status` and the server-startup
+      // stderr can prompt operators to backfill via `mcp install-key
+      // <existing-key>` (which preserves the key but writes the
+      // timestamp companion).
+      legacyTimestampMissing: createdAt === null,
+    };
+  }
+  if (detailedResult && detailedResult.state === 'locked') {
+    // Keychain has the entry but the security daemon refused to
+    // unlock — operator's GUI is unavailable (SSH / headless CI /
+    // login-keychain not unlocked yet).
+    return {
+      source: 'keychain-locked',
+      detail: 'macOS Keychain (service=nsauditor-ai) — entry exists but interaction not allowed',
+      ageDays: null,
+      createdAt: null,
+    };
+  }
+
   const filePath = opts._homeFileOverride ?? defaultMcpAuthFilePath();
   try {
     const buf = await fsp.readFile(filePath, 'utf8');
     const parsed = dotenv.parse(buf);
     if (parsed[MCP_AUTH_ENV_VAR]) {
-      return { source: 'file', detail: filePath };
+      const createdAt = parsed[MCP_AUTH_CREATED_ENV_VAR] || null;
+      return {
+        source: 'file',
+        detail: filePath,
+        createdAt,
+        ageDays: _ageDaysFromIso(createdAt, now),
+        // CRITICAL #1 fold: same legacy-install signal as the keychain
+        // branch above.
+        legacyTimestampMissing: createdAt === null,
+      };
     }
   } catch { /* fall through */ }
-  return { source: 'unconfigured' };
+  return { source: 'unconfigured', ageDays: null, createdAt: null };
+}
+
+/**
+ * Get the age of the configured MCP auth key, in days. Returns null
+ * when no key is configured or the timestamp is missing/unparseable
+ * (older installs predating EE-SEC.1.1 won't have the timestamp).
+ *
+ * @param {object} [opts] — same test seams as reportMcpAuthSource.
+ * @returns {Promise<number|null>}
+ */
+export async function getMcpAuthKeyAge(opts = {}) {
+  const status = await reportMcpAuthSource(opts);
+  return status.ageDays ?? null;
+}
+
+// Internal: parse an ISO-8601 timestamp and return age in days from
+// the reference time. Returns null on parse failure or future dates.
+function _ageDaysFromIso(isoString, nowMs) {
+  if (typeof isoString !== 'string' || isoString.length === 0) return null;
+  const ms = Date.parse(isoString);
+  if (Number.isNaN(ms)) return null;
+  if (ms > nowMs) return null; // clock skew — don't emit a misleading negative
+  return Math.floor((nowMs - ms) / MS_PER_DAY);
 }
 
 function defaultMcpAuthFilePath() {
@@ -251,13 +412,34 @@ export async function persistMcpAuthKey(key, opts = {}) {
 
   const plat = opts._platform ?? platform();
   const kset = opts._keychainSet ?? keychainSet;
+  // EE-SEC.1.1: timestamp the key for rotation cadence tracking.
+  // ISO-8601 UTC for unambiguous parsing across timezones / locales.
+  // Test seam allows hermetic injection of "now".
+  // Reviewer 1 MEDIUM #1 fold (post-EE-SEC.1.1): normalize _now via
+  // `new Date(...).toISOString()` so callers passing an epoch-ms
+  // number (valid in reportMcpAuthSource via `new Date(opts._now).getTime()`)
+  // don't write an unparseable literal. Production callers always
+  // omit _now; this guards the hermetic-test path symmetrically.
+  const createdAt = opts._now
+    ? new Date(opts._now).toISOString()
+    : new Date().toISOString();
 
   // 1. macOS: try Keychain first.
   let keychainFallbackReason = null;
   if (plat === 'darwin') {
     try {
+      // Reviewer 2 MEDIUM #2 fold (post-EE-SEC.1.1): write timestamp
+      // FIRST, then key. A half-write where the timestamp succeeds
+      // but the key fails leaves no usable key — auth check refuses
+      // the next startup → fail-CLOSED. Pre-fold the order was
+      // reversed: a half-write left a usable key with no timestamp,
+      // silently disabling rotation-cadence warnings forever.
+      // Companion writes use the same kset; if the FIRST one fails
+      // we fall through to file storage (full reset) rather than
+      // leaving partial state.
+      await kset(MCP_AUTH_CREATED_KEYCHAIN_ACCOUNT, createdAt);
       await kset(MCP_AUTH_KEYCHAIN_ACCOUNT, key);
-      return { ok: true, location: 'macOS Keychain (service=nsauditor-ai)' };
+      return { ok: true, location: 'macOS Keychain (service=nsauditor-ai)', createdAt };
     } catch (err) {
       keychainFallbackReason = err && err.message ? err.message : String(err);
     }
@@ -284,13 +466,35 @@ export async function persistMcpAuthKey(key, opts = {}) {
       existingContent = await fsp.readFile(filePath, 'utf8');
     } catch { /* missing file — create one */ }
 
-    const newContent = mergeMcpAuthIntoEnvFile(existingContent, key);
-    await fsp.writeFile(filePath, newContent, { mode: 0o600 });
+    // EE-SEC.1.1: write BOTH the key and the created-at timestamp.
+    // Same merge semantics — preserves other env-vars, replaces
+    // existing values, drops duplicates. The two writes are atomic
+    // at the file level (single writeFile call after merging both
+    // into the new content).
+    //
+    // Reviewer 2 MEDIUM #1 fold (post-EE-SEC.1.1): write to a
+    // sibling .tmp file first, then rename() — POSIX rename is
+    // atomic, so concurrent readers see either the OLD file or the
+    // NEW file, never a truncated mid-write state. Fixes the race
+    // where `mcp status` running simultaneously with `mcp install-key`
+    // could observe an empty file → "unconfigured" → operator
+    // confusion. Also defends against host-crash mid-write losing
+    // both the key AND the timestamp.
+    let newContent = mergeMcpAuthIntoEnvFile(existingContent, key);
+    newContent = mergeMcpAuthCreatedIntoEnvFile(newContent, createdAt);
+    const tmpPath = `${filePath}.tmp`;
+    await fsp.writeFile(tmpPath, newContent, { mode: 0o600 });
     if (plat !== 'win32') {
+      await fsp.chmod(tmpPath, 0o600);
+    }
+    await fsp.rename(tmpPath, filePath);
+    if (plat !== 'win32') {
+      // rename preserves source mode on POSIX, but a chmod after is
+      // belt-and-suspenders if the source mode was somehow changed.
       await fsp.chmod(filePath, 0o600);
     }
 
-    const result = { ok: true, location: filePath };
+    const result = { ok: true, location: filePath, createdAt };
     if (keychainFallbackReason !== null) {
       result.warning =
         `macOS Keychain unavailable (${keychainFallbackReason}); fell back to file storage. ` +
@@ -316,34 +520,86 @@ export async function persistMcpAuthKey(key, opts = {}) {
  * @internal
  */
 export function mergeMcpAuthIntoEnvFile(existingContent, key) {
-  // Reviewer 1 MEDIUM #5 fold: escape regex metacharacters in
-  // MCP_AUTH_ENV_VAR before interpolating. Today the constant is
-  // `NSA_MCP_AUTH_KEY` (no specials), so this is defense-in-depth
-  // — but a future rename to e.g. `NSA-MCP.AUTH+KEY` would silently
-  // break the merge without this guard. License version uses a
-  // literal regex, so it doesn't have this risk; this version
-  // interpolates because the env-var name is exported as a constant.
-  const escaped = MCP_AUTH_ENV_VAR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return mergeKeyValueIntoEnvFile(
+    existingContent,
+    MCP_AUTH_ENV_VAR,
+    key,
+    `# NSAuditor AI MCP auth key — set via \`nsauditor-ai mcp install-key\``,
+  );
+}
+
+/**
+ * Merge a created-at timestamp companion line. EE-SEC.1.1 — used by
+ * persistMcpAuthKey to write `NSA_MCP_AUTH_KEY_CREATED=<ISO-8601>`
+ * alongside the auth key for rotation-cadence tracking.
+ *
+ * Exported for test coverage.
+ * @internal
+ */
+export function mergeMcpAuthCreatedIntoEnvFile(existingContent, createdAt) {
+  return mergeKeyValueIntoEnvFile(
+    existingContent,
+    MCP_AUTH_CREATED_ENV_VAR,
+    createdAt,
+    null, // no header — already present from the key line
+  );
+}
+
+/**
+ * Generic dotenv-format merge: replace `${name}=...` line if present
+ * (collapsing duplicates per the corrupted-file defense), append at
+ * end if absent, write a header for empty input.
+ *
+ * EE-SEC.1.1 (Thread I refactor): the original merge logic was
+ * copy-pasted between the auth-key and (now) created-at lines; this
+ * factor-out also addresses Reviewer 2 LOW #2 from EE-SEC.1 (the
+ * universal-exclusion + sentinel-string duplication concern — both
+ * are now contained in a single helper).
+ *
+ * Reviewer 1 MEDIUM #5 fold (preserved): regex metacharacters in
+ * `name` are escaped before interpolation. Today the names are
+ * `NSA_MCP_AUTH_KEY` and `NSA_MCP_AUTH_KEY_CREATED` (no specials),
+ * so this is defense-in-depth — but a future rename containing
+ * `.+?^${}()|[]\\` would silently break the merge without this guard.
+ *
+ * @param {string} existingContent — current dotenv file content.
+ * @param {string} name — env-var name to write/replace.
+ * @param {string} value — value to assign.
+ * @param {string|null} headerComment — optional header to write when
+ *   the file is empty (e.g., `# NSAuditor AI MCP auth key — ...`).
+ * @internal
+ */
+export function mergeKeyValueIntoEnvFile(existingContent, name, value, headerComment = null) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const KEY_LINE_RE = new RegExp(
     `^[ \\t]*${escaped}[ \\t]*=[^\\r\\n]*$`,
     'gm',
   );
-  const newLine = `${MCP_AUTH_ENV_VAR}=${key}`;
+  const newLine = `${name}=${value}`;
+  // Sentinel includes the env-var name to avoid the (astronomical
+  // but possible) collision concern Reviewer 2 LOW #2 raised — the
+  // sentinel is now per-key rather than global.
+  const PURGE_SENTINEL = `__NSAUDITOR_PURGE_${name}__`;
 
   const matches = existingContent.match(KEY_LINE_RE);
   if (matches && matches.length > 0) {
     let firstReplaced = false;
     let merged = existingContent.replace(KEY_LINE_RE, () => {
-      if (firstReplaced) return '__NSAUDITOR_PURGE__';
+      if (firstReplaced) return PURGE_SENTINEL;
       firstReplaced = true;
       return newLine;
     });
-    merged = merged.replace(/__NSAUDITOR_PURGE__\r?\n?/g, '');
+    const sentinelRe = new RegExp(
+      PURGE_SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\r?\\n?',
+      'g',
+    );
+    merged = merged.replace(sentinelRe, '');
     return merged;
   }
 
   if (existingContent.trim().length === 0) {
-    return `# NSAuditor AI MCP auth key — set via \`nsauditor-ai mcp install-key\`\n${newLine}\n`;
+    const header = headerComment ? `${headerComment}\n` : '';
+    return `${header}${newLine}\n`;
   }
 
   const sep = existingContent.endsWith('\n') ? '' : '\n';
