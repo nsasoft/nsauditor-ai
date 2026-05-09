@@ -853,6 +853,18 @@ License subcommands:
   nsauditor-ai license --plugins        List discovered plugins grouped by source
                                         (CE / EE / custom) with active-or-required-tier
 
+MCP server-auth subcommands (EE-SEC.1):
+  nsauditor-ai mcp install-key          Generate a new MCP auth key, persist (Keychain
+                                        on macOS, ~/.nsauditor/.env elsewhere), print
+                                        Claude Desktop config snippet. Run ONCE per
+                                        machine; without this the MCP server refuses
+                                        to start (anti-spoofing for Pro/Enterprise tools).
+  nsauditor-ai mcp install-key <KEY>    Persist a caller-supplied key (e.g., enterprise-
+                                        managed secret). Validates shape before storing.
+  nsauditor-ai mcp print-key --confirm  Reveal the stored key (use with care)
+  nsauditor-ai mcp rotate-key           Replace the stored key with a fresh one
+  nsauditor-ai mcp status               Show storage source without revealing the key
+
 Security subcommands (macOS Keychain):
   nsauditor-ai security set <KEY>       Store a secret (read from stdin)
   nsauditor-ai security delete <KEY>    Remove a secret
@@ -861,6 +873,9 @@ Security subcommands (macOS Keychain):
 
 Environment:
   NSAUDITOR_LICENSE_KEY          Pro/Enterprise license JWT (env var; takes precedence)
+  NSA_MCP_AUTH_KEY               MCP server auth key — read by mcp_server at startup;
+                                 client supplies via Claude Desktop config env block
+  NSA_MCP_AUTH_DISABLE=1         Skip MCP auth check (CI/dev escape hatch — emits warn)
   NSA_ALLOW_ALL_HOSTS=1          Permit RFC1918 / loopback (local-network auditing)
   CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022/023/030)
   AI_PROVIDER=openai|claude|ollama   AI provider for report generation
@@ -1047,6 +1062,218 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('  Verify with: nsauditor-ai license --status');
     } else {
       console.log('Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY>');
+    }
+    process.exit(0);
+  }
+
+  // EE-SEC.1: MCP server authentication management. Generates, stores,
+  // and inspects the shared secret that authorizes Claude Desktop (or
+  // any MCP client) to call the local MCP server. Without this, any
+  // process running as the operator could spawn the server and call
+  // the Pro/Enterprise tools — including the AWS-talking shadow-admin
+  // path detectors in EE 0.3.4. See utils/mcp_auth.mjs for the full
+  // threat model.
+  if (cmd === 'mcp') {
+    const {
+      generateMcpAuthKey,
+      validateMcpAuthKeyShape,
+      persistMcpAuthKey,
+      reportMcpAuthSource,
+      MCP_AUTH_ENV_VAR,
+      MCP_AUTH_DISABLE_ENV_VAR,
+    } = await import('./utils/mcp_auth.mjs');
+
+    const rawArgs = process.argv.slice(2);
+    const subCmd = rawArgs[1]; // install-key | print-key | rotate-key | status
+
+    function printConfigSnippet(key, persistedLocation) {
+      // Claude Desktop config snippet — the canonical client integration
+      // for stdio MCP servers. Operators paste this into
+      // ~/Library/Application Support/Claude/claude_desktop_config.json
+      // (macOS) or %APPDATA%\Claude\claude_desktop_config.json (Windows).
+      //
+      // Reviewer 2 CRITICAL #2 fold: when the key was persisted to
+      // macOS Keychain, emit a `keychain:` indirection in the snippet
+      // instead of the literal key. Claude Desktop's config file is
+      // typically world-readable on macOS (default umask 0644); baking
+      // the secret into it defeats the per-operator threat model.
+      // The MCP server resolves `keychain:LABEL` at startup via
+      // resolveSecret() (utils/keychain.mjs:105), pulling the actual
+      // value from Keychain — secret never leaves the secure store.
+      //
+      // On Linux/Windows there's no equivalent secret store today; the
+      // snippet uses the literal key value with an explicit chmod warning.
+      const onKeychain = typeof persistedLocation === 'string' && persistedLocation.includes('Keychain');
+      const envValue = onKeychain ? `keychain:${MCP_AUTH_ENV_VAR}` : key;
+
+      console.log('');
+      console.log('Add this to your Claude Desktop config (claude_desktop_config.json):');
+      console.log('');
+      console.log('  {');
+      console.log('    "mcpServers": {');
+      console.log('      "nsauditor-ai": {');
+      console.log('        "command": "nsauditor-ai-mcp",');
+      console.log(`        "env": { "${MCP_AUTH_ENV_VAR}": "${envValue}" }`);
+      console.log('      }');
+      console.log('    }');
+      console.log('  }');
+      console.log('');
+      if (onKeychain) {
+        console.log(`The "${envValue}" placeholder tells the MCP server to resolve the actual`);
+        console.log('key from your macOS Keychain at startup. The secret value never leaves');
+        console.log("the Keychain and is never written to your Claude Desktop config file.");
+        console.log('');
+        console.log('On a headless macOS / CI runner where Keychain access is unavailable,');
+        console.log(`replace the placeholder with the literal key (run \`nsauditor-ai mcp`);
+        console.log(`print-key --confirm\` to retrieve it).`);
+      } else {
+        console.log(`⚠  The literal key value is now in your Claude Desktop config file.`);
+        console.log(`   On a multi-user system, ensure that file is mode 0600 (operator-only).`);
+        console.log(`   On Linux, also note that the spawned MCP server's env block is`);
+        console.log(`   visible to other users via /proc — same caveat as any env-based secret.`);
+      }
+      console.log('');
+      console.log(`The configured key is also stored at: ${persistedLocation || '<see install-key output>'}`);
+      console.log('The MCP server compares the env-resolved key against the stored key at');
+      console.log('startup and refuses to start on mismatch — so anyone trying to spawn the');
+      console.log('server without the right key fails immediately.');
+    }
+
+    if (subCmd === 'install-key') {
+      // Accept either a caller-supplied key (for restoring from backup
+      // or aligning with an enterprise-managed secret) or generate a
+      // fresh one. Both paths persist via the same multi-source storage
+      // chain used for license keys.
+      let key = rawArgs[2];
+      let generated = false;
+      if (!key || key.startsWith('-')) {
+        key = generateMcpAuthKey();
+        generated = true;
+      } else {
+        const validation = validateMcpAuthKeyShape(key);
+        if (!validation.ok) {
+          console.error(`✗ Key rejected: ${validation.reason}`);
+          console.error(`  Expected format: nsa_mcp_<43-char-base64url>`);
+          console.error(`  Generate a fresh key with: nsauditor-ai mcp install-key`);
+          process.exit(1);
+        }
+      }
+
+      const persisted = await persistMcpAuthKey(key);
+      if (!persisted.ok) {
+        console.error(`✗ Failed to persist MCP auth key: ${persisted.error}`);
+        console.error(`  Fall-back: set ${MCP_AUTH_ENV_VAR} env var manually:`);
+        console.error(`    export ${MCP_AUTH_ENV_VAR}="${key}"`);
+        process.exit(1);
+      }
+
+      if (persisted.warning) {
+        console.warn(`⚠  ${persisted.warning}`);
+      }
+      console.log(`✓ MCP auth key ${generated ? 'generated and ' : ''}installed`);
+      console.log(`  Stored at: ${persisted.location}`);
+      printConfigSnippet(key, persisted.location);
+    } else if (subCmd === 'rotate-key') {
+      // Generate a fresh key and persist over the old one. Old key is
+      // immediately invalid — operator must update Claude Desktop
+      // config to match. Reviewer 1 MEDIUM #3 fold: gate behind
+      // --confirm to prevent accidental Claude-disconnect when an
+      // operator typos `r` instead of `i` (rotate-key is keyboard-
+      // adjacent to install-key). For SOC 2 audit windows where
+      // availability matters, the extra keystroke is the right trade.
+      const confirmed = rawArgs.includes('--confirm');
+      if (!confirmed) {
+        console.error(`✗ \`mcp rotate-key\` immediately invalidates the existing key.`);
+        console.error(`  Any running Claude Desktop session will fail until you update`);
+        console.error(`  the config with the new key value. Re-run with --confirm:`);
+        console.error(`    nsauditor-ai mcp rotate-key --confirm`);
+        process.exit(2);
+      }
+      const key = generateMcpAuthKey();
+      const persisted = await persistMcpAuthKey(key);
+      if (!persisted.ok) {
+        console.error(`✗ Failed to persist rotated MCP auth key: ${persisted.error}`);
+        process.exit(1);
+      }
+      if (persisted.warning) {
+        console.warn(`⚠  ${persisted.warning}`);
+      }
+      console.log(`✓ MCP auth key rotated`);
+      console.log(`  Stored at: ${persisted.location}`);
+      console.log('');
+      console.log('  ⚠ The OLD key is now invalid. Update your Claude Desktop config NOW.');
+      printConfigSnippet(key, persisted.location);
+    } else if (subCmd === 'print-key') {
+      // Reveal the stored key — gated behind --confirm to defend
+      // against accidental shell-history capture. Reviewer 2 CRITICAL #1
+      // fold: write the key to STDERR (not stdout) so accidental output
+      // redirection (`> command.log`) doesn't slurp the secret into a
+      // log file. Also refuse when stdout is non-TTY (pipe) unless
+      // --force is added — guards against silent capture by command-
+      // substitution (e.g., `KEY=$(nsauditor-ai mcp print-key --confirm)`
+      // where the key is then echo'd into a script's history).
+      const confirmed = rawArgs.includes('--confirm');
+      const forced = rawArgs.includes('--force');
+      if (!confirmed) {
+        console.error(`✗ \`mcp print-key\` reveals a secret to your terminal.`);
+        console.error(`  Re-run with --confirm if that's what you intended:`);
+        console.error(`    nsauditor-ai mcp print-key --confirm`);
+        console.error(`  Note that the key will be captured in shell history and any`);
+        console.error(`  active screen-share / tmux scrollback. Prefer copying directly`);
+        console.error(`  from the install-key output, or use \`keychain:\` indirection`);
+        console.error(`  in your Claude Desktop config (see \`mcp install-key\` output).`);
+        process.exit(2);
+      }
+      if (!process.stderr.isTTY && !forced) {
+        console.error(`✗ \`mcp print-key --confirm\` refuses non-TTY output (likely a pipe`);
+        console.error(`  or redirection). Add --force to override; this almost certainly`);
+        console.error(`  means the key would land in a script/log file unintentionally.`);
+        process.exit(2);
+      }
+      const { resolveMcpAuthKey } = await import('./utils/mcp_auth.mjs');
+      const key = await resolveMcpAuthKey();
+      if (!key) {
+        console.error(`✗ No MCP auth key configured.`);
+        console.error(`  Generate one with: nsauditor-ai mcp install-key`);
+        process.exit(1);
+      }
+      // Write to STDERR (not stdout) so `> file.log` redirections don't
+      // capture the secret. The TTY-check above ensures stderr IS a
+      // visible terminal (otherwise we'd refuse). Operators copy from
+      // the visible terminal output, not from a redirected stdout.
+      process.stderr.write(`${key}\n`);
+    } else if (subCmd === 'status') {
+      // Report which storage source the resolver currently honors,
+      // WITHOUT printing the key value. Safe to run in screen-share,
+      // logs, etc.
+      const result = await reportMcpAuthSource();
+      if (result.source === 'unconfigured') {
+        console.log(`✗ MCP authentication is not configured.`);
+        console.log(`  Generate a key with: nsauditor-ai mcp install-key`);
+        if (process.env[MCP_AUTH_DISABLE_ENV_VAR] === '1') {
+          console.log('');
+          console.log(`  ⚠ ${MCP_AUTH_DISABLE_ENV_VAR}=1 is set — server will start without auth.`);
+        }
+        process.exit(1);
+      } else {
+        console.log(`✓ MCP auth key configured`);
+        console.log(`  Source: ${result.source}${result.detail ? ` (${result.detail})` : ''}`);
+        if (process.env[MCP_AUTH_DISABLE_ENV_VAR] === '1') {
+          console.log('');
+          console.log(`  ⚠ ${MCP_AUTH_DISABLE_ENV_VAR}=1 is set — server will start without auth.`);
+        }
+      }
+    } else {
+      console.log('Usage:');
+      console.log('  nsauditor-ai mcp install-key            Generate a new key, persist, print Claude config');
+      console.log('  nsauditor-ai mcp install-key <KEY>      Persist a caller-supplied key (e.g., from backup)');
+      console.log('  nsauditor-ai mcp print-key --confirm    Reveal the stored key (use with care)');
+      console.log('  nsauditor-ai mcp rotate-key             Replace the stored key with a fresh one');
+      console.log('  nsauditor-ai mcp status                 Show storage source without revealing the key');
+      console.log('');
+      console.log('Environment variables:');
+      console.log(`  ${MCP_AUTH_ENV_VAR}        Read by mcp_server.mjs at startup; client supplies via Claude config`);
+      console.log(`  ${MCP_AUTH_DISABLE_ENV_VAR}=1   Skip auth check (CI/dev escape hatch — emits stderr warning)`);
     }
     process.exit(0);
   }

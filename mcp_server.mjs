@@ -22,6 +22,7 @@ import {
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
+import { authorizeMcpServerStartup } from './utils/mcp_auth.mjs';
 
 const _require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = _require('./package.json');
@@ -399,6 +400,42 @@ const isMainModule =
     process.argv[1].endsWith('mcp_server'));
 
 if (isMainModule) {
+  // EE-SEC.1: enforce MCP server authentication BEFORE accepting any
+  // tool calls. Pre-fold any process running as the operator could
+  // spawn the server and call Pro/Enterprise tools — including the
+  // AWS-talking shadow-admin path detectors that ship in EE 0.3.4.
+  // Now: refuse to start unless the env-provided NSA_MCP_AUTH_KEY
+  // matches the operator's configured key (set via
+  // `nsauditor-ai mcp install-key`). Constant-time compare; honors
+  // NSA_MCP_AUTH_DISABLE=1 escape hatch with stderr warning.
+  //
+  // Stdio-MCP: stdout is reserved for JSON-RPC frames, so all
+  // operator-facing diagnostic text MUST go to stderr.
+  const authResult = await authorizeMcpServerStartup();
+  if (!authResult.ok) {
+    process.stderr.write(`✗ ${authResult.error}\n`);
+    process.exit(1);
+  }
+  if (authResult.bypassed) {
+    if (authResult.bypassedReason === 'unconfigured') {
+      // CRITICAL #2 fold (Reviewer 1): louder signal when DISABLE=1
+      // is set but no key was ever installed — this is almost always
+      // an operator who set DISABLE in their shell rc and forgot.
+      process.stderr.write(
+        `⚠  MCP authentication disabled via NSA_MCP_AUTH_DISABLE=1, ` +
+        `AND no key has ever been installed. This is almost certainly ` +
+        `unintentional. Either run \`nsauditor-ai mcp install-key\` to set up ` +
+        `auth properly, or remove the DISABLE env var if you didn't mean to set it. ` +
+        `Anyone with code-execution as $USER can call MCP tools right now.\n`,
+      );
+    } else {
+      process.stderr.write(
+        `⚠  MCP authentication disabled via NSA_MCP_AUTH_DISABLE=1. ` +
+        `Anyone with code-execution as $USER can call MCP tools.\n`,
+      );
+    }
+  }
+
   // Verify license JWT before accepting MCP requests — upgrades _tier from
   // prefix-based to cryptographically verified.
   await loadLicense();
