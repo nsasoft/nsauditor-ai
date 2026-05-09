@@ -15,6 +15,29 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.31) — security release
+
+**MCP server authentication is now required.** Pre-0.1.31, the local MCP server (stdio transport) accepted any incoming JSON-RPC frames — any process running as your user could spawn it and use the Pro/Enterprise tools (which include the AWS-talking shadow-admin path detectors that ship in `@nsasoft/nsauditor-ai-ee@0.3.4`). 0.1.31 closes this gap with a per-operator shared-secret check at startup.
+
+**Breaking change for existing operators**: after upgrading, run `nsauditor-ai mcp install-key` once. Without this step, the MCP server refuses to start and Claude Desktop will report a connection failure. The error message points back at this command.
+
+```bash
+npm install -g nsauditor-ai@0.1.31
+nsauditor-ai mcp install-key   # generates a 256-bit key, persists it, prints Claude Desktop config snippet
+```
+
+**What's in the box (EE-SEC.1):**
+
+- `nsauditor-ai mcp install-key` — generates a 256-bit auth key, stores it in macOS Keychain (or `~/.nsauditor/.env` mode 0600 elsewhere), prints a paste-ready Claude Desktop config snippet. Run once per machine.
+- `nsauditor-ai mcp status` / `print-key --confirm` / `rotate-key --confirm` — inspect, reveal (TTY-only by default), and rotate the key.
+- **`keychain:` indirection on macOS** — the printed config snippet uses `"NSA_MCP_AUTH_KEY": "keychain:NSA_MCP_AUTH_KEY"` instead of the literal key. The MCP server resolves the placeholder at startup; **the secret never lands in your `claude_desktop_config.json`** (which is mode 0644 on macOS by default — readable by other local users and any sandboxed app). On Linux/Windows where there's no Keychain equivalent, the snippet falls back to the literal key with a `chmod 600` warning.
+- **`NSA_MCP_AUTH_DISABLE=1`** escape hatch for CI / dev — emits a stderr warning every startup so you don't forget; a louder warning fires when DISABLE is set AND no key was ever installed.
+- Multi-source resolver mirrors the existing license-key pattern: env → Keychain → file. Constant-time key comparison via `crypto.timingSafeEqual`. Two-reviewer cycle (general code review + network-security-audit lens) caught and folded 2 CRITICAL + 5 MEDIUM findings same-session before commit; full threat model documented in [`utils/mcp_auth.mjs`](./utils/mcp_auth.mjs).
+
+See the [MCP Server § Authentication section](#authentication-required-new-in-0131) for the full setup walkthrough, troubleshooting, and the threat-model table.
+
+---
+
 ## What's New in Enterprise Edition (0.3.3)
 
 The Enterprise Edition (`@nsasoft/nsauditor-ai-ee`) shipped a 0.3.3 point release on 2026-05-08. CE stays at 0.1.30 — no bump required, the EE upgrade is single-line: `npm install -g @nsasoft/nsauditor-ai-ee@latest`. The release closes a Critical false-clean SOC 2 reporting bug that mirrored the AWS-side bug fixed in 0.3.2 — this time in the Azure cloud scanner — and extends mapped SOC 2 coverage to multi-cloud:
@@ -306,7 +329,46 @@ npx nsauditor-ai-mcp
 | `compliance_check` | Compliance mapping with gap analysis |
 | `export_report` | Generate formatted compliance report |
 
-Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation.
+Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication required as of 0.1.31** — see next section.
+
+### Authentication (required, NEW in 0.1.31)
+
+The MCP server uses stdio transport, which means it runs as a child process of whatever client launches it. Without authentication, **any process running as your user could spawn the server and use its tools** — including the Pro/Enterprise tools that talk to AWS, generate compliance reports, and access your scan history. 0.1.31 closes this gap with a per-operator shared-secret check at server startup.
+
+**One-time setup** (run once per machine after `npm install -g nsauditor-ai`):
+
+```bash
+nsauditor-ai mcp install-key
+```
+
+This generates a 256-bit auth key, stores it in the macOS Keychain (or `~/.nsauditor/.env` mode 0600 on Linux/Windows), and prints the Claude Desktop config snippet for you to paste. **The MCP server refuses to start unless the env-presented key matches the stored key** (constant-time compare; mismatch produces an actionable error pointing at this command).
+
+**Inspect / verify**:
+
+```bash
+nsauditor-ai mcp status                  # shows storage source WITHOUT printing the key
+nsauditor-ai mcp print-key --confirm     # reveals the key (use sparingly; refuses non-TTY output)
+nsauditor-ai mcp rotate-key --confirm    # generates a new key (invalidates old one immediately)
+```
+
+**Why the Claude Desktop config snippet uses `keychain:` indirection on macOS**: the printed snippet looks like `"NSA_MCP_AUTH_KEY": "keychain:NSA_MCP_AUTH_KEY"` rather than the literal key value. The MCP server resolves the placeholder from your Keychain at startup. Net effect: **the secret never lands in `~/Library/Application Support/Claude/claude_desktop_config.json`** (which is mode 0644 by default — readable by other local users and any macOS app with Documents/Application Support entitlement). On Linux/Windows where there's no Keychain equivalent, the snippet uses the literal key with an explicit `chmod 600` warning.
+
+**Threat model — what this defends, what it doesn't**:
+
+| Threat | Defended? |
+|---|---|
+| Malicious npm post-install / browser extension running as you spawning the server | ✅ — attacker cannot read your Keychain without GUI prompt |
+| Other users on a shared dev box / CI runner | ✅ — key is per-operator |
+| Future HTTP/SSE transport network exposure | ✅ — key gates server startup, not network |
+| Attacker with full operator code-exec AND can suppress macOS Keychain prompts | ⚠ partial — recent macOS versions log Keychain-access denial events |
+| Debugger-attach memory snooping | ⚠ out of scope (any shared-secret auth has this limit) |
+| Linux env-var visibility in `/proc/<pid>/environ` | ⚠ partial — only literal-key configs leak; the macOS keychain: indirection avoids this entirely |
+
+**Escape hatch for CI / dev** (operator-acknowledged risk; emits a stderr warning every startup):
+
+```bash
+NSA_MCP_AUTH_DISABLE=1 nsauditor-ai-mcp
+```
 
 ### Claude Desktop Setup
 
@@ -314,6 +376,7 @@ First install the package globally:
 
 ```bash
 npm install -g nsauditor-ai
+nsauditor-ai mcp install-key   # NEW in 0.1.31 — required before MCP server will start
 ```
 
 Then add this to your `claude_desktop_config.json` (Settings → Developer → Edit Config):
@@ -322,11 +385,11 @@ Then add this to your `claude_desktop_config.json` (Settings → Developer → E
 {
   "mcpServers": {
     "nsauditor-ai": {
-      "command": "node",
-      "args": ["/path/to/global/node_modules/nsauditor-ai/mcp_server.mjs"],
+      "command": "nsauditor-ai-mcp",
       "env": {
+        "NSA_MCP_AUTH_KEY": "keychain:NSA_MCP_AUTH_KEY",
         "AI_PROVIDER": "claude",
-        "ANTHROPIC_API_KEY": "your-key-here",
+        "ANTHROPIC_API_KEY": "keychain:ANTHROPIC_API_KEY",
         "NSA_ALLOW_ALL_HOSTS": "1",
         "PLUGIN_TIMEOUT_MS": "5000"
       }
@@ -335,8 +398,9 @@ Then add this to your `claude_desktop_config.json` (Settings → Developer → E
 }
 ```
 
-Find your global install path with `npm root -g`, then append `/nsauditor-ai/mcp_server.mjs`.
+The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp install-key` — on macOS it's the `keychain:NSA_MCP_AUTH_KEY` placeholder shown above; on Linux/Windows it's the literal key value (and you should `chmod 600` your config file).
 
+- `NSA_MCP_AUTH_KEY` — **required as of 0.1.31** (see Authentication section above)
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
 - `PLUGIN_TIMEOUT_MS=5000` — reduces per-plugin timeout to 5s so the full scan completes within Claude Desktop's 60s MCP limit
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
@@ -344,8 +408,23 @@ Find your global install path with `npm root -g`, then append `/nsauditor-ai/mcp
 ### Claude Code Setup
 
 ```bash
-claude mcp add nsauditor-ai -- npx nsauditor-ai-mcp
+nsauditor-ai mcp install-key   # NEW in 0.1.31 — required before MCP server will start
+claude mcp add nsauditor-ai \
+  --env NSA_MCP_AUTH_KEY=keychain:NSA_MCP_AUTH_KEY \
+  -- npx nsauditor-ai-mcp
 ```
+
+(On Linux/Windows, replace the `keychain:NSA_MCP_AUTH_KEY` placeholder with the literal key printed by `install-key`.)
+
+### Troubleshooting MCP authentication
+
+**"MCP authentication is not configured"** at server startup → run `nsauditor-ai mcp install-key`. If you set `NSA_MCP_AUTH_DISABLE=1` in CI by intent, that's fine — but check that you didn't forget it in your shell rc.
+
+**"NSA_MCP_AUTH_KEY env var is not set, but a key is configured in storage"** → the server found a key in your Keychain (or `~/.nsauditor/.env`) but the spawning client didn't pass `NSA_MCP_AUTH_KEY` in the env block. Update your Claude Desktop / Claude Code config to include the env value (use `nsauditor-ai mcp install-key` output as a reference snippet).
+
+**"NSA_MCP_AUTH_KEY env var does not match the key configured in storage"** → most often means you ran `nsauditor-ai mcp rotate-key --confirm` but didn't update Claude Desktop config with the new key. Run `nsauditor-ai mcp status` to confirm storage source, then either re-paste the new key or use `keychain:NSA_MCP_AUTH_KEY` indirection (macOS only) so future rotations don't require a config change.
+
+**"MCP_AUTH uses keychain: indirection but the referenced Keychain entry could not be read"** → typically a headless macOS / SSH-only CI runner where there's no GUI session to approve Keychain access. Replace the `keychain:` placeholder with the literal key value (or move auth to `~/.nsauditor/.env` with mode 0600).
 
 ---
 
