@@ -366,12 +366,49 @@ export function createServer() {
     try {
       const result = await handler(args ?? {});
 
-      // Append tier info to list_plugins response
+      // Append tier info + version provenance to list_plugins response.
+      //
+      // CE 0.1.34 (Thread L MITIGATION): the response now embeds the
+      // ACTUAL versions of CE + EE (when EE is loaded) so customers
+      // can detect Claude Desktop hallucinations. Background: Claude
+      // Desktop has been observed (2026-05-10) silently fabricating
+      // list_plugins responses without invoking the MCP server (per-
+      // server log shows zero `tools/call` while Claude reports
+      // detailed plugin lists). With version numbers in the response,
+      // a hallucinated answer will either omit the version line OR
+      // include a stale/wrong version pulled from training data.
+      // Customer verification (5 seconds, no log archeology):
+      //   nsauditor-ai --version
+      //   npm list -g @nsasoft/nsauditor-ai-ee
+      // If the versions in Claude Desktop's output don't match these
+      // commands, the response was AI-generated, not a real tool call.
       if (name === 'list_plugins') {
         const tierLabel = { ce: 'Community Edition (CE)', pro: 'Pro', enterprise: 'Enterprise' };
+
+        // Detect EE version (best-effort; absent on CE-only installs).
+        let eeVersion = 'not installed';
+        try {
+          const eeManifest = _require('@nsasoft/nsauditor-ai-ee/package.json');
+          eeVersion = eeManifest && eeManifest.version
+            ? `${eeManifest.version} (loaded)`
+            : 'unknown (loaded)';
+        } catch {
+          // EE package not installed or not resolvable — common for CE-only customers.
+          eeVersion = 'not installed';
+        }
+
+        const versionLines =
+          `\n\n── Installation provenance (verify against your shell) ──\n` +
+          `nsauditor-ai (CE):              ${TOOL_VERSION}\n` +
+          `@nsasoft/nsauditor-ai-ee (EE):  ${eeVersion}\n` +
+          `Verify: nsauditor-ai --version  &&  npm list -g @nsasoft/nsauditor-ai-ee\n` +
+          `If versions in this response don't match your shell, the response was\n` +
+          `AI-generated rather than retrieved from the MCP server (see CE 0.1.33 advisory).`;
+
         const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service, get_vulnerabilities, risk_summary, and more.'}`;
+
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) + tierSuffix }],
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) + tierSuffix + versionLines }],
         };
       }
 

@@ -15,6 +15,28 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.34) — list_plugins now embeds CE+EE versions for hallucination detection
+
+Companion to the 0.1.33 advisory. The `list_plugins` MCP tool's response now appends the actual installed CE + EE version numbers, so customers can verify a Claude Desktop response in **5 seconds** without log archeology:
+
+```
+── Installation provenance (verify against your shell) ──
+nsauditor-ai (CE):              0.1.34
+@nsasoft/nsauditor-ai-ee (EE):  0.3.4 (loaded)
+Verify: nsauditor-ai --version  &&  npm list -g @nsasoft/nsauditor-ai-ee
+If versions in this response don't match your shell, the response was
+AI-generated rather than retrieved from the MCP server (see CE 0.1.33 advisory).
+```
+
+How it works as a hallucination detector:
+- The MCP server reads `process.execPath`'s package.json + tries to resolve `@nsasoft/nsauditor-ai-ee/package.json` at request time. Both are real machine-specific values.
+- Claude Desktop fabricated responses in the wild have shown stale version numbers from training data, missing version lines entirely, or different counts each time the same question is asked (observed 32→32→31 plugin counts in three consecutive hallucinations on 2026-05-10).
+- A real tool response will exactly match `nsauditor-ai --version` + `npm list -g @nsasoft/nsauditor-ai-ee`. Mismatch = hallucinated.
+
+This is a v1 mitigation — the v2 (Thread L in `tasks/todo.md`) adds per-call cryptographic sentinel UUIDs that the customer can grep against the server log.
+
+---
+
 ## What's New (0.1.33) — ⚠ MCP integration with Claude Desktop is unreliable
 
 **Critical advisory for customers using NSAuditor AI through Claude Desktop's MCP integration.** During the maintainer's own integration test on 2026-05-10, we discovered that **Claude Desktop's AI fabricates scan results, plugin lists, vulnerability findings, and tier information without actually invoking the MCP tools** for our specific server. Other MCP servers in the same Claude Desktop config receive real `tools/call` invocations; ours does not.
