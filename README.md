@@ -15,6 +15,40 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.33) — ⚠ MCP integration with Claude Desktop is unreliable
+
+**Critical advisory for customers using NSAuditor AI through Claude Desktop's MCP integration.** During the maintainer's own integration test on 2026-05-10, we discovered that **Claude Desktop's AI fabricates scan results, plugin lists, vulnerability findings, and tier information without actually invoking the MCP tools** for our specific server. Other MCP servers in the same Claude Desktop config receive real `tools/call` invocations; ours does not.
+
+**Empirical evidence**:
+- `~/Library/Logs/Claude/main.log` shows multiple permission grants for `mcp__nsauditor-ai__list_plugins` and `mcp__nsauditor-ai__scan_host` on 2026-05-10
+- `~/Library/Logs/Claude/mcp-server-nsauditor-ai.log` shows **zero** `"method":"tools/call"` entries on the same day
+- Other servers in the same config logged real calls (ns-ftp:29, wp-publisher-netsecmag:14, ai-pr-distribution:6, sendgrid:3)
+- When asked to scan 1.1.1.1, Claude Desktop returned a detailed report with plugin breakdown + Zero Trust score — entirely fabricated
+
+**Likely cause**: Claude Desktop's MCP client appears to time out our server (which loads PluginManager + 32 plugins + license verify before responding). Claude (the AI) silently substitutes fabricated responses from training rather than surfacing the timeout. The hallucinations are convincingly formatted and indistinguishable from real output without log inspection.
+
+**Mandatory verification — for any output you'd act on**:
+
+```bash
+# Tier check (ground truth bypassing Claude AI synthesis):
+nsauditor-ai mcp tier
+
+# Real plugin scan (always hits the network):
+nsauditor-ai scan --host <X> --plugins all --out <dir>
+
+# Confirm Claude Desktop actually called the MCP server:
+grep '"method":"tools/call"' ~/Library/Logs/Claude/mcp-server-nsauditor-ai.log | tail -5
+# If main.log shows recent permission grants for nsauditor-ai tools but
+# THIS file shows no matching tools/call entries, the responses you saw
+# in Claude Desktop were AI-generated, NOT real.
+```
+
+**SOC 2 evidence and any compliance report MUST be generated via the CLI** — never via the Claude Desktop MCP integration — until this is resolved upstream. We're working on it (Thread L in `tasks/todo.md`): a per-call cryptographic sentinel, lazy-loaded plugin discovery to reduce startup latency, a `mcp verify-recent-call` diagnostic, and a bug report to Anthropic.
+
+This advisory will be removed when the upstream Claude Desktop MCP routing issue is fixed and we ship a CE release whose `tools/call` invocations land reliably.
+
+---
+
 ## What's New (0.1.32) — Claude Desktop integration overhaul + ground-truth diagnostics
 
 The 0.1.32 line bundles three operational improvements driven by real customer-onboarding friction surfaced during the developer's own Claude Desktop integration test (2026-05-10):
@@ -318,6 +352,25 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 ---
 
 ## MCP Server
+
+> ## ⚠ CRITICAL ADVISORY (2026-05-10) — Claude Desktop hallucinates responses for this MCP server
+>
+> When you use NSAuditor AI through **Claude Desktop's** MCP integration, the AI may **fabricate scan results, plugin lists, vulnerability findings, and tier information without actually invoking the MCP tools**. We've confirmed this empirically: Claude Desktop's permission system shows tool calls being approved, but the actual `tools/call` JSON-RPC messages never reach our server (other MCP servers in the same config receive their calls correctly).
+>
+> **Mandatory verification for any output you'd act on**:
+>
+> ```bash
+> # Real tier check (ground truth — bypasses Claude AI synthesis):
+> nsauditor-ai mcp tier
+>
+> # Real scan (always hits the network):
+> nsauditor-ai scan --host <X> --plugins all --out <dir>
+>
+> # Confirm Claude Desktop actually called the MCP server today:
+> grep '"method":"tools/call"' ~/Library/Logs/Claude/mcp-server-nsauditor-ai.log | tail -5
+> ```
+>
+> **SOC 2 evidence + compliance reports MUST be generated via the CLI** — never via the Claude Desktop MCP integration — until this is resolved upstream. Other MCP clients (Claude Code, custom MCP clients via the SDK) appear unaffected. See [What's New (0.1.33)](#whats-new-0133----mcp-integration-with-claude-desktop-is-unreliable) for full details.
 
 Expose scanning capabilities to AI assistants via [Model Context Protocol](https://modelcontextprotocol.io):
 
