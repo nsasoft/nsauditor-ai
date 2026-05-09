@@ -11,7 +11,7 @@ import { promises as fsp } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import dotenv from 'dotenv';
-import { keychainGet, keychainSet } from './keychain.mjs';
+import { keychainGet, keychainSet, resolveSecret } from './keychain.mjs';
 
 // ES256 public key — embedded directly so it works in npm package (no file read).
 // Corresponding private key is in the license-manager service (NEVER shipped here).
@@ -286,8 +286,23 @@ export async function loadLicense(keyStr) {
   // Explicit keyStr argument wins (preserves the existing behavior for
   // callers like the `license --status` subcommand which passes the env
   // var directly). When omitted, run the multi-source resolution chain.
-  const raw = keyStr ?? (await resolveLicenseKey());
+  let raw = keyStr ?? (await resolveLicenseKey());
   if (!raw) return { valid: false, tier: 'ce', reason: 'no key provided' };
+
+  // Thread K (CE 0.1.32): support `keychain:LABEL` indirection on the
+  // resolved value. Mirrors the EE-SEC.1 MCP-auth pattern — operators
+  // can put `"NSAUDITOR_LICENSE_KEY": "keychain:NSAUDITOR_LICENSE_KEY"`
+  // in their Claude Desktop config env block; the literal JWT never
+  // lands in the world-readable config file. resolveSecret is a no-op
+  // (returns input unchanged) for non-`keychain:` strings, so literal
+  // JWT keys continue to work for backward compat.
+  if (typeof raw === 'string' && raw.startsWith('keychain:')) {
+    const resolved = await resolveSecret(raw);
+    if (!resolved) {
+      return { valid: false, tier: 'ce', reason: 'license keychain: indirection could not be resolved (entry missing or Keychain locked)' };
+    }
+    raw = resolved;
+  }
 
   // Strip tier prefix
   let token = raw;

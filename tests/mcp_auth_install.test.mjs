@@ -261,35 +261,105 @@ test('EE-SEC.1 CLI fold (Reviewer 2 CRITICAL #1): `mcp print-key --confirm` refu
   } finally { await r1.cleanup(); }
 });
 
-test('EE-SEC.1 CLI fold (Reviewer 2 CRITICAL #2): keychain: indirection used in macOS install-key snippet', async () => {
-  // On macOS where Keychain is available, the install-key output's
-  // Claude Desktop config snippet uses `keychain:NSA_MCP_AUTH_KEY`
-  // placeholder instead of the literal key. This test asserts the
-  // platform-aware branching works — the assertion is conditional on
-  // the persistence target being Keychain (which depends on whether
-  // the test environment can reach `security` daemon). On Linux/CI
-  // the test verifies the literal-key branch + chmod warning.
+test('EE-SEC.1 CLI fold (Reviewer 2 CRITICAL #2 + Thread K): install-key snippet is auto-generated machine-specific JSON', async () => {
+  // Thread K (CE 0.1.32): the printed snippet is now a single JSON
+  // block with absolute paths derived from process.execPath +
+  // import.meta.url, so customers don't have to figure out which
+  // Node binary or script path matches their install (system /
+  // homebrew / nvm / fnm / local).
   const r = await runCli(['mcp', 'install-key']);
   try {
     assert.equal(r.status, 0);
+
+    // Extract the JSON block between the ═══ separators.
+    const jsonStart = r.stdout.indexOf('{\n  "mcpServers"');
+    const jsonEnd = r.stdout.indexOf('}\n}', jsonStart);
+    assert.ok(jsonStart >= 0, 'snippet must contain a JSON block');
+    assert.ok(jsonEnd > jsonStart, 'JSON block must be terminated');
+    const jsonStr = r.stdout.slice(jsonStart, jsonEnd + 3);
+    const parsed = JSON.parse(jsonStr);
+
+    // Structural contracts.
+    assert.ok(parsed.mcpServers, 'snippet must have mcpServers key');
+    assert.ok(parsed.mcpServers['nsauditor-ai'], 'snippet must define nsauditor-ai entry');
+    const entry = parsed.mcpServers['nsauditor-ai'];
+
+    // command MUST be an absolute path (not bare `nsauditor-ai-mcp`).
+    assert.ok(entry.command.startsWith('/'),
+      `command must be absolute path; got: ${entry.command}`);
+    // command MUST be the actual Node binary executing this CLI.
+    assert.equal(entry.command, process.execPath);
+
+    // args MUST contain an absolute path to the .mjs script.
+    assert.ok(Array.isArray(entry.args) && entry.args.length === 1);
+    assert.ok(entry.args[0].endsWith('nsauditor-ai-mcp.mjs'),
+      `args[0] must point at the .mjs script; got: ${entry.args[0]}`);
+    assert.ok(entry.args[0].startsWith('/'), 'args[0] must be absolute path');
+
+    // env MUST contain NSA_MCP_AUTH_KEY.
+    assert.ok(entry.env, 'snippet must have env block');
+    assert.ok(entry.env.NSA_MCP_AUTH_KEY, 'env must include NSA_MCP_AUTH_KEY');
+
+    // Platform-conditional contract for the env value.
     if (r.stdout.includes('Stored at: macOS Keychain')) {
-      // Keychain branch — snippet should use indirection.
-      assert.ok(r.stdout.includes(`"keychain:NSA_MCP_AUTH_KEY"`),
-        'macOS install-key output must use keychain: indirection in snippet');
-      assert.ok(r.stdout.includes('placeholder tells the MCP server'));
-      // The literal key must NOT appear in the snippet line of the
-      // config block (it appears elsewhere — e.g., for verification —
-      // but the env value in the JSON must be the placeholder).
-      const snippetLine = r.stdout
-        .split('\n')
-        .find((line) => line.includes(`"${'NSA_MCP_AUTH_KEY'}":`));
-      assert.ok(snippetLine, 'snippet line must exist');
-      assert.equal(snippetLine.includes(`"keychain:NSA_MCP_AUTH_KEY"`), true);
+      // macOS Keychain branch — env value MUST be the indirection placeholder.
+      assert.equal(entry.env.NSA_MCP_AUTH_KEY, 'keychain:NSA_MCP_AUTH_KEY',
+        'macOS snippet MUST use keychain: indirection (no plaintext)');
+      // Literal key (extracted from earlier in the output) MUST NOT
+      // appear ANYWHERE in the JSON snippet block.
+      const literalKeyMatch = r.stdout.match(/nsa_mcp_[A-Za-z0-9_-]{40,50}/);
+      assert.ok(literalKeyMatch, 'install-key output should still print the literal somewhere (for fallback)');
+      assert.equal(jsonStr.includes(literalKeyMatch[0]), false,
+        'literal key MUST NOT appear inside the JSON snippet block on macOS');
     } else {
-      // File branch (Linux/Windows or macOS Keychain unavailable) —
-      // literal key in snippet + chmod warning required.
-      assert.ok(r.stdout.includes('literal key value is now in your Claude Desktop'),
-        'file-branch output must warn about literal-key in config file');
+      // File branch (Linux/Windows / Keychain unavailable) — literal key.
+      assert.ok(/^nsa_mcp_/.test(entry.env.NSA_MCP_AUTH_KEY),
+        `non-macOS snippet should have the literal key; got: ${entry.env.NSA_MCP_AUTH_KEY}`);
+      // chmod 600 warning expected.
+      assert.ok(r.stdout.includes('chmod 600') || r.stdout.includes('icacls'),
+        'non-macOS snippet must include a chmod/icacls hardening hint');
     }
+  } finally { await r.cleanup(); }
+});
+
+test('Thread K: install-key snippet is paste-ready valid JSON the operator can copy verbatim', async () => {
+  // Customer-facing contract: the JSON between the ═══ separators
+  // must be syntactically valid JSON — no trailing commas, no
+  // comments, no shell-only constructs. Customer copy-pastes into
+  // claude_desktop_config.json without edits.
+  const r = await runCli(['mcp', 'install-key']);
+  try {
+    assert.equal(r.status, 0);
+    const jsonStart = r.stdout.indexOf('{\n  "mcpServers"');
+    const jsonEnd = r.stdout.indexOf('}\n}', jsonStart);
+    const jsonStr = r.stdout.slice(jsonStart, jsonEnd + 3);
+    // Parses as valid JSON.
+    const parsed = JSON.parse(jsonStr);
+    // Re-serializes to the same shape.
+    const re = JSON.parse(JSON.stringify(parsed));
+    assert.deepEqual(parsed, re);
+  } finally { await r.cleanup(); }
+});
+
+test('Thread K: install-key without a license configured emits an "install license to activate Pro/Enterprise" hint', async () => {
+  // The sandbox HOME has no license configured by default. The
+  // snippet should NOT include NSAUDITOR_LICENSE_KEY (since there's
+  // nothing to reference) AND the security-notes section should
+  // tell the operator how to add it.
+  const r = await runCli(['mcp', 'install-key']);
+  try {
+    assert.equal(r.status, 0);
+    // No license env line in the JSON.
+    const jsonStart = r.stdout.indexOf('{\n  "mcpServers"');
+    const jsonEnd = r.stdout.indexOf('}\n}', jsonStart);
+    const jsonStr = r.stdout.slice(jsonStart, jsonEnd + 3);
+    const parsed = JSON.parse(jsonStr);
+    assert.equal(parsed.mcpServers['nsauditor-ai'].env.NSAUDITOR_LICENSE_KEY, undefined,
+      'no-license install must NOT include NSAUDITOR_LICENSE_KEY in env block');
+    // Hint present.
+    assert.ok(r.stdout.includes('No license configured'),
+      'output must hint at the license install command');
+    assert.ok(r.stdout.includes('nsauditor-ai license install'),
+      'output must include the exact command to install a license');
   } finally { await r.cleanup(); }
 });

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import path from 'node:path';
+import { platform } from 'node:os';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
@@ -1086,57 +1087,159 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     const rawArgs = process.argv.slice(2);
     const subCmd = rawArgs[1]; // install-key | print-key | rotate-key | status
 
-    function printConfigSnippet(key, persistedLocation) {
-      // Claude Desktop config snippet — the canonical client integration
-      // for stdio MCP servers. Operators paste this into
-      // ~/Library/Application Support/Claude/claude_desktop_config.json
-      // (macOS) or %APPDATA%\Claude\claude_desktop_config.json (Windows).
+    async function printConfigSnippet(key, persistedLocation) {
+      // Thread K (CE 0.1.32): generate a MACHINE-SPECIFIC config snippet
+      // so customers don't have to figure out:
+      //   - which Node binary Claude Desktop should call (system /
+      //     homebrew / nvm / fnm — Claude Desktop's launchd PATH does
+      //     NOT include nvm/fnm bin dirs reliably)
+      //   - which absolute path to the .mjs script
+      //   - whether to use `keychain:` indirection (macOS only) or
+      //     literal value (Linux/Windows)
+      //   - whether to also include the license env line (only if
+      //     license is configured AND we can avoid baking the JWT
+      //     into the world-readable config file)
       //
-      // Reviewer 2 CRITICAL #2 fold: when the key was persisted to
-      // macOS Keychain, emit a `keychain:` indirection in the snippet
-      // instead of the literal key. Claude Desktop's config file is
-      // typically world-readable on macOS (default umask 0644); baking
-      // the secret into it defeats the per-operator threat model.
-      // The MCP server resolves `keychain:LABEL` at startup via
-      // resolveSecret() (utils/keychain.mjs:105), pulling the actual
-      // value from Keychain — secret never leaves the secure store.
-      //
-      // On Linux/Windows there's no equivalent secret store today; the
-      // snippet uses the literal key value with an explicit chmod warning.
+      // This eliminates the install-type matrix that was the #1
+      // source of customer-onboarding friction.
+      const isDarwin = platform() === 'darwin';
+
+      // process.execPath is the actual Node binary executing this CLI.
+      // For nvm: /Users/<u>/.nvm/versions/node/vX.Y.Z/bin/node
+      // For homebrew: /opt/homebrew/bin/node
+      // For system: /usr/local/bin/node or /usr/bin/node
+      // Always absolute; always the right binary that loaded our code.
+      const nodeBin = process.execPath;
+
+      // The script path: derive from where THIS cli.mjs file lives,
+      // then walk to the bin/ directory. cli.mjs is at the package
+      // root; bin/nsauditor-ai-mcp.mjs is its sibling.
+      // import.meta.url gives the file:// URL of THIS cli.mjs.
+      const cliUrl = new URL(import.meta.url);
+      const cliPath = fileURLToPath(cliUrl);
+      const pkgRoot = path.dirname(cliPath);
+      const mcpScriptPath = path.join(pkgRoot, 'bin', 'nsauditor-ai-mcp.mjs');
+
+      // MCP auth: keychain: indirection on macOS (no plaintext in
+      // config file). Literal value on Linux/Windows where there's
+      // no system secret store equivalent.
       const onKeychain = typeof persistedLocation === 'string' && persistedLocation.includes('Keychain');
-      const envValue = onKeychain ? `keychain:${MCP_AUTH_ENV_VAR}` : key;
+      const authEnvValue = onKeychain ? `keychain:${MCP_AUTH_ENV_VAR}` : key;
+
+      // License: detect whether configured and where it lives. On
+      // macOS, prefer the keychain: indirection — same no-plaintext
+      // pattern as auth. If license is in file (~/.nsauditor/.env)
+      // but NOT in Keychain, we'll prompt the operator to migrate
+      // (handled by the caller; this fn just emits the snippet).
+      const { loadLicense } = await import('./utils/license.mjs');
+      const licenseStatus = await loadLicense();
+      const licenseConfigured = licenseStatus.valid;
+
+      // Build the env block as a JSON-serializable object so the
+      // snippet output is valid JSON the operator can paste verbatim.
+      const envBlock = {};
+      envBlock[MCP_AUTH_ENV_VAR] = authEnvValue;
+      if (licenseConfigured) {
+        if (isDarwin) {
+          // Indirection — secret stays in Keychain. Requires that
+          // the license actually IS in Keychain (or in a place
+          // resolveSecret can reach). Caller is responsible for
+          // ensuring this is true before printing the snippet.
+          envBlock['NSAUDITOR_LICENSE_KEY'] = 'keychain:NSAUDITOR_LICENSE_KEY';
+        }
+        // On Linux/Windows we deliberately OMIT NSAUDITOR_LICENSE_KEY
+        // from the env block — the MCP server will fall through to
+        // the file fallback (~/.nsauditor/.env). Including a literal
+        // JWT would expose it in the world-readable config file.
+      }
+
+      const snippet = {
+        mcpServers: {
+          'nsauditor-ai': {
+            command: nodeBin,
+            args: [mcpScriptPath],
+            env: envBlock,
+          },
+        },
+      };
 
       console.log('');
-      console.log('Add this to your Claude Desktop config (claude_desktop_config.json):');
-      console.log('');
-      console.log('  {');
-      console.log('    "mcpServers": {');
-      console.log('      "nsauditor-ai": {');
-      console.log('        "command": "nsauditor-ai-mcp",');
-      console.log(`        "env": { "${MCP_AUTH_ENV_VAR}": "${envValue}" }`);
-      console.log('      }');
-      console.log('    }');
-      console.log('  }');
-      console.log('');
-      if (onKeychain) {
-        console.log(`The "${envValue}" placeholder tells the MCP server to resolve the actual`);
-        console.log('key from your macOS Keychain at startup. The secret value never leaves');
-        console.log("the Keychain and is never written to your Claude Desktop config file.");
-        console.log('');
-        console.log('On a headless macOS / CI runner where Keychain access is unavailable,');
-        console.log(`replace the placeholder with the literal key (run \`nsauditor-ai mcp`);
-        console.log(`print-key --confirm\` to retrieve it).`);
+      console.log('═'.repeat(70));
+      console.log('Claude Desktop config — paste this into:');
+      if (isDarwin) {
+        console.log('  ~/Library/Application Support/Claude/claude_desktop_config.json');
+      } else if (platform() === 'win32') {
+        console.log('  %APPDATA%\\Claude\\claude_desktop_config.json');
       } else {
-        console.log(`⚠  The literal key value is now in your Claude Desktop config file.`);
-        console.log(`   On a multi-user system, ensure that file is mode 0600 (operator-only).`);
-        console.log(`   On Linux, also note that the spawned MCP server's env block is`);
-        console.log(`   visible to other users via /proc — same caveat as any env-based secret.`);
+        console.log('  ~/.config/Claude/claude_desktop_config.json');
       }
+      console.log('═'.repeat(70));
+      // Pretty-print with 2-space indent. If the operator already has
+      // mcpServers, they merge the inner "nsauditor-ai" block.
+      console.log(JSON.stringify(snippet, null, 2));
+      console.log('═'.repeat(70));
       console.log('');
-      console.log(`The configured key is also stored at: ${persistedLocation || '<see install-key output>'}`);
-      console.log('The MCP server compares the env-resolved key against the stored key at');
-      console.log('startup and refuses to start on mismatch — so anyone trying to spawn the');
-      console.log('server without the right key fails immediately.');
+
+      if (onKeychain) {
+        // macOS + Keychain reachable: the snippet uses indirection
+        // for both auth and license. Secret never lands in the
+        // world-readable Claude Desktop config file.
+        console.log('Security notes:');
+        console.log(`  • Auth key uses "keychain:${MCP_AUTH_ENV_VAR}" indirection — the actual`);
+        console.log('    secret stays in macOS Keychain. The config file contains only the');
+        console.log('    placeholder string, NOT the secret.');
+        if (licenseConfigured) {
+          console.log('  • License key uses the same indirection — JWT never lands in the config.');
+        } else {
+          console.log('  • No license configured. To activate Pro/Enterprise features:');
+          console.log('      nsauditor-ai license install <YOUR-KEY>');
+          console.log('    Then re-run `nsauditor-ai mcp install-key` to get a snippet that');
+          console.log('    includes the license line.');
+        }
+        console.log('');
+        console.log('  • On a HEADLESS macOS / SSH-only CI runner where Keychain GUI prompts');
+        console.log("    won't reach you, replace the placeholder values with the literal");
+        console.log('    secrets (run `nsauditor-ai mcp print-key --confirm` for the auth');
+        console.log('    key). Move the config file to mode 0600 in that case.');
+      } else {
+        // Linux/Windows OR macOS-with-Keychain-unavailable: snippet
+        // contains literal secret. chmod warning required.
+        console.log('Security notes:');
+        console.log(`  • Auth key value is the LITERAL secret in the config file.`);
+        console.log('    chmod 600 your Claude Desktop config file to keep other local users');
+        console.log('    from reading it:');
+        if (platform() === 'win32') {
+          console.log('      icacls "%APPDATA%\\Claude\\claude_desktop_config.json" /inheritance:r /grant:r "%USERNAME%:F"');
+        } else if (isDarwin) {
+          console.log('      chmod 600 ~/Library/Application\\ Support/Claude/claude_desktop_config.json');
+        } else {
+          console.log('      chmod 600 ~/.config/Claude/claude_desktop_config.json');
+        }
+        if (licenseConfigured) {
+          console.log('  • License key is NOT in the env block — the MCP server reads it from');
+          console.log('    ~/.nsauditor/.env (mode 0600) at startup. No JWT in the config.');
+        } else {
+          console.log('  • No license configured. To activate Pro/Enterprise features:');
+          console.log('      nsauditor-ai license install <YOUR-KEY>');
+        }
+      }
+
+      console.log('');
+      console.log('After pasting:');
+      console.log('  1. Save the config file');
+      console.log('  2. Cmd+Q Claude Desktop (full quit) and re-launch');
+      if (isDarwin) {
+        console.log('  3. macOS will prompt for Keychain access on first launch — click "Always Allow"');
+        console.log('     for both NSA_MCP_AUTH_KEY and NSAUDITOR_LICENSE_KEY entries.');
+      }
+      console.log('  4. Verify in Claude: ask "list nsauditor plugins"');
+      console.log(`     Tier should report as "${licenseConfigured ? licenseStatus.tier : 'ce'}"`);
+      console.log('');
+      console.log('Diagnostic if it doesn\'t work:');
+      console.log('  nsauditor-ai mcp status     # confirm storage source');
+      if (licenseConfigured) {
+        console.log('  nsauditor-ai license --status   # confirm license still verified');
+      }
     }
 
     if (subCmd === 'install-key') {
@@ -1172,7 +1275,43 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       }
       console.log(`✓ MCP auth key ${generated ? 'generated and ' : ''}installed`);
       console.log(`  Stored at: ${persisted.location}`);
-      printConfigSnippet(key, persisted.location);
+
+      // Thread K: if license is configured but NOT in Keychain (e.g.,
+      // operator has it in ~/.nsauditor/.env from a pre-0.1.30 install
+      // or from manual editing), back-fill to Keychain on macOS so the
+      // `keychain:NSAUDITOR_LICENSE_KEY` indirection in the printed
+      // snippet actually resolves. Without this, the snippet would
+      // include the indirection but the MCP server would fail to find
+      // the license and report CE — exactly the customer-onboarding
+      // friction Thread K eliminates.
+      if (platform() === 'darwin') {
+        try {
+          const { resolveLicenseKey } = await import('./utils/license.mjs');
+          const { keychainGetDetailed, keychainSet } = await import('./utils/keychain.mjs');
+          const licenseKey = await resolveLicenseKey();
+          if (licenseKey) {
+            const keychainState = await keychainGetDetailed('NSAUDITOR_LICENSE_KEY');
+            if (keychainState.state !== 'ok') {
+              // License is reachable via env or file but not Keychain.
+              // Mirror it into Keychain so the indirection works.
+              await keychainSet('NSAUDITOR_LICENSE_KEY', licenseKey);
+              console.log('');
+              console.log('  ✓ License key mirrored from file/env to macOS Keychain');
+              console.log('    so the snippet below can use keychain: indirection.');
+              console.log('    Original storage location is preserved unchanged.');
+            }
+          }
+        } catch (err) {
+          // Best-effort: if the mirror fails, the snippet's keychain:
+          // indirection won't resolve, but the operator can fall back
+          // to literal-key configuration. Don't block install-key.
+          console.warn(`  ⚠ Could not mirror license to Keychain (${err.message}).`);
+          console.warn(`    The snippet below uses keychain: indirection — if Claude Desktop`);
+          console.warn(`    reports CE tier, replace the indirection with the literal license JWT.`);
+        }
+      }
+
+      await printConfigSnippet(key, persisted.location);
     } else if (subCmd === 'rotate-key') {
       // Generate a fresh key and persist over the old one. Old key is
       // immediately invalid — operator must update Claude Desktop
@@ -1202,7 +1341,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log(`  Stored at: ${persisted.location}`);
       console.log('');
       console.log('  ⚠ The OLD key is now invalid. Update your Claude Desktop config NOW.');
-      printConfigSnippet(key, persisted.location);
+      await printConfigSnippet(key, persisted.location);
     } else if (subCmd === 'print-key') {
       // Reveal the stored key — gated behind --confirm to defend
       // against accidental shell-history capture. Reviewer 2 CRITICAL #1
