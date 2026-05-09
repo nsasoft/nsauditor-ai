@@ -865,6 +865,9 @@ MCP server-auth subcommands (EE-SEC.1):
   nsauditor-ai mcp print-key --confirm  Reveal the stored key (use with care)
   nsauditor-ai mcp rotate-key           Replace the stored key with a fresh one
   nsauditor-ai mcp status               Show storage source without revealing the key
+  nsauditor-ai mcp tier                 Print actual MCP server tier (ground truth — bypasses
+                                        Claude AI synthesis when "list_plugins" reports
+                                        unexpected CE despite verified Pro/Enterprise license)
 
 Security subcommands (macOS Keychain):
   nsauditor-ai security set <KEY>       Store a secret (read from stdin)
@@ -1381,6 +1384,52 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       // visible terminal (otherwise we'd refuse). Operators copy from
       // the visible terminal output, not from a redirected stdout.
       process.stderr.write(`${key}\n`);
+    } else if (subCmd === 'tier') {
+      // Thread K (CE 0.1.32): customer-side ground-truth check for the
+      // tier the MCP server WOULD resolve to at startup. Customers
+      // (including the maintainer 2026-05-10) reported "Claude Desktop
+      // shows tier=CE" — but on investigation, Claude (the AI) was
+      // synthesizing the tier text from training data + context
+      // without actually calling list_plugins via MCP. The real MCP
+      // server's _tier was correct (enterprise), only Claude's
+      // narration was wrong. `mcp tier` runs the same loadLicense()
+      // path the MCP server uses and prints the unambiguous result —
+      // customers can paste this output into a support ticket and
+      // distinguish "MCP genuinely broken" from "Claude misreading".
+      const { loadLicense, getTierFromEnv } = await import('./utils/license.mjs');
+      const result = await loadLicense();
+      const tier = getTierFromEnv();
+      const tierLabels = {
+        ce: 'Community Edition (CE)',
+        pro: 'Pro',
+        enterprise: 'Enterprise',
+      };
+      const symbol = tier === 'ce' ? '✗' : '✓';
+      console.log(`${symbol} MCP server tier: ${tier} — ${tierLabels[tier] ?? tier}`);
+      if (result.valid) {
+        console.log(`  Org:        ${result.org}`);
+        console.log(`  Seats:      ${result.seats}`);
+        console.log(`  License ID: ${result.licenseId}`);
+        console.log(`  Expires:    ${result.expiresAt}`);
+        if (result.daysUntilExpiry !== undefined) {
+          console.log(`  Renews in:  ${result.daysUntilExpiry} days`);
+        }
+        if (result.expiryWarning) {
+          console.log(`  ⚠ ${result.expiryWarning}`);
+        }
+      } else {
+        console.log(`  Reason: ${result.reason}`);
+        console.log('');
+        console.log('  Diagnose with: nsauditor-ai license --status');
+        console.log('  Install with:  nsauditor-ai license install <KEY>');
+      }
+      console.log('');
+      console.log('This is the EXACT tier the spawned MCP server resolves to. If Claude');
+      console.log("Desktop reports a different tier, Claude isn't calling list_plugins —");
+      console.log('it\'s synthesizing from context. Force a real call by asking:');
+      console.log('  "Use the list_plugins MCP tool right now and show the raw response."');
+      // Exit 0 if any tier resolved (success), 1 if CE/no key (operator action needed).
+      process.exit(tier === 'ce' ? 1 : 0);
     } else if (subCmd === 'status') {
       // Report which storage source the resolver currently honors,
       // WITHOUT printing the key value. Safe to run in screen-share,
@@ -1463,6 +1512,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('  nsauditor-ai mcp print-key --confirm    Reveal the stored key (use with care)');
       console.log('  nsauditor-ai mcp rotate-key             Replace the stored key with a fresh one');
       console.log('  nsauditor-ai mcp status                 Show storage source without revealing the key');
+      console.log('  nsauditor-ai mcp tier                   Print actual MCP server tier (ground truth, bypasses Claude AI synthesis)');
       console.log('');
       console.log('Environment variables:');
       console.log(`  ${MCP_AUTH_ENV_VAR}        Read by mcp_server.mjs at startup; client supplies via Claude config`);

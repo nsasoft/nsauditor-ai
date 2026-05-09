@@ -72,8 +72,47 @@ test('EE-SEC.1 CLI: `mcp` with no subcommand prints usage', async () => {
     assert.ok(r.stdout.includes('rotate-key'));
     assert.ok(r.stdout.includes('print-key'));
     assert.ok(r.stdout.includes('status'));
+    assert.ok(r.stdout.includes('tier'), 'Thread K: usage must list tier');
     assert.ok(r.stdout.includes('NSA_MCP_AUTH_KEY'));
     assert.ok(r.stdout.includes('NSA_MCP_AUTH_DISABLE'));
+  } finally { await r.cleanup(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thread K (CE 0.1.32) — `mcp tier` ground-truth subcommand
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('Thread K CLI: `mcp tier` reports the actual MCP server tier (no license configured → CE, exit 1)', async () => {
+  // Sandbox HOME has no license → tier should be 'ce'.
+  const r = await runCli(['mcp', 'tier']);
+  try {
+    // Exit 1 signals "operator action needed" (CE / no key).
+    assert.equal(r.status, 1);
+    // Output structure pinned.
+    assert.ok(r.stdout.includes('MCP server tier:'));
+    assert.ok(r.stdout.includes('ce') || r.stdout.includes('Community Edition'),
+      'output must mention CE for unconfigured install');
+    // Help text pointing operators at the synthesis-vs-real-call distinction.
+    assert.ok(r.stdout.includes('Claude isn'),
+      'output must explain the Claude-AI-synthesizes vs MCP-actually-calls distinction');
+    assert.ok(r.stdout.includes('list_plugins MCP tool'),
+      'output must include the verbatim prompt that forces a real tool call');
+  } finally { await r.cleanup(); }
+});
+
+test('Thread K CLI: `mcp tier` does NOT print the license JWT to output', async () => {
+  // Even when license IS configured, the tier subcommand prints
+  // metadata (org, seats, expiry) but NEVER the JWT itself. Defends
+  // against accidental shell-history capture / screen-share leaks.
+  // Sandbox has no license, but if a fixture license were present
+  // the assertion would still hold.
+  const r = await runCli(['mcp', 'tier']);
+  try {
+    // No `pro_eyJ` or `enterprise_eyJ` JWT prefix should appear.
+    assert.equal(/(?:pro_|enterprise_)eyJ/.test(r.stdout), false,
+      'mcp tier MUST NOT print JWT secrets to stdout');
+    assert.equal(/(?:pro_|enterprise_)eyJ/.test(r.stderr), false,
+      'mcp tier MUST NOT print JWT secrets to stderr');
   } finally { await r.cleanup(); }
 });
 

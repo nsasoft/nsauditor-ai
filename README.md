@@ -15,6 +15,30 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.32) — Claude Desktop integration overhaul + ground-truth diagnostics
+
+The 0.1.32 line bundles three operational improvements driven by real customer-onboarding friction surfaced during the developer's own Claude Desktop integration test (2026-05-10):
+
+- **`nsauditor-ai mcp install-key` now auto-generates a machine-specific Claude Desktop config snippet.** Reads `process.execPath` (the Node binary actually running) and derives the script path from `import.meta.url` — the printed JSON has absolute paths that work whether you're on system Node, homebrew, nvm, fnm, local-project install, Linux, or Windows. No install-type detective work, no PATH-misalignment failures. On macOS, the snippet uses `keychain:` indirection for **both** auth and license — secrets never land in the world-readable Claude Desktop config file.
+- **License `keychain:` indirection.** `loadLicense()` and `resolveLicenseKey()` honor the `keychain:LABEL` prefix on the env-supplied value (mirrors the EE-SEC.1 MCP-auth pattern). Operators can put `"NSAUDITOR_LICENSE_KEY": "keychain:NSAUDITOR_LICENSE_KEY"` in their Claude Desktop env block; the JWT stays in macOS Keychain. Backward-compat: literal JWTs continue to work unchanged.
+- **`nsauditor-ai mcp tier` ground-truth subcommand.** Customer-side check that prints the EXACT tier the spawned MCP server resolves to. We discovered Claude Desktop reports of "Current tier: CE" despite verified Pro/Enterprise license were caused by Claude (the AI) **synthesizing the tier text from training data + context** instead of actually calling `list_plugins` via MCP. The MCP server's resolution was always correct. `mcp tier` bypasses Claude's interpretive layer — paste the output into a support ticket to distinguish "MCP genuinely broken" from "Claude misreading."
+- **MCP key rotation cadence (Thread I).** Optional 90-day rotation soft warning at server startup + `mcp status` (override via `NSA_MCP_AUTH_KEY_ROTATION_DAYS`, clamped to [7, 365]). SOC 2 CC6.1/CC6.7 reviewers expect a credential-rotation cadence; an unrotated MCP auth key is treated the same way as an unrotated IAM access key.
+- **Keychain-locked vs Keychain-empty distinction.** New `keychain-locked` source variant in `mcp status` for headless macOS / SSH-only CI runners — instead of falling through silently to "unconfigured", operators get an actionable error with three GUI-free workarounds.
+- **Atomic file writes** for `~/.nsauditor/.env` (`.tmp` + POSIX-rename) so concurrent readers + crash recovery never observe a truncated file.
+- **Auto-mirror license file→Keychain on `mcp install-key`** (macOS) when the license is configured in `~/.nsauditor/.env` but absent from Keychain. Lets the printed snippet's `keychain:` indirection actually resolve, with original storage location preserved unchanged.
+
+**Breaking change for existing 0.1.31 operators**: nothing breaks, but the recommended Claude Desktop config snippet has changed. Re-run `nsauditor-ai mcp install-key` after upgrading to get the new auto-generated snippet with absolute paths + license indirection. Old configs continue to work.
+
+```bash
+npm install -g nsauditor-ai@0.1.32
+nsauditor-ai mcp install-key   # prints the new snippet — paste into Claude Desktop config
+nsauditor-ai mcp tier          # confirm the actual MCP server tier (ground truth)
+```
+
+See [Authentication](#authentication-required-new-in-0131) and [Troubleshooting MCP authentication](#troubleshooting-mcp-authentication) for full setup + diagnostics.
+
+---
+
 ## What's New (0.1.31) — security release
 
 **MCP server authentication is now required.** Pre-0.1.31, the local MCP server (stdio transport) accepted any incoming JSON-RPC frames — any process running as your user could spawn it and use the Pro/Enterprise tools (which include the AWS-talking shadow-admin path detectors that ship in `@nsasoft/nsauditor-ai-ee@0.3.4`). 0.1.31 closes this gap with a per-operator shared-secret check at startup.
@@ -439,6 +463,25 @@ claude mcp add nsauditor-ai \
 **`mcp status` reports `keychain-locked`** (NEW in 0.1.32) → distinct from `unconfigured`: the Keychain entry exists but the security daemon refused to unlock without a GUI prompt. Same workarounds as the previous error: approve a Keychain GUI prompt, replace `keychain:` indirection with the literal key, or move auth to `~/.nsauditor/.env`. Pre-0.1.32 the resolver silently fell through to the file branch and reported `unconfigured` — the new state distinguishes "operator never ran install-key" from "operator did run it but Keychain is locked right now".
 
 **`mcp status` shows `⚠ Created: ... — > 90d threshold`** (NEW in 0.1.32) → key is older than the 90-day rotation cadence. Run `nsauditor-ai mcp rotate-key --confirm` and update Claude Desktop config with the new key. Server emits the same warning to stderr at every startup.
+
+**Claude Desktop reports "Current tier: CE" despite `nsauditor-ai license --status` showing Enterprise** (NEW in 0.1.32) → first run `nsauditor-ai mcp tier` to get the **ground-truth tier** the MCP server actually resolves at startup. If `mcp tier` reports `enterprise` but Claude Desktop's `list_plugins` says CE, **Claude (the AI) is synthesizing the tier text from context rather than calling the tool**. Force a real call by asking in a NEW Claude Desktop conversation:
+
+> Use the `list_plugins` MCP tool right now and show me the raw tool response verbatim, including the exact text after the JSON.
+
+Then check the MCP log to verify a real call happened:
+
+```bash
+grep '"method":"tools/call"' ~/Library/Logs/Claude/mcp-server-nsauditor-ai.log | tail -5
+```
+
+If `mcp tier` itself reports CE → genuine resolution failure. Inspect the license storage:
+
+```bash
+nsauditor-ai license --status
+security find-generic-password -s nsauditor-ai -a NSAUDITOR_LICENSE_KEY -w 2>&1 | head -c 30
+```
+
+If license is in `~/.nsauditor/.env` but not in Keychain on macOS, re-run `nsauditor-ai mcp install-key` — the auto-mirror writes the license to Keychain so Claude Desktop's child process can read it via the `keychain:` indirection.
 
 ---
 
