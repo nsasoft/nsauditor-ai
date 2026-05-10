@@ -15,6 +15,38 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.37) — 🛑 SECURITY FIX: bin shim bypassed auth + license verification
+
+**Affects all installations using Claude Desktop (or any MCP client invoking the published `nsauditor-ai-mcp` binary).** Pre-0.1.37, the bin shim at `bin/nsauditor-ai-mcp.mjs` directly called `createServer() + server.connect()` and never invoked the startup block in `mcp_server.mjs` that runs:
+
+1. **`authorizeMcpServerStartup()`** — the `NSA_MCP_AUTH_KEY` enforcement we shipped in EE-SEC.1 (CE 0.1.31). Skipped means **any process with stdio access to the spawned MCP child could call the tools without supplying the auth key**.
+2. **`await loadLicense()`** — JWT verification of the operator's license key. Skipped means `_tier` stuck at the module-load CE default, so paid Pro/Enterprise customers saw "Current tier: CE" responses and lost MCP access to gated tools entirely.
+3. Rotation cadence warnings, keychain-locked diagnostics — all silent.
+
+**Root cause**: an `argv[1].endsWith('mcp_server.mjs')` guard in `mcp_server.mjs` only matched when the server was invoked directly as `node mcp_server.mjs`. Claude Desktop spawns via the published bin (`nsauditor-ai-mcp`), so the guard was always false in production. The guard existed so that test imports of the module wouldn't auto-start the server — but the fix should have been to extract the startup into a function the bin shim explicitly calls.
+
+**Detection**: in 0.1.36 you could spot this if you noticed your MCP responses said `Current tier: Community Edition (CE)` despite `nsauditor-ai mcp tier` from the shell saying `enterprise`. The disagreement was the 0.1.37 bug surfacing.
+
+**Fix in 0.1.37**:
+- Extracted the entire startup sequence into `export async function startStdioServer()` in `mcp_server.mjs`.
+- `bin/nsauditor-ai-mcp.mjs` now imports and awaits `startStdioServer()`. Every Claude Desktop spawn now runs the auth check and license verification it always should have.
+- Regression test (`tests/mcp_bin_startup.test.mjs`) spawns the bin shim with no auth key in env and asserts the auth check refuses startup. If the bin shim ever regresses to bypassing startup again, this test fails.
+
+**Action required**: upgrade immediately.
+
+```bash
+npm install -g nsauditor-ai@0.1.37
+# Restart Claude Desktop. Verify with:
+# - Real MCP call from Claude → response should say "Current tier: Enterprise" (or Pro)
+# - nsauditor-ai mcp verify-call <uuid>  ← the 0.1.36 sentinel still works
+```
+
+**Threat model note**: a process needing stdio access to your Claude Desktop MCP child already had to be running as your user (or able to write to your `~/Library/Application Support/Claude/` config). The auth-bypass exposure is *defense-in-depth degradation*, not "anyone on the internet can call your scanner." But the tier-stuck-at-CE bug definitely cost paying customers actual functionality, and SOC 2 evidence generated from MCP-routed CE-tier responses would fail audit because it lacked enterprise-tier checks.
+
+Thanks to the customer who caught this in the wild while we were chasing what looked like a Claude Desktop hallucination — turned out the bug was on our side.
+
+---
+
 ## What's New (0.1.36) — cryptographic per-call sentinel UUID (hallucination becomes mathematically detectable)
 
 The version-block comparison shipped in 0.1.34/0.1.35 catches lazy hallucinations, but a sufficiently capable AI client can still copy a previously-seen version block from chat context and pass off a fabricated response. **0.1.36 closes that gap** with a per-call cryptographic sentinel that the AI cannot fake.

@@ -493,16 +493,22 @@ export function createServer() {
 }
 
 // ---------------------------------------------------------------------------
-// Standalone entry point
+// Stdio entry point — used by bin/nsauditor-ai-mcp.mjs AND `node mcp_server.mjs`
 // ---------------------------------------------------------------------------
-
-const isMainModule =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  (process.argv[1].endsWith('mcp_server.mjs') ||
-    process.argv[1].endsWith('mcp_server'));
-
-if (isMainModule) {
+//
+// CE 0.1.37 (SECURITY): this used to be guarded by a brittle
+// `process.argv[1].endsWith('mcp_server.mjs')` check. The bin shim
+// (which Claude Desktop spawns) sets argv[1] to `nsauditor-ai-mcp.mjs`,
+// so the guard was false and the entire startup block — auth check,
+// license verification, rotation warnings — was SKIPPED. Result: Claude
+// Desktop's MCP child ran unauthenticated, with _tier stuck at the CE
+// default, regardless of the operator's installed license. Customers
+// paying for Pro/Enterprise saw "Current tier: CE" responses and lost
+// MCP access to gated tools entirely.
+//
+// Fix: extract the startup into an exported function. The bin shim now
+// calls it explicitly, so the auth + license path runs every time.
+export async function startStdioServer() {
   // EE-SEC.1: enforce MCP server authentication BEFORE accepting any
   // tool calls. Pre-fold any process running as the operator could
   // spawn the server and call Pro/Enterprise tools — including the
@@ -589,4 +595,16 @@ if (isMainModule) {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  return server;
+}
+
+// Backward-compat: still callable as `node mcp_server.mjs` directly.
+const isMainModule =
+  typeof process !== 'undefined' &&
+  process.argv[1] &&
+  (process.argv[1].endsWith('mcp_server.mjs') ||
+    process.argv[1].endsWith('mcp_server'));
+
+if (isMainModule) {
+  await startStdioServer();
 }
