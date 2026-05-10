@@ -5,8 +5,10 @@ import { buildHtmlReport } from './utils/report_html.mjs';
 import fsp from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const _require = createRequire(import.meta.url);
 import path from 'node:path';
 import { platform } from 'node:os';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
@@ -931,6 +933,20 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
           console.log('\n→ Start a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
         }
       }
+      // CE 0.1.35 (Thread L mitigation v2): version provenance footer
+      // matches the MCP server's list_plugins suffix exactly. Customer
+      // verification flow: read versions in Claude Desktop's MCP
+      // response → compare against `license --status` output here.
+      // Mismatch ⇒ Claude hallucinated.
+      let _eeVersion = 'not installed';
+      try {
+        const ee = _require('@nsasoft/nsauditor-ai-ee/package.json');
+        _eeVersion = ee && ee.version ? `${ee.version} (loaded)` : 'unknown (loaded)';
+      } catch { /* CE-only — fine */ }
+      console.log('');
+      console.log('── Installation provenance ──');
+      console.log(`  nsauditor-ai (CE):              ${TOOL_VERSION}`);
+      console.log(`  @nsasoft/nsauditor-ai-ee (EE):  ${_eeVersion}`);
     } else if (rawArgs.includes('--capabilities')) {
       const tier = getTierFromEnv();
       const caps = resolveCapabilities(tier);
@@ -1004,6 +1020,24 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         console.log('');
         console.log(`  ${totalRendered} plugin${totalRendered === 1 ? '' : 's'} total · current tier: ${tier}`);
       }
+
+      // CE 0.1.35 (Thread L mitigation v2): emit installation provenance
+      // identical in shape to the MCP server's list_plugins suffix.
+      // Customers comparing Claude Desktop's MCP response against the
+      // CLI baseline now see the SAME version block in both places.
+      // Mismatch → Claude hallucinated. Match → real tool call.
+      const ceVersion = TOOL_VERSION;
+      let eeVersion = 'not installed';
+      try {
+        const eeManifest = _require('@nsasoft/nsauditor-ai-ee/package.json');
+        eeVersion = eeManifest && eeManifest.version
+          ? `${eeManifest.version} (loaded)`
+          : 'unknown (loaded)';
+      } catch { /* CE-only install — fine */ }
+      console.log('');
+      console.log('── Installation provenance ──');
+      console.log(`  nsauditor-ai (CE):              ${ceVersion}`);
+      console.log(`  @nsasoft/nsauditor-ai-ee (EE):  ${eeVersion}`);
     } else if (rawArgs.includes('install')) {
       // CE-0.1.30.4 — install command. Verify the JWT FIRST, then persist
       // to a platform-appropriate location (macOS Keychain / file).

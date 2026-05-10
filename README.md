@@ -15,6 +15,30 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.35) — CLI provenance footer matches MCP response (so the comparison actually works)
+
+0.1.34 added the version-provenance block to the MCP server's `list_plugins` response, but **the CLI baseline (`license --plugins` / `license --status`) didn't show versions** — so customers couldn't easily compare. 0.1.35 fixes that asymmetry.
+
+Both CLI commands now emit an identical provenance block:
+
+```
+── Installation provenance ──
+  nsauditor-ai (CE):              0.1.35
+  @nsasoft/nsauditor-ai-ee (EE):  0.3.4 (loaded)
+```
+
+**Customer hallucination-detection workflow (5 seconds, no log archeology):**
+
+1. In Claude Desktop: ask "list plugins" → receive a response that should end with the provenance block
+2. In your terminal: run `nsauditor-ai license --plugins`
+3. Compare the two `── Installation provenance ──` blocks character-for-character
+4. **Match** → real MCP `tools/call` happened, response is trustworthy
+5. **Mismatch / missing block** → Claude fabricated the response (see CE 0.1.33 advisory)
+
+This is the v1 mitigation; the v2 (Thread L Phase 2) adds per-call cryptographic sentinel UUIDs that the customer can grep against the server log directly. v1 catches the common case where Claude either omits the block entirely (unlikely to fabricate the new structure verbatim) or includes a stale version pulled from training data.
+
+---
+
 ## What's New (0.1.34) — list_plugins now embeds CE+EE versions for hallucination detection
 
 Companion to the 0.1.33 advisory. The `list_plugins` MCP tool's response now appends the actual installed CE + EE version numbers, so customers can verify a Claude Desktop response in **5 seconds** without log archeology:
