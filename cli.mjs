@@ -1539,6 +1539,70 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
           console.log(`  ⚠ ${MCP_AUTH_DISABLE_ENV_VAR}=1 is set — server will start without auth.`);
         }
       }
+    } else if (subCmd === 'verify-call') {
+      // CE 0.1.36 (Thread L Phase 2): cryptographic ground truth for
+      // "did Claude actually call the MCP server, or hallucinate a
+      // response?" Server mints a fresh UUID per tools/call, embeds it
+      // in the response text, AND appends to ~/.nsauditor/mcp-calls.log.
+      // Customer pastes the UUID here; we grep the log. UUID present →
+      // proven real call. UUID absent → fabricated (or log was rotated/
+      // deleted; we say "unverifiable" rather than "fake").
+      const { readFile, stat } = await import('node:fs/promises');
+      const { join: _join } = await import('node:path');
+      const { homedir: _homedir } = await import('node:os');
+      const logPath = _join(_homedir(), '.nsauditor', 'mcp-calls.log');
+      const uuid = rawArgs[2];
+      if (!uuid) {
+        console.error('Usage: nsauditor-ai mcp verify-call <uuid>');
+        console.error('  Paste the call_id from the MCP tool response footer.');
+        process.exit(2);
+      }
+      // Conservative UUID v4 shape check — avoid grepping the log with
+      // arbitrary user input.
+      if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(uuid)) {
+        console.error(`✗ Not a valid UUID: ${uuid}`);
+        console.error('  Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+        process.exit(2);
+      }
+      let logExists = false;
+      try { await stat(logPath); logExists = true; } catch { /* missing */ }
+      if (!logExists) {
+        console.log(`✗ No MCP call log at ${logPath}`);
+        console.log('  Either: (a) MCP server has never been invoked from this account, or');
+        console.log('          (b) the log was deleted/rotated.');
+        console.log('  Trigger one real call (e.g., ask Claude "use list_plugins") then retry.');
+        process.exit(1);
+      }
+      const raw = await readFile(logPath, 'utf8');
+      // Look for an exact JSON-string match on call_id to avoid prefix collisions.
+      const needle = `"call_id":"${uuid.toLowerCase()}"`;
+      const lines = raw.split('\n').filter((l) => l.includes(needle));
+      if (lines.length === 0) {
+        console.log(`✗ call_id not found in ${logPath}`);
+        console.log('');
+        console.log(`  ${uuid}`);
+        console.log('');
+        console.log('  This UUID was NOT issued by this MCP server. Most likely cause:');
+        console.log('  Claude Desktop fabricated the response without invoking the server.');
+        console.log('  (See README §"Verifying that Claude actually called the MCP server".)');
+        process.exit(1);
+      }
+      try {
+        const entry = JSON.parse(lines[lines.length - 1]);
+        console.log(`✓ Verified MCP call`);
+        console.log(`  call_id: ${entry.call_id}`);
+        console.log(`  tool:    ${entry.tool}`);
+        console.log(`  ts:      ${entry.ts}`);
+        console.log(`  log:     ${logPath}`);
+        console.log('');
+        console.log('  This UUID was issued by the local MCP server, so the response');
+        console.log('  bearing it was a genuine tool call (not a hallucination).');
+        process.exit(0);
+      } catch {
+        console.log(`✓ Verified MCP call (matched ${lines.length} log line(s) for this UUID)`);
+        console.log(`  log: ${logPath}`);
+        process.exit(0);
+      }
     } else {
       console.log('Usage:');
       console.log('  nsauditor-ai mcp install-key            Generate a new key, persist, print Claude config');
@@ -1547,6 +1611,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('  nsauditor-ai mcp rotate-key             Replace the stored key with a fresh one');
       console.log('  nsauditor-ai mcp status                 Show storage source without revealing the key');
       console.log('  nsauditor-ai mcp tier                   Print actual MCP server tier (ground truth, bypasses Claude AI synthesis)');
+      console.log('  nsauditor-ai mcp verify-call <uuid>     Prove a tool response came from the real MCP server (not Claude hallucination)');
       console.log('');
       console.log('Environment variables:');
       console.log(`  ${MCP_AUTH_ENV_VAR}        Read by mcp_server.mjs at startup; client supplies via Claude config`);

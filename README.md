@@ -15,6 +15,44 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
+## What's New (0.1.36) — cryptographic per-call sentinel UUID (hallucination becomes mathematically detectable)
+
+The version-block comparison shipped in 0.1.34/0.1.35 catches lazy hallucinations, but a sufficiently capable AI client can still copy a previously-seen version block from chat context and pass off a fabricated response. **0.1.36 closes that gap** with a per-call cryptographic sentinel that the AI cannot fake.
+
+**How it works:**
+- Each `tools/call` invocation mints a fresh server-side UUID via Node's `crypto.randomUUID()`.
+- The UUID is appended to the response text under a `── Verified MCP call ──` footer.
+- The same UUID is persisted to `~/.nsauditor/mcp-calls.log` (mode 0600, JSON-per-line) **before** the response is returned.
+- A new CLI subcommand `nsauditor-ai mcp verify-call <uuid>` greps the log:
+  - **Found** → the UUID was issued by your local MCP server, so the response bearing it is genuine.
+  - **Not found** → the UUID was never issued, so the entire response was fabricated by the AI client.
+
+**Customer verification workflow (10 seconds):**
+
+```bash
+# 1. In Claude Desktop, ask Claude to use any MCP tool (e.g., list_plugins).
+# 2. The response ends with:
+#       ── Verified MCP call ──
+#       call_id: 3f8a1b22-7e44-4c91-9d62-12bd0a4f5e91
+#       Verify: nsauditor-ai mcp verify-call 3f8a1b22-7e44-4c91-9d62-12bd0a4f5e91
+# 3. Run that exact verify command in your terminal:
+nsauditor-ai mcp verify-call 3f8a1b22-7e44-4c91-9d62-12bd0a4f5e91
+# ✓ Verified MCP call → genuine
+# ✗ call_id not found  → fabricated (response was AI-generated, not from the MCP server)
+```
+
+This makes the hallucination detection unfakeable in principle: the AI client has no access to your local Node `crypto.randomUUID()` output, and the sentinel is generated **at the moment the call hits the server** — there's no way to forge a UUID that will appear in a log file the client cannot read or write.
+
+The 0.1.34/0.1.35 version-block check remains as the first line of defense (instant visual mismatch). The 0.1.36 UUID is the cryptographic ground truth for any response you'd act on.
+
+`scan_host`, `probe_service`, `get_vulnerabilities`, and `list_plugins` all mint sentinels — even Pro-tier denials carry a UUID so customers can prove the call reached the server.
+
+```bash
+npm install -g nsauditor-ai@0.1.36
+```
+
+---
+
 ## What's New (0.1.35) — CLI provenance footer matches MCP response (so the comparison actually works)
 
 0.1.34 added the version-provenance block to the MCP server's `list_plugins` response, but **the CLI baseline (`license --plugins` / `license --status`) didn't show versions** — so customers couldn't easily compare. 0.1.35 fixes that asymmetry.
@@ -403,20 +441,23 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 >
 > When you use NSAuditor AI through **Claude Desktop's** MCP integration, the AI may **fabricate scan results, plugin lists, vulnerability findings, and tier information without actually invoking the MCP tools**. We've confirmed this empirically: Claude Desktop's permission system shows tool calls being approved, but the actual `tools/call` JSON-RPC messages never reach our server (other MCP servers in the same config receive their calls correctly).
 >
-> **Mandatory verification for any output you'd act on**:
+> **Mandatory verification for any output you'd act on (NEW in 0.1.36 — works for any MCP client):**
 >
 > ```bash
-> # Real tier check (ground truth — bypasses Claude AI synthesis):
+> # Cryptographic ground truth: copy the call_id from the response footer
+> # ("── Verified MCP call ──") and run:
+> nsauditor-ai mcp verify-call <call_id>
+> # ✓ Verified MCP call → genuine, response is trustworthy
+> # ✗ call_id not found → fabricated, IGNORE the response
+>
+> # Real tier check (bypasses Claude AI synthesis):
 > nsauditor-ai mcp tier
 >
-> # Real scan (always hits the network):
+> # Real scan (always hits the network, no MCP client involved):
 > nsauditor-ai scan --host <X> --plugins all --out <dir>
->
-> # Confirm Claude Desktop actually called the MCP server today:
-> grep '"method":"tools/call"' ~/Library/Logs/Claude/mcp-server-nsauditor-ai.log | tail -5
 > ```
 >
-> **SOC 2 evidence + compliance reports MUST be generated via the CLI** — never via the Claude Desktop MCP integration — until this is resolved upstream. Other MCP clients (Claude Code, custom MCP clients via the SDK) appear unaffected. See [What's New (0.1.33)](#whats-new-0133----mcp-integration-with-claude-desktop-is-unreliable) for full details.
+> **SOC 2 evidence + compliance reports MUST be generated via the CLI** — never via the Claude Desktop MCP integration — unless every response you act on has a verified call_id. Other MCP clients (Claude Code, custom MCP clients via the SDK) appear unaffected. See [What's New (0.1.36)](#whats-new-0136--cryptographic-per-call-sentinel-uuid-hallucination-becomes-mathematically-detectable) for the cryptographic mitigation and [What's New (0.1.33)](#whats-new-0133----mcp-integration-with-claude-desktop-is-unreliable) for the original advisory.
 
 Expose scanning capabilities to AI assistants via [Model Context Protocol](https://modelcontextprotocol.io):
 
@@ -567,7 +608,16 @@ claude mcp add nsauditor-ai \
 
 > Use the `list_plugins` MCP tool right now and show me the raw tool response verbatim, including the exact text after the JSON.
 
-Then check the MCP log to verify a real call happened:
+Then verify a real call happened. The 0.1.36+ way (works for any client, not just Claude Desktop):
+
+```bash
+# Copy the call_id from the response footer that Claude returned, then:
+nsauditor-ai mcp verify-call <call_id>
+# ✓ Verified MCP call → genuine, response is trustworthy
+# ✗ call_id not found → fabricated, IGNORE the response
+```
+
+The pre-0.1.36 fallback (Claude Desktop log archeology):
 
 ```bash
 grep '"method":"tools/call"' ~/Library/Logs/Claude/mcp-server-nsauditor-ai.log | tail -5

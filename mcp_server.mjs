@@ -8,8 +8,11 @@
 //   import { createServer, toolHandlers } from './mcp_server.mjs'  — for testing
 
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { appendFile, mkdir, chmod } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -97,6 +100,56 @@ let _validateHostFn = validateHost;
 export function _setValidateHost(fn) {
   if (process.env.NODE_ENV === 'production') throw new Error('_setValidateHost is test-only and disabled in production');
   _validateHostFn = fn ?? validateHost;
+}
+
+// ---------------------------------------------------------------------------
+// Per-call cryptographic sentinel (CE 0.1.36 — Thread L Phase 2)
+// ---------------------------------------------------------------------------
+//
+// Why this exists: even after CE 0.1.34 embedded the resolved tier and CE 0.1.35
+// added a CLI provenance footer, Claude Desktop was empirically observed
+// (2026-05-09, <operator-email>) fabricating list_plugins responses
+// WITHOUT routing to this server (per-server log: 0 tools/call entries
+// while other configured MCP servers received 50+ in the same session).
+// A fabricated response can copy any text it has seen — including version
+// numbers from the CLI footer. The only thing it cannot copy is a
+// random UUID generated server-side AT THE MOMENT of the call.
+//
+// Each tool invocation gets a fresh UUID. The UUID is:
+//   1. Embedded in the response text (Claude cannot omit; it's the payload)
+//   2. Persisted to ~/.nsauditor/mcp-calls.log (append-only, mode 0600)
+//
+// Customer verification: paste the UUID from Claude into
+//   nsauditor-ai mcp verify-call <uuid>
+// If it appears in the local log → real call. If not → hallucinated.
+// (See cli.mjs `verify-call` subcommand.)
+const MCP_CALL_LOG_PATH = join(homedir(), '.nsauditor', 'mcp-calls.log');
+
+async function recordToolCall(toolName) {
+  const callId = randomUUID();
+  const ts = new Date().toISOString();
+  // Best-effort: a log-write failure must not break the customer's tool
+  // call. Verification will simply fail-closed (UUID-not-found → treat as
+  // unverifiable rather than as proof-of-fake).
+  try {
+    await mkdir(dirname(MCP_CALL_LOG_PATH), { recursive: true });
+    const line = JSON.stringify({ call_id: callId, tool: toolName, ts }) + '\n';
+    await appendFile(MCP_CALL_LOG_PATH, line, { encoding: 'utf8' });
+    // Tighten on first write; chmod is idempotent so cheap to repeat.
+    try { await chmod(MCP_CALL_LOG_PATH, 0o600); } catch { /* non-fatal on Windows */ }
+  } catch (err) {
+    process.stderr.write(`[nsauditor-mcp] call-log write failed: ${err.message}\n`);
+  }
+  return callId;
+}
+
+function appendCallSentinel(text, callId) {
+  return (
+    `${text}\n\n── Verified MCP call ──\n` +
+    `call_id: ${callId}\n` +
+    `Verify (proves Claude actually called this server, not hallucinated):\n` +
+    `  nsauditor-ai mcp verify-call ${callId}`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -357,10 +410,23 @@ export function createServer() {
       };
     }
 
+    // CE 0.1.36 (Thread L Phase 2): mint a per-call sentinel UUID and
+    // log it BEFORE the Pro-gate so even denials prove the call hit
+    // the server. Fabricated responses cannot include a UUID that
+    // exists in the customer's local log file.
+    const callId = await recordToolCall(name);
+
     // Gate Pro-tier tools at the MCP dispatch layer
     if (name === 'probe_service' || name === 'get_vulnerabilities') {
       const denied = requireProCapability(name);
-      if (denied) return denied;
+      if (denied) {
+        return {
+          ...denied,
+          content: denied.content.map((c) =>
+            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId) } : c,
+          ),
+        };
+      }
     }
 
     try {
@@ -408,16 +474,16 @@ export function createServer() {
         const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service, get_vulnerabilities, risk_summary, and more.'}`;
 
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) + tierSuffix + versionLines }],
+          content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2) + tierSuffix + versionLines, callId) }],
         };
       }
 
       return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2), callId) }],
       };
     } catch (err) {
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],
+        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify({ error: err.message }), callId) }],
         isError: true,
       };
     }
