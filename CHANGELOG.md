@@ -6,6 +6,18 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.38 — docs-only: README cleanup + CHANGELOG split
+
+No code changes. The README on the npm package page used to lead with eight stacked "What's New" release-note blocks for 0.1.30 → 0.1.37 (plus an EE 0.3.3 paired note), which buried features and usage below ~220 lines of release narrative. 0.1.38 ships the same code as 0.1.37 with the README rewritten to be feature-and-usage focused on the first screen and the per-release history moved to this CHANGELOG. A new `docs/mcp-verification.md` page carries the previously-inline forensics on Claude Desktop response fabrication and the `nsauditor-ai mcp verify-call <id>` workflow.
+
+If you're already on 0.1.37, this upgrade carries no functional difference. Upgrade only if you want the new README on a freshly-installed copy or you're a contributor looking at the source. The 0.1.37 security fix (MCP bin shim auth/license bypass) is the most recent functional change — see below.
+
+```bash
+npm install -g nsauditor-ai@0.1.38
+```
+
+---
+
 ## 0.1.37 — 🛑 SECURITY FIX: bin shim bypassed auth + license verification
 
 **Affects all installations using Claude Desktop (or any MCP client invoking the published `nsauditor-ai-mcp` binary).** Pre-0.1.37, the bin shim at `bin/nsauditor-ai-mcp.mjs` directly called `createServer() + server.connect()` and never invoked the startup block in `mcp_server.mjs` that runs:

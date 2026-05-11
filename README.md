@@ -15,10 +15,10 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 **Zero Data Exfiltration by design.** NSAuditor AI works fully offline. AI analysis, CVE correlation, and continuous monitoring all happen locally. External calls (to AI APIs, NVD, etc.) are opt-in and use your own API keys. We never see your scan data.
 
-## What's New in 0.1.37
+## What's New
 
-- **🛑 Security fix — upgrade immediately.** The MCP bin shim (`nsauditor-ai-mcp`) was bypassing both `NSA_MCP_AUTH_KEY` enforcement and license verification on every spawn. Defense-in-depth degradation, plus paid Pro/Enterprise customers were stuck at CE tier through MCP. `npm install -g nsauditor-ai@0.1.37` + restart your MCP client.
-- **MCP response verification.** Every `tools/call` mints a server-side UUID you can verify with `nsauditor-ai mcp verify-call <id>` to detect fabricated AI-client responses. See [docs/mcp-verification.md](./docs/mcp-verification.md).
+- **0.1.38 (current)** — docs-only. README rewritten to be feature-and-usage focused; release history moved to [CHANGELOG.md](./CHANGELOG.md); new [docs/mcp-verification.md](./docs/mcp-verification.md) for the `nsauditor-ai mcp verify-call` workflow. No functional change vs 0.1.37.
+- **0.1.37 — 🛑 security fix**, upgrade if you're on anything earlier. The MCP bin shim (`nsauditor-ai-mcp`) was bypassing both `NSA_MCP_AUTH_KEY` enforcement and license verification on every spawn. Defense-in-depth degradation, plus paid Pro/Enterprise customers were stuck at CE tier through MCP. `npm install -g nsauditor-ai@latest` + restart your MCP client.
 - **Authenticated MCP server, Keychain-backed secrets, per-call sentinel UUIDs, multi-source license loader, `--version` / `validate` / `license install` subcommands.** All shipped across 0.1.30 → 0.1.37 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release detail.
 
 ---
