@@ -17,7 +17,8 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-- **0.1.38 (current)** — docs-only. README rewritten to be feature-and-usage focused; release history moved to [CHANGELOG.md](./CHANGELOG.md); new [docs/mcp-verification.md](./docs/mcp-verification.md) for the `nsauditor-ai mcp verify-call` workflow. No functional change vs 0.1.37.
+- **0.1.39 (current)** — docs-only patch announcing **EE 0.3.9 publish** (paired release): EE plugin-ID range realignment to 1000+ closes a silent plugin-shadow class that affected EE 0.3.7/0.3.8 (CE plugin 040 TLS Cert Auditor and EE plugin 040 CloudTrail declared the same string ID; CE's `plugin_manager.findPlugin()` first-match-wins resolver routed `--plugins 040` to CE TLS, NOT EE CloudTrail). All 8 EE plugins moved to disjoint 1000+ IDs (1020 S3, 1021 GCP, 1022 Azure, 1023 Zero Trust, 1030 IAM Deep Auditor, 1040 CloudTrail, **NEW 1050 API Gateway Assurance**, **NEW 1060 DynamoDB Audit Integrity**). EE 0.3.9 also ships the **first SOC 2 Processing Integrity evidence stream**: PI1.5 (Stored items) moves from out-of-scope to partial via the new DynamoDB audit-the-auditor plugin — coverage matrix shifts **10 covered / 3 partial / 34 OOS → 10 covered / 4 partial / 33 OOS**. CE binary unchanged in 0.1.39 (code identical to 0.1.38); the bump exists to carry the EE-paired-release narrative + plugin-ID rename disclosure to the npm landing page.
+- **0.1.38 (deprecated)** — docs-only. README rewritten to be feature-and-usage focused; release history moved to [CHANGELOG.md](./CHANGELOG.md); new [docs/mcp-verification.md](./docs/mcp-verification.md) for the `nsauditor-ai mcp verify-call` workflow. No functional change vs 0.1.37.
 - **0.1.37 — 🛑 security fix**, upgrade if you're on anything earlier. The MCP bin shim (`nsauditor-ai-mcp`) was bypassing both `NSA_MCP_AUTH_KEY` enforcement and license verification on every spawn. Defense-in-depth degradation, plus paid Pro/Enterprise customers were stuck at CE tier through MCP. `npm install -g nsauditor-ai@latest` + restart your MCP client.
 - **Authenticated MCP server, Keychain-backed secrets, per-call sentinel UUIDs, multi-source license loader, `--version` / `validate` / `license install` subcommands.** All shipped across 0.1.30 → 0.1.37 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release detail.
 
@@ -57,7 +58,7 @@ NSAuditor AI is available in three editions:
 | Advanced CTEM + trend analysis | — | ✅ | ✅ |
 | Cloud scanners (AWS/GCP/Azure) | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
-| SOC 2 compliance (8 covered + 5 partial controls; AWS + Azure evidence streams) | — | — | ✅ |
+| SOC 2 compliance (10 covered + 4 partial controls post-EE 0.3.9; AWS + Azure + GCP evidence streams; PI1.5 stored-items partial via DynamoDB audit-the-auditor) | — | — | ✅ |
 | SLA/MTTR tracking + compensating controls | — | — | ✅ |
 | Recurring-scan attestation (Type II evidence) | — | — | ✅ |
 | GRC platform connector (Vanta) | — | — | ✅ |
@@ -175,14 +176,19 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
+EE plugins use the disjoint 1000+ ID range to avoid collision with CE plugins (CE reserves 001-099). Pre-EE-0.3.9 the EE plugins used 020/021/022/023/030/040 IDs which collided with CE 040 (TLS Cert) / 050 (TRIBE) / 060 (DNS Sec) and shadowed EE plugin 040 (CloudTrail) on EE 0.3.7/0.3.8. See [EE CHANGELOG.md](https://github.com/nsasoft/nsauditor-ai-ee) for the migration disclosure.
+
 | ID | Name | Tier | Purpose |
 |---|---|---|---|
-| 020 | AWS Cloud Scanner | Enterprise | S3 bucket hardening, security group + IAM policy analysis with SOC 2 evidence mapping |
-| 021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings |
-| 022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC role assignments + Storage account hardening, SOC 2 evidence mapping (CC6.1 / CC6.6 / C1.1) |
-| 023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral movement scoring |
-| 030 | AWS IAM Deep Auditor | Enterprise | Shadow-admin path detection via BFS over PassRole / AssumeRole / federated trust; per-finding remediation pointers; SOC 2 CC6.1 evidence |
-| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 control mapping, chain-of-custody, RFC 3161 timestamps, suppression workflow |
+| 1020 | AWS Cloud Scanner | Enterprise | S3 bucket hardening (PAB, encryption, versioning, Object Lock, MFA Delete, logging), SOC 2 evidence mapping |
+| 1021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings + Storage bucket public-access (CC6.1 / CC6.6 / C1.1) |
+| 1022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC role assignments + Storage account hardening, SOC 2 evidence mapping (CC6.1 / CC6.6 / C1.1) |
+| 1023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral movement scoring |
+| 1030 | AWS IAM Deep Auditor | Enterprise | Shadow-admin path detection via BFS over PassRole / AssumeRole / federated trust; per-finding remediation pointers; restrictive-Condition allowlist (Auth0 / Okta / Cognito User Pool OIDC heuristic); SOC 2 CC6.1 evidence |
+| 1040 | AWS CloudTrail Operational Integrity | Enterprise | CloudTrail trail health (multi-region default-ON, log-file validation, KMS-CMK, IsLogging); CloudWatch alarm coverage against CIS AWS Foundations Benchmark v1.5 §3.1–3.14 (v2 auditor-canonical `logs:DescribeMetricFilters` evidence stream); AWS Config + ConfigurationAggregator detection + STS `GetCallerIdentity` deterministic account-coverage check; cross-account S3 trail-destination WORM verification (SEC 17a-4 / FINRA 4511). CC7.2 + CC7.3 covered. |
+| **1050** | **AWS API Gateway Assurance** (NEW EE 0.3.9) | Enterprise | First v0.4.0 entry-point evidence plugin for Serverless-Framework deployments. Per-method/route authorization classifier (NONE = CRITICAL; AWS_IAM / Cognito / JWT = PASS; Lambda authorizer = INFO); custom-domain TLS policy (TLS_1_0 = HIGH); stage-level access logging / throttling / WAF; public-endpoint exposure. CC6.1 / CC6.6 / CC6.7 / CC7.1 / A1.2. |
+| **1060** | **AWS DynamoDB Audit Integrity** (NEW EE 0.3.9 — PI1.5 matrix shift) | Enterprise | First v0.4.0 PI1-class evidence plugin ("audit-the-auditor"). Per-table PITR + deletion protection + KMS-CMK (conservative LOW-unverifiable when `:key/UUID` form); resource-policy presence; CloudTrail DynamoDB data-event coverage cross-reference. **Opens partial PI1.5 (Stored items)** — full PASS requires EE-RT.7 Lambda Runtime Assurance application-tier evidence. CC6.6 / CC7.1 / C1.1 / **PI1.5**. |
+| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 control mapping (10 covered + 4 partial controls post-EE 0.3.9), chain-of-custody, RFC 3161 timestamps, suppression workflow |
 | — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle |
 | — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope drift (CC8.1) |
 | — | GRC Platform Connector | Enterprise | Native API push to Vanta with retry/backoff, idempotency, rate-limit handling |

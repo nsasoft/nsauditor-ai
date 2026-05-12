@@ -6,6 +6,50 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.39 — docs-only: paired-release announcement for EE 0.3.9 (PI1.5 matrix shift + plugin-ID range realignment + collision-shadow disclosure)
+
+No code changes. CE 0.1.39 ships the same code as 0.1.38 with README updated to announce the paired **EE 0.3.9 release** + carry the **plugin-ID rename disclosure** to the CE npm landing page.
+
+**EE-paired release highlights (institutional-grade transparency on the CE README so a customer landing on the CE npm page sees both the new EE plugins AND the prior-version collision-shadow disclosure):**
+
+1. **MATRIX SHIFT 10/3/34 → 10/4/33** — EE 0.3.9 opens **PI1.5 (Stored items)** as partial coverage via the new `aws-dynamodb-auditor` plugin (1060). First SOC 2 Processing Integrity evidence stream in the EE v0.4.0 Runtime Assurance track.
+
+2. **NEW EE plugin 1050** — `aws-apigateway-auditor`. First entry-point evidence plugin for Serverless-Framework deployments. CC6.1 + CC6.6 + CC6.7 + CC7.1 + A1.2 per-method/route audit (NONE-auth CRITICAL, TLS_1_0 HIGH, stage-level access logging / throttling / WAF).
+
+3. **NEW EE plugin 1060** — `aws-dynamodb-auditor`. PI1.5 partial-coverage substrate evidence: PITR + deletion-protection + KMS-CMK + resource-policy + CloudTrail data-event cross-reference. Closes the auditor-canonical "audit-the-auditor" question on AWS DynamoDB audit-store / payroll-runs / financial-batch tables.
+
+4. **EE plugin-ID range realignment to 1000+** — all 8 EE plugins moved from CE-overlapping IDs (020 / 021 / 022 / 023 / 030 / 040 / 050 / 060) to the disjoint 1000+ range (1020 / 1021 / 1022 / 1023 / 1030 / 1040 / 1050 / 1060). CE retains 001-099.
+
+**🚨 INSTITUTIONAL DISCLOSURE — silent plugin-shadow class on EE 0.3.7 + 0.3.8:**
+
+Pre-EE-0.3.9, CE plugin 040 (`TLS Cert Auditor`, priority 450) and EE plugin 040 (`AWS CloudTrail Operational Integrity`, priority 510) declared the same string `id: "040"`. The CE plugin manager's `findPlugin()` resolver at `plugin_manager.mjs:494` returns the **first match** by ID via `Array.find()`. Plugins are loaded via `discoverPlugins()` sorted ascending-by-priority, so the lower-priority CE plugin won the ID lookup. **Practical consequence**: customers running `nsauditor-ai scan --host aws --plugins 040 --compliance soc2` on EE 0.3.7 or 0.3.8 received **CE TLS Cert Auditor evidence (NOT EE CloudTrail evidence)** for that ID slot. `--plugins all` was unaffected (both plugins ran via the iteration path); the collision only manifested in ID-based selection.
+
+**Same collision class would have affected EE plugin 050 (API Gateway, unpublished) and EE plugin 060 (DynamoDB, unpublished) — caught and fixed pre-publish.**
+
+**Type-II auditors evaluating evidence from EE 0.3.7 / 0.3.8 scans**: treat any `--plugins 040` evidence as CE TLS Cert Auditor evidence (`_source: 'ce'`), not EE CloudTrail evidence (`_source: 'ee'`). Re-scan with EE 0.3.9 + `--plugins 1040` for the intended CC7.2 + CC7.3 substrate evidence.
+
+**Migration for existing scripts pinning EE plugin IDs:**
+
+```bash
+# Old (EE 0.3.7 / 0.3.8 — partially broken due to 040 collision):
+nsauditor-ai scan --host aws --plugins 020,030,040 --compliance soc2
+
+# New (EE 0.3.9 — disjoint 1000+ namespace, all 8 EE plugins available):
+nsauditor-ai scan --host aws --plugins 1020,1030,1040,1050,1060 --compliance soc2
+```
+
+`--plugins all` continues to work unchanged across all versions.
+
+**CE 0.1.39 ↔ EE 0.3.9 pairing:** EE 0.3.9's `peerDependencies` floor is `^0.1.38`, so CE 0.1.38 OR 0.1.39 satisfy the floor. CE 0.1.39 is the recommended pairing because its README carries the collision-shadow disclosure on the npm landing page. Either CE version works functionally.
+
+```bash
+npm install -g nsauditor-ai@0.1.39 @nsasoft/nsauditor-ai-ee@0.3.9
+```
+
+If you're already on 0.1.38, this upgrade carries no functional difference. Upgrade for fresh-install README quality + the EE-paired-release disclosure.
+
+---
+
 ## 0.1.38 — docs-only: README cleanup + CHANGELOG split
 
 No code changes. The README on the npm package page used to lead with eight stacked "What's New" release-note blocks for 0.1.30 → 0.1.37 (plus an EE 0.3.3 paired note), which buried features and usage below ~220 lines of release narrative. 0.1.38 ships the same code as 0.1.37 with the README rewritten to be feature-and-usage focused on the first screen and the per-release history moved to this CHANGELOG. A new `docs/mcp-verification.md` page carries the previously-inline forensics on Claude Desktop response fabrication and the `nsauditor-ai mcp verify-call <id>` workflow.
