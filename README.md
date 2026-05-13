@@ -177,7 +177,15 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
-**EE 0.4.0 ships 15 enterprise plugins** (up from 8 in 0.3.8 — the largest single-release coverage expansion since the SOC 2 compliance engine itself shipped at EE 0.3.0). EE plugins use the disjoint 1000+ ID range; CE reserves 001-099. Each EE plugin reuses the same institutional plumbing pattern: **Thread H `_instrumentSdkClient` wrap** (per-API AccessDenied counter + ZDE structural guard — verb-prefix denylist regex blocks `Get*` / `Retrieve*` / `Read*` value-reading APIs at SDK boundary), **EE-RT.1.5 throttle-retry** with per-command wall-clock budget, **Thread F `conclude()` field-selection allowlist** (structured-data ZDE: only AWS-public-namespace identifiers + integer counts flow through to findings; customer policy content / key material / encrypted payloads NEVER propagate), and the **`conservative_classifier_principle`** (emit INFO+evidenceGap with verification prompt when ARN-shape disambiguation needs a follow-up API call; vacuous PASS on partial substrate is treated as the worst SOC 2 reporting outcome). See the [`@nsasoft/nsauditor-ai-ee` npm package page](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee) for the full README + per-plugin reviewer-fold detail; the bundled `CHANGELOG.md` and `docs/soc2-coverage.md` (auditor-facing TSC mapping) are installed alongside the plugins once licensed.
+**EE 0.4.0 ships 15 enterprise plugins** (up from 8 in 0.3.8 — the largest single-release coverage expansion since the SOC 2 compliance engine itself shipped at EE 0.3.0). EE plugins use the disjoint 1000+ ID range; CE reserves 001-099. Plugins audit AWS / GCP / Azure cloud substrate end-to-end against the AICPA Trust Services Criteria 2017 framework; every plugin is enterprise-gated by the `cloudScanners` capability and runs against customer-supplied cloud credentials. Once licensed, the EE package installs alongside the CE binary; auditor-facing TSC mapping documentation (`CHANGELOG.md` + `docs/soc2-coverage.md`) ships bundled.
+
+**All EE plugins follow the same institutional plumbing pattern:**
+
+- **Thread H `_instrumentSdkClient` wrap** — per-API AccessDenied counter + ZDE structural guard (verb-prefix denylist regex blocks `Get*` / `Retrieve*` / `Read*` value-reading APIs at SDK boundary) + idempotency sentinel
+- **EE-RT.1.5 throttle-retry** — exponential-backoff retry on `Throttling*` / `RequestLimitExceeded` / `TooManyRequestsException` with per-command wall-clock budget
+- **Thread F `conclude()` field-selection allowlist** — structured-data ZDE: only AWS-public-namespace identifiers + integer counts flow through to findings; customer policy content / key material / encrypted payloads NEVER propagate
+- **`conservative_classifier_principle`** — emit INFO+evidenceGap with verification prompt when ARN-shape disambiguation needs a follow-up API call; vacuous PASS on partial substrate evidence is treated as the worst SOC 2 reporting outcome
+- **`aws_string_case_normalization`** — trim + lowercase AWS-returned strings at SDK-helper boundary; protects against the 7+ recurrent classes of case-sensitivity fail-open (IAM Condition keys, Lambda runtimes, KMS aliases, Effect/Action discriminators, FULL_ADMIN sentinel, S3 region)
 
 | ID | Name | Tier | Purpose |
 |---|---|---|---|
@@ -202,6 +210,24 @@ Results land in `./out/<host>_<timestamp>/`:
 | — | GRC Platform Connector | Enterprise | Native API push to Vanta with retry/backoff, idempotency, rate-limit handling |
 | — | WORM Evidence Storage | Enterprise | S3 Object Lock COMPLIANCE-mode, resource redaction, SHA-256 manifest |
 | — | Tabletop Simulation | Enterprise | Probe-event manifest + SIEM detection correlation, configurable coverage bands |
+
+**Running EE plugins** (after `nsauditor-ai license install <key>`):
+
+```bash
+# Run a single EE plugin
+nsauditor-ai scan --host aws --plugins 1130 --compliance soc2 --out evidence.json
+
+# Run multiple EE plugins
+nsauditor-ai scan --host aws --plugins 1030,1040,1070,1130 --compliance soc2
+
+# Run all EE plugins (auto-discovered via plugin manager)
+nsauditor-ai scan --host aws --plugins all --compliance soc2
+
+# Tune plugin parameters (e.g., raise VPC-endpoint PAGE_CAP for large-fleet customers)
+nsauditor-ai scan --host aws --plugins 1130 --plugin-opts '{"1130":{"vpcEndpointsPageCap":50}}'
+```
+
+The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, RFC 3161 trusted-timestamps, suppression workflow, identity verification. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
 
 ---
 
