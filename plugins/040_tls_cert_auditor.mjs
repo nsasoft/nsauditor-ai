@@ -548,11 +548,12 @@ export default {
   tier: "community",
   protocols: ["tcp"],
   ports: [443, 465, 587, 636, 853, 993, 995, 8443, 8883, 9443],
+  // single invocation: run() iterates this.ports internally so failed ports
+  // can be rolled up into one INFO instead of N per-port empty placeholders.
+  runStrategy: "single",
 
   requirements: {
     host: "up",
-    // Note: requirements are OR-logic for ports — any open TLS port triggers the plugin.
-    // The plugin itself will skip ports that don't respond to TLS handshake.
   },
 
   // ── Pre-flight ──────────────────────────────────────────────────────────
@@ -620,7 +621,10 @@ export default {
 
   // ── Conclude ────────────────────────────────────────────────────────────
   conclude({ result, host }) {
-    if (!result.portResults || result.portResults.length === 0) {
+    const portResults = Array.isArray(result?.portResults) ? result.portResults : [];
+    const failedPorts = Array.isArray(result?.failedPorts) ? result.failedPorts : [];
+
+    if (portResults.length === 0 && failedPorts.length === 0) {
       return [{
         protocol: "tcp",
         service: "tls",
@@ -633,7 +637,7 @@ export default {
 
     const items = [];
 
-    for (const pr of result.portResults) {
+    for (const pr of portResults) {
       // Compute status label
       let status;
       if (pr.certificate.expired) {
@@ -684,6 +688,25 @@ export default {
         // Conclude emits only classifications and metadata.
         source: "tls-cert-auditor",
         authoritative: false,  // Defer to built-in TLS scanner for port authority
+      });
+    }
+
+    if (failedPorts.length > 0) {
+      const probedTotal = portResults.length + failedPorts.length;
+      items.push({
+        port: 0,
+        protocol: "tcp",
+        service: "tls",
+        status: "tls-not-responding",
+        severity: SEVERITY.INFO,
+        info: `${failedPorts.length}/${probedTotal} TLS ports did not respond (${failedPorts.map((f) => `${f.port}: ${f.error}`).join(", ")})`,
+        issues: [],
+        details: {
+          failedPorts,
+          activePorts: portResults.map((pr) => pr.port),
+        },
+        source: "tls-cert-auditor",
+        authoritative: false,
       });
     }
 
