@@ -6,6 +6,28 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.44 — docs-only: paired-release announcement for EE 0.4.5 (third multi-ship cycle in 0.4.x — EE-RT.14 v2 RDS extension to 7 dims + kms:DescribeKey + EE-RT.16 v1 NEW plugin 1170 AWS EC2 SG Perimeter Auditor + 9 same-session reviewer folds)
+
+No code changes. CE 0.1.44 ships the same code as 0.1.40 / 0.1.41 / 0.1.42 / 0.1.43 with README updated to announce the paired **EE 0.4.5 release** and add plugin **1170 AWS EC2 SG Perimeter Auditor** to the public plugin catalog (plus update the plugin 1140 row to reflect EE-RT.14 v2 growth from 3 dims → 7).
+
+**EE 0.4.5 paired-release highlights:**
+
+- **EE plugin count: 17 → 18** — third plugin-count growth in the 0.4.x cycle. NEW plugin **1170 AWS EC2 SG Perimeter Auditor** (EE-RT.16 v1) covers 6 SOC 2 CC6.6 network-segmentation dimensions + 1 CC6.2 governance dimension. RESTRICTED_PORTS covers 13 ports (SSH/RDP/MS SQL/MySQL/Postgres/Redis/Memcached/MongoDB/Elasticsearch/CouchDB/Docker/Kubelet). Orthogonal evidence to plugin 1023 zero-trust-checker (1023 = OBSERVED ports; 1170 = DECLARED policy). Cross-plugin sister of the EE-RT.14 v2 `_classifyPublicAccessibility` dimension.
+- **Plus EE-RT.14 v2** — plugin 1140 AWS RDS Auditor grown from 3 substrate dimensions to **7**: BackupRetentionPeriod (A1.2 cadence), PubliclyAccessible (CC6.6 perimeter), IAMDatabaseAuthenticationEnabled (CC6.1 password-less auth), snapshot encryption (C1.1 cross-cycle). Plus the **kms:DescribeKey cross-reference path** that promotes UNVERIFIABLE `:key/UUID` ARN shapes to deterministic PASS (customer-managed) / MEDIUM (AWS-managed) via `KeyMetadata.KeyManager`. Closes the v1 smoke-discovered fixture-design gap where `rds-compliant-cluster` references its CMK by bare UUID form. Conservative on AccessDenied/NotFound/unknown KeyManager — leaves at UNVERIFIABLE LOW (no false-CLEAN promotion).
+- **Nine same-session reviewer folds applied across the cycle** (5 EE-RT.14 v2 + 4 EE-RT.16 v1):
+  - EE-RT.14 v2: R-HIGH-1 `_IAM_AUTH_SUPPORTED_ENGINES` lifted + frozen; R-MEDIUM-1 `RDS_STORAGE_KMS_UNVERIFIABLE_CATEGORY` named constant; R-MEDIUM-3 `_isUnverifiableKmsShape` single source of truth; R-LOW-1 upper-bound clamp on backup-retention override; R-NIT-1 explicit `IncludeShared=false` on snapshot enumeration.
+  - EE-RT.16 v1: R-HIGH-1 UserIdGroupPairs evidenceGap + softened PASS narrative (false-CLEAN closure on intra-VPC SG-as-source rules); R-MEDIUM-1 all-protocol SG-scope suppression (single CRITICAL/SG instead of N+1); R-MEDIUM-1 CONVERGENT SG-list + ENI AccessDenied account-level evidenceGap findings (operator-channel warnings → auditor-channel findings); NIT-3 header comment accuracy.
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; EE 0.4.5 adds evidence depth on already-covered CC6.1 / CC6.2 / CC6.6 / A1.2 / C1.1.
+- **EE full regression: 4361/4361** (was 4255 at EE 0.4.4 publish; +106 tests: 52 EE-RT.14 v2 + 54 EE-RT.16 v1 — 49 initial + 5 reviewer-fold pins). 40-session 100% green streak preserved.
+- **Memory tag closures:** `emit_literal_set_drift` recurrence at **17×** cross-codebase (+3 EE-RT.14 v2 fold-sites); `aws_string_case_normalization` at **17×** (+1 preemptive in plugin 1170 IpProtocol normalization); `conservative_classifier_principle` reinforced in 5 fold sites.
+- **No new SDK deps required** — `@aws-sdk/client-ec2` + `@aws-sdk/client-kms` both already in EE `optionalDependencies` from the EE 0.4.0 cohort.
+
+**CE-side state:** unchanged binary. CE 0.1.44 = CE 0.1.43 = CE 0.1.42 = CE 0.1.41 = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.43 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.44 @nsasoft/nsauditor-ai-ee@0.4.5` (paired upgrade).
+
+---
+
 ## 0.1.43 — docs-only: paired-release announcement for EE 0.4.4 (second new EE plugin in the 0.4.x cycle — AWS SQS/SNS Auditor 1150 + 3 same-session reviewer folds)
 
 No code changes. CE 0.1.43 ships the same code as 0.1.40 / 0.1.41 / 0.1.42 with README updated to announce the paired **EE 0.4.4 release** and add plugin **1150 AWS SQS/SNS Auditor** to the public plugin catalog.
