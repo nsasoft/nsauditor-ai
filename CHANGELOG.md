@@ -6,6 +6,38 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.42 — docs-only: paired-release announcement for EE 0.4.3 (first new EE plugin since the 0.4.0 cohort — AWS RDS Auditor 1140 + EE-RT.13 structural fix)
+
+No code changes. CE 0.1.42 ships the same code as 0.1.40 / 0.1.41 with README updated to announce the paired **EE 0.4.3 release** and add plugin **1140 AWS RDS Auditor** to the public plugin catalog.
+
+**EE 0.4.3 paired-release highlights:**
+
+- **EE plugin count: 15 → 16** — first growth since EE 0.4.0 (which expanded 8→15 with the v0.4.0 Runtime Assurance cohort 1070–1130). New plugin **1140 AWS RDS Auditor** (EE-RT.14 v1) covers 3 SOC 2 substrate-evidence dimensions in v1: Multi-AZ deployment (A1.2 availability), storage encryption at rest with KMS-key custody classification (C1.1 confidentiality — four-tier severity ladder including conservative LOW+evidenceGap on `:key/UUID` ARN shapes per institutional `conservative_classifier_principle` memory), and parameter-group SSL enforcement (C1.1 transit-encryption — postgres `rds.force_ssl` + mysql `require_secure_transport`). v2+ defers 4 more dimensions (BackupRetentionPeriod / PubliclyAccessible / IAMDatabaseAuthentication / snapshot encryption) + `kms:DescribeKey` cross-reference.
+- **EE-RT.13 structural fix for the EE-0.4.2-HOTFIX regression class** — PLUGIN_ID lifted to plugin-exported constants imported by `CLOUD_PLUGIN_SOURCE_MAP` via computed-key syntax. 16-file refactor (15 plugin files + engine). Module-load-time guarantee against the false-clean SOC 2 reporting regression that shipped in EE 0.3.9 / 0.4.0 / 0.4.1.
+- **EE-RT.10.x.1 plugin 1110 effective-decrypt whitespace defense** — 8th sibling `aws_string_case_normalization` fold (memory tag at 15× recurrence; cumulative 8 plugins / 26 fold-sites).
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; EE-RT.14 v1 adds RDS substrate evidence under A1.2 + C1.1 (both already covered).
+- **EE full regression: 4160/4160** (was 4097 at EE 0.4.2 publish; +63 tests). 37-session 100% green streak preserved.
+- **Real-AWS smoke-validated** against `<operator-internal-test-infra-repo>` paired fixtures (account `<operator-test-account>`): `findingCount: 0 → 6`; A1.2 → FAIL; C1.1 → FAIL.
+- **Pre-publish smoke gap caught + hotfixed:** `@aws-sdk/client-rds` was missing from EE `optionalDependencies` (same false-CLEAN class as EE-0.3.3.5 missing `arm-storage`). Hotfixed in `package.json` before any customer impact — institutional defense of pre-publish smoke against silent SDK-load failure validated.
+
+**CE-side state:** unchanged binary. CE 0.1.42 = CE 0.1.41 = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.41 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.42 @nsasoft/nsauditor-ai-ee@0.4.3` (paired upgrade).
+
+---
+
+## 0.1.41 — docs-only: paired-release announcement for EE 0.4.2 (CRITICAL HOTFIX + 31 recurrence-class surface closures across 7 plugins)
+
+No code changes. CE 0.1.41 ships the same code as 0.1.40 with README updated to announce the paired **EE 0.4.2 publish**, which closed a CRITICAL silent false-clean SOC 2 reporting regression that affected EE 0.3.9 / 0.4.0 / 0.4.1 (cloud-finding harvester's `CLOUD_PLUGIN_SOURCE_MAP` had stale pre-0.3.9 plugin IDs → every plugin emission silently dropped at harvester boundary → `findingCount: 0` regardless of AWS state). EE 0.4.2 also shipped 31 recurrence-class surface closures across 7 plugins (8 `emit_literal_set_drift` in plugin 1130 + 23 `aws_string_case_normalization` fold-sites across plugins 1030/1060/1070/1080/1090/1120) + EE-RT.12.25 cross-plugin run()-level integration scaffold (6 of 15 EE plugins at parity).
+
+---
+
+## 0.1.40 — docs-only: paired-release announcement for EE 0.4.0 (cohort expansion 8 → 15 EE plugins)
+
+No code changes. CE 0.1.40 ships the same code as 0.1.39 with README updated to announce the paired **EE 0.4.0 publish**. EE plugin count grew **8 → 15** with 7 new AWS auditor plugins: 1070 KMS Auditor (EE-RT.3) + 1080 Lambda Security Auditor (EE-RT.5) + 1090 Secrets Manager + SSM Parameter Store Auditor (EE-RT.8) + 1100 CodePipeline + CodeBuild Operational Integrity (EE-RT.9 + 9.1) + 1110 IAM Effective Decrypt-Path Auditor (EE-RT.10 + 10.1) + 1120 S3 Lifecycle + Cross-Region Replication Auditor (EE-RT.4 + 4.1) + the **headline thread** — 1130 AWS Backup Auditor (EE-RT.12 v1 → v1.24, ~7800 lines / 545 tests / 12-dimension air-gapped vault attestation arc). **`peerDependencies` floor bumped `^0.1.38` → `^0.1.40` at EE 0.4.0** — clean paired-release coordination floor.
+
+---
+
 ## 0.1.39 — docs-only: paired-release announcement for EE 0.3.9 (PI1.5 matrix shift + plugin-ID range realignment + collision-shadow disclosure)
 
 No code changes. CE 0.1.39 ships the same code as 0.1.38 with README updated to announce the paired **EE 0.3.9 release** + carry the **plugin-ID rename disclosure** to the CE npm landing page.
