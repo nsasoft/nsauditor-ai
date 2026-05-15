@@ -6,6 +6,26 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.43 — docs-only: paired-release announcement for EE 0.4.4 (second new EE plugin in the 0.4.x cycle — AWS SQS/SNS Auditor 1150 + 3 same-session reviewer folds)
+
+No code changes. CE 0.1.43 ships the same code as 0.1.40 / 0.1.41 / 0.1.42 with README updated to announce the paired **EE 0.4.4 release** and add plugin **1150 AWS SQS/SNS Auditor** to the public plugin catalog.
+
+**EE 0.4.4 paired-release highlights:**
+
+- **EE plugin count: 16 → 17** — second plugin-count growth in the 0.4.x cycle (paired with the EE 0.4.3 addition of plugin 1140). New plugin **1150 AWS SQS/SNS Auditor** (EE-RT.15 v1) covers **5 SOC 2 substrate-evidence dimensions** spanning two AWS services in one plugin: SQS encryption at rest (C1.1; four-tier severity ladder matching plugin 1140's structure), SQS transit-encryption policy (CC6.6; `aws:SecureTransport=false` Deny statement), SNS encryption at rest (C1.1; SNS has no SQS-managed-SSE equivalent so absent = HIGH), SNS topic-policy permissive-Principal (CC6.6; wildcard-Principal with full NotAction-Allow + NotPrincipal-Allow + Resource-scope filtering per plugin 1070 + 1110 precedent), and SQS dead-letter queue presence (A1.2 + CC7.1, **dual-mapped** — missing DLQ is the canonical silent-message-loss class for event-driven architectures).
+- **Three same-session reviewer folds applied** (R-HIGH-1 NotAction/NotPrincipal bypass class — closes the AWS-documented wildcard-equivalent classes that plugins 1070 + 1110 already handle; R-HIGH-2 Resource-scope filter — prevents false-positive emissions on statements scoped to other topics' ARNs; R-MEDIUM-1 per-resource AccessDenied evidenceGap — same false-CLEAN-class family as the EE-RT.14 v1 hotfix lineage, emits INFO + evidenceGap + walkthroughRequired finding rather than silent-omit on per-queue/topic AccessDenied).
+- **First EE plugin to ship WITHOUT a smoke-time SDK hotfix** — `@aws-sdk/client-sqs` + `@aws-sdk/client-sns` were added to EE `optionalDependencies` PREEMPTIVELY per the 11th pre-implementation checklist item (EE-RT.14 v1 lesson institutionalized).
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; EE-RT.15 v1 adds SQS/SNS substrate evidence under already-covered C1.1 + CC6.6 + A1.2 + CC7.1.
+- **EE full regression: 4255/4255** (was 4160 at EE 0.4.3 publish; +95 tests: 78 EE-RT.15 v1 unit-test suite + 17 same-session reviewer-fold tests). 38-session 100% green streak preserved.
+- **Real-AWS smoke-validated** against `<operator-internal-test-infra-repo>` paired fixtures (account `<operator-test-account>`, 4 resources: `sqs-encrypted-queue` + `sqs-cleartext-queue` + `sns-encrypted-topic` + `sns-cleartext-topic`): `findingCount: 0 → 10`; **C1.1 → FAIL (4)**, **CC6.6 → FAIL (4)**, **A1.2 → FAIL (2)**, **CC7.1 → FAIL (2)**. All 10 classifications match ground truth (AWS-managed `alias/aws/sqs` correctly = MEDIUM not PASS; SNS default policy wildcard-Principal-WITH-Condition correctly = HIGH not CRITICAL — institutionally-correct conservative-classifier-discipline emissions).
+- **No pre-publish smoke gap** — unlike EE 0.4.3 (which discovered missing `@aws-sdk/client-rds` at smoke and required a hotfix), EE 0.4.4 cleared the smoke gate on first attempt thanks to the preemptive SDK declaration.
+
+**CE-side state:** unchanged binary. CE 0.1.43 = CE 0.1.42 = CE 0.1.41 = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.42 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.43 @nsasoft/nsauditor-ai-ee@0.4.4` (paired upgrade).
+
+---
+
 ## 0.1.42 — docs-only: paired-release announcement for EE 0.4.3 (first new EE plugin since the 0.4.0 cohort — AWS RDS Auditor 1140 + EE-RT.13 structural fix)
 
 No code changes. CE 0.1.42 ships the same code as 0.1.40 / 0.1.41 with README updated to announce the paired **EE 0.4.3 release** and add plugin **1140 AWS RDS Auditor** to the public plugin catalog.
