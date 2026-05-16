@@ -6,6 +6,29 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.47 — docs-only: paired-release announcement for EE 0.4.8 (sixth-ship-cycle in 0.4.x — EE-RT.14 v3 plugin 1140 RDS Auditor 7 → 10 dimensions with database audit-logging + 9 same-session reviewer folds incl. 1 HIGH false-INFO closure on Aurora cluster log path; first 0.4.x extension cycle to validate PASS+HIGH path end-to-end against real AWS)
+
+No code changes. CE 0.1.47 ships the same code as 0.1.40 → 0.1.46 with README updated to announce the paired **EE 0.4.8 release** and update plugin **1140 AWS RDS Auditor** row in the public plugin catalog to reflect the v3 extension (7 → 10 dimensions; +database audit-logging triad). CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.46 with the explicit EE-paired-release pointer.
+
+**EE 0.4.8 paired-release highlights:**
+
+- **Plugin 1140 EXTENDED 7 → 10 dimensions** via **EE-RT.14 v3** — first 0.4.x extension cycle of an existing plugin (vs. NEW plugin cycles). Closes the "database activity logs" SOC 2 dimension per `tasks/things-to-check.md` §4 audit-canonical checklist (CC7.2 + CC7.3 continuous monitoring + event evaluation).
+- **3 new audit-logging dimensions**: **dim 8 pgAudit enabled** (postgres-only — `DescribeDBParameters → pgaudit.log` + cross-checks `shared_preload_libraries` contains `pgaudit` token per R-MEDIUM-2 reviewer-fold **false-PASS closure** since Postgres silently ignores the GUC when SPL omits pgaudit; new MEDIUM category `rds-pgaudit-misconfigured`), **dim 9 CloudWatch Logs exports** (`EnabledCloudwatchLogsExports` engine-dispatched essential/optional policy: postgres essential=`postgresql`; mysql/mariadb essential=`error`; oracle essential=`audit`+`trace`; sqlserver essential=`error`), **dim 10 CloudWatch Logs retention** (`logs:DescribeLogGroups` enumeration on engine-dispatched prefix per R-HIGH-1 reviewer-fold: `/aws/rds/instance/<id>/` for non-Aurora, `/aws/rds/cluster/<DBClusterIdentifier>/` for `aurora-*` engines — pre-fold hard-coded the instance path → 0 log groups on every Aurora node = false-INFO MEDIUM across whole Aurora fleet).
+- **EE plugin count: UNCHANGED at 20** (no new plugin; existing 1140 grew in scope).
+- **9 same-session reviewer folds across the cycle** (independent `general-purpose-agent` review yielded 12 findings; 9 folded same-session, 3 deferred to v3.1 / cross-plugin sweep). **HIGH-1 closure**: Aurora cluster log-path detection (false-INFO closure across whole Aurora fleet). **MEDIUM-2 closure**: pgAudit + shared_preload_libraries cross-check (false-PASS closure on misconfigured pgaudit instances). **MEDIUM-3/4/5 closures**: cwl-opt-out + retentionDistribution + transient-error all surfaced as distinct categories for auditor evidence-pack legibility.
+- **Real-AWS smoke validation END-TO-END**: in-place modification of existing `rds-compliant-cluster` fixture (cost $0; brief Multi-AZ failover during apply-immediately reboot) validated ALL 3 v3 PASS-path classifiers; unmodified `rds-violator-db` validated HIGH path. Account-wide finding distribution: 9 PASS + 2 MEDIUM + 4 INFO + 5 HIGH. **First 0.4.x extension cycle to validate BOTH PASS-path AND HIGH-path classifiers** against real AWS in the same smoke run.
+- **`@aws-sdk/client-cloudwatch-logs` already declared in optionalDependencies** (used by plugin 1040 since EE 0.4.0); v3 reuses it via new `_loadCwlSdk` lazy loader.
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; 7 new aws-rds-auditor mapping rules under CC7.2 add evidence depth on already-covered controls.
+- **EE-side stats: +68 new tests** (49 v3 base + 19 reviewer-fold pin tests); **EE full regression: 4642/4642; 44-session 100% green streak preserved**.
+- **Fourth consecutive trio-publish across EE + CE + agent-skill in a single session** — institutionalized discipline now spans 4 ship cycles (0.4.5/0.4.6/0.4.7/0.4.8). Paired agent-skill 0.1.14 catalog refresh reflects the plugin 1140 v3 extension on the AI-coding-agent knowledge surface.
+- **Memory tag closures**: `aws_string_case_normalization` extended (engine + log-name normalization in v3 classifiers; recurrence count holds at **20×** with SPLIT-SURFACE callout); `conservative_classifier_principle` reinforced in 4 new fold sites; `emit_literal_set_drift` extended with `_PGAUDIT_LIBRARY_NAME` + `_SHARED_PRELOAD_LIBRARIES_PARAM` named-constant discipline.
+
+**CE-side state:** unchanged binary. CE 0.1.47 = CE 0.1.46 = CE 0.1.45 = ... = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative + deprecate 0.1.46 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.47 @nsasoft/nsauditor-ai-ee@0.4.8` (paired upgrade; + `npm install nsauditor-ai-agent-skill@0.1.14` for AI-coding-agent users).
+
+---
+
 ## 0.1.46 — docs-only: paired-release announcement for EE 0.4.7 (fifth-ship-cycle in 0.4.x — EE-RT.18 v1 NEW plugin 1190 AWS SES Email Integrity Auditor + 11 same-session reviewer folds incl. 1 CRITICAL false-CLEAN closure on NotPrincipal+Allow wildcard-equivalence)
 
 No code changes. CE 0.1.46 ships the same code as 0.1.40 → 0.1.45 with README updated to announce the paired **EE 0.4.7 release** and add plugin **1190 AWS SES Email Integrity Auditor** to the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.45 with the explicit EE-paired-release pointer.
