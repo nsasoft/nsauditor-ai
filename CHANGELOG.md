@@ -6,6 +6,30 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.45 — docs-only: paired-release announcement for EE 0.4.6 (fourth multi-ship cycle in 0.4.x — EE-RT.16 v2 SG Perimeter extension RESTRICTED_PORTS 13 → 23 ports + EE-RT.17 v1 NEW plugin 1180 AWS ElastiCache Redis Auditor + 10 same-session reviewer folds incl. 2 CONVERGENT-CRITICAL findings)
+
+No code changes. CE 0.1.45 ships the same code as 0.1.40 / 0.1.41 / 0.1.42 / 0.1.43 / 0.1.44 with README updated to announce the paired **EE 0.4.6 release** and add plugin **1180 AWS ElastiCache Redis Auditor** to the public plugin catalog (plus update the plugin 1170 row to reflect EE-RT.16 v2 RESTRICTED_PORTS growth from 13 → 23 ports per CIS AWS Foundations v3.0).
+
+**EE 0.4.6 paired-release highlights:**
+
+- **EE plugin count: 18 → 19** — fourth plugin-count growth in the 0.4.x cycle. NEW plugin **1180 AWS ElastiCache Redis Auditor** (EE-RT.17 v1) covers 6 SOC 2 substrate-evidence dimensions: transit encryption (C1.1), at-rest encryption with KMS key custody (C1.1 four-tier ladder), Redis AUTH / IAM-auth user groups (CC6.1 + CC6.2), Multi-AZ deployment (A1.2), SnapshotRetentionLimit cadence (A1.2), subnet placement (CC6.6). Dual API enumeration (DescribeReplicationGroups + DescribeCacheClusters) with inter-API dedup. Memcached out-of-scope by design. Closes the highest-priority gap from `tasks/things-to-check.md` AWS SOC 2 audit-canonical compliance checklist.
+- **Plus EE-RT.16 v2** — plugin 1170 AWS EC2 SG Perimeter Auditor extension; **RESTRICTED_PORTS grown 13 → 23 ports** per CIS AWS Foundations Benchmark v3.0 (adds Redshift 5439, K8s API 6443, etcd 2379-2380, Kibana 5601, InfluxDB 8086, Kafka 9092, Consul 8500, ZooKeeper 2181, Vault 8200) + new `opts.additionalRestrictedPorts` operator-config knob (integer-validated 0-65535 + deduped against baseline) + per-SG cardinality cap with rollup trailer (`...and N more` overflow) + system-managed-SG name-prefix exclusion list (`ElasticMapReduce-`, `eks-cluster-sg-`, `AWSServiceRole`, `awseb-` etc.).
+- **Ten same-session reviewer folds applied across the cycle** (7 EE-RT.16 v2 incl. 2 CONVERGENT-CRITICAL + 3 EE-RT.17 v1) — **most-folds-in-a-single-cycle for 0.4.x to date**:
+  - EE-RT.16 v2: **C1 (CONVERGENT-CRITICAL)** pre-existing v1 PASS-tier titlePattern bug (v1 R-HIGH-1 fold softened narrative but did NOT update soc2.json regex); **C2 (CONVERGENT-CRITICAL)** cardinality-cap-trailer titlePatterns silently dropped at framework-engine harvest pre-fold; R-HIGH-1 CIS v3.0 alignment narrative; R-MEDIUM-1 `default-` over-broad prefix removal; R-MEDIUM-2 additionalRestrictedPorts integer validation; R-LOW-1 canonical-pattern parity; NIT-2 header comment refresh.
+  - EE-RT.17 v1: R-MEDIUM-1 UserGroupIds cardinality cap via `_USER_GROUP_DISPLAY_CAP = 10` (canonical-pattern parity with plugin 1170 v2); R-LOW-1 transient Multi-AZ state INFO + evidenceGap (avoid false-CLEAN on enabling/disabling); R-LOW-2 inter-API dedup test pin.
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; EE 0.4.6 adds evidence depth on already-covered CC6.1 / CC6.2 / CC6.6 / A1.2 / C1.1.
+- **EE full regression: 4458/4458** (was 4361 at EE 0.4.5 publish; +97 tests: 56 EE-RT.16 v2 + 41 EE-RT.17 v1). 42-session 100% green streak preserved.
+- **Memory tag closures:** `aws_string_case_normalization` at **19×** cross-codebase (+2 fold-sites this cycle); `conservative_classifier_principle` reinforced in 6 fold sites; `emit_literal_set_drift` holds at 17×.
+- **Third EE plugin to ship without smoke-time SDK hotfix** — `@aws-sdk/client-elasticache` preemptively added to optionalDependencies per the 11th pre-implementation checklist item (plugins 1150, 1170, 1180 all shipped without smoke-time hotfix; preemptive SDK addition now institutional discipline).
+- **Second trio-publish across EE + CE + agent-skill in a single session** — institutionalizes the trio-publish pattern that started in the 0.4.5 cycle. Paired agent-skill 0.1.12 catalog refresh adds plugin 1180 + plugin 1170 v2 to AI-coding-agent knowledge surface.
+- **Real-AWS smoke-validated** against `<operator-internal-test-infra-repo>` paired fixtures (account <operator-test-account>, plugins 1170 v2 + 1180 v1): `findingCount: 21`; CC6.6 → FAIL (8), C1.1 → FAIL (4), CC6.1 → FAIL (2), A1.2 → FAIL (3). Plugin 1180 correctly classifies `redis-secure-cache` (PASS transit + MEDIUM at-rest AWS-owned-default + MEDIUM no-auth + HIGH Multi-AZ disabled + HIGH SnapshotRetention=0 + INFO subnet) + `redis-leaky-cache` (HIGH on transit + at-rest + retention; INFO standalone-not-applicable for Multi-AZ).
+
+**CE-side state:** unchanged binary. CE 0.1.45 = CE 0.1.44 = CE 0.1.43 = CE 0.1.42 = CE 0.1.41 = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.44 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.45 @nsasoft/nsauditor-ai-ee@0.4.6` (paired upgrade; + `npm install nsauditor-ai-agent-skill@0.1.12` for AI-coding-agent users).
+
+---
+
 ## 0.1.44 — docs-only: paired-release announcement for EE 0.4.5 (third multi-ship cycle in 0.4.x — EE-RT.14 v2 RDS extension to 7 dims + kms:DescribeKey + EE-RT.16 v1 NEW plugin 1170 AWS EC2 SG Perimeter Auditor + 9 same-session reviewer folds)
 
 No code changes. CE 0.1.44 ships the same code as 0.1.40 / 0.1.41 / 0.1.42 / 0.1.43 with README updated to announce the paired **EE 0.4.5 release** and add plugin **1170 AWS EC2 SG Perimeter Auditor** to the public plugin catalog (plus update the plugin 1140 row to reflect EE-RT.14 v2 growth from 3 dims → 7).
