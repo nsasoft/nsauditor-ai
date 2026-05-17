@@ -6,6 +6,23 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.54 — docs-only: paired-release announcement for EE 0.6.0 (minor-version milestone — EE-RT.19 v1 NEW plugin 1160 AWS VPC Endpoints / PrivateLink Auditor; plugin count 20 → 21; first plugin to specifically audit the PrivateLink isolation boundary)
+
+No code changes. CE 0.1.54 ships the same code as 0.1.40 → 0.1.53 with README/CHANGELOG updated for the paired EE 0.6.0 release.
+
+**EE 0.6.0 paired-release highlights:**
+- **NEW plugin 1160 AWS VPC Endpoints / PrivateLink Auditor** — plugin count 20 → 21 (first new plugin since EE 0.4.7 introduced plugin 1190; entire v0.5.x line was evidence-quality + surface widening on existing 20 plugins).
+- **4 SOC 2 substrate-evidence dimensions**: endpoint resource policy permissive principals (CC6.6 — CRITICAL on unconditional wildcard breaking PrivateLink isolation), PrivateDNS enabled (CC6.6 — MEDIUM silent-bypass when Interface + PrivateDnsEnabled=false), endpoint state (A1.2 + CC7.2 — HIGH `failed` silent-failure class), endpoint type substrate disclosure (Privacy + CC6.6).
+- **Clean reviewer pass** (0 R-CRITICAL + 0 R-HIGH); 2 R-MEDIUM/NIT folded same-session (unknown-type fail-safe + Effect case-insensitivity pin).
+- **+59 new tests** (57 base + 2 reviewer-fold pins); full EE regression: 5044/5044 across 792 suites; 51-session 100% green streak preserved.
+- **7 new soc2.json mapping rules** (5 CC6.6 + 2 CC7.2/A1.2 dual-mapped). Coverage matrix UNCHANGED at 10/4/33 — pure substrate-evidence depth uplift.
+- **No new SDK dependencies** — `@aws-sdk/client-ec2` already declared since EE 0.4.5.
+- **Eleventh consecutive trio-publish across EE + CE + agent-skill in a single session** — 0.4.5/0.4.6/0.4.7/0.4.8/0.4.9/0.5.0/0.5.1/0.5.2/0.5.3/0.5.4/0.6.0.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.54 @nsasoft/nsauditor-ai-ee@0.6.0` (+ `npm install nsauditor-ai-agent-skill@0.1.21` for AI-coding-agent users).
+
+---
+
 ## 0.1.53 — docs-only: paired-release announcement for EE 0.5.4 (cross-plugin Thread H sweep in v0.5.x — §7.5 _promote*FromKms signature hardening on plugin 1140 v2 + 1180 v2 + §8 operator-config DoS caps on plugin 1170 v2; clean reviewer pass; final v0.5.x close-out cycle)
 
 No code changes. CE 0.1.53 ships the same code as 0.1.40 → 0.1.52 with README/CHANGELOG updated for the paired EE 0.5.4 release.
