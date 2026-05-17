@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.49 — docs-only: paired-release announcement for EE 0.5.0 (minor-version milestone bump 0.4.x → 0.5.x — EE-RT.18 v2 plugin 1190 SES Email Integrity Auditor extension: DKIM CNAME DNS resolution + DMARC TXT record parser + SES classic API parity + 8 same-session reviewer folds incl. 1 CRITICAL false-CLEAN closure on DMARC pct=0 + 1 HIGH false-NEGATIVE closure on DMARC sp subdomain-policy override)
+
+No code changes. CE 0.1.49 ships the same code as 0.1.40 → 0.1.48 with README updated to announce the paired **EE 0.5.0 release** and reflect the plugin 1190 v2 extension in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.48 with the explicit EE-paired-release pointer. **0.5.0 is a minor-version milestone bump** (vs the natural 0.4.10) marking the first ship to add NETWORK-LAYER cross-reference (live DNS resolution via `node:dns/promises`) to the AWS-SDK-substrate evidence baseline — structurally distinct evidence-acquisition surface from prior 0.4.x cycles.
+
+---
+
 ## 0.1.48 — docs-only: paired-release announcement for EE 0.4.9 (seventh-ship-cycle in 0.4.x — EE-RT.17 v2 plugin 1180 ElastiCache Redis Auditor extension: KMS-DescribeKey promotion + subnet route-table verifier + 7 same-session reviewer folds incl. 1 MEDIUM false-NEGATIVE closure on default-VPC main-RT inheritance)
 
 No code changes. CE 0.1.48 ships the same code as 0.1.40 → 0.1.47 with README updated to announce the paired **EE 0.4.9 release** and reflect the plugin 1180 v2 extension in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.47 with the explicit EE-paired-release pointer.
