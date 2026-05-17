@@ -6,6 +6,31 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.48 — docs-only: paired-release announcement for EE 0.4.9 (seventh-ship-cycle in 0.4.x — EE-RT.17 v2 plugin 1180 ElastiCache Redis Auditor extension: KMS-DescribeKey promotion + subnet route-table verifier + 7 same-session reviewer folds incl. 1 MEDIUM false-NEGATIVE closure on default-VPC main-RT inheritance)
+
+No code changes. CE 0.1.48 ships the same code as 0.1.40 → 0.1.47 with README updated to announce the paired **EE 0.4.9 release** and reflect the plugin 1180 v2 extension in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.47 with the explicit EE-paired-release pointer.
+
+**EE 0.4.9 paired-release highlights:**
+
+- **Plugin 1180 EXTENDED across dims 2 + 6** via **EE-RT.17 v2** — single-plugin extension cycle. Closes **both** v1 deferred items (R-MEDIUM-3 KMS-DescribeKey promotion + R-LOW-2 subnet route-table cross-reference).
+- **Part A — kms:DescribeKey cross-reference promotion** (dim 2 at-rest encryption; mirrors plugin 1140 v2 pattern). UNVERIFIABLE `:key/UUID` ARN shapes promoted via `KeyMetadata.KeyManager` to deterministic PASS (CUSTOMER) / MEDIUM (AWS). Conservative on AccessDenied / NotFound / unknown KeyManager — no false-CLEAN promotion.
+- **Part B — Subnet route-table verifier** (dim 6 subnet placement; closes v1 R-LOW-2; cross-plugin sister with plugin 1170 SG perimeter). `elasticache:DescribeCacheSubnetGroups` + `ec2:DescribeRouteTables` walk. Per-subnet IGW-route detection via `/^igw-[a-f0-9]+$/i` (correctly excludes egress-only `eigw-`). HIGH on IGW-routed subnet(s) (with per-subnet `igwDestinationsBySubnet` evidence per R-HIGH-1 fold for auditor evidentiary completeness) / PASS on all-verified-private / **LOW + evidenceGap on main-RT-inheritance per R-MEDIUM-2 reviewer-fold false-NEGATIVE closure** (default-VPC main-RT typically carries `0.0.0.0/0 → igw-*`; cache subnet groups using subnets with no explicit RT associations are a real false-NEGATIVE hazard).
+- **EE plugin count: UNCHANGED at 20** (no new plugin; existing 1180 grew in scope).
+- **7 same-session reviewer folds across the cycle** (independent `general-purpose-agent` review yielded 12 findings; 7 folded same-session, 1 deferred to cross-plugin Thread H sweep, 4 withdrawn after verification). **MEDIUM-2 closure (most important)**: main-RT-inheritance escalated INFO → LOW + evidenceGap. **HIGH-1 closure**: IGW destination CIDR blocks surfaced in HIGH finding details. **MEDIUM-3/LOW-6/7/9/10/11/NIT-12 closures**: cache-key semantic legibility + dead-branch removal + SDK-injection threading + test gaps + doc-comment past-tense for v2-shipped.
+- **DEFERRED R-MEDIUM-4** to cross-plugin Thread H sweep: `_promote*FromKms(finding, keyManager)` signature brittleness across plugins 1140 v2 + 1180 v2 — cross-plugin fold to `(finding, keyManagerByArn: Map)` signature for single-source-of-truth lookup.
+- **No new SDK dependencies** — `@aws-sdk/client-kms` + `@aws-sdk/client-ec2` already declared in optionalDependencies since EE 0.4.5 (used by plugins 1140 v2 + 1170).
+- **Real-AWS smoke validation END-TO-END**: smoke against `<operator-test-account>` (no fixture changes needed). `redis-leaky-cache` → dim 6 LOW `elasticache-subnet-main-rt-inheritance` (the R-MEDIUM-2 fold escalation demonstrably firing against the real default-VPC main-RT-inheritance pattern). Both KMS + EC2 clients load cleanly with no AccessDenied / no throttling; per-resource caches populate correctly. `findingsBySeverity: { pass:1, medium:3, high:5, low:2, info:1 }`; durationMs=1428. **No real-AWS exercise of KMS promotion path** — existing ElastiCache fixtures use alias-form CMK keys (unit tests + plugin 1140 v2 real-AWS validation cover the promotion path).
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty per the matrix-shift discipline; 5 new aws-elasticache-redis-auditor mapping rules add evidence depth on already-covered CC6.6 + C1.1 controls.
+- **EE-side stats: +29 new tests** (22 v2 base + 7 reviewer-fold pin tests); **EE full regression: 4696/4696; 45-session 100% green streak preserved**.
+- **Fifth consecutive trio-publish across EE + CE + agent-skill in a single session** — institutionalized discipline now spans 5 ship cycles (0.4.5/0.4.6/0.4.7/0.4.8/0.4.9). Paired agent-skill 0.1.15 catalog refresh reflects the plugin 1180 v2 extension on the AI-coding-agent knowledge surface.
+- **Memory tag closures**: `aws_string_case_normalization` holds steady at **20×** (v2 reinforced KeyManager + IGW GatewayId case-norm at comparison boundary per SPLIT-SURFACE variant); `conservative_classifier_principle` reinforced in 4 new fold sites; `emit_literal_set_drift` extended with `ELASTICACHE_AT_REST_KMS_UNVERIFIABLE_CATEGORY` named-constant discipline.
+
+**CE-side state:** unchanged binary. CE 0.1.48 = CE 0.1.47 = ... = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative + deprecate 0.1.47 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.48 @nsasoft/nsauditor-ai-ee@0.4.9` (paired upgrade; + `npm install nsauditor-ai-agent-skill@0.1.15` for AI-coding-agent users).
+
+---
+
 ## 0.1.47 — docs-only: paired-release announcement for EE 0.4.8 (sixth-ship-cycle in 0.4.x — EE-RT.14 v3 plugin 1140 RDS Auditor 7 → 10 dimensions with database audit-logging + 9 same-session reviewer folds incl. 1 HIGH false-INFO closure on Aurora cluster log path; first 0.4.x extension cycle to validate PASS+HIGH path end-to-end against real AWS)
 
 No code changes. CE 0.1.47 ships the same code as 0.1.40 → 0.1.46 with README updated to announce the paired **EE 0.4.8 release** and update plugin **1140 AWS RDS Auditor** row in the public plugin catalog to reflect the v3 extension (7 → 10 dimensions; +database audit-logging triad). CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.46 with the explicit EE-paired-release pointer.
