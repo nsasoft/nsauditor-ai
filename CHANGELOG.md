@@ -6,6 +6,28 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.55 — docs-only: paired-release announcement for EE 0.6.1 (patch-level new-plugin extension — EE-RT.20 v1 NEW plugin 1200 AWS Inspector2 / GuardDuty Enablement Auditor; plugin count 21 → 22; first AWS-managed-threat-detection substrate audit; twelfth consecutive trio-publish)
+
+No code changes. CE 0.1.55 ships the same code as 0.1.40 → 0.1.54 with README/CHANGELOG updated for the paired EE 0.6.1 release.
+
+**EE 0.6.1 paired-release highlights:**
+- **NEW plugin 1200 AWS Inspector2 / GuardDuty Enablement Auditor** — plugin count 21 → 22 (second plugin-count increase in the v0.6.x line). First AWS-managed-threat-detection substrate audit; bundles GuardDuty + Inspector2 per the plugin 1150 multi-service precedent.
+- **4 active SOC 2 substrate-evidence dimensions** (dim 5 org-scope deferred to v2): GuardDuty Detector enablement per region (CC7.1 — HIGH `gd-not-enabled` institutional silent-blind class), GuardDuty protection-feature coverage (CC7.1 — institutional baseline S3_DATA_EVENTS / EKS_AUDIT_LOGS / EBS_MALWARE_PROTECTION / RDS_LOGIN_EVENTS / LAMBDA_NETWORK_LOGS / RUNTIME_MONITORING), Inspector2 enablement (CC7.1 + CC7.2 — DISABLED/SUSPENDED = HIGH silent-blind for CVE coverage on EC2/ECR/Lambda fleet), Inspector2 scan-target coverage (CC7.1 zero / CC7.2 partial — institutional baseline {EC2, ECR, Lambda}).
+- **6 same-session R1 reviewer folds** (network-security + Explore in parallel): **R1-CRITICAL-1 soc2.json titlePattern misalignment closure** (4 patterns; would have silently failed CC7.1/CC7.2 compliance routing — every plugin 1200 finding routes correctly post-fold) + R1-CRITICAL-1 AccessDenied distinct findings + R1-CRITICAL-2 legacy DataSources case normalization + R1-HIGH-2 SUSPENDED/DISABLED Detector Status guard + R1-HIGH-3/4 dead-code drift closures.
+- **4 R2 reviewer-deferred** (queued in EE-RT.20.1): all-regions enumeration / FindingPublishingFrequency check / alerting-destination check / BatchGetAccountStatus contract verification.
+- **+52 new tests**; EE full regression: 5096/5096 across 803 suites; **54-session 100% green streak preserved**.
+- **7 new soc2.json rules** (4 CC7.1 + 3 CC7.2) — all anchored to actual plugin emission strings.
+- **Coverage matrix UNCHANGED at 10/4/33** — institutional honesty (plugin 1200 deepens evidence on already-covered CC7.1 + CC7.2).
+- **CE binary unchanged.**
+- **Twelfth consecutive trio-publish across EE + CE + agent-skill** — 0.4.5–0.6.1 (12 ship cycles).
+
+```bash
+npm install -g nsauditor-ai@0.1.55 @nsasoft/nsauditor-ai-ee@0.6.1
+npm install nsauditor-ai-agent-skill@0.1.22  # AI-coding-agent users
+```
+
+---
+
 ## 0.1.54 — docs-only: paired-release announcement for EE 0.6.0 (minor-version milestone — EE-RT.19 v1 NEW plugin 1160 AWS VPC Endpoints / PrivateLink Auditor; plugin count 20 → 21; first plugin to specifically audit the PrivateLink isolation boundary)
 
 No code changes. CE 0.1.54 ships the same code as 0.1.40 → 0.1.53 with README/CHANGELOG updated for the paired EE 0.6.0 release.
