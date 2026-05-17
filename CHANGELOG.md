@@ -6,6 +6,30 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.50 — docs-only: paired-release announcement for EE 0.5.1 (patch-level extension in v0.5.x — EE-RT.15 v2 plugin 1150 SQS/SNS Auditor + 6th + 7th dimensions: CloudWatch alarm coverage on SQS ApproximateAgeOfOldestMessage + SNS NumberOfNotificationsFailed + 7 same-session reviewer folds incl. 1 CRITICAL false-CLEAN closure on empty-AlarmActions silent-PASS)
+
+No code changes. CE 0.1.50 ships the same code as 0.1.40 → 0.1.49 with README updated to announce the paired **EE 0.5.1 release** and reflect the plugin 1150 v2 extension in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.49 with the explicit EE-paired-release pointer. **0.5.1 is a patch-level extension** in the v0.5.x line — first plugin-1150 dim to cross an SDK boundary (SQS+SNS → CloudWatch); single-fetch budget via `_enumerateMetricAlarms` paginating `cloudwatch:DescribeAlarms` once + `_buildAlarmIndex` building per-resource Maps for O(1) lookup. Closes the **"messaging monitoring" SOC 2 dimension** per `tasks/things-to-check.md` §4 institutional checklist.
+
+**EE 0.5.1 paired-release highlights:**
+
+- **Dim 6 — SQS ApproximateAgeOfOldestMessage CloudWatch alarm coverage** (CC7.2 + A1.2): per-queue PASS / MEDIUM / LOW / LOW + evidenceGap severity ladder. Closes false-CLEAN window where SQS queue exists with no operational substrate.
+- **Dim 7 — SNS NumberOfNotificationsFailed CloudWatch alarm coverage** (CC7.2 + A1.2): per-topic analogue. Closes false-CLEAN window where SNS subscription delivery failures produce no operator paging.
+- **R-CRITICAL fold closure**: `ActionsEnabled=true + AlarmActions=[]` was silent PASS pre-fold — CloudWatch fires NO operator paging on empty AlarmActions. Post-fold `actionable` requires BOTH `ActionsEnabled=true` AND non-empty `AlarmActions[]`. Discriminates "all disabled" vs "all empty actions" in remediation narrative.
+- **R-HIGH closure**: soc2.json PASS-tier titlePatterns narrowed to anchor on `AWS/SQS:ApproximateAgeOfOldestMessage` / `AWS/SNS:NumberOfNotificationsFailed` clauses (prevents adjacent-severity narrative-drift partial-match).
+- **R-MEDIUM-1 closure**: defensive `typeof .get === "function"` guard on `cwState.alarmIndex` shape.
+- **R-LOW (FIFO) closure**: end-to-end FIFO queue test + stripped-dim defense (case-sensitive split-surface).
+- **+52 new tests this cycle** (41 v2 base + 11 reviewer-fold pins); plugin 1150 test count grew 116 → 168 across 22 → 33 suites. **EE full regression: 4860/4860; 47-session 100% green streak preserved**.
+- **No new SDK dependencies** — `@aws-sdk/client-cloudwatch` already declared in optionalDependencies since EE 0.4.0 (used by plugin 1040).
+- **12 new soc2.json titlePattern entries** (8 CC7.2 + 4 A1.2 dual-mapped). Coverage matrix UNCHANGED at 10/4/33 — institutional honesty per the matrix-shift discipline; 0.5.1 adds substrate evidence depth on already-covered CC7.2 + A1.2.
+- **Synthetic-mock validation only** this cycle — real-AWS smoke deferred (no SQS/SNS paired fixtures yet in <operator-internal-test-infra-repo>; ship-without per documented gap, EE 0.5.0 SES precedent).
+- **Seventh consecutive trio-publish across EE + CE + agent-skill in a single session** — institutionalized discipline now spans 7 ship cycles (0.4.5/0.4.6/0.4.7/0.4.8/0.4.9/0.5.0/0.5.1). Paired agent-skill 0.1.17 catalog refresh reflects the plugin 1150 v2 extension on the AI-coding-agent knowledge surface.
+
+**CE-side state:** unchanged binary. CE 0.1.50 = CE 0.1.49 = ... = CE 0.1.40 = CE 0.1.39 code-identical; bump exists solely to carry the EE-paired-release narrative + deprecate 0.1.49 with the explicit EE-paired-release pointer.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.50 @nsasoft/nsauditor-ai-ee@0.5.1` (paired upgrade; + `npm install nsauditor-ai-agent-skill@0.1.17` for AI-coding-agent users).
+
+---
+
 ## 0.1.49 — docs-only: paired-release announcement for EE 0.5.0 (minor-version milestone bump 0.4.x → 0.5.x — EE-RT.18 v2 plugin 1190 SES Email Integrity Auditor extension: DKIM CNAME DNS resolution + DMARC TXT record parser + SES classic API parity + 8 same-session reviewer folds incl. 1 CRITICAL false-CLEAN closure on DMARC pct=0 + 1 HIGH false-NEGATIVE closure on DMARC sp subdomain-policy override)
 
 No code changes. CE 0.1.49 ships the same code as 0.1.40 → 0.1.48 with README updated to announce the paired **EE 0.5.0 release** and reflect the plugin 1190 v2 extension in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.48 with the explicit EE-paired-release pointer. **0.5.0 is a minor-version milestone bump** (vs the natural 0.4.10) marking the first ship to add NETWORK-LAYER cross-reference (live DNS resolution via `node:dns/promises`) to the AWS-SDK-substrate evidence baseline — structurally distinct evidence-acquisition surface from prior 0.4.x cycles.
