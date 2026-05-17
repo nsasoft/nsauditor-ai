@@ -930,7 +930,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         console.log(`✗ ${tierLabel[result.tier] ?? 'Community Edition (CE)'}`);
         console.log(`  Reason: ${result.reason}`);
         if (!key) {
-          console.log('\n→ Start a free 14-day Pro trial: https://www.nsauditor.com/ai/trial');
+          console.log('\n→ View Pro/Enterprise pricing: https://www.nsauditor.com/ai/pricing/');
         }
       }
       // CE 0.1.35 (Thread L mitigation v2): version provenance footer
