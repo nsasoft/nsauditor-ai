@@ -6,6 +6,26 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.52 — docs-only: paired-release announcement for EE 0.5.3 (patch-level extension in v0.5.x — EE-RT.18 v3 plugin 1190 SES Email Integrity Auditor: Part A DKIM public-key fingerprint capture/pin + Part B in-band DMARC alignment classifier + 5 same-session reviewer folds incl. 1 R-CRITICAL false-CLEAN closure on truncated DKIM keys)
+
+No code changes. CE 0.1.52 ships the same code as 0.1.40 → 0.1.51 with README updated to announce the paired **EE 0.5.3 release** and reflect the plugin 1190 v3 extension. CE binary is code-identical to the 0.1.40-line; bump carries the EE-paired-release narrative + deprecates 0.1.51.
+
+**EE 0.5.3 paired-release highlights:**
+
+- **Part A — DKIM public-key fingerprint capture/pin**: new emission categories `ses-dkim-fingerprint-verified` (PASS) / `ses-dkim-fingerprint-mismatch` (HIGH — catches unauthorized rotation / key substitution attacks via operator-supplied `opts.dkimFingerprintPinStore`) / `ses-dkim-fingerprint-unverifiable` (LOW + evidenceGap).
+- **Part B — In-band DMARC alignment classifier**: new emissions `ses-dmarc-alignment-strict-met` (PASS) / `ses-dmarc-alignment-relaxed` (INFO) / `ses-dmarc-alignment-dkim-strict-impossible` (HIGH — adkim=s + DKIM disabled = guaranteed failure) / `ses-dmarc-alignment-spf-strict-impossible` (HIGH — aspf=s + no custom MailFrom = guaranteed failure) / `ses-dmarc-alignment-unverifiable` (LOW).
+- **R-CRITICAL closure (discovered via test)**: `_stripControlChars` 256-char truncation corrupted long DKIM keys producing wrong SHA-256 fingerprints (false-CLEAN pin matches against truncated hashes) — new `_stripControlCharsNoTruncate` helper bypasses the cap at cryptographic-data surface only.
+- **R-HIGH closures**: empty/short-key floor (≥128 bytes) + multiple-DKIM1-records LOW + evidenceGap + DMARC double-failure visibility (`spfStrictAlsoImpossible` detail when both alignment paths impossible).
+- **R-MEDIUM closure**: pin-store + failed-capture-on-pinned-token downgraded to LOW + evidenceGap (closes silent-PASS class for stale-pin OR hidden-mismatch).
+- **+61 new tests this cycle** (45 v3 base + 16 reviewer-fold pins); plugin 1190 test count grew 248 → 309 across 49 → 60 suites. **EE full regression: 4962/4962; 49-session 100% green streak preserved**.
+- **8 new soc2.json mapping rules** (CC6.1). Coverage matrix UNCHANGED at 10/4/33.
+- **No new SDK dependencies** — v3 uses existing node:dns/promises + node:crypto.
+- **Ninth consecutive trio-publish across EE + CE + agent-skill in a single session** — 0.4.5/0.4.6/0.4.7/0.4.8/0.4.9/0.5.0/0.5.1/0.5.2/0.5.3.
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.52 @nsasoft/nsauditor-ai-ee@0.5.3` (+ `npm install nsauditor-ai-agent-skill@0.1.19` for AI-coding-agent users).
+
+---
+
 ## 0.1.51 — docs-only: paired-release announcement for EE 0.5.2 (patch-level consolidation in v0.5.x — EE-RT.18 v2.1 plugin 1190 SES Email Integrity Auditor deferred-items sweep: 7 deferred reviewer-fold items closed + 6 same-session reviewer folds incl. 1 CRITICAL soc2 mapping closure + silent-loss-class closure on SES classic API quota exhaustion)
 
 No code changes. CE 0.1.51 ships the same code as 0.1.40 → 0.1.50 with README updated to announce the paired **EE 0.5.2 release** and reflect the plugin 1190 v2.1 consolidation in the public plugin catalog. CE binary is code-identical to the 0.1.40-line; the bump exists solely to carry the EE-paired-release narrative to the npm landing page and to deprecate 0.1.50 with the explicit EE-paired-release pointer. **0.5.2 is a patch-level consolidation cycle** in the v0.5.x line — pure plugin 1190 deferred-items sweep, no new SDK boundary, no new evidence-acquisition surface.
