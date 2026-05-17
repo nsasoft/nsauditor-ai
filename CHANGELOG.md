@@ -6,6 +6,22 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.53 — docs-only: paired-release announcement for EE 0.5.4 (cross-plugin Thread H sweep in v0.5.x — §7.5 _promote*FromKms signature hardening on plugin 1140 v2 + 1180 v2 + §8 operator-config DoS caps on plugin 1170 v2; clean reviewer pass; final v0.5.x close-out cycle)
+
+No code changes. CE 0.1.53 ships the same code as 0.1.40 → 0.1.52 with README/CHANGELOG updated for the paired EE 0.5.4 release.
+
+**EE 0.5.4 paired-release highlights:**
+- **§7.5 — `_promote*FromKms` cross-plugin signature hardening** (plugin 1140 v2 + plugin 1180 v2): accepts BOTH legacy `keyManager` string OR new `keyManagerByArn: Map<arn, keyManager>` — Map form looks up by `finding.details.kmsKeyArn` (single source of truth, closes caller-side parallel-threading false-CLEAN class).
+- **§8 — Operator-config DoS caps** (plugin 1170 v2): new `_OPERATOR_CONFIG_MAX_ENTRIES = 1000` bounds `additionalRestrictedPorts` / `additionalRestrictedPortNames` / `additionalSystemManagedSgNamePrefixes`. Operator-tunable caps. Defends against hostile config-injection DoS.
+- **Clean reviewer pass** (0 R-CRITICAL + 0 R-HIGH; 2 R-MEDIUM coverage gaps + 1 R-LOW edge-case folded same-session).
+- **+20 new tests this cycle**; full EE regression: 4982/4982; 50-session 100% green streak preserved.
+- **Coverage matrix UNCHANGED at 10/4/33** — pure structural-discipline tightening.
+- **Tenth consecutive trio-publish across EE + CE + agent-skill in a single session** — 0.4.5/0.4.6/0.4.7/0.4.8/0.4.9/0.5.0/0.5.1/0.5.2/0.5.3/0.5.4. **v0.5.x close-out cycle**; ready for 0.6.0 milestone (EE-RT.19 VPC Endpoints / PrivateLink Auditor NEW plugin recommended).
+
+**Recommended upgrade path:** `npm install -g nsauditor-ai@0.1.53 @nsasoft/nsauditor-ai-ee@0.5.4` (+ `npm install nsauditor-ai-agent-skill@0.1.20` for AI-coding-agent users).
+
+---
+
 ## 0.1.52 — docs-only: paired-release announcement for EE 0.5.3 (patch-level extension in v0.5.x — EE-RT.18 v3 plugin 1190 SES Email Integrity Auditor: Part A DKIM public-key fingerprint capture/pin + Part B in-band DMARC alignment classifier + 5 same-session reviewer folds incl. 1 R-CRITICAL false-CLEAN closure on truncated DKIM keys)
 
 No code changes. CE 0.1.52 ships the same code as 0.1.40 → 0.1.51 with README updated to announce the paired **EE 0.5.3 release** and reflect the plugin 1190 v3 extension. CE binary is code-identical to the 0.1.40-line; bump carries the EE-paired-release narrative + deprecates 0.1.51.
