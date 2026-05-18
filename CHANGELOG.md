@@ -6,6 +6,35 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.56 — docs-only: paired-release announcement for EE 0.6.2 (patch-level evidence-acquisition extension — EE-RT.20.1 plugin 1200 v2: multi-region enumeration + FindingPublishingFrequency check + Inspector2 baseline expansion; closes FedRAMP / StateRAMP / IL5+ false-PASS class for GovCloud + ISO regions; plugin count UNCHANGED at 22; thirteenth consecutive trio-publish)
+
+No code changes. CE 0.1.56 ships the same code as 0.1.40 → 0.1.55 with README/CHANGELOG updated for the paired EE 0.6.2 release.
+
+**EE 0.6.2 paired-release highlights:**
+- **Multi-region GuardDuty + Inspector2 enumeration** (closes the single-region false-PASS class). `ec2:DescribeRegions` enumerates opted-in regions; per-region dispatch; per-region findings carry region tag. Operator opts: `regions: string[]` (filter to subset), `skipMultiRegion: true` (cost-sensitive opt-out), `regionListCap` (1..256 clamp; default 64).
+- **GovCloud + ISO region support** — closes a **FedRAMP / StateRAMP / IL5+ false-PASS class**: pre-0.6.2 region regex silently rejected 4-part region IDs (`us-gov-east-1` / `us-iso-east-1` / `us-isob-east-1` / `us-isof-south-1`); operator passing those regions explicitly got silent skip. Post-fold regex admits both 3-part and 4-part forms.
+- **GuardDuty `FindingPublishingFrequency` check** — CC7.1 detection-latency. 4 outcomes (PASS optimal / LOW suboptimal / LOW unverifiable for null detector or unknown enum). Operator-tunable baseline (`gdFrequencyPassFrequency`); default FIFTEEN_MINUTES. Ordering-based comparison — a detector publishing more frequently than the operator-tuned baseline still emits PASS rather than misclassified LOW.
+- **Inspector2 baseline expansion** — `lambdaCode` (Lambda code scanning) + `codeRepository` (Inspector2 GitHub/GitLab scanning, GA 2024+) added to institutional baseline. Operators with Inspector2 enabled but the newer scan-targets disabled see a partial-coverage MEDIUM finding with the disabled resources named, instead of false-CLEAN PASS.
+- **Soft-degrade** — EC2 SDK load failure or `DescribeRegions` AccessDenied → fall back to client's configured region + emit distinct LOW finding pinpointing the IAM gap.
+- **Backward compatibility** — Operators on EE 0.6.1 who passed singular GuardDuty or Inspector2 clients into the plugin's test seam keep legacy single-region behavior. No 0.6.1 integrations break on upgrade.
+- **Plugin count UNCHANGED at 22**; coverage matrix UNCHANGED at 10 covered / 4 partial / 33 OOS — pure substrate-evidence depth uplift on CC7.1 controls already classified as 'covered'.
+
+**Upgrade guidance:**
+- **GovCloud, ISO, or ISO-B operators on EE 0.6.0 / 0.6.1** — Upgrade. The earlier region regex silently skipped 4-part region IDs.
+- **Multi-region AWS operators on EE 0.6.0 / 0.6.1** — Upgrade. Single-region scope previously masked per-region posture gaps.
+- **Single-region commercial-AWS operators on EE 0.6.1** — Optional. Set `skipMultiRegion: true` to preserve 0.6.1 behavior; the FindingPublishingFrequency and Inspector2 baseline-expansion checks still apply.
+
+See [EE 0.6.2 release notes](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee/v/0.6.2) for full per-fold breakdown.
+
+**Customer install (paired):**
+
+```bash
+npm install -g nsauditor-ai@0.1.56 @nsasoft/nsauditor-ai-ee@0.6.2
+npm install nsauditor-ai-agent-skill@0.1.23   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.55 — docs-only: paired-release announcement for EE 0.6.1 (patch-level new-plugin extension — EE-RT.20 v1 NEW plugin 1200 AWS Inspector2 / GuardDuty Enablement Auditor; plugin count 21 → 22; first AWS-managed-threat-detection substrate audit; twelfth consecutive trio-publish)
 
 No code changes. CE 0.1.55 ships the same code as 0.1.40 → 0.1.54 with README/CHANGELOG updated for the paired EE 0.6.1 release.
