@@ -6,6 +6,37 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.58 — docs-only: paired-release announcement for EE 0.6.4 (patch-level reviewer-cleanup cycle — EE-RT.20.3 plugin 1200 v4: EventBridge target verification + multi-failedAccount surface + trigger uniformity; 5 R1 reviewer folds incl. R-HIGH-1 cap-skew classifier closure; plugin count UNCHANGED at 22; fifteenth consecutive trio-publish)
+
+No code changes. CE 0.1.58 ships the same code as 0.1.40 → 0.1.57 with README/CHANGELOG updated for the paired EE 0.6.4 release.
+
+**EE 0.6.4 paired-release highlights:**
+- **EventBridge target verification (R-HIGH-2)** — closes the substrate-without-sink false-PASS class at the RULE level. Pre-fold, a rule could be PASS even with zero `Targets` (sink-less rule routing findings nowhere); post-fold `events:ListTargetsByRule` verifies each matched rule has ≥1 target. New MEDIUM `*-alerting-destination-targetless` verdict for sink-less rules.
+- **Multi-failedAccount surface (R-MEDIUM-2)** — Inspector2 `BatchGetAccountStatus` helper now returns `failedAccounts: <array>` (was singular pre-fold; the rest of failed accounts silently dropped on delegated-admin scans). Caller emits one LOW per failed account with `accountId` + `errorCode` + `errorMessage` in details.
+- **Trigger uniformity (R-LOW-2)** — GuardDuty alerting-destination trigger gates on `detector.Status === ENABLED` (matches Inspector2's enabled-only semantic). SUSPENDED detectors no longer noise the alerting check.
+- **R-HIGH-1 reviewer fold — cap-skew classifier closure**. Pre-fold, rules 1-10 target-less + rules 11+ beyond verification cap → emitted MEDIUM TARGETLESS. But rule 11 could be the actual sink (cap-skew false-MEDIUM). Post-fold: emits LOW UNVERIFIABLE with `capExceeded: true` and explicit "raise `targetVerificationRuleCap`" remediation. Conservative-classifier discipline restored.
+- **R-HIGH consolidated reviewer fold** — `_listEventBridgeRuleTargets` pagination loop (AWS historical max 5 targets per rule but API supports NextToken; defensive hard-cap 500) + JSDoc clarity on return shape.
+- **R-MEDIUM-1 reviewer fold — multi-failedAccount per-region emission cap**. Pre-fold worst-case = 100 failed accounts × 17 regions = 1700 individual LOWs (finding-surface pollution). Post-fold per-region cap of 10 + rollup LOW per region with `omittedCount` + `sampledOmittedAccountIds: array`. Surface reduced ~9× while preserving operator-actionable evidence at the head.
+- **R-HIGH-2 reviewer fold — dead-target documented-limitation note**. Target COUNT verified, per-target LIVENESS not (Target.Arn could point to deleted Lambda / detached SNS topic). Per-target liveness probes would require ~6 new IAM grants on Lambda / SNS / SQS / etc. Companion-LOW finding queued for 0.6.5; soc2.json PASS rationale now documents the limitation explicitly.
+- **New operator opts** — `skipEventBridgeTargetVerification: true` (opt-out for cost-sensitive runs or operators without `events:ListTargetsByRule` IAM grant) + `targetVerificationRuleCap: 1..100` (per-rule verification cap; default 10).
+- **Plugin count UNCHANGED at 22**; coverage matrix UNCHANGED at 10 covered / 4 partial / 33 OOS — pure evidence-depth hardening on CC7.1.
+
+**Upgrade guidance:**
+- **Customers running plugin 1200 on EE 0.6.3** — Upgrade. The target-verification dim closes a real false-PASS class at the rule level.
+- **Customers running delegated-admin Inspector2 scans across member accounts** — Upgrade. EE 0.6.3 silently dropped all but the first failed account per region; 0.6.4 surfaces each (capped at 10 + rollup per region).
+- **Customers with cost-sensitive scheduled runs OR no events:ListTargetsByRule IAM grant** — Set `skipEventBridgeTargetVerification: true` to preserve the 0.6.3 dimension cost profile (verdict routes to LOW UNVERIFIABLE — correct conservative-classifier output when target-presence is unknown).
+
+See [EE 0.6.4 release notes](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee/v/0.6.4) for full per-fold breakdown.
+
+**Customer install (paired):**
+
+```bash
+npm install -g nsauditor-ai@0.1.58 @nsasoft/nsauditor-ai-ee@0.6.4
+npm install nsauditor-ai-agent-skill@0.1.25   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.57 — docs-only: paired-release announcement for EE 0.6.3 (patch-level evidence-acquisition extension — EE-RT.20.2 plugin 1200 v3: alerting-destination dim closes substrate-without-sink false-PASS class for GuardDuty/Inspector2; R-CRITICAL-1 Inspector Classic ARN-collision fold + R-HIGH-1 SH-only PASS narrative split + R-HIGH-3 EventBridge content-filter grammar; plugin count UNCHANGED at 22; fourteenth consecutive trio-publish)
 
 No code changes. CE 0.1.57 ships the same code as 0.1.40 → 0.1.56 with README/CHANGELOG updated for the paired EE 0.6.3 release.
