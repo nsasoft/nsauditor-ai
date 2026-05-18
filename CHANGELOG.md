@@ -6,6 +6,42 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.59 — docs-only: paired-release announcement for EE 0.6.5 (patch-level v4-reviewer-cleanup cycle — EE-RT.20.4 plugin 1200 v5: R-NIT named-constants + targetVerificationReason sentinel observability + sessionToken cross-plugin sweep (18 plugins) + dead-target companion-LOW (Lambda + SNS + SQS); 5 R1 reviewer folds; plugin count UNCHANGED at 22; sixteenth consecutive trio-publish)
+
+No code changes. CE 0.1.59 ships the same code as 0.1.40 → 0.1.58 with README/CHANGELOG updated for the paired EE 0.6.5 release.
+
+**EE 0.6.5 paired-release highlights:**
+
+- **sessionToken cross-plugin sweep (the operator-impact headline)** — 18 EE AWS plugins (1020 through 1200) now thread `sessionToken` through their AWS-SDK credentials block. Pre-0.6.5, auditors using `aws sts assume-role` (the canonical cross-account audit pattern) saw all auto-loaded clients fail signing because the temporary `sessionToken` was silently dropped. Post-0.6.5: AssumeRole-style auditor credentials work uniformly across the entire EE catalog. New source-level regression test pins the contract.
+- **Dead-target companion-LOW (the substrate-evidence headline)** — closes the EE 0.6.4 R-HIGH-2 documented limitation. Plugin 1200 now probes per-target liveness for the 3 most-common EventBridge target types: Lambda (`lambda:GetFunction` on full qualified ARN — alias/version correctness verified server-side), SNS (`sns:GetTopicAttributes`), and SQS (`sqs:GetQueueUrl` + `sqs:GetQueueAttributes` — partition-aware via SDK URL resolution). When at least one verified rule contains targets pointing to deleted resources, the plugin emits a **companion LOW finding alongside the PASS verdict** carrying the affected ARNs (capped at 10 + `deadTargetArnsTruncated` count). New operator opts: `skipTargetLivenessProbe: true` + `deadTargetProbeTimeoutMs`.
+- **Three deferred target types** (IAM role + API destination + CloudWatch Logs) queued for 0.6.6 — would add 3-4 IAM grants. Unknown ARN shapes currently route to UNVERIFIABLE per the conservative-classifier discipline.
+- **R-HIGH-1 reviewer fold — case-insensitive NotFound matching**: defends against future AWS SDK case changes per `[[aws_string_case_normalization]]` (15× recurrent class). Pre-fold a future `aws.simplequeueservice.*` (lowercase variant) would have crashed the region scan; post-fold the matcher is case-insensitive at the boundary.
+- **R-HIGH-2 reviewer fold — one-retry on NotFound (eventual-consistency defense)**: freshly-created Lambda/SNS/SQS resources (added to EB rule within ~30s of probe time) may transiently return `ResourceNotFoundException`. Pre-fold this emitted false-DEAD findings on legitimately-active resources — operator-credibility hit. Post-fold: one retry with 750ms backoff before confirming DEAD.
+- **R-HIGH-3 reviewer fold — Lambda probe passes FULL qualified ARN** to `GetFunction.FunctionName` (alias `PROD` pointing to a deleted version surfaces as DEAD instead of false-LIVE).
+- **R-HIGH (Explore) reviewer fold — parallel probes via Promise.all** with per-target timeout (default 2s; operator-tunable). Latency-bounded fan-out across N targets per rule.
+- **R-MEDIUM-1 reviewer fold — SQS partition-aware via `GetQueueUrl`** instead of synthesized URL. Pre-fold the synthesized `amazonaws.com` URL would have thrown `UnknownEndpoint` on aws-cn / aws-us-gov / aws-iso partitions, crashing the region scan.
+- **Sentinel observability — `targetVerificationReason` enum** on rule shape (AccessDenied / SdkUnavailable / BeyondCap / SkippedByOpts). Auditors drill down by failure mode instead of seeing opaque `targetCount: null`.
+- **R-NIT named-constants consolidation** — frozen Set `SH_HUB_NOT_ENABLED_ERROR_NAMES` lifts 2 bare-string sites in SecurityHub probe helpers per `[[emit_literal_set_drift]]`.
+- **Plugin count UNCHANGED at 22**; coverage matrix UNCHANGED at 10/4/33 — pure evidence-acquisition depth uplift on CC7.1.
+
+**Upgrade guidance:**
+
+- **Auditors using AssumeRole-style credentials on any EE plugin** — Upgrade. EE 0.6.4 and earlier silently dropped `sessionToken` across all 18 plugins. This blocks cross-account audits with temporary credentials.
+- **Customers with EventBridge rules routing GuardDuty / Inspector2 findings to Lambda / SNS / SQS targets** — Upgrade. Dead-target companion-LOW closes a real false-PASS class for rules still referencing deleted resources.
+- **GovCloud / aws-cn / ISO-partition operators using SQS targets** — Upgrade. Pre-fold SQS URL synthesis assumed commercial AWS and would have thrown `UnknownEndpoint` on non-commercial partitions.
+- **Cost-sensitive scheduled runs** — Set `skipTargetLivenessProbe: true` to preserve 0.6.4 dim cost profile (per-target probes add latency).
+
+See [EE 0.6.5 release notes](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee/v/0.6.5) for full per-fold breakdown.
+
+**Customer install (paired):**
+
+```bash
+npm install -g nsauditor-ai@0.1.59 @nsasoft/nsauditor-ai-ee@0.6.5
+npm install nsauditor-ai-agent-skill@0.1.26   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.58 — docs-only: paired-release announcement for EE 0.6.4 (patch-level reviewer-cleanup cycle — EE-RT.20.3 plugin 1200 v4: EventBridge target verification + multi-failedAccount surface + trigger uniformity; 5 R1 reviewer folds incl. R-HIGH-1 cap-skew classifier closure; plugin count UNCHANGED at 22; fifteenth consecutive trio-publish)
 
 No code changes. CE 0.1.58 ships the same code as 0.1.40 → 0.1.57 with README/CHANGELOG updated for the paired EE 0.6.4 release.
