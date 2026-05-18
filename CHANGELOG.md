@@ -6,6 +6,37 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.57 — docs-only: paired-release announcement for EE 0.6.3 (patch-level evidence-acquisition extension — EE-RT.20.2 plugin 1200 v3: alerting-destination dim closes substrate-without-sink false-PASS class for GuardDuty/Inspector2; R-CRITICAL-1 Inspector Classic ARN-collision fold + R-HIGH-1 SH-only PASS narrative split + R-HIGH-3 EventBridge content-filter grammar; plugin count UNCHANGED at 22; fourteenth consecutive trio-publish)
+
+No code changes. CE 0.1.57 ships the same code as 0.1.40 → 0.1.56 with README/CHANGELOG updated for the paired EE 0.6.3 release.
+
+**EE 0.6.3 paired-release highlights:**
+- **Alerting-destination dim (NEW)** — closes the substrate-without-sink false-PASS class for GuardDuty + Inspector2. Verifies at least one of EventBridge rule (source=`aws.guardduty` / `aws.inspector2`) OR SecurityHub product subscription is wired per service per region. Without one of these routing paths, findings live only in the AWS service console — no proactive paging, no SOC 2 monitoring-evidence stream.
+- **Verdict tiers** (per service per region): PASS `alerting-destination-present` (EB rule present) / MEDIUM `alerting-destination-sh-only` (SH aggregates but no paging guarantee; auditor walkthrough required to confirm SH → downstream paging) / HIGH `alerting-destination-missing` (no path; substrate-without-sink class) / LOW `alerting-destination-unverifiable` (AccessDenied / SDK unavailable; conservative classifier).
+- **R-CRITICAL-1 reviewer fold** — SecurityHub product ARN substring collision closure (Inspector Classic vs Inspector2). Pre-fold the substring `:product/aws/inspector` matched BOTH Inspector Classic (deprecated 2024) AND Inspector2 — a stale Classic subscription emitting zero findings would have falsely PASSed the Inspector2 dim. Post-fold: boundary-anchored helper with strict `/aws/inspector2` constant.
+- **R-HIGH-1 reviewer fold** — SH-only path is institutionally insufficient (SecurityHub aggregates findings but doesn't guarantee proactive paging out). Post-fold: SH-only emits MEDIUM (was PASS pre-fold) with walkthrough prompt to confirm operator has wired an `aws.securityhub` EventBridge rule downstream.
+- **R-HIGH-3 reviewer fold** — EventBridge content-filter grammar (`{prefix: "aws."}`, `{wildcard: "aws.guard*"}`). Pre-fold the source matcher was strict-equality; catch-all routing rules emitted false-HIGH "no destination." Post-fold: `_eventBridgeSourceMatches` helper recognizes string + prefix + wildcard forms (case-insensitive; regex-meta escape in wildcard pattern for defense against operator IaC).
+- **Inspector2 helper hardening (R-MEDIUM-2 + item d)** — `_getInspector2AccountStatus` now returns `{accountStatus, accessDenied, failedAccount}` (was `null | <obj>` conflating four cases). New `_CAT_INS_FAILED_ACCOUNT` LOW surfaces AWS-published `failedAccounts[].errorCode + errorMessage` instead of generic UNVERIFIABLE.
+- **New SDK deps** — `@aws-sdk/client-eventbridge` + `@aws-sdk/client-securityhub` added to optionalDependencies. When unavailable, the dimension downgrades to LOW + evidenceGap; rest of plugin 1200 continues uninterrupted.
+- **Plugin count UNCHANGED at 22**; coverage matrix UNCHANGED at 10 covered / 4 partial / 33 OOS — pure substrate-evidence depth uplift on CC7.1 controls already classified as 'covered'.
+
+**Upgrade guidance:**
+- **Customers running plugin 1200 on EE 0.6.0 / 0.6.1 / 0.6.2** — Upgrade. The substrate-without-sink false-PASS class affects every plugin 1200 deployment.
+- **Customers running Amazon Inspector Classic alongside Inspector2** — Upgrade. The R-CRITICAL ARN-collision closure prevents a false-PASS from stale Classic subscriptions.
+- **Customers using `{prefix}` / `{wildcard}` content-filter EventBridge rules** — Upgrade. Catch-all routing rules now match correctly.
+- **Customers with cost-sensitive scheduled runs** — `skipAlertingDestination: true` opts out of the new dimension entirely.
+
+See [EE 0.6.3 release notes](https://www.npmjs.com/package/@nsasoft/nsauditor-ai-ee/v/0.6.3) for full per-fold breakdown.
+
+**Customer install (paired):**
+
+```bash
+npm install -g nsauditor-ai@0.1.57 @nsasoft/nsauditor-ai-ee@0.6.3
+npm install nsauditor-ai-agent-skill@0.1.24   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.56 — docs-only: paired-release announcement for EE 0.6.2 (patch-level evidence-acquisition extension — EE-RT.20.1 plugin 1200 v2: multi-region enumeration + FindingPublishingFrequency check + Inspector2 baseline expansion; closes FedRAMP / StateRAMP / IL5+ false-PASS class for GovCloud + ISO regions; plugin count UNCHANGED at 22; thirteenth consecutive trio-publish)
 
 No code changes. CE 0.1.56 ships the same code as 0.1.40 → 0.1.55 with README/CHANGELOG updated for the paired EE 0.6.2 release.

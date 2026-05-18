@@ -19,7 +19,8 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 For complete per-release history, see [CHANGELOG.md](./CHANGELOG.md). The Community Edition binary has been unchanged since 0.1.40; recent CE patches are documentation refreshes paired with Enterprise Edition (`@nsasoft/nsauditor-ai-ee`) ships.
 
-- **0.1.56 (current)** — Paired with EE 0.6.2: plugin 1200 v2 evidence-acquisition extension — multi-region GuardDuty + Inspector2 enumeration (closes the single-region false-PASS class), GovCloud + ISO region support (closes a FedRAMP / StateRAMP / IL5+ false-PASS class), GuardDuty `FindingPublishingFrequency` check, Inspector2 baseline expansion (lambdaCode + codeRepository for Inspector2 GA 2024+).
+- **0.1.57 (current)** — Paired with EE 0.6.3: plugin 1200 v3 alerting-destination dim — closes the substrate-without-sink false-PASS class for GuardDuty / Inspector2 (no EventBridge rule + no SecurityHub integration = HIGH). SH-only path emits MEDIUM (aggregation-only). R-CRITICAL Inspector Classic ARN-collision closure + EventBridge content-filter grammar (`{prefix}` / `{wildcard}`).
+- **0.1.56** — Paired with EE 0.6.2: plugin 1200 v2 evidence-acquisition extension — multi-region GuardDuty + Inspector2 enumeration (closes the single-region false-PASS class), GovCloud + ISO region support (closes a FedRAMP / StateRAMP / IL5+ false-PASS class), GuardDuty `FindingPublishingFrequency` check, Inspector2 baseline expansion (lambdaCode + codeRepository for Inspector2 GA 2024+).
 - **0.1.55** — Paired with EE 0.6.1: NEW EE plugin 1200 AWS Inspector2 / GuardDuty Enablement Auditor (CC7.1 + CC7.2).
 - **0.1.54** — Paired with EE 0.6.0: NEW EE plugin 1160 AWS VPC Endpoints / PrivateLink Auditor (CC6.6 + A1.2 + CC7.2).
 - **0.1.50 – 0.1.53** — Paired with EE 0.5.x line (SES / SQS-SNS / cross-plugin hardening cycles).
