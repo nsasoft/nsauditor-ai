@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.64 — docs-only: paired-release announcement for EE 0.7.0 MINOR-VERSION MILESTONE (NEW plugin 1025 GCP IAM Project-Level Auditor opening the v0.7.x cross-cloud-parity line; first plugin in the GCP-IAM-deep-audit cohort; 3 audit dimensions across CC6.1 + CC6.6 substrate evidence; 12 R1 reviewer folds (0 R-CRITICAL + 2 R-HIGH + 5 R-MEDIUM + 5 R-LOW — clean review pass); plugin count 23 → 24; 11 new soc2.json mappings; new SDK dep `@google-cloud/resource-manager`; twenty-first consecutive trio-publish)
+
+---
+
 ## 0.1.63 — docs-only: paired-release announcement for EE 0.6.9 (patch-level EE-RT.21 v2 R2 reviewer-deferred-items cleanup for plugin 1024 GCP Cloud Storage Auditor; 5 R1 reviewer folds (0 R-CRITICAL + 1 R-HIGH + 1 R-MEDIUM + 3 R-LOW — clean review pass); plugin count UNCHANGED at 23; 3 new soc2.json mappings; NEW institutional pre-publish doc-consistency gate; twentieth consecutive trio-publish)
 
 No code changes. CE 0.1.63 ships the same code as 0.1.40 → 0.1.62 with README/CHANGELOG updated for the paired EE 0.6.9 release.
