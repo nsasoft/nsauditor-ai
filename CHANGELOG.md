@@ -6,6 +6,34 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.60 — docs-only: paired-release announcement for EE 0.6.6 (minor cycle — EE-RT.16 v3 plugin 1170 SG→SG transitive chain reachability + EE-RT.20.5 v6 plugin 1200 dead-target probe warm-up (IAM role + EventBridge API destination + CloudWatch Logs); 5 R1 reviewer folds (1 R-HIGH + 2 R-MEDIUM + 2 R-LOW; 0 R-CRITICAL — clean review pass); plugin count UNCHANGED at 22; seventeenth consecutive trio-publish)
+
+No code changes. CE 0.1.60 ships the same code as 0.1.40 → 0.1.59 with README/CHANGELOG updated for the paired EE 0.6.6 release.
+
+**EE 0.6.6 paired-release highlights:**
+
+- **SG→SG transitive chain reachability (the substrate-evidence headline)** — plugin 1170 (`aws-ec2-sg-perimeter-auditor`) gains v3 transitive reachability analysis. Pre-v3, each EC2 Security Group was audited in isolation: a SG with no direct public-CIDR ingress would emit the PASS-tier "no direct public-internet ingress CIDR rules" finding — even if it was transitively reachable from the internet through a chain of `UserIdGroupPairs` SG-references. Post-v3, the plugin builds the SG-reference graph, identifies public-CIDR roots (0.0.0.0/0 / ::/0 ingress), and BFS-walks the graph with cycle defense, depth cap (default 5, max 20, operator-tunable), and per-target chain cap (default 10, max 100). 2-hop chains emit **HIGH**; 3+ hop chains emit **CRITICAL** (operator-blindness principle: deeper chains are less likely to be noticed in a per-SG review). Cross-VPC edges are skipped (out-of-scope for v3 v1; surfaced as INFO trailer). New operator opts: `skipTransitiveReachability` / `transitiveChainDepthCap` / `transitiveChainsPerTargetCap` / `transitiveChainSamplesPerFindingCap`. v3 v1 documented limitation: per-hop port-flow tracked but NOT intersected (walkthroughRequired=true on every transitive finding).
+- **Dead-target probe warm-up (the long-tail closure)** — plugin 1200 v6 closes the 0.6.5 reviewer-deferred long-tail of unverifiable EventBridge target ARN shapes. New probes for IAM role (`iam:GetRole`), EventBridge API destination (`events:DescribeApiDestination`), and CloudWatch Logs (`logs:DescribeLogGroups` with exact-name disambiguation guard so prefix-match siblings don't false-LIVE). New SDK deps `@aws-sdk/client-iam` + `@aws-sdk/client-cloudwatch-logs` (both in optionalDependencies). **Operator note**: `iam:GetRole` is a global API resolving per-partition (aws / aws-cn / aws-us-gov / ISO). Orchestrators wiring `opts._iamClient` must construct a single global IAM client per-partition (NOT per-region). Documented at `_loadIamSdk` per R-MEDIUM-2 reviewer fold.
+- **R-HIGH-1 reviewer fold — BFS short-circuits enqueue past per-target cap**: pre-fold the plugin 1170 v3 BFS marked the target truncated but kept enqueueing further work through the capped target, cloning `path` and `visited` Sets each frame. On hub-and-spoke topologies (common in shared-services VPCs with 200+ SGs and fan-out ≥10), this produced path-enumeration explosion with O(paths × depth) heap usage — multi-second hang + 100+MB transient heap on pathological accounts. Post-fold: when the per-target cap is hit, BFS skips enqueueing through that edge entirely. Regression test pins hub-and-spoke fixture.
+- **R-MEDIUM-1 reviewer fold — IAM `NoSuchEntityException` lifted into `_DEAD_TARGET_NOTFOUND_ERROR_NAMES` Set**: pre-fold the bare disjunction `err.name === "NoSuchEntityException"` at the IAM catch site bypassed the Set, AND the `_retryOnNotFound` wrapper was silently disabled for IAM (the canonical worst-case for AWS eventual consistency — IAM lag 10-30s documented). Per `[[emit_literal_set_drift]]` (now 9× cumulative recurrence of this class across the EE codebase), bare literals lift to the Set. Post-fold: `"nosuchentityexception"` and `"nosuchentity"` added to the Set; bare disjunction collapsed; eventual-consistency retry restored for IAM (a freshly-created role added to an EventBridge rule within ~30s of probe time now retries before confirming DEAD instead of emitting a false-DEAD companion-LOW).
+- **R-MEDIUM-2 reviewer fold — IAM partition-routing contract documented**: orchestrator-facing contract surfaced at `_loadIamSdk` so GovCloud / aws-cn / ISO operators don't construct a regional IAM client by mistake.
+- **R-LOW-2 reviewer fold — plugin 1170 v3 depth-cap-hit surfaced separately from per-target-cap**: pre-fold a graph deeper than `transitiveChainDepthCap` silently truncated without operator-visible signal — false-CLEAN class on deeply-buried CRITICAL exposures. Post-fold: `_walkTransitiveReachability` returns `depthCapHit: boolean`; the INFO trailer distinguishes "raise chainsPerTargetCap" from "raise depthCap" with separate reason strings.
+- **R-LOW-2 reviewer fold — plugin 1200 v6 API destination ARN regex future-proofed**: trailing `/` made optional so future AWS ARN shapes without UUID suffix don't false-malformed.
+- **R2 reviewer-deferred (queued for 0.6.7)**: plugin 1170 v3 edge-dedup in `_buildSgReferenceGraph` (multi-rule SG references currently inflate chain counts 2-5×) + plugin 1200 v6 Logs probe retry-on-empty parity with Lambda/SNS/SQS + R-NIT documentation folds.
+- **3 new soc2.json mappings** under CC6.6 (transitive-public HIGH + CRITICAL + INFO truncation trailer).
+- **EE full regression: 5304/5304 across 834 suites; 58-session 100% green streak preserved.**
+
+**Trio-publish institutionalization continued.** Paired with EE 0.6.6 + agent-skill 0.1.27 — **seventeenth consecutive trio-publish across EE + CE + agent-skill in a single session** (0.4.5–0.6.6).
+
+**Customer install (post-trio-publish):**
+
+```bash
+npm install -g nsauditor-ai@0.1.60 @nsasoft/nsauditor-ai-ee@0.6.6
+npm install nsauditor-ai-agent-skill@0.1.27   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.59 — docs-only: paired-release announcement for EE 0.6.5 (patch-level v4-reviewer-cleanup cycle — EE-RT.20.4 plugin 1200 v5: R-NIT named-constants + targetVerificationReason sentinel observability + sessionToken cross-plugin sweep (18 plugins) + dead-target companion-LOW (Lambda + SNS + SQS); 5 R1 reviewer folds; plugin count UNCHANGED at 22; sixteenth consecutive trio-publish)
 
 No code changes. CE 0.1.59 ships the same code as 0.1.40 → 0.1.58 with README/CHANGELOG updated for the paired EE 0.6.5 release.
