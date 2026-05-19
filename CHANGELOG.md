@@ -6,6 +6,34 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.61 — docs-only: paired-release announcement for EE 0.6.7 (patch-level R2 reviewer-deferred-items cleanup cycle — EE-RT.16 v3.1 plugin 1170 SG-reference-graph edge dedup + EE-RT.20.5 v6.1 plugin 1200 CloudWatch Logs probe retry-on-empty parity; 4 R1 reviewer folds (0 R-CRITICAL + 0 R-HIGH + 1 R-MEDIUM + 3 R-LOW — clean review pass) + 1 unanticipated `_retryOnNotFound` two-phase restructure (caught by test interaction); plugin count UNCHANGED at 22; soc2.json UNCHANGED; eighteenth consecutive trio-publish)
+
+No code changes. CE 0.1.61 ships the same code as 0.1.40 → 0.1.60 with README/CHANGELOG updated for the paired EE 0.6.7 release.
+
+**EE 0.6.7 paired-release highlights:**
+
+- **Plugin 1170 SG-reference-graph edge dedup (the substrate-evidence headline)** — `_buildSgReferenceGraph` now dedupes edges by `(sourceGroupId, targetGroupId)` with `ports` aggregated as array. Pre-fold a real-world ALB-fronting-app SG (3 ingress perms for ports 80/443/8080 all referencing the same source SG) emitted 3 distinct edges A→B; the BFS treated each as a separate chain, inflating auditor-visible `chainCount` 2-5× and exhausting per-target chain caps on noise rather than on genuinely distinct reachability paths. Post-fold the BFS sees exactly 1 chain per distinct (source, target) pair — auditor visibility into genuinely distinct exposure paths restored. `isCrossVpc` aggregation is AND-semantic — if ANY pair is same-VPC, the merged edge is treated as same-VPC (per `[[conservative_classifier_principle]]`: walk a possibly-same-VPC chain rather than silently skip).
+- **Plugin 1200 CloudWatch Logs probe retry-on-empty parity (the long-tail consistency headline)** — the v6 CWL Logs probe was asymmetric: `DescribeLogGroups` returns `logGroups: []` (NOT a thrown exception) on missing groups, so the shared `_retryOnNotFound` helper's thrown-NotFound retry path never fired. A freshly-created CWL log group probed within seconds of creation could false-DEAD. Post-fold `_retryOnNotFound` accepts an optional retry-on-result predicate; the CWL call site passes a predicate that fires retry when the response carries no exact-name match (covers both empty and prefix-only-sibling responses). Eventual-consistency parity now consistent across IAM / Lambda / SNS / SQS / EventBridge API destination / CloudWatch Logs.
+- **Two-phase restructure of `_retryOnNotFound`** — initially the result-based retry was added inside the existing try block, but a compound-path test interaction (transient empty → second-call throws `ResourceNotFoundException`) caused 3 total network calls (initial + result-retry + thrown-retry). Restructured to two mutually-exclusive phases — Phase 1 = initial call + thrown-NotFound retry; Phase 2 = result-based retry — capping total calls at 2 on all compound paths. The per-call-site outer catch routes a second-call thrown error (NotFound → DEAD; AccessDenied → UNVERIFIABLE).
+- **R-MEDIUM-1 reviewer fold — arrival-order independence** locked with a second regression fixture mirroring the first (SAME-VPC pair declared first, cross-VPC pair second) + JSDoc tightened to call out the AND-semantic explicitly.
+- **R-LOW-1 reviewer fold — partial-render contract** on malformed port specs in the array documented + 2 regression fixtures.
+- **R-LOW-2 reviewer fold — `_portKeys` scratch lifetime** documented at the function-signature comment so future refactor can't expose the dedup index.
+- **R-LOW-1 reviewer fold — compound-path coverage** with 2 new tests (transient empty → second-call AccessDenied → UNVERIFIABLE / transient empty → second-call thrown RNF → DEAD). Both verify total network calls = 2 — drove the two-phase restructure.
+- **soc2.json UNCHANGED** — no new emission categories (internal graph structure + retry-policy refinement).
+- **Plugin count UNCHANGED at 22**; coverage matrix UNCHANGED at 10/4/33.
+- **EE full regression: 5314/5314 across 834 suites; 59-session 100% green streak preserved.**
+
+**Trio-publish institutionalization continued.** Paired with EE 0.6.7 + agent-skill 0.1.28 — **eighteenth consecutive trio-publish across EE + CE + agent-skill in a single session** (0.4.5–0.6.7).
+
+**Customer install (post-trio-publish):**
+
+```bash
+npm install -g nsauditor-ai@0.1.61 @nsasoft/nsauditor-ai-ee@0.6.7
+npm install nsauditor-ai-agent-skill@0.1.28   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.60 — docs-only: paired-release announcement for EE 0.6.6 (minor cycle — EE-RT.16 v3 plugin 1170 SG→SG transitive chain reachability + EE-RT.20.5 v6 plugin 1200 dead-target probe warm-up (IAM role + EventBridge API destination + CloudWatch Logs); 5 R1 reviewer folds (1 R-HIGH + 2 R-MEDIUM + 2 R-LOW; 0 R-CRITICAL — clean review pass); plugin count UNCHANGED at 22; seventeenth consecutive trio-publish)
 
 No code changes. CE 0.1.60 ships the same code as 0.1.40 → 0.1.59 with README/CHANGELOG updated for the paired EE 0.6.6 release.
