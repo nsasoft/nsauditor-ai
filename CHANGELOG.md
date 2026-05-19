@@ -6,6 +6,30 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.63 — docs-only: paired-release announcement for EE 0.6.9 (patch-level EE-RT.21 v2 R2 reviewer-deferred-items cleanup for plugin 1024 GCP Cloud Storage Auditor; 5 R1 reviewer folds (0 R-CRITICAL + 1 R-HIGH + 1 R-MEDIUM + 3 R-LOW — clean review pass); plugin count UNCHANGED at 23; 3 new soc2.json mappings; NEW institutional pre-publish doc-consistency gate; twentieth consecutive trio-publish)
+
+No code changes. CE 0.1.63 ships the same code as 0.1.40 → 0.1.62 with README/CHANGELOG updated for the paired EE 0.6.9 release.
+
+**EE 0.6.9 paired-release highlights:**
+
+- **Appendix A multi-cloud parity** — `utils/soc2_renderer.mjs:computeBucketStats` extended from AWS-S3-only filter to multi-cloud (AWS S3 + GCS). "Cloud Bucket Exposure Attestation" appendix now correctly surfaces plugin 1024 GCS findings alongside plugin 1020 AWS S3 findings. Filter lifted to a frozen Set `_CLOUD_BUCKET_AUDIT_SOURCES` per `[[emit_literal_set_drift]]`. Azure plugin 1022 intentionally excluded (commingled NSG/RBAC/Storage emissions + engine-projection constraint; deferred to a future plugin-1022 refactor cycle).
+- **Evidence-gap soc2.json routing** — two new titlePattern entries route `_CAT_METADATA_UNREADABLE` + `_CAT_IAM_UNREADABLE` LOW + evidenceGap emissions explicitly to CC6.6. Pre-fold these emissions relied on the downstream renderer honoring the `evidenceGap: true` flag — but explicit titlePattern routing is the safer pattern per `[[soc2_titlepattern_anchor_drift]]`.
+- **R1-HIGH-1 C1.1 dual-mapping fold** — reviewer caught rationale-vs-implementation drift: rationale text asserted "+ C1.1 confidentiality boundary" but the metadata-unreadable mapping shipped only under CC6.6. Added the parallel C1.1 entry. Restores cross-cloud parity with plugin 1020 S3 (whose `_CAT_ENCRYPTION_UNVERIFIABLE` also dual-maps to C1.1). Institutional learning: every claim in a soc2.json rationale must be implemented by the corresponding JSON structure.
+- **NEW pre-publish doc-consistency gate** — introduced this cycle in `tasks/CLAUDE.md` after the 0.6.8 → user-caught doc drift. 22 doc-surface audit checklist (14 EE + 4 CE + 4 agent-skill files) + auto-grep + SOC 2 matrix invariant check. Codified as `[[pre_publish_doc_consistency_gate]]` auto-memory for cross-session persistence.
+- **Plugin count UNCHANGED at 23**. Coverage matrix UNCHANGED at 10/4/33 — pure substrate-evidence quality uplift.
+- **EE full regression: 5423/5423 across 851 suites; 61-session 100% green streak preserved.**
+
+**Trio-publish institutionalization continued.** Paired with EE 0.6.9 + agent-skill 0.1.30 — **twentieth consecutive trio-publish across EE + CE + agent-skill in a single session** (0.4.5–0.6.9).
+
+**Customer install (post-trio-publish):**
+
+```bash
+npm install -g nsauditor-ai@0.1.63 @nsasoft/nsauditor-ai-ee@0.6.9
+npm install nsauditor-ai-agent-skill@0.1.30   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.62 — docs-only: paired-release announcement for EE 0.6.8 (NEW plugin 1024 GCP Cloud Storage Auditor — first multi-cloud parity plugin in 6 months; 4 R1 reviewer folds (0 R-CRITICAL + 0 R-HIGH + 3 R-MEDIUM + 1 R-LOW — clean review pass); plugin count 22 → 23; 20 new soc2.json mappings; nineteenth consecutive trio-publish)
 
 No code changes. CE 0.1.62 ships the same code as 0.1.40 → 0.1.61 with README/CHANGELOG updated for the paired EE 0.6.8 release.

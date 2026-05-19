@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-- **CE 0.1.62** (current) — paired with **EE 0.6.8** (May 2026). **23 enterprise plugins** across AWS / Azure / GCP, mapped to 10 fully-covered + 4 partial AICPA TSC controls. Cycle headline: **NEW plugin 1024 GCP Cloud Storage Auditor** — first multi-cloud parity plugin since EE 0.6.1. Six dimensions mirroring AWS S3: bucket-level IAM public bindings, Uniform Bucket-Level Access, Object Versioning, Bucket Lock retention policy (SEC 17a-4 / FINRA 4511 WORM-alignment), CMEK via Cloud KMS (four-tier custody ladder), bucket-level access logging. New SDK dep `@google-cloud/storage` in optionalDependencies.
+- **CE 0.1.63** (current) — paired with **EE 0.6.9** (May 2026). **23 enterprise plugins** across AWS / Azure / GCP, mapped to 10 fully-covered + 4 partial AICPA TSC controls. Cycle is a patch-level EE-RT.21 v2 R2 reviewer-deferred-items cleanup for plugin 1024 GCP Cloud Storage Auditor: Appendix A "Cloud Bucket Exposure Attestation" extended from AWS-S3-only to multi-cloud (AWS S3 + GCS); evidence-gap emissions get explicit CC6.6 + C1.1 dual-mapped soc2.json routing. **NEW institutional pre-publish doc-consistency gate** introduced this cycle.
 
 For prior releases, see [CHANGELOG.md](./CHANGELOG.md).
 
