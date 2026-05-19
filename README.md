@@ -182,7 +182,7 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
-**22 enterprise plugins** across AWS, GCP, and Azure substrate audits — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically.
+**23 enterprise plugins** across AWS, GCP, and Azure substrate audits — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically.
 
 → **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real EE 0.6.7 output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the signed evidence pack actually looks like.
 
@@ -202,6 +202,7 @@ Results land in `./out/<host>_<timestamp>/`:
 | 1021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings + Storage bucket public-access. **CC6.1 / CC6.6 / C1.1** |
 | 1022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC role assignments + Storage account hardening. **CC6.1 / CC6.6 / C1.1** |
 | 1023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral-movement scoring across the network surface. **CC6.1 / CC6.6** |
+| 1024 | GCP Cloud Storage Auditor | Enterprise | Multi-cloud parity sister of plugin 1020 AWS S3. 6 dimensions: bucket-level IAM public bindings (allUsers = CRITICAL, allAuthenticatedUsers = HIGH), Uniform Bucket-Level Access (closes legacy bucket-ACL false-PASS class), Object Versioning, Bucket Lock retention policy (SEC 17a-4 / FINRA 4511 WORM-alignment), CMEK via Cloud KMS (four-tier custody ladder), bucket-level access logging. **CC6.1 / CC6.6 / CC7.1 / C1.1 / C1.2 / A1.2** |
 | 1030 | AWS IAM Deep Auditor | Enterprise | Shadow-admin path detection via BFS over PassRole / AssumeRole / federated trust. Restrictive-Condition allowlist for Auth0 / Okta / Cognito OIDC patterns. **CC6.1** |
 | 1040 | AWS CloudTrail Operational Integrity | Enterprise | Trail health + CloudWatch alarm coverage against CIS AWS Benchmark §3.1–3.14 + AWS Config + cross-account S3 trail-destination WORM verification (SEC 17a-4 / FINRA 4511). **CC7.2 / CC7.3** |
 | 1050 | AWS API Gateway Assurance | Enterprise | Per-route authz classifier (`NONE`=CRITICAL), custom-domain TLS policy, stage-level access logging + WAF, public-endpoint exposure. Entry-point evidence for serverless deployments. **CC6.1 / CC6.6 / CC6.7 / CC7.1 / A1.2** |
