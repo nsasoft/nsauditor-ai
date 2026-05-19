@@ -6,6 +6,33 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.62 — docs-only: paired-release announcement for EE 0.6.8 (NEW plugin 1024 GCP Cloud Storage Auditor — first multi-cloud parity plugin in 6 months; 4 R1 reviewer folds (0 R-CRITICAL + 0 R-HIGH + 3 R-MEDIUM + 1 R-LOW — clean review pass); plugin count 22 → 23; 20 new soc2.json mappings; nineteenth consecutive trio-publish)
+
+No code changes. CE 0.1.62 ships the same code as 0.1.40 → 0.1.61 with README/CHANGELOG updated for the paired EE 0.6.8 release.
+
+**EE 0.6.8 paired-release highlights:**
+
+- **NEW plugin 1024 GCP Cloud Storage Auditor** — first NEW EE plugin since 0.6.1 (six months); first multi-cloud parity plugin since the v0.6.x line opened. Audits Google Cloud Storage buckets against AICPA Trust Services Criteria 2017 across 6 dimensions mirroring plugin 1020 AWS S3 Auditor: bucket-level IAM public bindings (CC6.6 — allUsers = CRITICAL, allAuthenticatedUsers = HIGH), Uniform Bucket-Level Access enforcement (CC6.6 + C1.1 dual-mapped — closes legacy bucket-ACL false-PASS class), Object Versioning (C1.1 + A1.2 dual-mapped per S3 versioning precedent), Bucket Lock retention policy (C1.1 + C1.2 dual-mapped per S3 Object Lock COMPLIANCE-mode precedent; SEC 17a-4 / FINRA 4511 WORM-alignment), Customer-Managed Encryption Keys via Cloud KMS (CC6.1 four-tier custody ladder mirroring plugin 1140 v2 RDS), and bucket-level access logging (CC7.1 evidence acquisition).
+- **Co-existing public-member-types fold** (R1-MEDIUM-1) — when both `allUsers` and `allAuthenticatedUsers` are present in different bindings, the CRITICAL finding surfaces the HIGH evidence (`alsoPublicAuthenticatedCount` + roles + narrative). Pre-fold the HIGH evidence was silently dropped at the precedence gate; distinct CC6.6 sub-postures have distinct remediation paths.
+- **CMEK regex tightening** (R1-LOW-1) — full-format 6-segment regex `^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+(/cryptoKeyVersions/[^/]+)?$` replaces the substring check. Prevents `projects/x/oops/cryptokeys/k` adversarial-mimic false-PASS.
+- **Cross-cloud parity dual-mappings** (R1-MEDIUM-1 mappings) — 5 new soc2.json entries dual-mapping GCS retention + versioning findings to C1.2 + A1.2 matching the AWS S3 (plugin 1020) precedents.
+- **Conservative classifier severity consistency** (R1-MEDIUM-2) — run()-level per-bucket exception emits LOW + evidenceGap (not INFO), matching the metadata-error pattern in `_auditBucket`.
+- **Institutional contract applied day-1**: EE-RT.13 PLUGIN_ID exported constant + Thread H equivalent (`_callGcsWithInstrumentation` with HTTP-code→AWS-style error normalization + AccessDenied counter + throttle-retry with wall budget) + ZDE `_stripControlChars` on every GCS-returned string surface + `result.ok===true` envelope per EE-RT.12.25.
+- **New SDK dep**: `@google-cloud/storage` in optionalDependencies. Plugin 1021 (legacy GCP Cloud Scanner) keeps its dynamic import.
+- **Plugin count 22 → 23**. Coverage matrix UNCHANGED at 10/4/33 — pure substrate-evidence depth uplift on already-covered controls.
+- **EE full regression: 5415/5415 across 851 suites; 60-session 100% green streak preserved.**
+
+**Trio-publish institutionalization continued.** Paired with EE 0.6.8 + agent-skill 0.1.29 — **nineteenth consecutive trio-publish across EE + CE + agent-skill in a single session** (0.4.5–0.6.8).
+
+**Customer install (post-trio-publish):**
+
+```bash
+npm install -g nsauditor-ai@0.1.62 @nsasoft/nsauditor-ai-ee@0.6.8
+npm install nsauditor-ai-agent-skill@0.1.29   # AI-coding-agent users
+```
+
+---
+
 ## 0.1.61 — docs-only: paired-release announcement for EE 0.6.7 (patch-level R2 reviewer-deferred-items cleanup cycle — EE-RT.16 v3.1 plugin 1170 SG-reference-graph edge dedup + EE-RT.20.5 v6.1 plugin 1200 CloudWatch Logs probe retry-on-empty parity; 4 R1 reviewer folds (0 R-CRITICAL + 0 R-HIGH + 1 R-MEDIUM + 3 R-LOW — clean review pass) + 1 unanticipated `_retryOnNotFound` two-phase restructure (caught by test interaction); plugin count UNCHANGED at 22; soc2.json UNCHANGED; eighteenth consecutive trio-publish)
 
 No code changes. CE 0.1.61 ships the same code as 0.1.40 → 0.1.60 with README/CHANGELOG updated for the paired EE 0.6.7 release.
