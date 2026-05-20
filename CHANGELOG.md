@@ -6,6 +6,29 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.67 — docs-only: paired-release announcement for EE 0.7.3 R-CRITICAL hotfix (closes 2 production bugs surfaced by EE 0.7.2 dogfood scan: cross-version google-auth-library fragmentation broke SA impersonation chains [R-CRITICAL — 100% false-clean impact on free-trial/gmail GCP customers + business GCP customers with no-long-lived-SA-keys policy]; GOOGLE_CLOUD_PROJECT_ID env-var alias silently skipped [R-MEDIUM]; +14 new tests across 2 new suites including a regression pin replicating the gax 5.x grpc adapter idiom; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5782/5782 across 900 suites; 67-session 100% green streak preserved; twenty-fourth consecutive trio-publish)
+
+No code changes. CE 0.1.67 ships the same code as 0.1.40–0.1.66 with README + CHANGELOG updated for the paired EE 0.7.3 release.
+
+**EE 0.7.3 paired-release highlights:**
+
+- **R-CRITICAL fix — Headers-shape shim for cross-version `google-auth-library` fragmentation.** EE's `utils/gcp_auth.mjs` resolves `google-auth-library@9.15.1` (hoisted via `googleapis@^144`) → 9.x's `Impersonated.getRequestHeaders()` returns plain object. But `@google-cloud/resource-manager@^6` bundles nested `google-auth-library@10.6.2` + `google-gax@5.x` → gax 5.x's grpc adapter calls `headers.forEach((value, key) => ...)` expecting WHATWG Headers instance. Cross-version fragmentation → TypeError → `2 UNKNOWN: Getting metadata from plugin failed with error: headers.forEach is not a function` on the FIRST IAM call. Plugin 1025's conservative classifier correctly emitted `gcp-iam-project-unreadable` LOW + walkthroughRequired — but underneath the impersonation chain was completely broken, so ALL 7 dims silently skipped. **Production false-clean impact**: ~100% on any impersonation-using deployment in EE v0.7.0–0.7.2. NEW `_wrapAuthClientHeadersShim` monkey-patches the Impersonated instance's `getRequestHeaders` to coerce 9.x's plain-object return into a Headers instance; 10.x pass-through; version-agnostic + future-proof. +8 new tests including a regression pin that exactly replicates the gax 5.x grpc adapter idiom.
+
+- **Customer-segment impact:**
+  - **GCP free-trial / gmail customers** — impersonation is the ONLY working credential model when `iam.disableServiceAccountKeyCreation` is enforced (Google's "Secure by default"). Pre-0.7.3 100% false-clean. **Post-0.7.3 audit works end-to-end.**
+  - **Business GCP customers with no-long-lived-SA-keys security policy** — same impact. Many enterprise security teams mandate impersonation as their auth model. **Post-0.7.3 audit works.**
+  - **Business GCP customers using JSON keyfiles or pure ADC** — unaffected (R-CRITICAL specific to impersonation injection).
+
+- **R-MEDIUM fix — Accept `GOOGLE_CLOUD_PROJECT_ID` as a third env-var alias.** Operators following the `gcloud auth application-default login` setup convention (which writes `GOOGLE_CLOUD_PROJECT_ID`, with `_ID` suffix) saw silent skip with `[plugin 1025] No GCP_PROJECT_ID configured`. Extended `loadConfig` + `preflight` from 2-way OR to 3-way OR: `opts.projectId > GCP_PROJECT_ID > GOOGLE_CLOUD_PROJECT > GOOGLE_CLOUD_PROJECT_ID`. +6 new tests covering all precedence paths.
+
+- **Dogfood validation (post-fix)** — Re-ran `nsauditor-ai scan --plugins 1025 --compliance soc2` against operator's GCP test project with `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` set + ONLY `GOOGLE_CLOUD_PROJECT_ID` (no `GCP_PROJECT_ID` aliasing). **8 findings emitted** (was 1 false-clean LOW pre-fix): 5 PASS + 2 MEDIUM + 1 LOW. All 7 dims exercise via the impersonated `nsauditor-readonly` audit SA. `accessDeniedByApi.listPolicies: 1` confirms the 0.7.2 R2-MED-13 counter wiring works end-to-end against real GCP.
+
+- **Pure bug-fix patch** — no plugin emissions changed; no soc2.json changes; no new SDK deps; no new plugins. Demonstrates the institutional value of post-publish dogfood scans against real cloud infra: two production bugs caught within 30 minutes of trio publish, both fixed + tested + re-validated in the same session.
+
+- **Plugin count UNCHANGED at 24**. **Coverage matrix UNCHANGED at 10/4/33**. **EE regression: 5782/5782 across 900 suites; 67-session 100% green streak preserved.**
+
+---
+
 ## 0.1.66 — docs-only: paired-release announcement for EE 0.7.2 Move B pure-test functional patch (closes 5 deferred 0.7.1 reviewer-pass coverage gaps: R2-MED-7 BFS edge cases (+17), R2-MED-13 counter wiring (+15 parameterized across 5 v2 apiName strings × 3 counter classes), R2-LOW-16/17 helper edges (+10), R2-HIGH-4 SDK loader graceful-degradation contract (+8), R2-MED-12 real-SDK fallback (+3 via generated PKCS#8 keypair); +50 new tests across 6 new suites; no production code changes; no plugin emissions changed; no soc2.json changes; no new SDK deps; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5768/5768 across 898 suites; 66-session 100% green streak preserved; twenty-third consecutive trio-publish)
 
 No code changes. CE 0.1.66 ships the same code as 0.1.40 → 0.1.65 with README/CHANGELOG updated for the paired EE 0.7.2 release.
