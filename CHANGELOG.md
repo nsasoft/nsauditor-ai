@@ -6,6 +6,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.65 — docs-only: paired-release announcement for EE 0.7.1 EE-RT.22 v2 plugin 1025 R2 expansion (extends GCP IAM Project-Level Auditor from 3 dims to 7 dims; +4 new dims: custom-role permission audit + SA key custody + SA impersonation graph BFS + Organization Policy constraint enumeration; NEW `utils/gcp_auth.mjs` helper honors `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`; **17 same-session reviewer folds = NEW HIGH-WATER MARK** vs 0.7.0's 12 (1 R-CRITICAL EE-RT.20 class recurrence catch + 7 R-HIGH + 8 R-MEDIUM + 1 R-LOW(+1 grouped)); plugin count UNCHANGED at 24; +22 new soc2.json mappings; new SDK deps `googleapis` + `@google-cloud/org-policy` in optionalDependencies; twenty-second consecutive trio-publish)
+
+No code changes. CE 0.1.65 ships the same code as 0.1.40 → 0.1.64 with README/CHANGELOG updated for the paired EE 0.7.1 release.
+
+**EE 0.7.1 paired-release highlights:**
+
+- **EE-RT.22 v2 plugin 1025 R2 expansion** — closes all 4 v1-deferred dimensions of the GCP IAM Project-Level Auditor. Plugin grows from 3 dims to 7. **Dim 4** custom-role permission audit (CC6.1; `iam.projects.roles.list` view=FULL; `*` wildcard = CRITICAL, admin-equivalent permission intersection across `_ADMIN_EQUIVALENT_PERMISSIONS` 16-entry allowlist = HIGH). **Dim 5** SA key custody (CC6.1 + C1.1 dual-mapped; user-managed long-lived keys = HIGH — the canonical SA-credential-leakage class; 90-day rotation narrative-uplift). **Dim 6** SA impersonation graph BFS — flagship dim (CC6.1; mirrors plugin 1030 shadow-admin BFS adapted to GCP IAM data model; per-PATH visited Set for cycle defense; depth cap = 4; 2-hop = HIGH, 3+ hop = CRITICAL; project-scope impersonation grants surface independently as CRITICAL via R1-HIGH-2 reviewer fold). **Dim 7** Organization Policy constraint enumeration (CC6.6 + C1.1 dual-mapped; 4 sensitive constraints incl. `iam.disableServiceAccountKeyCreation`).
+
+- **NEW `utils/gcp_auth.mjs` helper** — shared `buildGcpAuthOptions` honoring `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` env var. Closes the gap where GCP client libraries do NOT honor gcloud CLI's `auth/impersonate_service_account` config — pre-helper plugins 1024/1025 silently fell back to raw ADC when running locally against environments with `iam.disableServiceAccountKeyCreation` enforced. Three credential modes: keyFilename, pure ADC, ADC + impersonation via `google-auth-library`'s `Impersonated` class.
+
+- **R-CRITICAL fold (R2-CRITICAL-1) — EE-RT.20 R1-CRITICAL-1 class recurrence catch.** soc2.json PASS-tier SA-key patterns silently failed to match when plugin emitted `(display: 'X')` optional segment between email and `has` clause. Production false-clean impact would have been ~100% on real GCP fixtures (every SA has `displayName` populated). Patterns rewritten to use `.*` to tolerate the optional segment.
+
+- **Plugin count UNCHANGED at 24** (v2 = in-place expansion of plugin 1025, not new plugin). **Coverage matrix UNCHANGED at 10/4/33** — pure substrate-evidence depth uplift on already-covered CC6.1 / CC6.6 / C1.1 controls. **EE regression: 5715/5715 across 892 suites; 65-session 100% green streak preserved.**
+
+- **Cross-repo privacy scrub (parallel non-functional work)** — operator-flagged CRITICAL privacy class at 0.7.1 review: shipped npm files MUST NOT contain operator-private references. Substitutions applied across all 3 repos for personal emails / internal repo paths / real account IDs. New memory `[[npm_package_privacy]]` pinned. Force-push history rewrite applied to CE + agent-skill public repos.
+
+---
+
 ## 0.1.64 — docs-only: paired-release announcement for EE 0.7.0 MINOR-VERSION MILESTONE (NEW plugin 1025 GCP IAM Project-Level Auditor opening the v0.7.x cross-cloud-parity line; first plugin in the GCP-IAM-deep-audit cohort; 3 audit dimensions across CC6.1 + CC6.6 substrate evidence; 12 R1 reviewer folds (0 R-CRITICAL + 2 R-HIGH + 5 R-MEDIUM + 5 R-LOW — clean review pass); plugin count 23 → 24; 11 new soc2.json mappings; new SDK dep `@google-cloud/resource-manager`; twenty-first consecutive trio-publish)
 
 ---
