@@ -6,6 +6,22 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.66 — docs-only: paired-release announcement for EE 0.7.2 Move B pure-test functional patch (closes 5 deferred 0.7.1 reviewer-pass coverage gaps: R2-MED-7 BFS edge cases (+17), R2-MED-13 counter wiring (+15 parameterized across 5 v2 apiName strings × 3 counter classes), R2-LOW-16/17 helper edges (+10), R2-HIGH-4 SDK loader graceful-degradation contract (+8), R2-MED-12 real-SDK fallback (+3 via generated PKCS#8 keypair); +50 new tests across 6 new suites; no production code changes; no plugin emissions changed; no soc2.json changes; no new SDK deps; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5768/5768 across 898 suites; 66-session 100% green streak preserved; twenty-third consecutive trio-publish)
+
+No code changes. CE 0.1.66 ships the same code as 0.1.40 → 0.1.65 with README/CHANGELOG updated for the paired EE 0.7.2 release.
+
+**EE 0.7.2 paired-release highlights:**
+
+- **Move B pure-test functional patch** — closes the 5 test-coverage gaps marked low-priority at 0.7.1's reviewer pass. **R2-MED-7** BFS edge cases (+17 tests in `tests/gcp_iam_project_auditor.test.mjs`): disjoint cycles, disconnected subgraphs, terminate-at-first-admin (multi-admin chain), parallel branches to distinct admins, depthCap exact-match + one-short boundaries, depthCap=1 minimum, per-PATH visited Set semantics, malformed edges (null / missing-to / non-string-to), nonexistent edge targets, cycle through admin, self-loop on start, edge label fallback chain (label → displayName → key), fractional depthCap, parallel edges to same admin. **R2-MED-13** counter wiring (+15 parameterized): 5 v2 apiName strings (`projects.roles.list`, `projects.serviceAccounts.list`, `projects.serviceAccounts.keys.list`, `projects.serviceAccounts.getIamPolicy`, `listPolicies`) × 3 counter classes (throttle-retry, access-denied, wall-budget-exhausted). **R2-LOW-16/17** helper edges (+10): `_saEmailFromName` slash boundaries + control-char-before-slash; `_parseIso8601ToMs` UTC-vs-offset discriminator. **R2-HIGH-4** SDK loader graceful-degradation contract (+8): direct unit tests for `_loadGoogleApisIamAdminSdk` + `_loadOrgPolicySdk` missing-dep error branches. **R2-MED-12** `buildGcpAuthOptions` real-SDK fallback (+3 in `tests/gcp_auth.test.mjs`): generated PKCS#8 keypair + tmpdir SA keyfile exercises `_loadGoogleAuthLibrarySdk` end-to-end.
+
+- **No production code changes** — pure-test functional patch. No plugin emissions changed; no soc2.json changes; no new SDK deps. Demonstrates the institutional discipline of separating test-coverage backfill from feature work.
+
+- **Bundled staged peerDep bump** — `peerDependencies.nsauditor-ai` ^0.1.40 → ^0.1.65 (queued at 0.7.1 post-publish per `[[npm_tarball_replacement_trap]]` discipline to avoid a docs-only patch right after a fresh functional release). Pre-0.7.2 EE installs against deprecated CE versions emit `npm WARN deprecated` but install + work; post-0.7.2 installs cleanly against CE 0.1.66 only.
+
+- **Plugin count UNCHANGED at 24**. **Coverage matrix UNCHANGED at 10/4/33** (pure-test patch — no plugin emissions changed). **EE regression: 5768/5768 across 898 suites; 66-session 100% green streak preserved.**
+
+---
+
 ## 0.1.65 — docs-only: paired-release announcement for EE 0.7.1 EE-RT.22 v2 plugin 1025 R2 expansion (extends GCP IAM Project-Level Auditor from 3 dims to 7 dims; +4 new dims: custom-role permission audit + SA key custody + SA impersonation graph BFS + Organization Policy constraint enumeration; NEW `utils/gcp_auth.mjs` helper honors `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`; **17 same-session reviewer folds = NEW HIGH-WATER MARK** vs 0.7.0's 12 (1 R-CRITICAL EE-RT.20 class recurrence catch + 7 R-HIGH + 8 R-MEDIUM + 1 R-LOW(+1 grouped)); plugin count UNCHANGED at 24; +22 new soc2.json mappings; new SDK deps `googleapis` + `@google-cloud/org-policy` in optionalDependencies; twenty-second consecutive trio-publish)
 
 No code changes. CE 0.1.65 ships the same code as 0.1.40 → 0.1.64 with README/CHANGELOG updated for the paired EE 0.7.1 release.
