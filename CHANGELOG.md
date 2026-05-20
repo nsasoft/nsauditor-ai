@@ -6,6 +6,36 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.68 — docs-only: paired-release announcement for EE 0.8.0 MINOR VERSION MILESTONE (EE-RT.23 Move B plugin 1022 per-dim source-attribution refactor + Engine `details.category` projection contract + Key Vault soc2.json gap closure +13 mappings; 7 same-session reviewer folds; +23 new tests / +6 new suites; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5805/5805 across 907 suites; 68-session 100% green streak preserved; twenty-fifth consecutive trio-publish; ⚠️ customer migration: `match.source: 'azure-cloud-scanner'` suppressions silently no-op post-0.8.0)
+
+No code changes. CE 0.1.68 ships the same code as 0.1.40–0.1.67 with README + CHANGELOG updated for the paired EE 0.8.0 release.
+
+**EE 0.8.0 paired-release highlights:**
+
+- **MINOR VERSION MILESTONE — EE-RT.23 Move B**: plugin 1022 Azure scanner refactored to per-dim source attribution. Each of the 4 helpers (`auditNsgRules` / `auditRbac` / `auditStorageAccounts` / `auditKeyVaults`) attaches its own `source` to every finding emission: `azure-nsg-auditor` / `azure-rbac-auditor` / `azure-storage-auditor` / `azure-keyvault-auditor`. PLUGIN_ID stays `"1022"`; `--plugins 1022` continues to work (backward-compat). The umbrella `azure-cloud-scanner` source stays in `CLOUD_PLUGIN_SOURCE_MAP` as defense-in-depth fallback only (no soc2.json mappings; defends against a future maintainer adding a 5th helper without attaching source). Closes the long-standing blocker (originally flagged in EE 0.6.9 R1-MEDIUM-1) for routing Azure storage findings into Appendix A "Cloud Bucket Exposure Attestation" without commingling NSG / RBAC / Key Vault.
+
+- **Engine `details.category` projection contract** — `normalizeFindings` + `analyseAgainstFramework` violation surface now carry `category` (additive, backward-compat via raw escape hatch). Generally-useful for dim-discriminator use cases across plugin 1024 GCS / plugin 1025 GCP IAM / future plugins. **Engine projection contract change is the institutional rationale for the 0.7.x → 0.8.0 MINOR bump.**
+
+- **Key Vault soc2.json gap closure — 13 new mappings** (3 CC6.1 + 3 CC6.3 + 3 C1.1 + 4 A1.2). Pre-0.8.0 Key Vault dim emitted 10 distinct `details.category` values but had ZERO soc2.json routing — latent silent false-clean class on CC6.1 / CC6.3 / C1.1 / A1.2 substrate evidence.
+
+- **Appendix A multi-cloud expansion** — `_CLOUD_BUCKET_AUDIT_SOURCES` extended from 2 (AWS S3 + GCS) to 3 (+ `azure-storage-auditor`); NSG / RBAC / Key Vault remain intentionally OUT of the Set (not bucket-equivalent). F2 reviewer fold: `computeBucketStats` dedup key now provider-qualified `${source}::${resource}` (closes cross-cloud bucket-name collision for multi-cloud customers using shared naming conventions; common for DR replication).
+
+- **7 same-session reviewer folds** (2 R-HIGH + 3 R-MEDIUM + 2 R-LOW; 0 R-CRITICAL — clean cycle on the institutional-CRITICAL anchor-drift class surface). F1 R-HIGH: anchor-drift defense test now loads patterns from shipped soc2.json directly (single source of truth — closes EE-RT.20-class recurrence INSIDE the defense test).
+
+- **+23 new tests / +6 new suites** across EE's `tests/azure_cloud_scanner.test.mjs` + `tests/compliance_engine.test.mjs` + `tests/soc2_renderer.test.mjs`. Includes KV category-name stability pin (LOAD-BEARING — category is now the routing key for soc2.json so a typo-fix would break routing silently).
+
+- **EE regression: 5805/5805 across 907 suites; 68-session 100% green streak preserved.**
+
+- **⚠️ Customer migration required**: any suppression file with `match.source: 'azure-cloud-scanner'` will silently no-op post-0.8.0 (umbrella source is now defense-in-depth fallback only). Split into per-dim entries:
+  - `RBAC: Owner role assigned` → `match.source: 'azure-rbac-auditor'`
+  - `NSG rule "..." allows inbound` → `match.source: 'azure-nsg-auditor'`
+  - `Storage account ...` → `match.source: 'azure-storage-auditor'`
+  - `Key Vault '...' ...` → `match.source: 'azure-keyvault-auditor'`
+
+- **Plugin count UNCHANGED at 24**. **Coverage matrix UNCHANGED at 10/4/33** (pure substrate-evidence depth uplift on already-covered controls — but Key Vault dim now has 13 mappings where it had ZERO).
+
+---
+
 ## 0.1.67 — docs-only: paired-release announcement for EE 0.7.3 R-CRITICAL hotfix (closes 2 production bugs surfaced by EE 0.7.2 dogfood scan: cross-version google-auth-library fragmentation broke SA impersonation chains [R-CRITICAL — 100% false-clean impact on free-trial/gmail GCP customers + business GCP customers with no-long-lived-SA-keys policy]; GOOGLE_CLOUD_PROJECT_ID env-var alias silently skipped [R-MEDIUM]; +14 new tests across 2 new suites including a regression pin replicating the gax 5.x grpc adapter idiom; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5782/5782 across 900 suites; 67-session 100% green streak preserved; twenty-fourth consecutive trio-publish)
 
 No code changes. CE 0.1.67 ships the same code as 0.1.40–0.1.66 with README + CHANGELOG updated for the paired EE 0.7.3 release.
