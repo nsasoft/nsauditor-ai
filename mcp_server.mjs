@@ -108,7 +108,7 @@ export function _setValidateHost(fn) {
 //
 // Why this exists: even after CE 0.1.34 embedded the resolved tier and CE 0.1.35
 // added a CLI provenance footer, Claude Desktop was empirically observed
-// (2026-05-09, <operator-email>) fabricating list_plugins responses
+// (operator session, 2026-05-09) fabricating list_plugins responses
 // WITHOUT routing to this server (per-server log: 0 tools/call entries
 // while other configured MCP servers received 50+ in the same session).
 // A fabricated response can copy any text it has seen — including version
