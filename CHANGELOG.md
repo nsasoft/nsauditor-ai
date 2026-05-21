@@ -6,6 +6,40 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.69 — docs-only: paired-release announcement for EE 0.9.0 HIPAA FRAMEWORK CYCLE (first 0.9.x release; HIPAA Security Rule §164.312 Technical Safeguards ships as second supported compliance framework alongside SOC 2; HIPAA coverage matrix 7 covered + 3 partial + 45 OOS; HHS Required/Addressable discipline per control; §164.312(c)(1) ransomware-defense substrate via Logically Air-Gapped Backup Vault cross-verification; per-framework SLA-citation map; 6 same-session reviewer folds; +85 new tests across 3 new suites; plugin count UNCHANGED at 24; SOC 2 coverage matrix UNCHANGED at 10/4/33; EE regression 5890/5890 across 928 suites; 69-session 100% green streak preserved; twenty-sixth consecutive trio-publish; no breaking changes — additive only)
+
+No code changes. CE 0.1.69 ships the same code as 0.1.40–0.1.68 with README + CHANGELOG updated for the paired EE 0.9.0 release.
+
+**EE 0.9.0 paired-release highlights:**
+
+- **MINOR VERSION MILESTONE — HIPAA framework cycle**: HIPAA Security Rule §164.312 Technical Safeguards ships as the second supported compliance framework alongside SOC 2. Closes the long-standing "planned" gap in EE's `docs/architecture.md` for the highest-demand next framework after SOC 2. New `data/compliance/hipaa.json` (175 mappings inherited from soc2.json's grep-verified pattern set with HIPAA-grounded rationales). New `docs/hipaa-coverage.md` (~440 lines) — auditor-grade coverage doc mirroring `docs/soc2-coverage.md` shape.
+
+- **HIPAA coverage matrix**: 7 covered + 3 partial + 45 OOS within §164.312 + entire §164.308 Administrative Safeguards (31 specs) + entire §164.310 Physical Safeguards (12 specs). The §164.308 + §164.310 OOS sets are *architecturally* OOS for any infrastructure scanner (governance/training/BAAs/facility-access/device-disposal evidence streams require HR systems + GRC platforms + facilities-management vendors). Pair with HIPAA-focused GRC platforms (Drata HIPAA, Vanta HIPAA, Compliancy Group, Tugboat Logic) for §164.308 + §164.310 coverage.
+
+- **HHS Required vs Addressable discipline**: schema-additive `requiredOrAddressable: 'R'|'A'` + `standardOrSpec: 'standard'|'implementation-specification'` + `ruleText: <HHS rule text>` fields per control in `data/compliance/hipaa.json`. Misrepresenting Addressable as Required (or vice versa) is overclaiming — auditors specifically test for this. NSAuditor surfaces the classification per control in the rendered HIPAA report.
+
+- **§164.312(c)(1) Integrity ransomware-defense substrate**: EE's `aws-backup-auditor` Logically Air-Gapped Backup Vault cross-verification (KMS policy + Grants + replicas + VPC-endpoint composite attestation) produces the strongest substrate evidence available on the AWS layer — HHS-OCR has highlighted ransomware-resilient ePHI backups in 2024 enforcement actions. A composite-attestation PASS evidences that ePHI backups would survive a full source-account compromise.
+
+- **Per-framework SLA-citation map** in EE's `utils/soc2_renderer.mjs`: new `frameworkControlCitation(framework, slot)` helper threaded through markdown + HTML renderers. HIPAA reports cite `§164.312(b) audit-controls cadence` (SLA), `§164.308 administrative-safeguards governance — OOS for §164.312 Technical-Safeguards report` (governance sentinel), `§164.312(d) Person or Entity Authentication` (identity). SOC 2 reports remain byte-identical (single-line cosmetic golden-fixture update). Closes the auditor-detectable cross-framework citation leak class.
+
+- **Zero engine / CLI changes required**: EE's `loadFrameworkMap` already framework-agnostic (reads `data/compliance/{framework}.json` by parameter); CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0). Multi-framework workflow shipping today: `nsauditor-ai scan --host aws --plugins all --compliance soc2,hipaa --out evidence/` produces separate `scan_compliance_soc2.{md,html,json}` AND `scan_compliance_hipaa.{md,html,json}` artifact sets in one scan.
+
+- **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. Nsasoft does not see, store, or process customer ePHI under any condition; no Business Associate Agreement needed under HIPAA §160.103.
+
+- **6 same-session reviewer folds** (2 R-HIGH defensive-coding + 2 R-MEDIUM scope-broadening + 1 R-LOW comment fix + 1 docstring strengthening; 0 R-CRITICAL — clean cycle). Two parallel reviewers: HIPAA Security Officer perspective + senior code reviewer perspective. Confirmed: §164.312 sub-criteria routing clean, HHS R/A classification correct, §164.308 + §164.310 OOS enumerations complete against 45 CFR.
+
+- **+85 new tests across 3 new suites**: `tests/hipaa_mapping_anchor_drift.test.mjs` (32) — load-bearing anchor-drift defense via inheritance contract from soc2.json; `tests/hipaa_mapping.test.mjs` (36) — engine-end-to-end fixture tests across all 7 covered + 3 partial §164.312 controls + sub-criteria discrimination (CloudTrail does NOT fire (a)(1); TLS does NOT fire (a)(2)(iv); encryption-at-rest does NOT fire (e)(1)); `tests/hipaa_renderer.test.mjs` (17) — per-framework citation correctness + SOC 2 regression-protection.
+
+- **EE regression: 5890/5890 across 928 suites; 69-session 100% green streak preserved.**
+
+- **AWS-dogfood verified — 2026-05-21 smoke scan** against operator's test AWS account produced 207 findings analyzed, all routed to correct §164.312 sub-criteria; per-framework citation map confirmed firing in production reports; ransomware-defense substrate §164.312(c)(1) surfaces correctly. Zero regression on SOC 2 path (same 207 findings → 9 FAIL + 4 PASS + 1 partial + 33 OOS matching 10/4/33 exactly).
+
+- **No breaking changes** — additive only. The 0.8.0 customer migration carryover (suppressions targeting `match.source: 'azure-cloud-scanner'` silently no-op post-0.8.0) remains as-is. **HIPAA framework cycle is opt-in via `--compliance hipaa` or `--compliance soc2,hipaa`**.
+
+- **Plugin count UNCHANGED at 24**. **SOC 2 coverage matrix UNCHANGED at 10/4/33** (additive-only cycle; no SOC 2 mappings changed). **HIPAA coverage matrix introduced at 7/3/45**.
+
+---
+
 ## 0.1.68 — docs-only: paired-release announcement for EE 0.8.0 MINOR VERSION MILESTONE (EE-RT.23 Move B plugin 1022 per-dim source-attribution refactor + Engine `details.category` projection contract + Key Vault soc2.json gap closure +13 mappings; 7 same-session reviewer folds; +23 new tests / +6 new suites; plugin count UNCHANGED at 24; coverage matrix UNCHANGED at 10/4/33; EE regression 5805/5805 across 907 suites; 68-session 100% green streak preserved; twenty-fifth consecutive trio-publish; ⚠️ customer migration: `match.source: 'azure-cloud-scanner'` suppressions silently no-op post-0.8.0)
 
 No code changes. CE 0.1.68 ships the same code as 0.1.40–0.1.67 with README + CHANGELOG updated for the paired EE 0.8.0 release.
