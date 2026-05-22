@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "issued_at": "2026-05-22T00:00:00.000Z",
+  "revoked": [],
+  "signature": "",
+  "_comment": "Initial CE 0.1.70 empty blocklist. The license-manager service signs this envelope with the production ES256 private key (same key as JWT signing) and ships updates via CE patch releases. An empty/unsigned blocklist is a valid initial state — the verifier returns [] on signature failure (fail-open at the blocklist layer; tampering provides no escalation since the file lives inside the npm package and supply-chain attackers already have full privilege)."
+}

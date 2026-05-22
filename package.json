@@ -1,6 +1,6 @@
 {
   "name": "nsauditor-ai",
-  "version": "0.1.69",
+  "version": "0.1.70",
   "description": "Modular AI-assisted network security audit platform — Community Edition",
   "type": "module",
   "private": false,
@@ -16,6 +16,7 @@
   "files": [
     "bin/",
     "config/",
+    "data/",
     "docs/EULA-nsauditor-ai.md",
     "plugins/",
     "utils/",

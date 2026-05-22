@@ -6,6 +6,60 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.70 (STAGED 2026-05-22 — pending trio-publish) — **License verifier air-gap operational hardening + paired with EE 0.9.1 external-audit-findings ship-blocker patch**
+
+Three new defenses against the realistic license-abuse paths the external adversarial-audit-skill cycle (2026-05-22) called out as D-HIGH-1, D-HIGH-2, D-HIGH-3. The JWT verifier itself remains cryptographically tight (algorithm-pinned ES256 + iss/aud/sub pinned + clock-tolerance bounded); the new defenses close the operational gaps that don't require JWT forgery.
+
+### D-HIGH-1 — Per-host licenseId replay defense
+
+A `seats:1` Pro license can no longer be installed on 10,000 machines. First successful activation persists the `licenseId` to platform-appropriate storage; subsequent loads with a different licenseId fail-closed to CE with `reason: 'license_id_mismatch'`. Closes the seat-cloning class.
+
+Storage routing per `_getLicenseStateFilePath`:
+- macOS: file at `~/.nsauditor/license-state.json` (mode 0600); licenseId additionally written to Keychain via service=`nsauditor-ai` account=`NSAUDITOR_LICENSE_ID`. Keychain wins on read.
+- Linux: file at `$XDG_STATE_HOME/nsauditor/license-state.json` (falls back to `~/.nsauditor/license-state.json`); mode 0600.
+- Windows: file at `%LOCALAPPDATA%\nsauditor\license-state.json`; profile ACL inherited.
+
+Atomic write semantics via `.tmp` + rename; survives partial-crash without leaving an in-flight half-written state file.
+
+### D-HIGH-2 — Signed revocation blocklist baked into the package
+
+New `data/license-revocations.json` shipped in the npm tarball. Vendors can revoke individual licenses via CE patch bump without rotating `PUBLIC_KEY_PEM` (which would invalidate ALL licenses). Verification chain:
+- File contains `{ schema_version, issued_at, revoked: [licenseId, ...], signature }`.
+- License-manager service signs the canonical JSON (revoked array sorted alphabetically; signature field excluded from signing input) with the same ES256 private key as JWTs.
+- Verifier loads `PUBLIC_KEY_PEM`, asserts `asymmetricKeyType === 'ec'` AND `namedCurve === 'prime256v1'` (algorithm-pinning fold per reviewer pass — future RSA-key rotation cannot silently enable RS256 forgery), then verifies via `createVerify('SHA256') + dsaEncoding: 'der'`.
+- Fail-open posture on invalid signature / malformed JSON / missing file (returns `[]`, no revocation enforced) — by design; tampering of `node_modules/` already implies full privilege; fail-closed would brick legitimate customers via a single bad patch.
+
+Initial 0.9.1 ship: empty-list envelope; license-manager service signs subsequent updates.
+
+### D-HIGH-3 — Monotonic-clock anchor against faketime/clock-rollback
+
+Persisted `lastSeenUnixTs` checked on each load; wall-clock rewind beyond `CLOCK_ROLLBACK_TOLERANCE_S` (default 300s — covers NTP step + DST + suspend/resume) fails-closed with `reason: 'clock_rollback_detected'`. Defeats `faketime`-style attacks against the JWT `exp` claim in air-gap deployments where NTP cannot be consulted at verification time.
+
+Configurable via `NSAUDITOR_LICENSE_CLOCK_TOLERANCE_S` env (capped at 24h per reviewer fold — anything beyond a day is a backdoor disable, not a "clock skew", and should go through the explicit `NSAUDITOR_LICENSE_CLOCK_ANCHOR=0` env var).
+
+### Support-only escape hatches
+
+Three env vars disable individual defenses for documented edge cases (hardware migration without vendor support, emergency clock rollback for a stuck system, etc.). All accept case-insensitive `0` / `false` / `no` / `off` / `disabled`:
+- `NSAUDITOR_LICENSE_ID_REPLAY_DEFENSE`
+- `NSAUDITOR_LICENSE_REVOCATION_CHECK`
+- `NSAUDITOR_LICENSE_CLOCK_ANCHOR`
+
+Persistent audit-trail of disable events is deferred to CE 0.1.71 — operators concerned about defense hygiene should grep their env at deployment time.
+
+### New test file: `tests/license_air_gap_hardening.test.mjs`
+
++33 tests across 7 describe blocks covering: state-file round-trip + path resolution + mode 0600 + atomic-write semantics; replay defense end-to-end (first activation persists, mismatch rejection, seat-clone scenario, escape hatch); signed-blocklist verification (valid + invalid signature + wrong-key + missing-file + malformed-JSON + unsupported-schema + end-to-end loadLicense rejection + escape hatch); monotonic-clock-anchor scenarios (forward / small-rewind tolerance / large-rewind rejection / `faketime` attack / configurable tolerance / escape hatch); cross-defense interaction ordering (revocation → replay → clock); canonicalization stability under array reordering.
+
+### Regression
+
+**CE regression: 968 tests across 32 suites; 967 pass** (was 935/934). The 1 pre-existing failure (`returns CE tier when no key`) is an operator-machine quirk where the local Keychain contains a real license that satisfies the resolver chain — not a regression introduced by 0.1.70. Existing `tests/license.test.mjs` redirects state file + disables new defenses in its `before()` hook so the JWT-verification path tests remain isolated from the air-gap hardening.
+
+### Paired with EE 0.9.1
+
+EE 0.9.1 ship-blockers A-CRIT-1 (NVD offline feed importer), B-CRIT-1/2 (plugin 1110 KMS layer cross-reference), and C-CRIT-1..4 (plugin 1030 PRIVESC_ACTIONS additions) — see EE [CHANGELOG.md](https://github.com/nsasoft/nsauditor-ai-ee/blob/main/CHANGELOG.md) for full detail. **Twenty-seventh consecutive trio-publish** institutionalized 0.4.5–0.9.1.
+
+---
+
 ## 0.1.69 — docs-only: paired-release announcement for EE 0.9.0 HIPAA FRAMEWORK CYCLE (first 0.9.x release; HIPAA Security Rule §164.312 Technical Safeguards ships as second supported compliance framework alongside SOC 2; HIPAA coverage matrix 7 covered + 3 partial + 45 OOS; HHS Required/Addressable discipline per control; §164.312(c)(1) ransomware-defense substrate via Logically Air-Gapped Backup Vault cross-verification; per-framework SLA-citation map; 6 same-session reviewer folds; +85 new tests across 3 new suites; plugin count UNCHANGED at 24; SOC 2 coverage matrix UNCHANGED at 10/4/33; EE regression 5890/5890 across 928 suites; 69-session 100% green streak preserved; twenty-sixth consecutive trio-publish; no breaking changes — additive only)
 
 No code changes. CE 0.1.69 ships the same code as 0.1.40–0.1.68 with README + CHANGELOG updated for the paired EE 0.9.0 release.

@@ -25,9 +25,26 @@ const EXPIRED_PRO_KEY = 'pro_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoicH
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 let savedEnv;
+let _testTmpStateDir;
 
-before(() => {
+before(async () => {
   savedEnv = process.env.NSAUDITOR_LICENSE_KEY;
+  // CE 0.1.70: this test file exercises the JWT-verification path; it is
+  // NOT the test for the new replay/clock/revocation defenses (those have
+  // their own test file at tests/license_air_gap_hardening.test.mjs).
+  // Disable the new defenses here so multi-licenseId tests below don't
+  // hit the replay block. Also redirect the state file to a temp path so
+  // state writes during JWT-path tests never touch the operator's real
+  // ~/.nsauditor/license-state.json.
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  _testTmpStateDir = await mkdtemp(join(tmpdir(), 'ce-license-test-'));
+  process.env.NSAUDITOR_LICENSE_STATE_FILE = join(_testTmpStateDir, 'license-state.json');
+  process.env.NSAUDITOR_LICENSE_REVOCATIONS_FILE = join(_testTmpStateDir, 'license-revocations.json');
+  process.env.NSAUDITOR_LICENSE_ID_REPLAY_DEFENSE = '0';
+  process.env.NSAUDITOR_LICENSE_CLOCK_ANCHOR = '0';
+  process.env.NSAUDITOR_LICENSE_REVOCATION_CHECK = '0';
 });
 
 afterEach(() => {
