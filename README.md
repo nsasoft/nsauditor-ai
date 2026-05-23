@@ -17,29 +17,16 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-- **CE 0.1.71** (current) — paired with **EE 0.10.0** (May 2026). **NIST CSF 2.0 FRAMEWORK CYCLE — Track 3 third-framework introduction**: NIST Cybersecurity Framework 2.0 ships as the third supported compliance framework alongside SOC 2 (AICPA TSC 2017) and HIPAA Security Rule §164.312 — completing the 3-framework Track 3 institutional set. **Triple-framework workflow**: use `--compliance nist-csf`, `--compliance soc2,hipaa,nist-csf`, or any CSV subset for tailored evidence packs from a single scan. **NIST CSF 2.0 coverage matrix at 13 covered + 10 partial + 83 OOS** across 106 of CSF 2.0's 107 Subcategories — auditor-canonical Subcategory-level granularity per NIST CSWP 29 (February 2024). **Govern function OOS-by-design** with `GV.SC-04` (suppliers known) partial as the single substrate-evidence exception via cross-account VPC endpoint inventory + backup-vault wildcard-Principal trust — parallel to HIPAA §164.308 OOS framing. **Respond function OOS-entirely** (incident-response runbook execution; pair with operator's IR platform + tabletop-exercise log archive). **Implementation Tiers 1-4** (Partial / Risk-Informed / Repeatable / Adaptive) explicitly OOS as organizational-maturity claims — surfaced in EE renderer as cover-page Tiers OOS disclaimer section gated on `isNistCsfReport` (markdown + HTML parity); pair with NIST-aware GRC platforms (Tugboat Logic, Drata NIST CSF, Vanta NIST CSF, AuditBoard) for Tiers dimension. **Per-framework citation map** extended in EE renderer with `nist-csf` slot table (8 slots: sla/governance/identity/risk-analysis/retention/integrity-substrate/breach-signal + NEW implementation-tiers); NIST reports cite DE.CM-01 networks-monitored cadence + PR.AA-01/PR.AA-03 Identity + PR.DS-11 + RC.RP-03 backup-integrity-verification (not SOC 2 CC IDs or HIPAA §164 references); closes the auditor-detectable cross-framework citation leak class in all 3 directions (SOC 2 ↔ HIPAA ↔ NIST CSF). **Zero engine/CLI changes**: CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0); the engine is framework-agnostic. **Reviewer-pass discipline**: 2 reviewers (2nd parallel — security + air-gap + framework-leak deep-dive). 5 same-session folds applied (R-HIGH-1 schema-additive field propagation to controlEntries — closes ghost-schema; R-HIGH-2 HTML Implementation Tiers parity; R-MEDIUM-1 SOC 2→NIST CSF cross-framework leak test — the third direction; R-MEDIUM-1 JSDoc continuation marker). **+91 net new tests across 3 new suites**: load-bearing anchor-drift defense via inheritance contract (27) + engine-end-to-end fixture tests across all 6 Functions (39) + per-framework renderer citation correctness with 3-way cross-framework leak defense (25). **EE regression: 6104/6104 across 983 suites; 75-session 100% green streak preserved.** **Plugin count UNCHANGED at 24**; **SOC 2 + HIPAA coverage matrices UNCHANGED at 10/4/33 + 7/3/45** (additive-only cycle; no SOC 2 or HIPAA mappings changed). **No breaking changes** — additive only. NIST CSF 2.0 published February 2024 (NIST CSWP 29); EE 0.10.0 is the third Track 3 framework after SOC 2 (EE 0.3.x) and HIPAA (EE 0.9.0).
+**Latest: CE 0.1.71 + Enterprise 0.10.0** (May 2026)
 
-- **CE 0.1.70** — paired with **EE 0.9.1** (May 2026). External-audit-findings ship-blocker patch: license verifier air-gap operational hardening (D-HIGH-1 per-host replay defense + D-HIGH-2 ES256-signed revocation blocklist + D-HIGH-3 monotonic clock anchor). +33 new CE tests. Paired EE 0.9.1 closes 10 ship-blockers including A-CRIT-1 (real NVD offline feed) + B-CRIT-1/2 (KMS-grant cross-reference) + C-CRIT-1..4 (PRIVESC_ACTIONS canonical Pacu paths).
+- 🆕 **NIST Cybersecurity Framework 2.0** is now the third supported compliance framework in Enterprise — alongside SOC 2 and HIPAA. Generate evidence for any combination from a single scan: `--compliance nist-csf,soc2,hipaa` (Enterprise only).
+- 🏥 **HIPAA Security Rule §164.312** (added in EE 0.9.0) — Zero BAA required; your ePHI never leaves your infrastructure.
+- 🛡️ **License verifier hardening** — per-host replay defense, signed revocation blocklist, and monotonic clock anchor against `faketime` rollback.
+- ☁️ **24 cloud plugins** across AWS, Azure, GCP — fully integrated SOC 2 / HIPAA / NIST CSF 2.0 evidence pipeline (Enterprise).
+- 🔬 **Adversarial-audit discipline** — Enterprise now ships with 5 authored Claude Code skills that drove 27+ ship-blocker closures across 4 source files (zero regression; 75-session 100% green-test streak).
 
-- **CE 0.1.69** — paired with **EE 0.9.0** (May 2026). **HIPAA FRAMEWORK CYCLE — first 0.9.x release**: HIPAA Security Rule §164.312 Technical Safeguards ships as the second supported compliance framework alongside SOC 2 (closes the long-standing "planned" gap in EE's roadmap for the highest-demand next framework). **Dual-framework workflow**: use `--compliance hipaa` or `--compliance soc2,hipaa` for HIPAA-only or SOC 2 + HIPAA evidence packs from a single scan. **HIPAA coverage matrix introduced at 7 covered + 3 partial + 45 OOS** within §164.312 + entire §164.308 Administrative Safeguards + entire §164.310 Physical Safeguards (architecturally OOS for any infrastructure scanner — pair with HIPAA-focused GRC platforms like Drata HIPAA / Vanta HIPAA / Compliancy Group for §164.308 + §164.310). **HHS Required vs Addressable discipline** surfaced per control. **§164.312(c)(1) Integrity ransomware-defense substrate**: EE's `aws-backup-auditor` Logically Air-Gapped Backup Vault cross-verification produces HHS-OCR-2024-enforcement-relevant evidence on ePHI backup integrity preservation against full source-account compromise. **Per-framework SLA-citation map** in EE renderer — HIPAA reports cite §164.312(b) audit-controls cadence + §164.312(d) Person/Entity Authentication (not SOC 2 CC IDs); closes the auditor-detectable cross-framework citation leak class. **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. **Zero engine/CLI changes**: CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0). **6 same-session reviewer folds** (2 R-HIGH defensive-coding + 2 R-MEDIUM scope-broadening + 1 R-LOW comment fix + 1 docstring strengthening; 0 R-CRITICAL). **+85 new tests across 3 new suites**: load-bearing anchor-drift defense via inheritance contract (32) + engine-end-to-end fixture tests across all 10 §164.312 controls (36) + per-framework renderer citation correctness (17). **EE regression: 5890/5890 across 928 suites; 69-session 100% green streak preserved.** **AWS-dogfood verified** against operator's test account (207 findings analyzed, per-framework citation map confirmed firing, ransomware-substrate surfaces correctly). **Plugin count UNCHANGED at 24**; SOC 2 coverage matrix UNCHANGED at 10/4/33 (additive-only cycle; no SOC 2 mappings changed). **No breaking changes** — additive only.
-
-- **CE 0.1.68** — paired with **EE 0.8.0** (May 2026). **24 enterprise plugins** across AWS / Azure / GCP, mapped to 10 fully-covered + 4 partial AICPA TSC controls. **MINOR VERSION MILESTONE — EE-RT.23 Move B**: EE plugin 1022 Azure scanner refactored to per-dim source attribution. Each of the 4 helpers now emits findings with its own source: `azure-nsg-auditor` / `azure-rbac-auditor` / `azure-storage-auditor` / `azure-keyvault-auditor`. Closes long-standing blocker (EE 0.6.9 R1-MEDIUM-1) for routing Azure storage findings into Appendix A "Cloud Bucket Exposure Attestation" without commingling NSG / RBAC / Key Vault. **Engine `details.category` projection contract** added (`normalizeFindings` + violation surface; additive, backward-compat). **Key Vault soc2.json gap closure — 13 new mappings** (CC6.1 + CC6.3 + C1.1 + A1.2): pre-0.8.0 Key Vault dim emitted 10 distinct `details.category` values but had ZERO soc2 routing — latent silent false-clean class closed. **Appendix A multi-cloud expansion**: 3 sources (AWS S3 + GCS + Azure Storage); `computeBucketStats` dedup key now provider-qualified (closes cross-cloud bucket-name collision). **7 same-session reviewer folds** (2 R-HIGH + 3 R-MEDIUM + 2 R-LOW; 0 R-CRITICAL). **+23 new tests / +6 new suites**. **EE regression: 5805/5805 across 907 suites; 68-session 100% green streak preserved.** **Plugin count UNCHANGED at 24**; coverage matrix UNCHANGED at 10/4/33 (pure substrate-evidence depth uplift on already-covered controls — but KV gap closure was a silent false-clean class). ⚠️ **Customer migration**: suppressions targeting `match.source: 'azure-cloud-scanner'` silently no-op post-0.8.0 — must be split into per-dim entries (see EE CHANGELOG for migration snippet).
-
-- **CE 0.1.67** — paired with **EE 0.7.3** (May 2026). **Critical hotfix** closing 2 production bugs surfaced by EE 0.7.2 dogfood scan: cross-version `google-auth-library` fragmentation broke SA impersonation chains (R-CRITICAL — 100% false-clean impact on free-trial/gmail GCP customers + business GCP customers with no-long-lived-SA-keys policy); `GOOGLE_CLOUD_PROJECT_ID` env-var alias silently skipped (R-MEDIUM). +14 new tests across 2 new suites. EE regression 5782/5782 across 900 suites; 67-session 100% green streak preserved.
-
-- **CE 0.1.66** — paired with **EE 0.7.2** (May 2026). **Move B pure-test functional patch** closing the 5 test-coverage gaps deferred at 0.7.1's reviewer pass; +50 new tests across 6 new suites. Bundled staged peerDep `nsauditor-ai` bump (`^0.1.40` → `^0.1.65`). EE regression 5768/5768 across 898 suites.
-
-- **CE 0.1.65** — paired with **EE 0.7.1** (May 2026). **EE-RT.22 v2 plugin 1025 R2 expansion** — extended GCP IAM Project-Level Auditor from 3 dims to **7 dims**: + custom-role permission audit (CC6.1) + SA key custody (CC6.1 + C1.1) + SA impersonation graph BFS (CC6.1; mirrors plugin 1030 shadow-admin BFS adapted to GCP) + Organization Policy constraint enumeration (CC6.6 + C1.1). NEW `utils/gcp_auth.mjs` honors `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` env var. **17 same-session reviewer folds applied — NEW HIGH-WATER MARK** vs 0.7.0's 12. **+22 new soc2.json mappings**. NEW SDK deps: `googleapis` + `@google-cloud/org-policy` in optionalDependencies.
-
-- **CE 0.1.64** — paired with **EE 0.7.0** (May 2026). **MINOR-VERSION MILESTONE** opening the v0.7.x cross-cloud-parity line with **NEW plugin 1025 GCP IAM Project-Level Auditor (EE-RT.22 v1)**; 3 audit dimensions (project-scope public-member bindings + sensitive-role inventory + IAM Conditions classifier). Plugin count 23 → 24. 12 same-session reviewer folds (clean pass). 11 new soc2.json mappings.
-
-For prior releases, see [CHANGELOG.md](./CHANGELOG.md).
-
-### Try Enterprise
-
-→ **[See a sample scan walk-through](https://www.nsauditor.com/ai/docs/sample-scan/)** — full EE 0.6.7 output against a fictional Acme Corp AWS account + home-office router. Real engine output, synthetic data, no signup required.
-
-→ **[NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/enterprise/)** — 24 cloud plugins across AWS / Azure / GCP, signed SOC 2 + HIPAA §164.312 evidence with RFC 3161 timestamps, native Vanta connector (Drata / Secureframe planned), runs entirely inside your infrastructure (zero data exfiltration by architecture; no BAA required for HIPAA — ePHI never leaves customer infrastructure). Pricing from **$2k/yr (5 seats)** to **$10k+/yr (unlimited + custom SLA)**.
+→ Full release history: **[CHANGELOG.md](./CHANGELOG.md)**
+→ See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
 
 ---
 
@@ -61,36 +48,65 @@ Scan → Verify → Prioritize → Track → Act
 
 ## Editions
 
-NSAuditor AI is available in three editions:
+NSAuditor AI is available in three editions: Community (free, MIT-licensed, no restrictions), Pro ($49/mo), and Enterprise ($2k+/yr).
+
+### Why upgrade to Enterprise?
+
+If you're heading into a **SOC 2, HIPAA, or NIST CSF 2.0 audit** — or need to satisfy customer security questionnaires citing those frameworks — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
+
+- ☁️ **24 cloud plugins** across AWS / Azure / GCP — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
+- 📋 **3 compliance frameworks shipped** — generate any combination from a single scan:
+  - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
+  - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
+  - **NIST CSF 2.0 Core** (NIST CSWP 29, Feb 2024) — 13 covered + 10 partial Subcategories across 106 of CSF 2.0's 107 Subcategories; Subcategory-level mapping (auditor-canonical, not high-level Function/Category claims)
+- 🔐 **Cryptographically signed evidence** — SHA-256 chain-of-custody + RFC 3161 trusted timestamps + Ed25519 suppression signing. Non-repudiation, not just integrity. Auditors can verify offline.
+- 🏛️ **Zero Data Exfiltration architecture** — your scan data never leaves your infrastructure. Air-gapped deployment supported. AI analysis happens locally (Ollama) or via your own API keys.
+- 🔗 **Native GRC platform integration** — push evidence directly to **Vanta** (live; Drata + Secureframe planned). Idempotent retries, per-tenant token rotation, rate-limit handling, signed-envelope round-trip integrity.
+- 🗄️ **WORM evidence storage** — S3 Object Lock COMPLIANCE-mode for SEC Rule 17a-4(f) / FINRA 4511 retention compliance
+- 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
+- 🎯 **5 adversarial-audit Claude Code skills** authored — institutional discipline that drove 27+ ship-blocker closures across 4 source files with zero regression
+
+→ **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
+→ **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
+
+### Feature comparison
 
 | | Community (Free) | Pro ($49/mo) | Enterprise ($2k+/yr) |
 |---|:---:|:---:|:---:|
-| 27 scanner plugins | ✅ | ✅ | ✅ |
-| AI analysis (OpenAI, Claude, Ollama) | ✅ (basic prompts) | ✅ (enriched) | ✅ (enriched) |
-| Structured finding format | ✅ | ✅ | ✅ |
-| CTEM watch mode | ✅ | ✅ | ✅ |
-| SARIF + CSV export | ✅ | ✅ | ✅ |
-| CVE matching + MITRE ATT&CK | — | ✅ | ✅ |
-| Parallel analysis agents | — | ✅ | ✅ |
-| Verified vulnerabilities (safe probes) | — | ✅ | ✅ |
+| **Network scanning** | | | |
+| 27 scanner plugins (SSH, HTTP, TLS, DNS, SMB, RPC, mDNS, etc.) | ✅ | ✅ | ✅ |
+| AI analysis (OpenAI, Claude, Ollama — your keys) | ✅ basic | ✅ enriched | ✅ enriched |
+| Structured findings + SARIF + CSV export | ✅ | ✅ | ✅ |
+| CTEM watch mode | ✅ basic | ✅ advanced | ✅ advanced |
+| **Pro features (vulnerability assessment)** | | | |
+| CVE matching + MITRE ATT&CK mapping | — | ✅ | ✅ |
+| Verified vulnerabilities (safe non-destructive probes) | — | ✅ | ✅ |
 | Risk scoring + prioritization | — | ✅ | ✅ |
-| Intelligence-enriched AI prompts | — | ✅ | ✅ |
-| Advanced CTEM + trend analysis | — | ✅ | ✅ |
-| Cloud scanners (AWS/GCP/Azure) | — | — | ✅ |
+| Parallel analysis agents | — | ✅ | ✅ |
+| **Enterprise — cloud scanning** | | | |
+| 24 cloud plugins (AWS / Azure / GCP) | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
-| SOC 2 compliance (10 covered + 4 partial controls; AWS + Azure + GCP evidence streams; PI1.5 stored-items partial via DynamoDB audit-the-auditor) | — | — | ✅ |
-| **HIPAA §164.312 Technical Safeguards** (NEW EE 0.9.0 — 7 covered + 3 partial + 45 OOS; §164.308 admin + §164.310 physical architecturally OOS; per-control HHS Required/Addressable discipline; **Zero BAA required**) | — | — | ✅ |
-| SLA/MTTR tracking + compensating controls | — | — | ✅ |
-| Recurring-scan attestation (Type II evidence) | — | — | ✅ |
-| GRC platform connector (Vanta) | — | — | ✅ |
-| WORM evidence storage (S3 Object Lock) | — | — | ✅ |
+| **Enterprise — compliance** | | | |
+| SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
+| HIPAA Security Rule §164.312 — Zero BAA required | — | — | ✅ |
+| **NIST CSF 2.0 Core** — Subcategory-level mapping (NEW) | — | — | ✅ |
+| Multi-framework `--compliance soc2,hipaa,nist-csf` from one scan | — | — | ✅ |
+| **Enterprise — auditor-grade evidence** | | | |
+| Signed evidence packs (SHA-256 + RFC 3161 timestamps) | — | — | ✅ |
+| Ed25519 suppression signing | — | — | ✅ |
+| Chain-of-custody manifests | — | — | ✅ |
+| SLA / MTTR tracking + compensating controls | — | — | ✅ |
+| Recurring-scan attestation (Type II operating-effectiveness) | — | — | ✅ |
+| WORM evidence storage (S3 Object Lock — SEC 17a-4 / FINRA 4511) | — | — | ✅ |
+| **Enterprise — integration + deployment** | | | |
+| GRC platform connector (Vanta live; Drata + Secureframe planned) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation | — | — | ✅ |
 | Docker per-scan isolation | — | — | ✅ |
 | Air-gapped deployment | — | — | ✅ |
 
-**This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions. Pro and Enterprise features are available via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package.
+**This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions, no telemetry. Pro and Enterprise features ship via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package and install alongside the CE binary once licensed.
 
-→ [Get Pro or Enterprise](https://www.nsauditor.com/ai/pricing/)
+→ **[Get Pro or Enterprise →](https://www.nsauditor.com/ai/pricing/)**
 
 ---
 
