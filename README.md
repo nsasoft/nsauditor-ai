@@ -17,13 +17,14 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.1.71 + Enterprise 0.10.0** (May 2026)
+**Latest: CE 0.1.72 + Enterprise 0.11.0** (May 2026)
 
-- 🆕 **NIST Cybersecurity Framework 2.0** is now the third supported compliance framework in Enterprise — alongside SOC 2 and HIPAA. Generate evidence for any combination from a single scan: `--compliance nist-csf,soc2,hipaa` (Enterprise only).
+- 🆕 **PCI DSS v4.0.1** (PCI SSC, June 2024 errata) is now the fourth supported compliance framework in Enterprise — alongside SOC 2, HIPAA, and NIST CSF 2.0. Sub-requirement-level mapping (auditor-canonical for QSA Report on Compliance workflow): 20 covered + 8 partial + 39 OOS across 67 of ~250 sub-requirements (MVP-67). Generate evidence for any combination from a single scan: `--compliance soc2,hipaa,nist-csf,pci-dss` (Enterprise only).
+- 💳 **Defined-vs-Customized Approach discipline per PCI DSS v4.0.1 Appendix E** — 15 Defined-only sub-requirements enforced at schema layer. **Cardholder Data Environment (CDE) scope operator-attested** via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1. **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC).
+- ⚡ **NIST Cybersecurity Framework 2.0** (added in EE 0.10.0) — 13 covered + 10 partial + 83 OOS Subcategories across 106 of CSF 2.0's 107 Subcategories.
 - 🏥 **HIPAA Security Rule §164.312** (added in EE 0.9.0) — Zero BAA required; your ePHI never leaves your infrastructure.
-- 🛡️ **License verifier hardening** — per-host replay defense, signed revocation blocklist, and monotonic clock anchor against `faketime` rollback.
-- ☁️ **24 cloud plugins** across AWS, Azure, GCP — fully integrated SOC 2 / HIPAA / NIST CSF 2.0 evidence pipeline (Enterprise).
-- 🔬 **Adversarial-audit discipline** — Enterprise now ships with 5 authored Claude Code skills that drove 27+ ship-blocker closures across 4 source files (zero regression; 75-session 100% green-test streak).
+- ☁️ **24 cloud plugins** across AWS, Azure, GCP — fully integrated SOC 2 / HIPAA / NIST CSF 2.0 / PCI DSS v4.0.1 evidence pipeline (Enterprise).
+- 🔬 **Per-Framework Adversarial-Audit Skill Pairing** (NEW institutional pattern) — Enterprise now ships with 8 authored Claude Code skills (Phase-4 Compliance/GRC chain 5-of-5 COMPLETE for shipped frameworks). PCI DSS cycle pairs with NEW `audit-pci-dss-qsa-perspective` skill; same pattern applied retroactively to NIST CSF + forward to ISO 27001 (EE 0.12.0) + CIS Controls v8 (EE 0.13.0).
 
 → Full release history: **[CHANGELOG.md](./CHANGELOG.md)**
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
@@ -52,19 +53,20 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 
 ### Why upgrade to Enterprise?
 
-If you're heading into a **SOC 2, HIPAA, or NIST CSF 2.0 audit** — or need to satisfy customer security questionnaires citing those frameworks — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
+If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, or PCI DSS audit** — or need to satisfy customer security questionnaires citing those frameworks — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
 
 - ☁️ **24 cloud plugins** across AWS / Azure / GCP — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
-- 📋 **3 compliance frameworks shipped** — generate any combination from a single scan:
+- 📋 **4 compliance frameworks shipped** — generate any combination from a single scan:
   - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
   - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
   - **NIST CSF 2.0 Core** (NIST CSWP 29, Feb 2024) — 13 covered + 10 partial Subcategories across 106 of CSF 2.0's 107 Subcategories; Subcategory-level mapping (auditor-canonical, not high-level Function/Category claims)
+  - **PCI DSS v4.0.1** (PCI SSC, June 2024 errata; v3.2.1 retired March 31, 2024) — **20 covered + 8 partial + 39 OOS sub-requirements across 67 of ~250 (MVP-67)**; sub-requirement-level mapping for QSA Report on Compliance workflow; Defined-vs-Customized Approach discipline per Appendix E (15 Defined-only sub-requirements enforced at schema layer); CHD Scope operator-attested via CDE Data Flow Diagram per Req 1.2.4; Card-brand AOC enforcement priority view (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC)
 - 🔐 **Cryptographically signed evidence** — SHA-256 chain-of-custody + RFC 3161 trusted timestamps + Ed25519 suppression signing. Non-repudiation, not just integrity. Auditors can verify offline.
-- 🏛️ **Zero Data Exfiltration architecture** — your scan data never leaves your infrastructure. Air-gapped deployment supported. AI analysis happens locally (Ollama) or via your own API keys.
+- 🏛️ **Zero Data Exfiltration architecture** — your scan data never leaves your infrastructure. Air-gapped deployment supported. AI analysis happens locally (Ollama) or via your own API keys. Important for PCI DSS CDE-isolation threat models.
 - 🔗 **Native GRC platform integration** — push evidence directly to **Vanta** (live; Drata + Secureframe planned). Idempotent retries, per-tenant token rotation, rate-limit handling, signed-envelope round-trip integrity.
 - 🗄️ **WORM evidence storage** — S3 Object Lock COMPLIANCE-mode for SEC Rule 17a-4(f) / FINRA 4511 retention compliance
 - 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
-- 🎯 **5 adversarial-audit Claude Code skills** authored — institutional discipline that drove 27+ ship-blocker closures across 4 source files with zero regression
+- 🎯 **8 adversarial-audit Claude Code skills** authored per the NEW Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 5-of-5 COMPLETE for shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + GRC connector)
 
 → **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
 → **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
@@ -89,8 +91,9 @@ If you're heading into a **SOC 2, HIPAA, or NIST CSF 2.0 audit** — or need to 
 | **Enterprise — compliance** | | | |
 | SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
 | HIPAA Security Rule §164.312 — Zero BAA required | — | — | ✅ |
-| **NIST CSF 2.0 Core** — Subcategory-level mapping (NEW) | — | — | ✅ |
-| Multi-framework `--compliance soc2,hipaa,nist-csf` from one scan | — | — | ✅ |
+| NIST CSF 2.0 Core — Subcategory-level mapping | — | — | ✅ |
+| **PCI DSS v4.0.1** — Sub-requirement-level mapping for QSA RoC (NEW) | — | — | ✅ |
+| Multi-framework `--compliance soc2,hipaa,nist-csf,pci-dss` from one scan | — | — | ✅ |
 | **Enterprise — auditor-grade evidence** | | | |
 | Signed evidence packs (SHA-256 + RFC 3161 timestamps) | — | — | ✅ |
 | Ed25519 suppression signing | — | — | ✅ |
@@ -254,7 +257,9 @@ Results land in `./out/<host>_<timestamp>/`:
 | 1190 | AWS SES Email Integrity | Enterprise | 6 dimensions: DKIM enablement + CNAME DNS resolution + key-fingerprint pin, DMARC TXT parsing + alignment classifier, custom MailFrom alignment, config-set TLS enforcement, sending-auth policy wildcards, dedicated IP pool, suppression list (count-only — ZDE invariant: never reads addresses). **CC6.1 / CC6.6 / C1.1 / CC7.1 / Privacy** |
 | 1200 | AWS Inspector2 / GuardDuty Enablement | Enterprise | 4 dimensions across all opted-in regions (17+ incl. GovCloud / ISO): GuardDuty Detector + protection features (S3 / EKS / EBS-malware / RDS-login / Lambda / RuntimeMonitoring), Inspector2 enablement, scan-target coverage. Plus alerting-destination dim (EventBridge or SecurityHub) and per-target liveness probes for Lambda / SNS / SQS / IAM / API destination / CloudWatch Logs. **CC7.1 / CC7.2** |
 | — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 mapping (10 covered + 4 partial controls), chain-of-custody, RFC 3161 timestamps, suppression workflow with Ed25519 signing. |
-| — | **HIPAA Compliance Engine (NEW EE 0.9.0)** | Enterprise | HIPAA Security Rule §164.312 Technical Safeguards mapping (7 covered + 3 partial + 45 OOS within §164.312 + entire §164.308 + entire §164.310). HHS Required/Addressable discipline per control. Same institutional-grade evidence infrastructure as SOC 2 (chain-of-custody, RFC 3161 timestamps, Ed25519 suppression signing). Use `--compliance hipaa` or `--compliance soc2,hipaa` for dual-framework reports from a single scan. **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. |
+| — | **HIPAA Compliance Engine (EE 0.9.0)** | Enterprise | HIPAA Security Rule §164.312 Technical Safeguards mapping (7 covered + 3 partial + 45 OOS within §164.312 + entire §164.308 + entire §164.310). HHS Required/Addressable discipline per control. Same institutional-grade evidence infrastructure as SOC 2 (chain-of-custody, RFC 3161 timestamps, Ed25519 suppression signing). Use `--compliance hipaa` or `--compliance soc2,hipaa` for dual-framework reports from a single scan. **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. |
+| — | **NIST CSF 2.0 Compliance Engine (EE 0.10.0)** | Enterprise | NIST Cybersecurity Framework 2.0 Core mapping at the auditor-canonical Subcategory level — 13 covered + 10 partial + 83 OOS across 106 of CSF 2.0's 107 Subcategories. Govern function OOS-by-design (GV.SC-04 partial as substrate exception); Respond function OOS-entirely; Implementation Tiers 1-4 OOS as organizational-maturity claims. NIST SP 800-53 Rev. 5 + CIS Critical Security Controls v8 cross-references baked into `informativeReferences`. Use `--compliance nist-csf` or `--compliance soc2,hipaa,nist-csf` for triple-framework reports from a single scan. |
+| — | **PCI DSS v4.0.1 Compliance Engine (NEW EE 0.11.0)** | Enterprise | PCI DSS v4.0.1 (PCI SSC, June 2024 errata; supersedes v4.0 March 2022; v3.2.1 retired March 31, 2024) mapping at the auditor-canonical sub-requirement level for QSA Report on Compliance workflow — **20 covered + 8 partial + 39 OOS across 67 of ~250 sub-requirements (MVP-67 density)**. Req 12 Information Security Program OOS-by-design entirely. Req 5 anti-malware + Req 9 physical OOS-entirely. **Defined-vs-Customized Approach discipline per Appendix E** — 15 Defined-only sub-requirements enforced at schema layer. **Cardholder Data Environment (CDE) scope operator-attested** via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1. **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC). **4 load-bearing schema enrichments** per control: `controlType` + `approachEligibility` + `cloudProviderAttestation` (AWS / Azure / GCP currently-named AOCs) + `cdeScope`. CAO MVP-deferred to EE 0.11.1. Use `--compliance pci-dss` or `--compliance soc2,hipaa,nist-csf,pci-dss` for quad-framework reports from a single scan. |
 | — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle, Type II rolling-quarter cadence. |
 | — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope-drift surface (CC8.1). |
 | — | GRC Platform Connector | Enterprise | Native API push to Vanta / Drata / Secureframe with retry/backoff, idempotency, rate-limit handling, per-tenant token rotation. |
@@ -567,7 +572,7 @@ nsauditor-ai --version     (or -v, or `version`)
 | `--interval <min>` | Rescan interval in minutes (requires `--watch`) | `60` |
 | `--webhook-url <url>` | Webhook URL for delta alerts | — |
 | `--alert-severity <sev>` | Minimum severity for webhook alerts | `high` |
-| `--compliance <fw>` | Compliance framework to map findings into. Accepts CSV for multi-framework runs (e.g. `soc2`, `hipaa`, `soc2,hipaa`). **Enterprise license required.** Supported frameworks as of EE 0.9.0: `soc2` (AICPA TSC 2017) + `hipaa` (HIPAA Security Rule §164.312 Technical Safeguards, 2013 Final Rule). See `@nsasoft/nsauditor-ai-ee` README for per-framework coverage details. | — |
+| `--compliance <fw>` | Compliance framework to map findings into. Accepts CSV for multi-framework runs (e.g. `soc2`, `hipaa`, `nist-csf`, `pci-dss`, or any combination like `soc2,hipaa,nist-csf,pci-dss`). **Enterprise license required.** Supported frameworks as of EE 0.11.0: `soc2` (AICPA TSC 2017) + `hipaa` (HIPAA Security Rule §164.312 Technical Safeguards) + `nist-csf` (NIST Cybersecurity Framework 2.0 Core, CSWP 29 Feb 2024) + `pci-dss` (PCI DSS v4.0.1, PCI SSC June 2024 errata). See `@nsasoft/nsauditor-ai-ee` README for per-framework coverage details. | — |
 | `--compliance-scope <path>` | Optional JSON file describing the assessment scope (passed to the compliance engine for cover-page attestation) | — |
 | `--help`, `-h` | Print usage block (subcommands, flags, env vars, examples) and exit 0 | — |
 | `--version`, `-v` | Print `nsauditor-ai <version>` and exit 0 | — |

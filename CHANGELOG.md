@@ -6,7 +6,33 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.71 (STAGED 2026-05-22 — pending trio-publish) — Paired with EE 0.10.0 NIST CSF 2.0 Track 3 third-framework cycle
+## 0.1.72 (STAGED 2026-05-23 — pending trio-publish) — Paired with EE 0.11.0 PCI DSS v4.0.1 Track 3 fourth-framework cycle
+
+No CE code changes — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0); the engine is framework-agnostic per the institutional cycle pattern. Engine paths are EE-side; CE binary surfaces the framework via `--compliance pci-dss` (or `--compliance soc2,hipaa,nist-csf,pci-dss` for the full 4-framework pack from a single scan).
+
+**Paired EE 0.11.0 highlights** (full detail in EE CHANGELOG):
+- NEW `data/compliance/pci-dss.json` (auditor-canonical sub-requirement-level mapping per PCI SSC RoC Reporting Template Appendix B; **MVP-67 density: 20 covered + 8 partial + 39 OOS across 67 of ~250 sub-requirements**; 6 OOS groups; `requirement` / `subRequirement` / `requirementText` / `customizedApproachObjective` / `informativeReferences` schema-additive fields PLUS 4 load-bearing schema enrichments: `controlType` / `approachEligibility` / `cloudProviderAttestation` / `cdeScope` defending against 13 ship-blocker classes surfaced by skill-research synthesis)
+- **Req 12 Information Security Program OOS-by-design entirely** (Targeted Risk Analysis Req 12.3.1 + Customized Approach Documentation Req 12.3.2 + TPSP Responsibility Matrix Req 12.8.5 + IR personnel training Req 12.10.4 all Defined-only per Appendix E)
+- **Req 5 anti-malware + Req 9 physical OOS-entirely** (endpoint EDR + facility-tier substrate that infrastructure scanning cannot produce)
+- **Req 3 stored CHD OOS-by-design at technical-control layer** pending operator CDE attestation via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1
+- **Defined-vs-Customized Approach discipline per PCI DSS v4.0.1 Appendix E** — 15 Defined-only sub-requirements enforced at schema layer; misclassifying as Customized-eligible is PCI analog of HIPAA's "Addressable as Required" overclaim
+- **Customized Approach Objective (CAO) text MVP-deferred to EE 0.11.1 patch** (`customizedApproachObjective: null` on every entry; renderer surfaces explicit CAO MVP-deferral disclaimer directing operators to PCI DSS v4.0.1 Appendix D)
+- **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC — the actual penalty mechanism for PCI DSS non-compliance)
+- **Cloud-provider PCI DSS Service Provider AOC inheritance** (AWS PCI DSS Service Provider AOC v4.0 + Microsoft Azure PCI DSS v4.0 AOC + Google Cloud Platform PCI DSS v4.0 AOC currently-named as of 2026-05-23)
+- EXTENDED EE `utils/soc2_renderer.mjs` (`'pci-dss'` slot table in `frameworkControlCitation` with 8 slots incl. NEW PCI-specific `chd-scope` disclaimer slot; `isPciDssReport` flag; CHD Scope OOS disclaimer + CAO MVP-deferral framing + Defined-only invariant exemplars + card-brand AOC enforcement priority view + preventive-control discipline caveat — markdown + HTML render-path parity)
+- 88 net new tests across 3 new EE test files (29 anchor-drift incl. R-LOW-3 reviewer-fold positive-defense for full 15-ID Appendix-E Defined-only enumeration + 31 mapping + 28 renderer); 6-direction cross-framework citation-leak defense (4 frameworks → C(4,2)=6 pair-tests)
+- 501-line `docs/pci-dss-coverage.md` companion to existing soc2-coverage + hipaa-coverage + nist-csf-coverage docs
+- **3 NEW audit skills authored 2026-05-23 via /skill-creator** (1,916 lines / 13 files): `audit-pci-dss-qsa-perspective` (725 lines / 5 files; pairs with EE 0.11.0 PCI cycle) + `audit-grc-connector-idempotency` (601 lines / 4 files; completes Phase-4 SOC 2/HIPAA/PCI/GRC quad) + `audit-nist-csf-2-implementation-tiers` (590 lines / 4 files; retroactive close of EE 0.10.0 NIST CSF pairing gap). **Per-Framework Adversarial-Audit Skill Pairing institutional pattern** NEW 2026-05-23 — Phase-4 Compliance/GRC chain 5-of-5 COMPLETE for shipped frameworks.
+
+**Cross-repo cascade**:
+- nsauditor.com: NEW /docs/pci/ 880-line landing page + /docs/index.html + /enterprise/index.html (replaced "npm install EE 0.10.0 →" callout with "PCI DSS v4.0.1 coverage →" link) + root /index.html + /ai/index.html (all updated to quad-framework framing)
+- nsasoft.us: meta + OG + Twitter quad-framework framing + RSS feed (EE 0.11.0 + EE 0.10.0 NIST CSF backfill items) + React src cleaned of stale EE 0.4.5 references + sitemap
+
+**Plugin count UNCHANGED at 24**. **SOC 2 + HIPAA + NIST CSF coverage matrices UNCHANGED** (10/4/33 + 7/3/45 + 13/10/83). **EE regression 6192/6192 across 1010 suites** (+88 net new PCI tests vs 0.10.0 baseline); **76-session 100% green streak preserved + extended**. **Twenty-ninth consecutive trio-publish** institutionalized 0.4.5–0.11.0.
+
+---
+
+## 0.1.71 (PUBLISHED 2026-05-22) — Paired with EE 0.10.0 NIST CSF 2.0 Track 3 third-framework cycle
 
 No CE code changes — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0); the engine is framework-agnostic per the EE 0.9.0 + EE 0.10.0 cycle pattern. Engine paths are EE-side; CE binary surfaces the framework via `--compliance nist-csf` (or `--compliance soc2,hipaa,nist-csf` for the full 3-framework pack from a single scan).
 
