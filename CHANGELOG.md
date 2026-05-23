@@ -6,7 +6,26 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.70 (STAGED 2026-05-22 — pending trio-publish) — **License verifier air-gap operational hardening + paired with EE 0.9.1 external-audit-findings ship-blocker patch**
+## 0.1.71 (STAGED 2026-05-22 — pending trio-publish) — Paired with EE 0.10.0 NIST CSF 2.0 Track 3 third-framework cycle
+
+No CE code changes — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0); the engine is framework-agnostic per the EE 0.9.0 + EE 0.10.0 cycle pattern. Engine paths are EE-side; CE binary surfaces the framework via `--compliance nist-csf` (or `--compliance soc2,hipaa,nist-csf` for the full 3-framework pack from a single scan).
+
+**Paired EE 0.10.0 highlights** (full detail in EE CHANGELOG):
+- NEW `data/compliance/nist-csf.json` (auditor-canonical Subcategory-level mapping; 23 declared + 6 OOS groups; 13/10/83 matrix across 106 of CSF 2.0's 107 Subcategories)
+- EXTENDED EE `utils/soc2_renderer.mjs` (`'nist-csf'` slot table in `frameworkControlCitation` with 8 slots incl. NEW `implementation-tiers` disclaimer; `isNistCsfReport` flag; Tiers OOS disclaimer section in BOTH markdown AND HTML render paths — R-HIGH-2 reviewer fold from 2nd reviewer pass)
+- Schema-additive fields propagation to controlEntries (R-HIGH-1 reviewer fold from 2nd reviewer pass) — closes the ghost-schema gap for `function` / `categoryCode` / `subcategory` / `outcomeText` / `informativeReferences` (NIST CSF) AND `requiredOrAddressable` / `standardOrSpec` / `ruleText` (HIPAA, EE 0.9.0) AND `manualProcedure` (SOC 2 + HIPAA, EE 0.9.3 + 0.9.4) — all pre-fold were declared in framework JSON + validated by tests but never reached auditor-facing output
+- 91 net new tests across 3 new test files (anchor-drift + mapping + renderer)
+- 560-line `docs/nist-csf-coverage.md`
+- 2 reviewer passes (single-agent A with combined NIST/code lens + parallel-reviewer B with security/air-gap/citation-leak lens); 5 same-session folds total
+- EE regression 6104/6104 across 983 suites; 75-session 100% green streak preserved
+
+**Plugin count UNCHANGED at 24**; **SOC 2 + HIPAA coverage matrices UNCHANGED**; **NIST CSF 2.0 coverage matrix introduced at 13/10/83**. **Govern function OOS-by-design with GV.SC-04 partial as substrate-evidence exception; Respond function OOS-entirely; Implementation Tiers OOS as organizational-maturity claim.** **Twenty-eighth consecutive trio-publish** institutionalized 0.4.5–0.10.0.
+
+No breaking changes — additive only.
+
+---
+
+## 0.1.70 (PUBLISHED 2026-05-22 to npm as `latest`, superseded by 0.1.71 on trio-publish) — **License verifier air-gap operational hardening + paired with EE 0.9.1 external-audit-findings ship-blocker patch**
 
 Three new defenses against the realistic license-abuse paths the external adversarial-audit-skill cycle (2026-05-22) called out as D-HIGH-1, D-HIGH-2, D-HIGH-3. The JWT verifier itself remains cryptographically tight (algorithm-pinned ES256 + iss/aud/sub pinned + clock-tolerance bounded); the new defenses close the operational gaps that don't require JWT forgery.
 
