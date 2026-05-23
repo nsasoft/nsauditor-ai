@@ -1038,6 +1038,84 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('── Installation provenance ──');
       console.log(`  nsauditor-ai (CE):              ${ceVersion}`);
       console.log(`  @nsasoft/nsauditor-ai-ee (EE):  ${eeVersion}`);
+    } else if (rawArgs.includes('--reset')) {
+      // CE-0.1.73 — atomic dual-channel license-state reset for macOS
+      // license-rotation flow. Discovered EE 0.11.0 first-install
+      // rehearsal (2026-05-23): customer rotates EE license, gets
+      // `license_id_mismatch` because the persisted licenseId binding
+      // (from a prior install) doesn't match the new JWT's licenseId.
+      //
+      // Single-surface clearing ("rm ~/.nsauditor/license-state.json")
+      // is a HALF-fix on macOS — _readLicenseState (license.mjs:402-434)
+      // ALSO reads from Keychain NSAUDITOR_LICENSE_ID, and Keychain wins
+      // on read (license.mjs:429: `state.licenseId = kcId; // Keychain
+      // wins`). Customer must additionally run
+      // `security delete-generic-password -s nsauditor-ai -a
+      // NSAUDITOR_LICENSE_ID` for the replay-defense check
+      // (license.mjs:664-670) to pass. This subcommand does both
+      // atomically so customers don't have to run cryptic `security`
+      // commands blind from a support email.
+      //
+      // Default: preserves NSAUDITOR_LICENSE_KEY (the JWT itself) for
+      // immediate re-activation on next license check. --purge also
+      // removes the JWT (forces full re-install with `license install`).
+      const purge = rawArgs.includes('--purge');
+      const { _getLicenseStateFilePath } = await import('./utils/license.mjs');
+      const { keychainDelete } = await import('./utils/keychain.mjs');
+      const fsp = await import('fs/promises');
+
+      const cleared = { stateFile: false, keychainId: false, jwtPurged: false };
+
+      // 1. Delete license-state.json (cross-platform path resolver).
+      const statePath = _getLicenseStateFilePath();
+      try {
+        await fsp.unlink(statePath);
+        cleared.stateFile = true;
+      } catch (e) {
+        if (e && e.code !== 'ENOENT') {
+          console.warn(`⚠  Could not delete ${statePath}: ${e.message}`);
+        }
+      }
+
+      // 2. Delete macOS Keychain NSAUDITOR_LICENSE_ID entry. Linux /
+      //    Windows have no Keychain side-channel — file delete is
+      //    sufficient there.
+      if (process.platform === 'darwin') {
+        try {
+          cleared.keychainId = await keychainDelete('NSAUDITOR_LICENSE_ID');
+        } catch { /* not fatal — file delete is the primary surface */ }
+      }
+
+      // 3. Optionally purge the JWT itself (forces full re-install).
+      //    Darwin-only for now; file-based JWT purge on Linux/Windows
+      //    requires editing ~/.nsauditor/.env which we leave to the
+      //    operator (deleting the file would also remove unrelated env
+      //    vars the operator may have placed there).
+      if (purge && process.platform === 'darwin') {
+        try {
+          cleared.jwtPurged = await keychainDelete('NSAUDITOR_LICENSE_KEY');
+        } catch { /* not fatal */ }
+      }
+
+      console.log('✓ License state reset');
+      console.log(`  License state file: ${cleared.stateFile ? 'deleted (' + statePath + ')' : 'not found (already clean)'}`);
+      if (process.platform === 'darwin') {
+        console.log(`  Keychain NSAUDITOR_LICENSE_ID: ${cleared.keychainId ? 'deleted' : 'not found (already clean)'}`);
+      }
+      if (purge) {
+        if (process.platform === 'darwin') {
+          console.log(`  Keychain NSAUDITOR_LICENSE_KEY (JWT): ${cleared.jwtPurged ? 'purged' : 'not found (already clean)'}`);
+        } else {
+          console.log('  JWT (NSAUDITOR_LICENSE_KEY): file-based JWT not purged on this platform — remove the NSAUDITOR_LICENSE_KEY line manually from ~/.nsauditor/.env if needed.');
+        }
+        console.log('');
+        console.log('  Re-install with: nsauditor-ai license install <KEY>');
+      } else {
+        console.log('  JWT (NSAUDITOR_LICENSE_KEY): preserved (default) — next license check will re-bind.');
+        console.log('');
+        console.log('  Verify with: nsauditor-ai license --status');
+        console.log('  (Add --purge to additionally clear the JWT for full uninstall.)');
+      }
     } else if (rawArgs.includes('install')) {
       // CE-0.1.30.4 — install command. Verify the JWT FIRST, then persist
       // to a platform-appropriate location (macOS Keychain / file).
@@ -1099,7 +1177,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('');
       console.log('  Verify with: nsauditor-ai license --status');
     } else {
-      console.log('Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY>');
+      console.log('Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY> | --reset [--purge]');
     }
     process.exit(0);
   }
