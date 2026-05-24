@@ -6,7 +6,19 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.74 (STAGED 2026-05-24 — pending trio-publish) — Paired with EE 0.12.0 ISO/IEC 27001:2022 fifth-framework introduction
+## 0.1.75 (PUBLISHED 2026-05-24) — Paired with EE 0.13.0 CIS Critical Security Controls v8 sixth-framework introduction
+
+**Cycle hook**: EE 0.13.0 ships CIS Critical Security Controls v8 (Center for Internet Security, May 2021; v8.1 errata June 2024) as the SIXTH Track 3 framework alongside SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS v4.0.1 + ISO/IEC 27001:2022. Per-Safeguard mapping (the atomic, attestable unit; coverage claimed at the SAFEGUARD level, never the Control level) — **17 covered + 21 partial + 115 OOS across 153 Safeguards / 18 Controls / 3 cumulative Implementation Groups** (engine substrate IG1 23-of-56 / IG2-cumulative 36-of-130 / IG3-cumulative 38-of-153). **Implementation Group cumulative discipline** (IG1=56 cyber-insurance baseline / IG2 cumulative=130 / IG3 cumulative=153; NEVER report IG2 as 74-of-74 in isolation) + **no-certification-body attestation discipline** (engine output is INPUT to CSAT / CIS-CAT Pro self-attestation OR a SOC 2 auditor cross-validating CIS scope, never "CIS certified") + Cloud Companion Guide v8 shared-responsibility-model boundary + CIS-Hardened-Image substrate-evidence credit (Safeguards 4.1/4.2/4.6) + 5 Security Functions (NOT 6 — no Govern) + 6 Asset Types + MS-ISAC/EI-ISAC/H-ISAC sector baselines + v7.1-to-v8 cross-reference. Skill #19 `audit-cis-controls-v8-implementation-group-perspective` authored 2026-05-24 via /skill-creator (833 lines / 5 files) per the Per-Framework Adversarial-Audit Skill Pairing pattern — surfacing 16 ship-blocker classes pre-author for a clean P5 ship.
+
+**No CE code changes** — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag accepts the new `cis-v8` value via the framework-agnostic `loadFrameworkMap()` engine; per-framework JSON ships with EE.
+
+**Plugin catalog**: UNCHANGED at 24 plugins; CE plugin set unchanged. **SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 matrices ALL UNCHANGED**; **CIS Controls v8 matrix NEW at 17/21/115 across 153 Safeguards**.
+
+**THIRTY-SECOND consecutive trio-publish** institutionalized 0.4.5–0.13.0.
+
+---
+
+## 0.1.74 (PUBLISHED 2026-05-24) — Paired with EE 0.12.0 ISO/IEC 27001:2022 fifth-framework introduction
 
 **Cycle hook**: EE 0.12.0 ships ISO/IEC 27001:2022 as the FIFTH Track 3 framework alongside SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS v4.0.1. Per-Annex-A-code mapping at the auditor-canonical level for ISO/IEC 17021-1 accredited certification body assessors walking Stage 1 (documentation) / Stage 2 (implementation + operating-effectiveness sampling) / annual surveillance / 3-year recertification. 17 covered + 14 partial + 62 OOS across 93 Annex A controls (the complete Annex A universe across 4 themes: A.5 Organizational 37 + A.6 People 8 + A.7 Physical 14 + A.8 Technological 34). 11 NEW 2022 controls explicitly enumerated (3 COVERED + 2 PARTIAL + 6 OOS). Statement of Applicability per Clause 6.1.3.d discipline + ISMS Clauses 4-10 OOS-by-design framing (7 Major Nonconformity classes — absence of internal audit per Clause 9.2 or management review per Clause 9.3 = auto-fail Stage 2) + 5-attribute taxonomy + 2013-to-2022 transition discipline (transition deadline passed October 31, 2025).
 
