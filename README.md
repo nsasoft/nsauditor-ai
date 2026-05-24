@@ -17,10 +17,11 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.1.72 + Enterprise 0.11.0** (May 2026)
+**Latest: CE 0.1.74 + Enterprise 0.12.0** (May 2026)
 
-- 🆕 **PCI DSS v4.0.1** (PCI SSC, June 2024 errata) is now the fourth supported compliance framework in Enterprise — alongside SOC 2, HIPAA, and NIST CSF 2.0. Sub-requirement-level mapping (auditor-canonical for QSA Report on Compliance workflow): 20 covered + 8 partial + 39 OOS across 67 of ~250 sub-requirements (MVP-67). Generate evidence for any combination from a single scan: `--compliance soc2,hipaa,nist-csf,pci-dss` (Enterprise only).
-- 💳 **Defined-vs-Customized Approach discipline per PCI DSS v4.0.1 Appendix E** — 15 Defined-only sub-requirements enforced at schema layer. **Cardholder Data Environment (CDE) scope operator-attested** via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1. **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC).
+- 🆕 **ISO/IEC 27001:2022** (ISO + IEC, October 2022 — 2013 edition retired October 31, 2025) is now the fifth supported compliance framework in Enterprise — alongside SOC 2, HIPAA, NIST CSF 2.0, and PCI DSS v4.0.1. Per-Annex-A-code mapping (auditor-canonical for ISO/IEC 17021-1 certification body assessors walking Stage 1 / Stage 2 / annual surveillance / 3-year recertification): 17 covered + 14 partial + 62 OOS across 93 Annex A controls — the complete Annex A universe across 4 themes (A.5 Organizational 37 + A.6 People 8 + A.7 Physical 14 + A.8 Technological 34). 11 NEW 2022 controls explicitly enumerated (3 covered + 2 partial + 6 OOS). Statement of Applicability per Clause 6.1.3.d discipline + ISMS Clauses 4-10 OOS-by-design framing + 5-attribute taxonomy. Generate evidence for any combination from a single scan: `--compliance soc2,hipaa,nist-csf,pci-dss,iso-27001` (Enterprise only).
+- 💳 **PCI DSS v4.0.1** (added in EE 0.11.0) — Defined-vs-Customized Approach discipline per Appendix E. CDE scope operator-attested. Card-brand AOC enforcement priority view (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC).
+- 📋 **Statement of Applicability per Clause 6.1.3.d discipline** for ISO 27001:2022 — engine produces substrate for INCLUDED controls; SoA inclusion/exclusion is operator-side. **ISMS Clauses 4-10 OOS-by-design** with 7 Major Nonconformity classes (absence of internal audit per Clause 9.2 or management review per Clause 9.3 = auto-fail Stage 2). Skill #18 `audit-iso-27001-2022-statement-of-applicability` authored 2026-05-24 via /skill-creator (Per-Framework Adversarial-Audit Skill Pairing institutional pattern).
 - ⚡ **NIST Cybersecurity Framework 2.0** (added in EE 0.10.0) — 13 covered + 10 partial + 83 OOS Subcategories across 106 of CSF 2.0's 107 Subcategories.
 - 🏥 **HIPAA Security Rule §164.312** (added in EE 0.9.0) — Zero BAA required; your ePHI never leaves your infrastructure.
 - ☁️ **24 cloud plugins** across AWS, Azure, GCP — fully integrated SOC 2 / HIPAA / NIST CSF 2.0 / PCI DSS v4.0.1 evidence pipeline (Enterprise).
@@ -66,7 +67,7 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, or PCI DSS audit** — or
 - 🔗 **Native GRC platform integration** — push evidence directly to **Vanta** (live; Drata + Secureframe planned). Idempotent retries, per-tenant token rotation, rate-limit handling, signed-envelope round-trip integrity.
 - 🗄️ **WORM evidence storage** — S3 Object Lock COMPLIANCE-mode for SEC Rule 17a-4(f) / FINRA 4511 retention compliance
 - 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
-- 🎯 **8 adversarial-audit Claude Code skills** authored per the NEW Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 5-of-5 COMPLETE for shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + GRC connector)
+- 🎯 **9 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 6-of-6 COMPLETE for shipped + in-flight frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + GRC connector)
 
 → **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
 → **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
@@ -572,7 +573,7 @@ nsauditor-ai --version     (or -v, or `version`)
 | `--interval <min>` | Rescan interval in minutes (requires `--watch`) | `60` |
 | `--webhook-url <url>` | Webhook URL for delta alerts | — |
 | `--alert-severity <sev>` | Minimum severity for webhook alerts | `high` |
-| `--compliance <fw>` | Compliance framework to map findings into. Accepts CSV for multi-framework runs (e.g. `soc2`, `hipaa`, `nist-csf`, `pci-dss`, or any combination like `soc2,hipaa,nist-csf,pci-dss`). **Enterprise license required.** Supported frameworks as of EE 0.11.0: `soc2` (AICPA TSC 2017) + `hipaa` (HIPAA Security Rule §164.312 Technical Safeguards) + `nist-csf` (NIST Cybersecurity Framework 2.0 Core, CSWP 29 Feb 2024) + `pci-dss` (PCI DSS v4.0.1, PCI SSC June 2024 errata). See `@nsasoft/nsauditor-ai-ee` README for per-framework coverage details. | — |
+| `--compliance <fw>` | Compliance framework to map findings into. Accepts CSV for multi-framework runs (e.g. `soc2`, `hipaa`, `nist-csf`, `pci-dss`, `iso-27001`, or any combination like `soc2,hipaa,nist-csf,pci-dss,iso-27001`). **Enterprise license required.** Supported frameworks as of EE 0.12.0: `soc2` (AICPA TSC 2017) + `hipaa` (HIPAA Security Rule §164.312 Technical Safeguards) + `nist-csf` (NIST Cybersecurity Framework 2.0 Core, CSWP 29 Feb 2024) + `pci-dss` (PCI DSS v4.0.1, PCI SSC June 2024 errata) + `iso-27001` (ISO/IEC 27001:2022, ISO + IEC October 2022). See `@nsasoft/nsauditor-ai-ee` README for per-framework coverage details. | — |
 | `--compliance-scope <path>` | Optional JSON file describing the assessment scope (passed to the compliance engine for cover-page attestation) | — |
 | `--help`, `-h` | Print usage block (subcommands, flags, env vars, examples) and exit 0 | — |
 | `--version`, `-v` | Print `nsauditor-ai <version>` and exit 0 | — |

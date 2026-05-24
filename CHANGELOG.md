@@ -6,7 +6,19 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.73 (STAGED 2026-05-23 — pending trio-publish) — Paired with EE 0.11.1 PCI DSS v4.0.1 patch cycle (CAO authorship + 4 R-MEDIUM folds + `license --reset` subcommand)
+## 0.1.74 (STAGED 2026-05-24 — pending trio-publish) — Paired with EE 0.12.0 ISO/IEC 27001:2022 fifth-framework introduction
+
+**Cycle hook**: EE 0.12.0 ships ISO/IEC 27001:2022 as the FIFTH Track 3 framework alongside SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS v4.0.1. Per-Annex-A-code mapping at the auditor-canonical level for ISO/IEC 17021-1 accredited certification body assessors walking Stage 1 (documentation) / Stage 2 (implementation + operating-effectiveness sampling) / annual surveillance / 3-year recertification. 17 covered + 14 partial + 62 OOS across 93 Annex A controls (the complete Annex A universe across 4 themes: A.5 Organizational 37 + A.6 People 8 + A.7 Physical 14 + A.8 Technological 34). 11 NEW 2022 controls explicitly enumerated (3 COVERED + 2 PARTIAL + 6 OOS). Statement of Applicability per Clause 6.1.3.d discipline + ISMS Clauses 4-10 OOS-by-design framing (7 Major Nonconformity classes — absence of internal audit per Clause 9.2 or management review per Clause 9.3 = auto-fail Stage 2) + 5-attribute taxonomy + 2013-to-2022 transition discipline (transition deadline passed October 31, 2025).
+
+**No CE code changes** — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag accepts the new `iso-27001` value via the framework-agnostic `loadFrameworkMap()` engine; per-framework JSON ships with EE.
+
+**Plugin catalog**: UNCHANGED at 24 plugins; CE plugin set unchanged.
+
+**THIRTY-FIRST consecutive trio-publish** institutionalized 0.4.5–0.12.0.
+
+---
+
+## 0.1.73 (PUBLISHED 2026-05-23 to npm as `latest`) — Paired with EE 0.11.1 PCI DSS v4.0.1 patch cycle (CAO authorship + 4 R-MEDIUM folds + `license --reset` subcommand)
 
 NEW CE-side `nsauditor-ai license --reset` subcommand for the macOS customer license-rotation flow. Atomic dual-channel reset clears BOTH `~/.nsauditor/license-state.json` AND the macOS Keychain `NSAUDITOR_LICENSE_ID` entry — single-surface clearing ("rm ~/.nsauditor/license-state.json") is a HALF-fix on macOS because `_readLicenseState` (`utils/license.mjs:402-434`) also reads from Keychain and Keychain wins on read. The replay-defense check (`license.mjs:664-670`) then compares persisted-vs-payload `licenseId` and returns `license_id_mismatch` with tier downgrade to CE, even though the customer holds a valid EE JWT.
 
