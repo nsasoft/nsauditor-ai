@@ -6,7 +6,32 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.72 (STAGED 2026-05-23 — pending trio-publish) — Paired with EE 0.11.0 PCI DSS v4.0.1 Track 3 fourth-framework cycle
+## 0.1.73 (STAGED 2026-05-23 — pending trio-publish) — Paired with EE 0.11.1 PCI DSS v4.0.1 patch cycle (CAO authorship + 4 R-MEDIUM folds + `license --reset` subcommand)
+
+NEW CE-side `nsauditor-ai license --reset` subcommand for the macOS customer license-rotation flow. Atomic dual-channel reset clears BOTH `~/.nsauditor/license-state.json` AND the macOS Keychain `NSAUDITOR_LICENSE_ID` entry — single-surface clearing ("rm ~/.nsauditor/license-state.json") is a HALF-fix on macOS because `_readLicenseState` (`utils/license.mjs:402-434`) also reads from Keychain and Keychain wins on read. The replay-defense check (`license.mjs:664-670`) then compares persisted-vs-payload `licenseId` and returns `license_id_mismatch` with tier downgrade to CE, even though the customer holds a valid EE JWT.
+
+Customer-facing failure mode (discovered during EE 0.11.0 first-install rehearsal on operator machine, 2026-05-23): customer pays for seat expansion / org change → support reissues new JWT with rotated `licenseId` → customer runs `license install <new-JWT>` (Keychain JWT updated) → next `license --status` call returns `license_id_mismatch` and falls back to CE despite valid Enterprise JWT in Keychain. Pre-this-release recipe required customer to run `security delete-generic-password -s nsauditor-ai -a NSAUDITOR_LICENSE_ID` blind from a support email.
+
+Behavior:
+- **Default** (`license --reset`): clears state-file + Keychain `NSAUDITOR_LICENSE_ID`; preserves `NSAUDITOR_LICENSE_KEY` (JWT). Next license check re-binds the new `licenseId` cleanly. Customer sees Enterprise active immediately on next `--status` call.
+- **`--purge` flag**: additionally clears Keychain `NSAUDITOR_LICENSE_KEY` (JWT). Forces full re-install with `license install <KEY>`. Linux/Windows file-based JWT purge deferred (would require editing `~/.nsauditor/.env` which may contain unrelated env vars).
+
+Verified end-to-end on operator machine: state file (119 bytes) + Keychain `NSAUDITOR_LICENSE_ID` (lic_f7ff29ad-...) cleared; JWT preserved; next `license --status` re-binds cleanly with Enterprise tier active.
+
+**Paired EE 0.11.1 highlights** (full detail in EE CHANGELOG):
+- 5 R-MEDIUM authoring folds shipped: CDE-scope badge per-control display, Req 12.8.5 TPSP shared-responsibility matrix renderer, QSA enforcement-priority ranked view, CAO authorship for all 26 customized-eligible sub-requirements per PCI DSS v4.0.1 Appendix D, + comprehensive test suite extensions
+- HIGH-IMPACT pre-existing OCR-categorizer bug fix (`v.issue` → `v.text` — HIPAA OCR-priority section had been silently emitting empty buckets since EE 0.9.4 due to co-evolved test/prod schema drift)
+- Dual-skill reviewer pass via `audit-pci-dss-qsa-perspective` + `audit-soc2-evidence-sufficiency` — 0 R-CRITICAL + 3 same-session folds (R-HIGH-1 IPv6 ::/0 regex + R-MEDIUM-1 6-direction leak matrix + stale-comment cleanup)
+- Regression: 6236/6236 tests across 1015 suites GREEN (+44 net new tests vs EE 0.11.0 baseline) — 76-session 100% green streak preserved + extended
+- **Plugin count UNCHANGED at 24** — pure patch cycle. SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS coverage matrices ALL UNCHANGED.
+
+**THIRTIETH consecutive trio-publish** institutionalized 0.4.5–0.11.1. Auto-memory: `[[macos_license_reset_dual_channel]]` documents the dual-channel persistence trap.
+
+KNOWN PRE-EXISTING TEST FAILURE (not caused by 0.1.73, tracked for next CE cycle): `tests/license.test.mjs:106` ('returns CE tier when no key') fails on dev machines with installed Enterprise license — `resolveLicenseKey()` 3-source chain (env → Keychain → ~/.nsauditor/.env file) only stubs env var in test setup; Keychain + file resolutions still hit the operator's real JWT on dev machines. CI passes because no JWT exists in any source there. Fix requires extending `loadLicense` to pass opts through to `resolveLicenseKey`. Latent since `resolveLicenseKey` was authored.
+
+---
+
+## 0.1.72 (PUBLISHED 2026-05-23) — Paired with EE 0.11.0 PCI DSS v4.0.1 Track 3 fourth-framework cycle
 
 No CE code changes — paired-publish for trio-publish discipline + customer discoverability. CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0); the engine is framework-agnostic per the institutional cycle pattern. Engine paths are EE-side; CE binary surfaces the framework via `--compliance pci-dss` (or `--compliance soc2,hipaa,nist-csf,pci-dss` for the full 4-framework pack from a single scan).
 
