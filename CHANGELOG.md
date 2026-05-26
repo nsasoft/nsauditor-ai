@@ -6,7 +6,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.78 (STAGED — paired trio publish pending) — Paired with EE 0.13.3 (plugin 1220 deepening: blob-recoverability + per-container public-access dims)
+## 0.1.79 (STAGED — paired trio publish pending) — Paired with EE 0.14.0 NEW plugin 1221 (Azure NSG Perimeter Auditor)
+
+**Paired-publish for trio-publish discipline; no CE code changes.** EE 0.14.0 (Move C-2.2) adds NEW **plugin 1221 `azure-nsg-perimeter-auditor`** — the Azure analog of AWS plugin 1170 — taking the EE plugin count **26 → 27** (cloud-audit 25 → 26). It is a CC6.6 network-segmentation perimeter auditor for Azure Network Security Groups: evaluates each NSG's inbound rules in Azure priority order (first match wins; DenyAllInbound default) across all-protocol public Allow + public-source (`*`/`0.0.0.0/0`/`Internet`) to a restricted management/data-tier port + `::/0` IPv6-wildcard (the dimension the multi-purpose 1022 scanner's flat per-rule NSG lint misses) + public→non-restricted INFO + PASS substrate, with attachment-aware severity (attached → CRITICAL effective; orphaned → MEDIUM latent), effective priority/deny-override resolution, and `0.0.0.0/1` split-range coverage. Deliberately non-overlapping-by-depth with 1022's coarse NSG dim (no double-emission). Findings route across all six frameworks (SOC 2 CC6.6 / HIPAA / NIST CSF / PCI DSS / ISO 27001 / CIS v8) — **all six coverage matrices UNCHANGED** (substrate-depth uplift on already-covered perimeter controls). The CE `--compliance` CSV is unchanged; the framework-agnostic engine consumes the new findings automatically once the EE package is installed. README EE plugin catalog updated to the full 27 plugins (1020-1221); cloud-plugin count 25 → 26, enterprise-plugin count 26 → 27.
+
+## 0.1.78 (PUBLISHED 2026-05-26) — Paired with EE 0.13.3 (plugin 1220 deepening: blob-recoverability + per-container public-access dims)
 
 **Paired-publish for trio-publish discipline; no CE code changes.** EE 0.13.3 (Move C-2.1) deepens plugin 1220 with two new secondary-resource-path data-protection dims — blob recoverability (soft-delete + versioning via `blobServices.getServiceProperties`) + per-container anonymous public access (account-toggle-aware via `blobContainers.list`). Plugin count UNCHANGED at 26 (deepening, not a new plugin); all six coverage matrices UNCHANGED. The framework-agnostic CE engine consumes the new findings automatically once the EE package is installed.
 
