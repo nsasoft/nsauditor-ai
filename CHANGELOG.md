@@ -6,7 +6,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.77 (STAGED — paired trio publish pending) — Paired with EE 0.13.2 NEW plugin 1220 (Azure Storage Account Data-Protection Auditor)
+## 0.1.78 (STAGED — paired trio publish pending) — Paired with EE 0.13.3 (plugin 1220 deepening: blob-recoverability + per-container public-access dims)
+
+**Paired-publish for trio-publish discipline; no CE code changes.** EE 0.13.3 (Move C-2.1) deepens plugin 1220 with two new secondary-resource-path data-protection dims — blob recoverability (soft-delete + versioning via `blobServices.getServiceProperties`) + per-container anonymous public access (account-toggle-aware via `blobContainers.list`). Plugin count UNCHANGED at 26 (deepening, not a new plugin); all six coverage matrices UNCHANGED. The framework-agnostic CE engine consumes the new findings automatically once the EE package is installed.
+
+## 0.1.77 (PUBLISHED 2026-05-26) — Paired with EE 0.13.2 NEW plugin 1220 (Azure Storage Account Data-Protection Auditor)
 
 **Paired-publish for trio-publish discipline; no CE code changes.** EE 0.13.2 (Move C-2) adds NEW **plugin 1220 `azure-storage-hardening-auditor`** — the first dedicated Azure auditor beyond the multi-purpose 1022 scanner — taking the EE plugin count **25 → 26** (cloud-audit 24 → 25). It audits the Azure Storage Account encryption-at-rest / in-transit / authorization-mode surface (HTTPS-only `enableHttpsTrafficOnly` + minimum TLS version + Shared Key authorization `allowSharedKeyAccess` + infrastructure double encryption + customer-managed-key reachability + rotation `keyVaultProperties`), deliberately non-overlapping with 1022's network-exposure dims (no double-emission; mirrors the AWS 1020 + 1120 two-plugin S3 split). Findings route across all six frameworks (SOC 2 / HIPAA / NIST CSF / PCI DSS / ISO 27001 / CIS v8) — **all six coverage matrices UNCHANGED** (substrate-depth uplift on already-covered transit/auth/at-rest controls). The CE `--compliance` CSV is unchanged; the framework-agnostic engine consumes the new findings automatically once the EE package is installed. README EE plugin catalog updated to the full 26 plugins (1020-1220); cloud-plugin count 24 → 25, enterprise-plugin count 25 → 26.
 
