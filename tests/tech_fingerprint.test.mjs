@@ -48,3 +48,15 @@ test('dedupes a tech matched on multiple surfaces into one entry', () => {
   const apps = fingerprint({ url: 'http://x/', html, statusCode: 200, headers: {} });
   assert.equal(apps.filter(a => a.name === 'WordPress').length, 1);
 });
+
+test('detects ASP.NET via x-aspnet-version header + extracts version', () => {
+  const apps = fingerprint({ url: 'http://x/', html: '', statusCode: 200, headers: { 'x-aspnet-version': '4.0.30319' } });
+  const net = apps.find(a => a.name === 'ASP.NET');
+  assert.ok(net, 'ASP.NET detected via altHeader');
+  assert.equal(net.version, '4.0.30319');
+});
+
+test('detects Drupal via x-generator header', () => {
+  const apps = fingerprint({ url: 'http://x/', html: '', statusCode: 200, headers: { 'x-generator': 'Drupal 10 (https://www.drupal.org)' } });
+  assert.ok(apps.find(a => a.name === 'Drupal'), 'Drupal detected via altHeader');
+});

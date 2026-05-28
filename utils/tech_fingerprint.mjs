@@ -45,6 +45,7 @@ const SIGS = [
     categories: ['Web frameworks'],
     header: ['x-powered-by', /asp\.net/i],
     altHeader: ['x-aspnet-version', /.+/],
+    versionFrom: { surface: 'header', key: 'x-aspnet-version', regex: /([\d.]+)/ },
   },
   {
     name: 'Express',
@@ -122,7 +123,7 @@ function extractScriptSrcs(html) {
 /** Extract <meta name="…" content="…"> into a lowercased-name → content map. */
 function extractMetas(html) {
   const map = {};
-  const re = /<meta[^>]+>/gi;
+  const re = /<meta[^>]+>/gi; // NOTE: stops at first '>'; meta content containing '>' is not handled (no current signature needs it)
   let m;
   while ((m = re.exec(html)) !== null) {
     const tag = m[0];
@@ -146,7 +147,8 @@ export function fingerprint({ url, html = '', statusCode, headers = {} } = {}) {
   const hdrs  = normaliseHeaders(headers);
   const srcs  = extractScriptSrcs(html);
   const metas = extractMetas(html);
-  const cookie = hdrs['set-cookie'] ?? '';
+  // url + statusCode reserved for future per-URL / status-code rules
+  const cookie = hdrs['set-cookie'] ?? ''; // set-cookie is multi-valued; joined for regex matching — cookie patterns should match anywhere in the joined string.
 
   /** Resolve version for a detected sig given the surfaces already parsed. */
   function resolveVersion(sig) {
@@ -219,7 +221,7 @@ export function fingerprint({ url, html = '', statusCode, headers = {} } = {}) {
 
     detected.set(sig.name, {
       name: sig.name,
-      categories: sig.categories,
+      categories: [...sig.categories],
       confidence,
       version,
     });
@@ -234,7 +236,7 @@ export function fingerprint({ url, html = '', statusCode, headers = {} } = {}) {
       if (!impliedSig) continue;
       detected.set(impliedName, {
         name: impliedName,
-        categories: impliedSig.categories,
+        categories: [...impliedSig.categories],
         confidence: 50,
         version: undefined,
       });
