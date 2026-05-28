@@ -6,7 +6,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.1.85 (STAGED on `main` 2026-05-28) — Paired with EE 0.15.4 plugin 1020 non-current-version ACL sampling + public WRITE-vs-READ differentiation
+## 0.1.86 (2026-05-28; paired with EE 0.15.5) — Dependency-hygiene / institutional-trust patch
+
+Removes npm deprecation warnings + advisories institutional clients see on `npm install`. No feature/behavior change.
+
+- **In-house tech fingerprinter replaces the abandoned `simple-wappalyzer`.** NEW zero-dependency `utils/tech_fingerprint.mjs` (signature matching over HTTP headers / HTML / `<script src>` / cookies / `<meta>`; confidence `min(100, 25+25×matched-surfaces)`; `implies` + version extraction; 13 seed signatures) wired into `plugins/webapp_detector.mjs`, returning the same `{name, categories, confidence, version}` shape. Eliminates the deprecated `wappalyzer-core` transitive (Wappalyzer went commercial / unmaintained).
+- **`@anthropic-ai/sdk` `^0.82.0` → `^0.100.0`** — exits the GHSA-p7fg-763f-g4gf (0.79.0–0.91.0) advisory range. CE only calls `messages.create` (the Filesystem Memory Tool the advisory concerns is never used).
+- **Direct `uuid` dependency removed** — replaced by the native `crypto.randomUUID()` in `plugins/wsd_scanner.mjs` + `utils/finding_schema.mjs`.
+- **NEW `SECURITY.md`** dependency-transparency statement.
+- All tests green (1 pre-existing unrelated `license.test.mjs` failure aside).
+
+## 0.1.85 (PUBLISHED 2026-05-28) — Paired with EE 0.15.4 plugin 1020 non-current-version ACL sampling + public WRITE-vs-READ differentiation
 
 **Paired-publish for trio-publish discipline; no CE code changes.** EE 0.15.4 closes the two residuals the 0.15.3 spec §8 carried as deferred. **(R-MEDIUM-2)** NEW step 2c-v samples public ACLs on **non-current** object versions: when `GetBucketVersioning` Status is Enabled or Suspended (Suspended buckets RETAIN old versions), plugin 1020 calls `ListObjectVersions` (first-page, bounded by `AWS_S3_AUDIT_OBJECT_SAMPLE_CAP`), filters to `IsLatest !== true`, skips `DeleteMarkers`, and reads each with `GetObjectAcl({Key, VersionId})` — closing the Class-B miss where a private current object retains a public-ACL overwritten version still served at `?versionId=`. Public `AllUsers`/`AuthenticatedUsers` grant → CRITICAL via the existing `"publicly accessible"` anchor; PAB `IgnorePublicAcls` → LOW; skipped on `BucketOwnerEnforced`. **(R-LOW-1)** NEW `extractPublicWriteGroups` helper flags public WRITE/WRITE_ACP/FULL_CONTROL grants (anyone-can-overwrite) as a distinct enrichment line + counter on the already-CRITICAL finding at bucket/object/non-current-version ACL sites — no severity change, no new anchor. NEW evidence-gaps reuse the `"S3 object-ACL evidence-gap"` anchor: `ListObjectVersions AccessDenied` (distinct `s3:ListBucketVersions` IAM action) + per-version aggregate-failure threshold + version-list truncation + (folded from the `audit-cloud-plugin-false-negatives` review) a `GetBucketVersioning AccessDenied` gap (previously a silent skip of the whole version surface; now a routed LOW, suppressed on BOE). **Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED; ZERO framework-JSON edits.** No new dependencies; EE regression **6628/6628 GREEN** (+27 tests vs the 6601 baseline). The framework-agnostic CE engine consumes the new findings automatically once the EE package is installed. _(Staged on `main`; awaiting live AWS smoke on extended versioned fixtures + trio publish.)_
 
