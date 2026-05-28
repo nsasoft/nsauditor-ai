@@ -15,3 +15,7 @@ test('@anthropic-ai/sdk constraint is above the GHSA-p7fg-763f-g4gf range (>0.91
 test('CE no longer declares a direct uuid dep (uses crypto.randomUUID)', () => {
   assert.ok(!('uuid' in pkg.dependencies), 'direct uuid dropped in favor of crypto.randomUUID()');
 });
+
+test('CE no longer declares simple-wappalyzer (abandoned wappalyzer-core)', () => {
+  assert.ok(!('simple-wappalyzer' in pkg.dependencies), 'simple-wappalyzer removed; in-house fingerprinter replaces it');
+});
