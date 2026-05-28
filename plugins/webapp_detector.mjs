@@ -1,12 +1,10 @@
 // plugins/webapp_detector.mjs
 // New plugin: Webapp Detector
-// Uses `simple-wappalyzer` to fingerprint web applications present on a host.
+// Uses the in-house zero-dep fingerprinter (utils/tech_fingerprint.mjs) to identify
+// web applications present on a host.
 // Tries HTTPS first (port 443), then HTTP (port 80), and can also try custom ports via opts.ports.
 // NOTE: Unlike http_probe, undici/fetch cannot ignore TLS easily per-request, so self-signed
 // HTTPS will usually fail and the plugin will fall back to HTTP.
-//
-// Add to package.json (dependencies):
-//   "simple-wappalyzer": "^1.14.0"   // or latest
 //
 // Example use (plugin manager):
 //   webappDetector.run("192.168.1.1")
@@ -29,7 +27,7 @@
 //   apps: [ { name, categories, confidence, version?, slug, ... }, ... ]
 // }
 
-import wappalyzer from 'simple-wappalyzer';
+import { fingerprint } from '../utils/tech_fingerprint.mjs';
 
 const DEBUG =
   String(process.env.DEBUG_MODE || '').toLowerCase() === '1' ||
@@ -107,18 +105,18 @@ async function tryDetectAt(url) {
   }
 }
 
-/** Run wappalyzer on provided HTML/headers. */
+/** Run in-house fingerprinter on provided HTML/headers. */
 async function detectFromHtml(url, html, statusCode, headers) {
   try {
-    const result = await wappalyzer({ url, html, statusCode, headers });
+    const result = fingerprint({ url, html, statusCode, headers });
     if (Array.isArray(result) && result.length) {
-      log('wappalyzer apps=', result.map(a => a.name).join(', '));
+      log('fingerprint apps=', result.map(a => a.name).join(', '));
     } else {
-      log('wappalyzer apps=∅');
+      log('fingerprint apps=∅');
     }
     return result || [];
   } catch (e) {
-    log('wappalyzer error:', e?.message || e);
+    log('fingerprint error:', e?.message || e);
     return [];
   }
 }
@@ -137,7 +135,7 @@ function summarizeApps(apps) {
 export default {
   id: '010',
   name: 'Webapp Detector',
-  description: 'Identifies web applications and frameworks using simple-wappalyzer (tries HTTPS then HTTP).',
+  description: 'Identifies web applications and frameworks using the in-house fingerprinter (tries HTTPS then HTTP).',
   priority: 55, // run near HTTP probe
   requirements: { host: 'up', tcp_open: [80, 443] }, // heuristic gate; still attempts both
   protocols: ['tcp'],
@@ -156,7 +154,7 @@ export default {
       os: null,
       type: 'webapp',
       data: [],
-      apps: [], // raw simple-wappalyzer results
+      apps: [], // raw fingerprinter results
     };
 
     let target = normalizeTarget(host);
@@ -244,3 +242,5 @@ export async function conclude({ host, result }) {
     authoritative: false,
   }));
 }
+
+export { detectFromHtml, summarizeApps };

@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import webappDetector, { conclude } from '../plugins/webapp_detector.mjs';
+import { detectFromHtml } from '../plugins/webapp_detector.mjs';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -158,4 +159,12 @@ test('webapp_detector: both HTTPS and HTTP fail → up=false and error row recor
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+test('detectFromHtml uses the in-house fingerprinter (nginx + WordPress, no network)', async () => {
+  const html = '<meta name="generator" content="WordPress 6.5"><script src="/wp-includes/a.js"></script>';
+  const apps = await detectFromHtml('http://x/', html, 200, { server: 'nginx/1.25.0' });
+  const names = apps.map(a => a.name);
+  assert.ok(names.includes('Nginx'), 'Nginx detected');
+  assert.ok(names.includes('WordPress'), 'WordPress detected');
 });
