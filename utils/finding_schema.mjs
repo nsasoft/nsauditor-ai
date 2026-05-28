@@ -1,5 +1,4 @@
 // utils/finding_schema.mjs
-import { v4 as uuidv4 } from 'uuid';
 
 export const FINDING_CATEGORIES = ['AUTH', 'CRYPTO', 'CONFIG', 'SERVICE', 'EXPOSURE', 'CVE'];
 export const FINDING_STATUSES   = ['UNVERIFIED', 'VERIFIED', 'POTENTIAL', 'FALSE_POSITIVE'];
@@ -62,5 +61,5 @@ export function validateFinding(f) {
  * UUID-based — no counter to reset, no collision risk across restarts.
  */
 export function generateFindingId() {
-  return `F-${uuidv4()}`;
+  return `F-${crypto.randomUUID()}`;
 }

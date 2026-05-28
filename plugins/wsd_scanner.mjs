@@ -5,7 +5,6 @@
 
 import dgram from 'dgram';
 import { parseString } from 'xml2js';
-import { v4 as uuidv4 } from 'uuid';
 import { isPrivateLike } from '../utils/net_validation.mjs';
 
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.WSD_DEBUG || ""));
@@ -28,7 +27,7 @@ function discoverWsDiscoveryDevices(targetHost, timeout = 5000) {
     const client = dgram.createSocket('udp4');
     const devices = [];
     const knownAddresses = new Set();
-    const probeMessageId = `urn:uuid:${uuidv4()}`;
+    const probeMessageId = `urn:uuid:${crypto.randomUUID()}`;
     const includeNonMatched = /^(1|true|yes|on)$/i.test(String(process.env.WSD_INCLUDE_NON_MATCHED || ""));
 
     // The multicast address and port for WS-Discovery
