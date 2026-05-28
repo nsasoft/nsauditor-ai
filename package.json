@@ -1,6 +1,6 @@
 {
   "name": "nsauditor-ai",
-  "version": "0.1.85",
+  "version": "0.1.86",
   "description": "Modular AI-assisted network security audit platform — Community Edition",
   "type": "module",
   "private": false,
@@ -27,7 +27,7 @@
     "plugin_manager.mjs"
   ],
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.100.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dnssd": "^0.4.1",
     "dotenv": "^17.2.1",
@@ -39,7 +39,6 @@
     "simple-wappalyzer": "^1.1.75",
     "snmp-native": "^1.2.0",
     "jose": "^6.2.0",
-    "uuid": "^13.0.0",
     "xml2js": "^0.6.2"
   },
   "optionalDependencies": {
