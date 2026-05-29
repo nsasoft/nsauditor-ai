@@ -6,6 +6,8 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.89 (2026-05-29; paired with EE 0.15.8) — Paired no-op for the EE cloud-plugin scoping fixes (AWS CLOUD_PROVIDER gate + GCP evidence-gap). No CE code change.
+
 ## 0.1.88 (2026-05-29; paired with EE 0.15.7) — Paired no-op for the EE GCP SDK refresh
 
 No CE code change. Version bump preserves the trio + `@latest` pin alignment. EE 0.15.7 re-applies the GCP SDK major bump (`@google-cloud/compute` ^6 / `@google-cloud/iam` ^2 / `googleapis` ^173) on the pure-ADC credential path, documents the compute-client impersonation gap, and folds the plugin-1021 project-resolution fix. Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
