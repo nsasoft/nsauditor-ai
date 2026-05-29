@@ -17,8 +17,9 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.1.86 + Enterprise 0.15.5** (May 2026)
+**Latest: CE 0.1.87 + Enterprise 0.15.6** (May 2026)
 
+- 🧭 **Compliance-mapping correctness** (CE 0.1.87 — paired EE 0.15.6) — EE 0.15.6 closes two cross-framework defects in how S3 public-exposure findings route to the compliance frameworks: a publicly-accessible bucket now correctly maps to **NIST CSF PR.AA-05 + PR.DS-01** and **PCI DSS 7.2.1** (it previously showed CLEAN on those two), and a missing-Public-Access-Block guardrail gap (not a confirmed exposure) no longer false-FAILs the confidentiality-exposure controls. CE is a paired no-op bump (no CE code change). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
 - 🧹 **Dependency-hygiene / institutional-trust patch** (CE 0.1.86 — paired EE 0.15.5) — removes deprecation warnings + advisories from `npm install`. The abandoned `simple-wappalyzer` (→ deprecated, now-commercial `wappalyzer-core`) is replaced by an in-house **zero-dependency** web tech fingerprinter (`utils/tech_fingerprint.mjs` — header/HTML/script-src/cookie/meta signatures; same `{name,categories,confidence,version}` output). `@anthropic-ai/sdk` bumped `^0.82`→`^0.100` (exits the GHSA-p7fg-763f-g4gf range; the Filesystem Memory Tool is never used). The direct `uuid` dependency is dropped in favor of native `crypto.randomUUID()`. NEW `SECURITY.md` documents remaining transitive notices. No feature/behavior change.
 
 

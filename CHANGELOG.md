@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.87 (2026-05-28; paired with EE 0.15.6) — Paired no-op for the EE compliance-mapping correctness patch
+
+No CE code/behavior change. Version bump preserves the trio + `@latest` pin alignment. EE 0.15.6 closes two cross-framework defects in the S3 public-exposure compliance routing: a publicly-accessible bucket now correctly maps to NIST CSF PR.AA-05 + PR.DS-01 and PCI DSS 7.2.1 (previously CLEAN on those two frameworks), and the missing-Public-Access-Block MEDIUM (a guardrail gap, not a confirmed exposure) no longer false-FAILs the confidentiality-exposure controls. Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
+
 ## 0.1.86 (2026-05-28; paired with EE 0.15.5) — Dependency-hygiene / institutional-trust patch
 
 Removes npm deprecation warnings + advisories institutional clients see on `npm install`. No feature/behavior change.
