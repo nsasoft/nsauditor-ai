@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## [Unreleased]
+## 0.1.94 (2026-05-30) — parallel `scan_cloud` execution (fits the 60s MCP budget) — paired with EE 0.16.3 + agent-skill 0.1.62
 
 ### Changed
 - **`scan_cloud` now runs cloud plugins concurrently** (default up to 20 at once) with a dedicated per-run
@@ -17,6 +17,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   `CLOUD_SCAN_CONCURRENCY` (default 20). Cloud plugins are independent, so each runs in its own context; the
   network-scan / `scan_host` path is unchanged. The anti-false-clean reporting (a cloud is "audited" only if a
   plugin actually ran) is preserved — a timed-out plugin still surfaces as a coverage gap, never a clean pass.
+
+### Fixed
+- **`callPlugin` hardened against synchronously-throwing plugins** (review fold) — a plugin whose `run()` threw
+  before its first `await` previously aborted the whole batch (sequential or parallel); `mod.run` is now wrapped
+  so the throw becomes a handled per-plugin `error` and the other plugins still complete. A negative
+  `CLOUD_PLUGIN_TIMEOUT_MS` is clamped to the default (no instant-timeout-everything).
 
 ---
 
