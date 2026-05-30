@@ -765,13 +765,21 @@ export class PluginManager {
     // Sentinel-host scoping: on --host aws|gcp|azure with the implicit `all`,
     // run only that cloud's plugins; skip other clouds + non-cloud plugins.
     const scope = scopeSelectionForHost(selection, host, rawSpec);
-    if (scope.scoped && scope.skipped.length) {
+    if (scope.scoped) {
       selection = scope.selected;
-      console.error(
-        `Cloud host '${scope.provider}' → running ${scope.selected.length} ` +
-        `${scope.provider.toUpperCase()} plugin(s); skipping ${scope.skipped.length} ` +
-        `non-${scope.provider} plugin(s) (other clouds + non-cloud).`,
-      );
+      if (scope.selected.length === 0) {
+        console.error(
+          `WARNING: --host '${scope.provider}' matched 0 ${scope.provider.toUpperCase()} plugins — ` +
+          `NOTHING was audited. Ensure the ${scope.provider.toUpperCase()} plugins are installed and ` +
+          `licensed (an empty result is NOT a clean pass).`,
+        );
+      } else if (scope.skipped.length) {
+        console.error(
+          `Cloud host '${scope.provider}' → running ${scope.selected.length} ` +
+          `${scope.provider.toUpperCase()} plugin(s); skipping ${scope.skipped.length} ` +
+          `non-${scope.provider} plugin(s) (other clouds + non-cloud).`,
+        );
+      }
     }
 
     // Decide execution mode

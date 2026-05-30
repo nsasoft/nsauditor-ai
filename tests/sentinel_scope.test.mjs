@@ -69,6 +69,13 @@ test('PluginManager.run(host=aws, all) executes only AWS-tagged plugins', async 
   assert.deepEqual(ran, ['1020'], `only AWS plugin should run, got: ${ran}`);
 });
 
+test('sentinel scope with zero matching plugins runs nothing (and must not look clean)', async () => {
+  const plugins = [stubPlugin('1021', 'gcp'), stubPlugin('1022', 'azure')];
+  const pm = await PluginManager.create({ plugins });
+  const { manifest } = await pm.run('aws', 'all', {});
+  assert.equal(manifest.filter((m) => m.status === 'ran').length, 0);
+});
+
 test('PluginManager.run(host=aws, explicit list) runs exactly the requested plugins', async () => {
   const plugins = [stubPlugin('1020', 'aws'), stubPlugin('1021', 'gcp')];
   const pm = await PluginManager.create({ plugins });

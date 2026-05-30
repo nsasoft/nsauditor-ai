@@ -34,6 +34,20 @@ function providerAlreadySet(set, env) {
   return v != null && String(v).trim() !== '';
 }
 
+// The effective CLOUD_PROVIDER after merging the --env file (set) + shell env.
+function effectiveProvider(set, env) {
+  const v = set.CLOUD_PROVIDER ?? env.CLOUD_PROVIDER;
+  return v == null ? '' : String(v).trim().toLowerCase();
+}
+
+// Lenient match (mirrors awsScanSkipReason CSV semantics): the effective provider
+// matches the host if it equals the host OR is a CSV that includes the host.
+function providerMatchesHost(effective, hostProvider) {
+  if (!effective) return true; // unset → no contradiction
+  const tokens = effective.split(',').map((t) => t.trim()).filter(Boolean);
+  return tokens.includes(hostProvider);
+}
+
 /**
  * @param {object} args
  * @param {string} [args.envPath]     value of --env
@@ -77,8 +91,22 @@ export function resolveScanEnv({ envPath, awsProfile, host, env = {}, fileExists
   }
 
   // 3. Sentinel host implies its provider when CLOUD_PROVIDER is still unset.
+  //    Fail-fast on a host vs CLOUD_PROVIDER contradiction: if the effective
+  //    provider (--env file + shell env) is set to a cloud that does NOT match
+  //    the host, scoping would select host-plugins that then all self-skip on
+  //    the awsScanSkipReason gate → ZERO plugins run → a silent "clean" report.
   if (typeof host === 'string' && CLOUD_SENTINELS.has(host.trim().toLowerCase())) {
-    if (!providerAlreadySet(set, env)) set.CLOUD_PROVIDER = host.trim().toLowerCase();
+    const hostProvider = host.trim().toLowerCase();
+    const effective = effectiveProvider(set, env);
+    if (effective && !providerMatchesHost(effective, hostProvider)) {
+      throw new Error(
+        `--host '${hostProvider}' conflicts with CLOUD_PROVIDER='${effective}': the host and the ` +
+        `effective cloud provider do not match, which would silently skip every plugin (an empty ` +
+        `"clean" report). Resolve by dropping the conflicting CLOUD_PROVIDER, or scan the matching host ` +
+        `(--host ${effective.split(',')[0].trim()}).`,
+      );
+    }
+    if (!providerAlreadySet(set, env)) set.CLOUD_PROVIDER = hostProvider;
   }
 
   return { set, unset };

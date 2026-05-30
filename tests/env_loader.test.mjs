@@ -115,8 +115,29 @@ test('non-sentinel host (IP) → no CLOUD_PROVIDER implication', () => {
   assert.equal(r.set.CLOUD_PROVIDER, undefined);
 });
 
-test('--env file that sets CLOUD_PROVIDER wins over sentinel implication', () => {
+test('--env file that sets CLOUD_PROVIDER (matching host) wins over sentinel implication, no throw', () => {
   const fs = { fileExists: (p) => p === path.resolve('/envs/gcp.env'), readFile: () => 'CLOUD_PROVIDER=gcp\n' };
-  const r = resolveScanEnv({ envPath: '/envs/gcp.env', host: 'aws', env: {}, ...fs });
-  assert.equal(r.set.CLOUD_PROVIDER, 'gcp'); // file value present → host does not overwrite
+  const r = resolveScanEnv({ envPath: '/envs/gcp.env', host: 'gcp', env: {}, ...fs });
+  assert.equal(r.set.CLOUD_PROVIDER, 'gcp'); // file value present → host does not overwrite, and matches host so no throw
+});
+
+// === FN-audit: host vs CLOUD_PROVIDER contradiction must fail loud, not silently skip everything ===
+
+test('contradiction: --host aws with CLOUD_PROVIDER=gcp in env → throws (no silent skip)', () => {
+  assert.throws(
+    () => resolveScanEnv({ host: 'aws', env: { CLOUD_PROVIDER: 'gcp' }, fileExists: () => false, readFile: () => '' }),
+    /CLOUD_PROVIDER.*gcp|conflict|does not match/i,
+  );
+});
+test('contradiction: --host gcp with CLOUD_PROVIDER=aws from an --env file → throws', () => {
+  const fs = { fileExists: (p) => p.endsWith('aws.env'), readFile: () => 'CLOUD_PROVIDER=aws\n' };
+  assert.throws(() => resolveScanEnv({ envPath: '/x/aws.env', host: 'gcp', env: {}, ...fs }), /conflict|does not match|CLOUD_PROVIDER/i);
+});
+test('NO contradiction: --host aws with CLOUD_PROVIDER=aws,gcp CSV (includes aws) → does not throw', () => {
+  const r = resolveScanEnv({ host: 'aws', env: { CLOUD_PROVIDER: 'aws,gcp' }, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, undefined); // already set, host doesn't override; no throw
+});
+test('NO contradiction: --host aws, CLOUD_PROVIDER unset → implies aws (existing behavior preserved)', () => {
+  const r = resolveScanEnv({ host: 'aws', env: {}, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, 'aws');
 });
