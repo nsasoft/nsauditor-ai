@@ -40,3 +40,24 @@ export function scopeSelectionForHost(selection, host, spec) {
   }
   return { selected, skipped, scoped: true, provider };
 }
+
+/**
+ * Multi-cloud generalization of scopeSelectionForHost: scope a resolved plugin
+ * selection to the union of the given providers (by each plugin's cloudProvider
+ * field). Used by pluginManager.runCloud() / the MCP scan_cloud tool. Network
+ * plugins (no cloudProvider) and non-requested clouds land in `skipped`.
+ *
+ * @param {Array<object>} selection  resolved plugin objects (each may have .cloudProvider)
+ * @param {string[]} providers       e.g. ['aws'] or ['aws','azure']
+ * @returns {{selected: object[], skipped: object[], providers: string[]}}
+ */
+export function scopeSelectionForProviders(selection, providers) {
+  const set = new Set((providers || []).map((p) => String(p).trim().toLowerCase()));
+  const selected = [];
+  const skipped = [];
+  for (const p of selection) {
+    if (p && p.cloudProvider && set.has(p.cloudProvider)) selected.push(p);
+    else skipped.push(p);
+  }
+  return { selected, skipped, providers: [...set] };
+}
