@@ -13,8 +13,7 @@ async function makePM() {
   });
   // Stub orchestration so this test isolates runCloud's scoping (orchestration
   // is already tested via run()). Echo the scoped selection into manifest/results.
-  pm._runOrchestrated = async (host, selection) => ({
-    ctx: {},
+  pm._runCloudPluginsParallel = async (selection) => ({
     results: selection.map((p) => ({ id: p.id, name: p.name, result: { up: true, data: [] } })),
     manifest: selection.map((p) => ({ id: p.id, name: p.name, status: 'ran', duration_ms: 0 })),
   });

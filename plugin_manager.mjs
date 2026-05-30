@@ -21,6 +21,7 @@ import { discoverPlugins } from './utils/plugin_discovery.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { scopeSelectionForHost, scopeSelectionForProviders } from './utils/sentinel_scope.mjs';
+import { mapLimit } from './utils/concurrency.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -147,7 +148,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     // `context` if the CLI ever accidentally collides on those names.
     const pluginPromise = mod.run(host, port, { ...cliOpts, context: withBaseContext(ctx), ...extra });
 
-    const timeoutMs = PLUGIN_TIMEOUT_MS;
+    const timeoutMs = (cliOpts && cliOpts.timeoutMs) || PLUGIN_TIMEOUT_MS;
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -854,6 +855,41 @@ export class PluginManager {
   }
 
   /**
+   * Concurrent executor for cloud plugins. Mirrors _runOrchestrated's per-plugin
+   * logic (requirements + capability skip checks, callPlugin, manifest status)
+   * but runs with bounded parallelism and a per-run timeout — cloud plugins are
+   * independent (no sequential context chain), so each gets its OWN base ctx and
+   * there is no shared-mutation race. Returns { results, manifest } in plugin order.
+   */
+  async _runCloudPluginsParallel(selected, host, opts = {}) {
+    const concurrency = Number(process.env.CLOUD_SCAN_CONCURRENCY) || 20;
+    const timeoutMs = Number(process.env.CLOUD_PLUGIN_TIMEOUT_MS) || 25000;
+    const toRun = selected.filter((p) => !isConcluder(p));
+
+    const entries = await mapLimit(toRun, concurrency, async (mod) => {
+      const ctx = withBaseContext({ host, hostUp: false, tcpOpen: new Set(), udpOpen: new Set() });
+      if (!shouldRunPlugin(mod, ctx)) {
+        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: describeSkipReason(mod, ctx), duration_ms: 0 }, outputs: [] };
+      }
+      if (!this._hasCapabilities(mod, opts?.capabilities)) {
+        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`, duration_ms: 0 }, outputs: [] };
+      }
+      const startMs = Date.now();
+      const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs });
+      const duration_ms = Date.now() - startMs;
+      let status = 'ran';
+      let reason = null;
+      for (const w of wrappedRuns) {
+        if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${timeoutMs}ms`; }
+        else if (w.result?.error && status !== 'timeout') { status = 'error'; reason = w.result.error; }
+      }
+      return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status, reason, duration_ms }, outputs: wrappedRuns };
+    });
+
+    return { results: entries.flatMap((e) => e.outputs), manifest: entries.map((e) => e.manifest) };
+  }
+
+  /**
    * Cloud-account audit: scope the plugin run to the union of the given cloud
    * providers (by each plugin's `cloudProvider` field), with no network host.
    * Sibling of run() that scopes by provider-set instead of by sentinel host,
@@ -886,7 +922,7 @@ export class PluginManager {
                ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
     }
 
-    const orch = await this._runOrchestrated(host, selected, opts);
+    const orch = await this._runCloudPluginsParallel(selected, host, opts);
     const conclusion = await this.runConcluder(orch.results);
 
     // Per-provider effectiveness from the manifest (ids match the selected set).
