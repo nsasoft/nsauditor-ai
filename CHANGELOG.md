@@ -6,14 +6,19 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## [Unreleased]
+## 0.1.92 (2026-05-30) — MCP `NSA_ENV_FILE`: per-environment `.env` for the MCP server (paired with EE 0.16.1 + agent-skill 0.1.59)
+
+The MCP analog of the 0.16.0 CLI `--env`. **No plugin-count or coverage-matrix change** — this is an MCP-server ergonomics + safety feature.
 
 ### Added
-- **MCP `NSA_ENV_FILE`** — the MCP server now loads a per-environment dotenv file named by
-  `NSA_ENV_FILE` at startup (reusing the CLI `--env` loader). Switch scan environments by
-  changing one path in the Claude Desktop / Claude Code config instead of editing every
-  credential. Loaded after auth + license (scan-target vars only; the auth key and license
-  stay inline and are ignored if present in the file). Fail-fast on a missing/INI file.
+- **MCP `NSA_ENV_FILE`** — the MCP server now loads a per-environment dotenv file named by `NSA_ENV_FILE` at startup (reusing the 0.16.0 CLI `--env` loader `utils/env_loader.mjs#resolveScanEnv`, via the new thin `utils/mcp_env_file.mjs#applyScanEnvFile`). Switch scan environments by changing one path in the Claude Desktop / Claude Code config instead of editing every credential inline.
+- Loaded in `startStdioServer()` **after** the auth gate + license resolution and **before** `createServer()`, so it carries **scan-target vars only** (cloud creds / `CLOUD_PROVIDER` / scan tuning) and can neither bypass the MCP auth gate nor escalate the license tier; `NSA_MCP_AUTH_KEY` / `NSAUDITOR_LICENSE_KEY` are **ignored** if present in the file.
+- **Fail-fast** on a missing file, an INI/`~/.aws/credentials` file, or a set-but-empty `NSA_ENV_FILE` — the server refuses to start rather than silently scanning ambient credentials.
+- **The file is the authoritative scan target:** ambient explicit provider credentials (e.g. a previous account's `AWS_*`/GCP/Azure keys left in the config `env` block) that the file does **not** set are cleared, so a partial file can't silently scan a leftover account. Instance-role / ADC identity is untouched. When `NSA_ENV_FILE` is unused, behavior is unchanged.
+
+### Notes
+- Built brainstorm → spec → TDD plan → subagent-driven, then reviewed through the `audit-cloud-plugin-false-negatives` lens (SHIP-WITH-FOLDS). The review verified the auth/license boundary, installed-entrypoint execution, fail-fast plumbing, and secret-name-only logging, and caught one **exploitable false-clean** — a partial env-file letting leftover ambient creds scan the wrong account — folded same-session (the authoritative-file clearing above + set-but-empty fail-fast).
+- 13 new tests (`tests/mcp_env_file.test.mjs` 11 + `tests/mcp_env_file_shim.test.mjs` 2 — the shim test spawns the **installed** `bin/nsauditor-ai-mcp.mjs`, per the "test the installed entrypoint" lesson). CE regression GREEN (the single failing `license.test.mjs` case is a pre-existing environmental license-fixture artifact). No new dependencies.
 
 ---
 
