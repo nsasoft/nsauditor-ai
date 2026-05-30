@@ -522,6 +522,9 @@ PLUGIN_TIMEOUT_MS=5000
 - **Fail-fast:** if the path is missing or points at an AWS credentials/INI file, the server refuses
   to start (it will not silently fall back to ambient credentials and scan the wrong account). The
   error is written to the MCP server's stderr log.
+- **The file is the authoritative scan target:** ambient provider credentials (e.g. an old account's
+  `AWS_*` keys still in the config `env` block) that the file does **not** set are cleared, so a partial
+  file can't silently scan a leftover account. Instance-role / ADC identity is untouched.
 - `NSA_MCP_AUTH_KEY` and `NSAUDITOR_LICENSE_KEY` are resolved **before** the file and must stay
   inline (or in `~/.nsauditor/.env`); if present in `NSA_ENV_FILE` they are ignored.
 

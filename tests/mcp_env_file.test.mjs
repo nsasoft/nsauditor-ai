@@ -13,7 +13,7 @@ test('no-op when NSA_ENV_FILE unset', () => {
   const env = { FOO: 'bar' };
   const logs = [];
   const r = applyScanEnvFile({ env, ...fakeFs({}), log: (m) => logs.push(m) });
-  assert.deepEqual(r, { applied: [], ignored: [] });
+  assert.deepEqual(r, { applied: [], ignored: [], cleared: [] });
   assert.deepEqual(env, { FOO: 'bar' });
   assert.equal(logs.length, 0);
 });
@@ -65,4 +65,44 @@ test('breadcrumb logs key NAMES only, never values', () => {
   const joined = logs.join('\n');
   assert.ok(joined.includes('AWS_SECRET_ACCESS_KEY'));
   assert.ok(!joined.includes('supersecret123'));
+});
+
+test('R-HIGH-1: clears leftover ambient AWS creds the file did not set', () => {
+  const env = {
+    NSA_ENV_FILE: '/e.env',
+    AWS_ACCESS_KEY_ID: 'AKIA_AMBIENT_ACCOUNT_A',
+    AWS_SECRET_ACCESS_KEY: 'ambient_secret',
+  };
+  const fs = fakeFs({ '/e.env': 'CLOUD_PROVIDER=aws\nNSA_ALLOW_ALL_HOSTS=1\n' });
+  const logs = [];
+  const r = applyScanEnvFile({ env, ...fs, log: (m) => logs.push(m) });
+  assert.equal(env.AWS_ACCESS_KEY_ID, undefined);      // leftover cleared
+  assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);  // leftover cleared
+  assert.equal(env.CLOUD_PROVIDER, 'aws');
+  assert.ok(r.cleared.includes('AWS_ACCESS_KEY_ID'));
+  assert.ok(r.cleared.includes('AWS_SECRET_ACCESS_KEY'));
+  assert.ok(logs.some((m) => m.includes('cleared ambient')));
+});
+
+test('does NOT clear creds the file DID set (file wins, no spurious clear)', () => {
+  const env = { NSA_ENV_FILE: '/e.env', AWS_ACCESS_KEY_ID: 'AKIA_OLD' };
+  const fs = fakeFs({ '/e.env': 'CLOUD_PROVIDER=aws\nAWS_ACCESS_KEY_ID=AKIA_NEW\nAWS_SECRET_ACCESS_KEY=newsecret\n' });
+  const r = applyScanEnvFile({ env, ...fs, log: () => {} });
+  assert.equal(env.AWS_ACCESS_KEY_ID, 'AKIA_NEW');     // file value wins
+  assert.equal(env.AWS_SECRET_ACCESS_KEY, 'newsecret');
+  assert.deepEqual(r.cleared, []);                      // nothing leftover to clear
+});
+
+test('R-MEDIUM-1: NSA_ENV_FILE set-but-empty fails fast (not a silent no-op)', () => {
+  assert.throws(
+    () => applyScanEnvFile({ env: { NSA_ENV_FILE: '' }, ...fakeFs({}), log: () => {} }),
+    /set but empty/,
+  );
+});
+
+test('truly-unset NSA_ENV_FILE is still a clean no-op (does not clear ambient creds)', () => {
+  const env = { AWS_ACCESS_KEY_ID: 'AKIA_AMBIENT' }; // no NSA_ENV_FILE key at all
+  const r = applyScanEnvFile({ env, ...fakeFs({}), log: () => {} });
+  assert.deepEqual(r, { applied: [], ignored: [], cleared: [] });
+  assert.equal(env.AWS_ACCESS_KEY_ID, 'AKIA_AMBIENT'); // untouched when feature unused
 });
