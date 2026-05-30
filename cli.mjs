@@ -522,7 +522,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
 /* ------------------------------- CLI ----------------------------------- */
 
-async function parseArgs(argv) {
+export async function parseArgs(argv) {
   const args = { cmd: 'scan', host: undefined, plugins: 'all', insecureHttps: false };
   const a = argv.slice(2);
   // Help: bare `--help`/`-h`/`help` or completely empty invocation.
@@ -603,6 +603,15 @@ async function parseArgs(argv) {
   args.compliance = (complianceVal && complianceVal !== true) ? complianceVal : null;
   const complianceScopeVal = get('compliance-scope') || get('compliance_scope');
   args.complianceScope = (complianceScopeVal && complianceScopeVal !== true) ? complianceScopeVal : null;
+
+  // Per-scan account selection (EE 0.16.x). `--env <path>` loads a dotenv
+  // (override-on) for this scan; `--aws-profile <name>` selects a named profile
+  // from ~/.aws/credentials. Both are wired into main() via resolveScanEnv().
+  // get() returns undefined (absent), true (value-less flag), or the string value.
+  const envVal = get('env');
+  args.env = envVal === undefined ? undefined : envVal; // string path, or true if value-less
+  const awsProfileVal = get('aws-profile');
+  args.awsProfile = awsProfileVal === undefined ? undefined : awsProfileVal;
 
   return args;
 }
@@ -805,7 +814,8 @@ function maxSeverityInConclusion(conclusion) {
 }
 
 async function main() {
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = await parseArgs(process.argv);
+  const args = await parseArgs(process.argv);
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -833,6 +843,10 @@ Usage:
 Scan options:
   --host, --ip, --target <h>   Target host, IP, or CIDR
   --host-file <path>           File with one host per line
+  --env <path>                 Load a dotenv (KEY=value) file for this scan (per-account
+                               credentials). Override-on; missing file = hard error.
+  --aws-profile <name>         Use a named profile from the OS-default ~/.aws/credentials.
+                               Implies CLOUD_PROVIDER=aws; overrides explicit AWS_* keys.
   --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
   --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
   --out <dir>                  Output directory for scan artifacts
@@ -905,6 +919,37 @@ Examples:
 
 Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/pricing/`);
     process.exit(0);
+  }
+
+  // Per-scan environment selection (--env / --aws-profile) + sentinel-host
+  // implied CLOUD_PROVIDER. The eager `import 'dotenv/config'` at the top of
+  // this file already loaded the default cwd `.env` (override-off) for
+  // import-time consumers; this layers the explicitly-selected env ON TOP
+  // (override-on) before license + dispatch.
+  if (args.env === true) {
+    console.error('Error: --env requires a file path (e.g. --env ~/envs/prod.env)');
+    process.exit(2);
+  }
+  if (args.awsProfile === true) {
+    console.error('Error: --aws-profile requires a profile name (e.g. --aws-profile prod)');
+    process.exit(2);
+  }
+  try {
+    const { resolveScanEnv } = await import('./utils/env_loader.mjs');
+    const fsm = await import('node:fs');
+    const patch = resolveScanEnv({
+      envPath: typeof args.env === 'string' ? args.env : undefined,
+      awsProfile: typeof args.awsProfile === 'string' ? args.awsProfile : undefined,
+      host,
+      env: process.env,
+      fileExists: (p) => fsm.existsSync(p),
+      readFile: (p) => fsm.readFileSync(p, 'utf8'),
+    });
+    Object.assign(process.env, patch.set);          // override-on
+    for (const k of patch.unset) delete process.env[k];
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
   }
 
   // Verify license JWT at startup (~5ms for ES256). Populates _verifiedTier
@@ -2004,7 +2049,18 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   }
 }
 
-main().catch((err) => {
-  console.error(err?.stack || err);
-  process.exit(1);
-});
+// Only auto-run main() when this file is the process entrypoint. Importing
+// cli.mjs (e.g. unit tests pulling in `parseArgs`) must NOT trigger a scan.
+const _isEntrypoint = (() => {
+  try {
+    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
+if (_isEntrypoint) {
+  main().catch((err) => {
+    console.error(err?.stack || err);
+    process.exit(1);
+  });
+}
