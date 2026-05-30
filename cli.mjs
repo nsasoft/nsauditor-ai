@@ -5,6 +5,7 @@ import { buildHtmlReport } from './utils/report_html.mjs';
 import fsp from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -813,7 +814,7 @@ function maxSeverityInConclusion(conclusion) {
   return max;
 }
 
-async function main() {
+export async function main() {
   const args = await parseArgs(process.argv);
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = args;
 
@@ -2053,7 +2054,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
 // cli.mjs (e.g. unit tests pulling in `parseArgs`) must NOT trigger a scan.
 const _isEntrypoint = (() => {
   try {
-    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+    return !!process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
   } catch {
     return false;
   }
