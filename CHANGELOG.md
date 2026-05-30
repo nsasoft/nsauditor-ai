@@ -6,6 +6,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## [Unreleased] — `--env` / `--aws-profile` + sentinel-host plugin scoping
+
+### Added
+
+- **`--env <path>`** — load a per-scan dotenv (`KEY=value`) file for that one scan (override-on: the file's values take precedence over existing shell variables). Fail-fast on a missing file. INI / credentials-format files (multi-section `[profile]`) are detected at load time and redirect with an actionable error to `--aws-profile`.
+- **`--aws-profile <name>`** — use a named profile from the OS-default `~/.aws/credentials` (`%USERPROFILE%\.aws\credentials` on Windows). Clears any explicit `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` already in the environment, sets `AWS_SDK_LOAD_CONFIG=1` so `~/.aws/config` is also read, and **implies `CLOUD_PROVIDER=aws`** (when unset) so you don't have to export it separately.
+- **Sentinel-host plugin scoping** — `--host aws|gcp|azure` combined with `--plugins all` now runs **only that cloud's plugins**; the other clouds' plugins and the non-cloud network plugins are skipped (the skip is logged). Explicit `--plugins` lists (e.g. `--plugins 1020,1021`) are unaffected — scoping applies only to the `all` expansion.
+- **Fix: bin wrapper now calls `main()`** — an entrypoint-guard regression was caught during development that would have made the installed CLI a silent no-op; fixed before release.
+
+---
+
 ## 0.1.90 (2026-05-29; paired with EE 0.15.9) — Paired no-op for the EE 0.15.9 hotfix (cross-cloud bleed gate moved from preflight() to run() — the load-bearing path). No CE code change.
 
 ## 0.1.89 (2026-05-29; paired with EE 0.15.8) — Paired no-op for the EE cloud-plugin scoping fixes (AWS CLOUD_PROVIDER gate + GCP evidence-gap). No CE code change.
