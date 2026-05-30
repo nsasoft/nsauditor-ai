@@ -54,12 +54,29 @@ export function _requireProCapability(toolName) {
   return requireProCapability(toolName);
 }
 
+/** @internal Test-only. Returns the Enterprise-gate denial object (or null if allowed). */
+export function _requireEnterpriseCapability(toolName) {
+  if (process.env.NODE_ENV === 'production') throw new Error('_requireEnterpriseCapability is test-only and disabled in production');
+  return requireEnterpriseCapability(toolName);
+}
+
 function requireProCapability(toolName) {
   if (_capabilities.proMCP) return null; // Pro/Enterprise: allow
   return {
     content: [{
       type: 'text',
       text: `🔒 **${toolName}** requires a Pro license.\n\nView Pro/Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins`,
+    }],
+    isError: true,
+  };
+}
+
+function requireEnterpriseCapability(toolName) {
+  if (_capabilities.enterpriseMCP) return null; // Enterprise: allow
+  return {
+    content: [{
+      type: 'text',
+      text: `🔒 **${toolName}** (cloud account auditing) requires an Enterprise license.\n\nView Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins`,
     }],
     isError: true,
   };
@@ -174,6 +191,22 @@ const TOOLS = [
         },
       },
       required: ['host'],
+    },
+  },
+  {
+    name: 'scan_cloud',
+    description:
+      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Use for "audit my AWS account" / "audit my AWS and Azure accounts".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        providers: {
+          type: 'array',
+          items: { type: 'string', enum: ['aws', 'gcp', 'azure'] },
+          description: 'Which cloud(s) to audit. Omit to audit all clouds the server is configured for.',
+        },
+      },
+      required: [],
     },
   },
   {
@@ -313,6 +346,64 @@ export async function handleScanHost(args) {
   };
 }
 
+const VALID_PROVIDERS = ['aws', 'gcp', 'azure'];
+
+export async function handleScanCloud(args) {
+  // Validate providers; default → all three.
+  let providers = VALID_PROVIDERS.slice();
+  if (args && args.providers != null) {
+    if (!Array.isArray(args.providers)) {
+      throw new Error('providers must be an array of "aws" | "gcp" | "azure"');
+    }
+    const requested = args.providers.map((p) => String(p).trim().toLowerCase());
+    for (const p of requested) {
+      if (!VALID_PROVIDERS.includes(p)) {
+        throw new Error(`unknown provider '${p}' (valid: ${VALID_PROVIDERS.join(', ')})`);
+      }
+    }
+    if (requested.length > 0) providers = requested;
+  }
+
+  const pm = await getPluginManager();
+
+  // Save/set/restore CLOUD_PROVIDER so the per-plugin .includes() gates pass and
+  // the cross-cloud bleed gate is satisfied — restored in finally so the tool
+  // never leaves the long-lived server's env mutated for the next call.
+  const savedProvider = process.env.CLOUD_PROVIDER;
+  let output;
+  try {
+    process.env.CLOUD_PROVIDER = providers.join(',');
+    output = await pm.runCloud(providers);
+  } finally {
+    if (savedProvider === undefined) delete process.env.CLOUD_PROVIDER;
+    else process.env.CLOUD_PROVIDER = savedProvider;
+  }
+
+  // Render a Markdown summary (best-effort, same as scan_host).
+  let markdown = null;
+  try {
+    if (output.conclusion) {
+      markdown = buildMarkdownReport({ host: output.host, conclusion: output.conclusion, toolVersion: TOOL_VERSION });
+    }
+  } catch { /* swallow — markdown is best-effort */ }
+
+  // Anti-false-clean: surface any requested cloud that has NO plugins available
+  // (e.g. EE not installed) as an explicit note, never a silent empty "clean".
+  const availableProviders = new Set((pm.plugins || []).map((p) => p && p.cloudProvider).filter(Boolean));
+  const notes = providers
+    .filter((p) => !availableProviders.has(p))
+    .map((p) => `${p}: no cloud plugins available — Enterprise EE plugins not installed (an empty result is NOT a clean pass)`);
+
+  return {
+    providers,
+    conclusion: output.conclusion ?? null,
+    manifest: output.manifest ?? [],
+    pluginsRan: output.results?.length ?? 0,
+    markdown,
+    ...(notes.length ? { notes } : {}),
+  };
+}
+
 export async function handleProbeService(args) {
   if (!args?.host || typeof args.host !== 'string') {
     throw new Error('Missing required parameter: host');
@@ -371,6 +462,7 @@ export async function handleListPlugins() {
 /** Map tool name to handler. Exported for testing. */
 export const toolHandlers = {
   scan_host: handleScanHost,
+  scan_cloud: handleScanCloud,
   probe_service: handleProbeService,
   get_vulnerabilities: handleGetVulnerabilities,
   list_plugins: handleListPlugins,
@@ -419,6 +511,19 @@ export function createServer() {
     // Gate Pro-tier tools at the MCP dispatch layer
     if (name === 'probe_service' || name === 'get_vulnerabilities') {
       const denied = requireProCapability(name);
+      if (denied) {
+        return {
+          ...denied,
+          content: denied.content.map((c) =>
+            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId) } : c,
+          ),
+        };
+      }
+    }
+
+    // Gate the Enterprise cloud-audit tool at the MCP dispatch layer.
+    if (name === 'scan_cloud') {
+      const denied = requireEnterpriseCapability(name);
       if (denied) {
         return {
           ...denied,
