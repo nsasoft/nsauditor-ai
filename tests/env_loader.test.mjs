@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { resolveScanEnv } from '../utils/env_loader.mjs';
 
 // Injected fs fakes: a map of path -> contents.
@@ -54,4 +55,68 @@ test('--env dotenv with only export-prefixed lines is NOT misclassified as INI',
   const r = resolveScanEnv({ envPath: '/envs/exp.env', env: {}, ...fs });
   assert.equal(r.set.AWS_PROFILE, 'prod');
   assert.equal(r.set.AWS_REGION, 'us-east-1');
+});
+
+// === TASK 2: --aws-profile + implied-AWS precedence ===
+
+test('--aws-profile sets AWS_PROFILE + AWS_SDK_LOAD_CONFIG, clears explicit keys, implies CLOUD_PROVIDER=aws', () => {
+  const r = resolveScanEnv({
+    awsProfile: 'staging',
+    env: { AWS_ACCESS_KEY_ID: 'AKIA_STALE', AWS_SECRET_ACCESS_KEY: 's' },
+    fileExists: () => false,
+    readFile: () => '',
+  });
+  assert.equal(r.set.AWS_PROFILE, 'staging');
+  assert.equal(r.set.AWS_SDK_LOAD_CONFIG, '1');
+  assert.equal(r.set.CLOUD_PROVIDER, 'aws');
+  assert.ok(r.unset.includes('AWS_ACCESS_KEY_ID'));
+  assert.ok(r.unset.includes('AWS_SECRET_ACCESS_KEY'));
+  assert.ok(r.unset.includes('AWS_SESSION_TOKEN'));
+});
+
+test('--aws-profile does NOT override an already-set CLOUD_PROVIDER (contradictory gcp left as-is)', () => {
+  const r = resolveScanEnv({
+    awsProfile: 'staging',
+    env: { CLOUD_PROVIDER: 'gcp' },
+    fileExists: () => false,
+    readFile: () => '',
+  });
+  assert.equal(r.set.CLOUD_PROVIDER, undefined); // not set → existing gcp survives
+});
+
+test('--aws-profile beats an AWS_PROFILE provided by an --env file', () => {
+  const fs = {
+    fileExists: (p) => p === path.resolve('/envs/dev.env'),
+    readFile: () => 'AWS_PROFILE=from_file\nCLOUD_PROVIDER=aws\n',
+  };
+  const r = resolveScanEnv({ envPath: '/envs/dev.env', awsProfile: 'cli_wins', env: {}, ...fs });
+  assert.equal(r.set.AWS_PROFILE, 'cli_wins');
+});
+
+// === TASK 3: sentinel-host implied CLOUD_PROVIDER ===
+
+test('sentinel host gcp → implies CLOUD_PROVIDER=gcp when unset', () => {
+  const r = resolveScanEnv({ host: 'gcp', env: {}, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, 'gcp');
+});
+
+test('sentinel host AWS (mixed case) → implies aws, normalized lowercase', () => {
+  const r = resolveScanEnv({ host: 'AWS', env: {}, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, 'aws');
+});
+
+test('sentinel host does NOT override an explicit CSV CLOUD_PROVIDER', () => {
+  const r = resolveScanEnv({ host: 'aws', env: { CLOUD_PROVIDER: 'aws,gcp' }, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, undefined);
+});
+
+test('non-sentinel host (IP) → no CLOUD_PROVIDER implication', () => {
+  const r = resolveScanEnv({ host: '10.0.0.1', env: {}, fileExists: () => false, readFile: () => '' });
+  assert.equal(r.set.CLOUD_PROVIDER, undefined);
+});
+
+test('--env file that sets CLOUD_PROVIDER wins over sentinel implication', () => {
+  const fs = { fileExists: (p) => p === path.resolve('/envs/gcp.env'), readFile: () => 'CLOUD_PROVIDER=gcp\n' };
+  const r = resolveScanEnv({ envPath: '/envs/gcp.env', host: 'aws', env: {}, ...fs });
+  assert.equal(r.set.CLOUD_PROVIDER, 'gcp'); // file value present → host does not overwrite
 });
