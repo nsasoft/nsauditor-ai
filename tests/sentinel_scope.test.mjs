@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isCloudSentinelHost, scopeSelectionForHost } from '../utils/sentinel_scope.mjs';
+import PluginManager from '../plugin_manager.mjs';
+
+function stubPlugin(id, cloudProvider) {
+  return {
+    id, name: `stub-${id}`, cloudProvider,
+    priority: 50,                    // triggers the orchestrated path
+    run: async () => ({ findings: [{ id, severity: 'info', title: `ran ${id}` }] }),
+  };
+}
 
 const PLUGINS = [
   { id: '1020', name: 'AWS S3', cloudProvider: 'aws' },
@@ -45,4 +54,25 @@ test('non-sentinel host + spec=all → no scoping', () => {
   const r = scopeSelectionForHost(PLUGINS, '10.0.0.1', 'all');
   assert.equal(r.scoped, false);
   assert.equal(r.selected.length, PLUGINS.length);
+});
+
+test('PluginManager.run(host=aws, all) executes only AWS-tagged plugins', async () => {
+  const plugins = [
+    stubPlugin('1020', 'aws'),
+    stubPlugin('1021', 'gcp'),
+    stubPlugin('1022', 'azure'),
+    { id: '004', name: 'port-scan', priority: 10, run: async () => ({ findings: [] }) }, // non-cloud
+  ];
+  const pm = await PluginManager.create({ plugins });
+  const { manifest } = await pm.run('aws', 'all', {});
+  const ran = manifest.filter((m) => m.status === 'ran').map((m) => m.id);
+  assert.deepEqual(ran, ['1020'], `only AWS plugin should run, got: ${ran}`);
+});
+
+test('PluginManager.run(host=aws, explicit list) runs exactly the requested plugins', async () => {
+  const plugins = [stubPlugin('1020', 'aws'), stubPlugin('1021', 'gcp')];
+  const pm = await PluginManager.create({ plugins });
+  const { manifest } = await pm.run('aws', ['1020', '1021'], {});
+  const ran = manifest.filter((m) => m.status === 'ran').map((m) => m.id).sort();
+  assert.deepEqual(ran, ['1020', '1021']);
 });

@@ -20,6 +20,7 @@ import { pathToFileURL, fileURLToPath } from "url";
 import { discoverPlugins } from './utils/plugin_discovery.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
+import { scopeSelectionForHost } from './utils/sentinel_scope.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -749,13 +750,28 @@ export class PluginManager {
     let selection;
     let opts;
 
+    let rawSpec;
     if (specOrOptions && typeof specOrOptions === "object" && !Array.isArray(specOrOptions)) {
       const { plugins = "all", ...rest } = specOrOptions;
+      rawSpec = plugins;
       selection = this._resolveSelection(plugins);
       opts = rest;
     } else {
+      rawSpec = specOrOptions;
       selection = this._resolveSelection(specOrOptions);
       opts = maybeOpts || {};
+    }
+
+    // Sentinel-host scoping: on --host aws|gcp|azure with the implicit `all`,
+    // run only that cloud's plugins; skip other clouds + non-cloud plugins.
+    const scope = scopeSelectionForHost(selection, host, rawSpec);
+    if (scope.scoped && scope.skipped.length) {
+      selection = scope.selected;
+      console.error(
+        `Cloud host '${scope.provider}' → running ${scope.selected.length} ` +
+        `${scope.provider.toUpperCase()} plugin(s); skipping ${scope.skipped.length} ` +
+        `non-${scope.provider} plugin(s) (other clouds + non-cloud).`,
+      );
     }
 
     // Decide execution mode
