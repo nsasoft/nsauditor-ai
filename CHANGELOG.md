@@ -6,6 +6,19 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## [Unreleased]
+
+### Added
+- **MCP `scan_cloud` tool** — audit one or more cloud accounts (AWS / GCP / Azure) directly through the MCP
+  server, with no network host: *"Audit my AWS account"* / *"Audit my AWS and Azure accounts"*. Reuses the
+  cloud-plugin scoping (`scopeSelectionForProviders` + `pluginManager.runCloud`); the handler save/sets/restores
+  `CLOUD_PROVIDER` around the run so it never leaks into the next call. **Enterprise-gated** (`enterpriseMCP`),
+  advertised to all tiers with an upgrade message — consistent with cloud scanning being the enterprise
+  `cloudScanners` capability. A requested cloud with no plugins is surfaced as an explicit note, never a silent
+  empty "clean". No new plugin; no coverage-matrix change.
+
+---
+
 ## 0.1.92 (2026-05-30) — MCP `NSA_ENV_FILE`: per-environment `.env` for the MCP server (paired with EE 0.16.1 + agent-skill 0.1.59)
 
 The MCP analog of the 0.16.0 CLI `--env`. **No plugin-count or coverage-matrix change** — this is an MCP-server ergonomics + safety feature.

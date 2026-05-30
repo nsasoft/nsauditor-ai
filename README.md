@@ -397,6 +397,7 @@ npx nsauditor-ai-mcp
 | Tool | Purpose |
 |---|---|
 | `scan_host` | Run full scan against a host with plugin selection |
+| `scan_cloud` *(Enterprise)* | Audit one or more cloud accounts (AWS / GCP / Azure) using server-configured credentials; no network host. "Audit my AWS account" / "Audit my AWS and Azure accounts". |
 | `list_plugins` | List available scanner plugins with metadata |
 
 **Pro Tools** (requires license key + `@nsasoft/nsauditor-ai-ee`):
