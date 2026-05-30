@@ -866,18 +866,44 @@ export class PluginManager {
    * @param {object} [opts]
    */
   async runCloud(providers, opts = {}) {
-    const host = `cloud:${(providers || []).join('+') || 'none'}`;
+    const reqProviders = (providers || []).map((p) => String(p).trim().toLowerCase());
+    const host = `cloud:${reqProviders.join('+') || 'none'}`;
     const all = this.plugins.slice();
-    const { selected } = scopeSelectionForProviders(all, providers || []);
+    const { selected } = scopeSelectionForProviders(all, reqProviders);
+
+    // Seed per-provider accounting for EVERY requested provider, so a provider
+    // with zero plugins is visible (available:0), not just silently absent.
+    const providerStatus = {};
+    for (const p of reqProviders) providerStatus[p] = { available: 0, ran: 0, skipped: 0, errored: 0 };
 
     if (selected.length === 0) {
-      return { host, results: [], conclusion: null, manifest: [], ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
+      // Parity with the sentinel-host path in run(): an empty scope is NOT a clean pass.
+      console.error(
+        `WARNING: scan_cloud scope [${reqProviders.join(', ') || '(none)'}] matched 0 cloud plugins — ` +
+        `NOTHING was audited (an empty result is NOT a clean pass).`,
+      );
+      return { host, results: [], conclusion: null, manifest: [], providerStatus, auditedProviders: [],
+               ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
     }
 
     const orch = await this._runOrchestrated(host, selected, opts);
     const conclusion = await this.runConcluder(orch.results);
 
-    return { host, results: orch.results, conclusion, manifest: orch.manifest, ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
+    // Per-provider effectiveness from the manifest (ids match the selected set).
+    const manifestById = new Map((orch.manifest || []).map((m) => [String(m.id), m]));
+    for (const p of selected) {
+      const prov = p.cloudProvider;
+      if (!providerStatus[prov]) providerStatus[prov] = { available: 0, ran: 0, skipped: 0, errored: 0 };
+      providerStatus[prov].available++;
+      const m = manifestById.get(String(p.id));
+      if (m && m.status === 'ran') providerStatus[prov].ran++;
+      else if (m && m.status === 'skipped') providerStatus[prov].skipped++;
+      else providerStatus[prov].errored++;
+    }
+    const auditedProviders = Object.keys(providerStatus).filter((p) => providerStatus[p].ran > 0);
+
+    return { host, results: orch.results, conclusion, manifest: orch.manifest, providerStatus, auditedProviders,
+             ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
   }
 }
 

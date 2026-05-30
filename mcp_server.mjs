@@ -387,18 +387,34 @@ export async function handleScanCloud(args) {
     }
   } catch { /* swallow — markdown is best-effort */ }
 
-  // Anti-false-clean: surface any requested cloud that has NO plugins available
-  // (e.g. EE not installed) as an explicit note, never a silent empty "clean".
-  const availableProviders = new Set((pm.plugins || []).map((p) => p && p.cloudProvider).filter(Boolean));
-  const notes = providers
-    .filter((p) => !availableProviders.has(p))
-    .map((p) => `${p}: no cloud plugins available — Enterprise EE plugins not installed (an empty result is NOT a clean pass)`);
+  // Anti-false-clean: a requested cloud is "audited" ONLY if >=1 of its plugins
+  // actually completed (manifest status 'ran'). Surface every NOT-effectively-
+  // audited provider with a specific reason — never a silent empty "clean".
+  const providerStatus = output.providerStatus || {};
+  const auditedProviders = output.auditedProviders || [];
+  const notes = [];
+  for (const p of providers) {
+    const s = providerStatus[p] || { available: 0, ran: 0, skipped: 0, errored: 0 };
+    if (s.ran > 0) continue; // effectively audited (clean or not)
+    if (s.available === 0) {
+      notes.push(`${p}: no cloud plugins available — Enterprise EE plugins not installed (an empty result is NOT a clean pass)`);
+    } else if (s.errored > 0) {
+      notes.push(`${p}: ${s.errored} plugin(s) ran but errored (e.g. credentials not configured) — NOT audited (an empty result is NOT a clean pass)`);
+    } else {
+      notes.push(`${p}: ${s.skipped} plugin(s) present but skipped (requirements/capability not met) — NOT audited`);
+    }
+  }
+
+  // Honest count: completed audits, NOT error/skip envelopes.
+  const pluginsRan = (output.manifest || []).filter((m) => m.status === 'ran').length;
 
   return {
     providers,
+    audited: auditedProviders.length > 0,
+    auditedProviders,
     conclusion: output.conclusion ?? null,
     manifest: output.manifest ?? [],
-    pluginsRan: output.results?.length ?? 0,
+    pluginsRan,
     markdown,
     ...(notes.length ? { notes } : {}),
   };

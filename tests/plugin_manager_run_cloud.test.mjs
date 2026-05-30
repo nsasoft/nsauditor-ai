@@ -49,3 +49,17 @@ test('runCloud([]) runs nothing (empty selection → empty output, no orchestrat
   assert.equal(out.conclusion, null);
   assert.equal(out.host, 'cloud:none');
 });
+
+test('runCloud reports auditedProviders + providerStatus (ran counts)', async () => {
+  const pm = await makePM();
+  const out = await pm.runCloud(['aws', 'azure']);
+  assert.deepEqual(out.auditedProviders.sort(), ['aws', 'azure']);
+  assert.equal(out.providerStatus.aws.ran, 1);
+  assert.equal(out.providerStatus.azure.ran, 1);
+});
+
+test('runCloud([]) reports no audited providers', async () => {
+  const pm = await makePM();
+  const out = await pm.runCloud([]);
+  assert.deepEqual(out.auditedProviders, []);
+});
