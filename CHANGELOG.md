@@ -6,16 +6,21 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## [Unreleased]
+## 0.1.93 (2026-05-30) — MCP `scan_cloud` tool: audit cloud accounts directly (paired with EE 0.16.2 + agent-skill 0.1.60)
 
 ### Added
 - **MCP `scan_cloud` tool** — audit one or more cloud accounts (AWS / GCP / Azure) directly through the MCP
-  server, with no network host: *"Audit my AWS account"* / *"Audit my AWS and Azure accounts"*. Reuses the
-  cloud-plugin scoping (`scopeSelectionForProviders` + `pluginManager.runCloud`); the handler save/sets/restores
-  `CLOUD_PROVIDER` around the run so it never leaks into the next call. **Enterprise-gated** (`enterpriseMCP`),
-  advertised to all tiers with an upgrade message — consistent with cloud scanning being the enterprise
-  `cloudScanners` capability. A requested cloud with no plugins is surfaced as an explicit note, never a silent
-  empty "clean". No new plugin; no coverage-matrix change.
+  server, with no network host: *"Audit my AWS account"* / *"Audit my AWS and Azure accounts"* (omit the
+  providers to audit all). The MCP analog of the 0.16.0 CLI `--host aws --plugins all` scoping. Reuses the
+  cloud-plugin scoping (new `scopeSelectionForProviders` + new `pluginManager.runCloud`); the handler
+  save/sets/restores `CLOUD_PROVIDER` around the run so it never leaks into the next call. **Enterprise-gated**
+  (`enterpriseMCP`), advertised to all tiers with an upgrade message — consistent with cloud scanning being the
+  enterprise `cloudScanners` capability, with defense-in-depth at the plugin layer. No network host → no SSRF
+  surface. No new plugin; no coverage-matrix change.
+- **Anti-false-clean reporting** (closed an R-HIGH the `audit-cloud-plugin-false-negatives` review caught) — a
+  cloud is reported "audited" only if ≥1 of its plugins actually ran. The response carries `audited` /
+  `auditedProviders`; `pluginsRan` counts completed audits (not error envelopes); and any not-effectively-audited
+  cloud (no plugins / missing credentials / skipped) is surfaced as an explicit note, never a silent empty "clean".
 
 ---
 
