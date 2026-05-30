@@ -6,6 +6,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## [Unreleased]
+
+### Added
+- **MCP `NSA_ENV_FILE`** — the MCP server now loads a per-environment dotenv file named by
+  `NSA_ENV_FILE` at startup (reusing the CLI `--env` loader). Switch scan environments by
+  changing one path in the Claude Desktop / Claude Code config instead of editing every
+  credential. Loaded after auth + license (scan-target vars only; the auth key and license
+  stay inline and are ignored if present in the file). Fail-fast on a missing/INI file.
+
+---
+
 ## 0.1.91 (2026-05-29; paired with EE 0.16.0) — `--env` / `--aws-profile` + sentinel-host plugin scoping
 
 ### Added

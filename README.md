@@ -486,10 +486,9 @@ Then add this to your `claude_desktop_config.json` (Settings → Developer → E
       "command": "nsauditor-ai-mcp",
       "env": {
         "NSA_MCP_AUTH_KEY": "keychain:NSA_MCP_AUTH_KEY",
+        "NSA_ENV_FILE": "~/envs/prod-aws.env",
         "AI_PROVIDER": "claude",
-        "ANTHROPIC_API_KEY": "keychain:ANTHROPIC_API_KEY",
-        "NSA_ALLOW_ALL_HOSTS": "1",
-        "PLUGIN_TIMEOUT_MS": "5000"
+        "ANTHROPIC_API_KEY": "keychain:ANTHROPIC_API_KEY"
       }
     }
   }
@@ -503,12 +502,44 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 - `PLUGIN_TIMEOUT_MS=5000` — reduces per-plugin timeout to 5s so the full scan completes within Claude Desktop's 60s MCP limit
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 
+#### `NSA_ENV_FILE` — point the MCP server at an environment file
+
+Instead of inlining every scan variable in the config above, set **`NSA_ENV_FILE`** to a
+dotenv file and keep the cloud credentials, `CLOUD_PROVIDER`, and scan tuning there. To scan
+a different account or cloud, change the one path (or swap the file) and restart Claude Desktop —
+no JSON editing.
+
+```bash
+# ~/envs/prod-aws.env   (chmod 600 — this holds credentials)
+CLOUD_PROVIDER=aws
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+NSA_ALLOW_ALL_HOSTS=1
+PLUGIN_TIMEOUT_MS=5000
+```
+
+- The file is loaded at server startup; values in it **override** the same keys in the config `env` block.
+- **Fail-fast:** if the path is missing or points at an AWS credentials/INI file, the server refuses
+  to start (it will not silently fall back to ambient credentials and scan the wrong account). The
+  error is written to the MCP server's stderr log.
+- `NSA_MCP_AUTH_KEY` and `NSAUDITOR_LICENSE_KEY` are resolved **before** the file and must stay
+  inline (or in `~/.nsauditor/.env`); if present in `NSA_ENV_FILE` they are ignored.
+
 ### Claude Code Setup
 
 ```bash
 nsauditor-ai mcp install-key   # required before MCP server will start
 claude mcp add nsauditor-ai \
   --env NSA_MCP_AUTH_KEY=keychain:NSA_MCP_AUTH_KEY \
+  -- npx nsauditor-ai-mcp
+```
+
+To target an environment via the file, add it as an env value:
+
+```bash
+claude mcp add nsauditor-ai \
+  --env NSA_MCP_AUTH_KEY=keychain:NSA_MCP_AUTH_KEY \
+  --env NSA_ENV_FILE=~/envs/prod-aws.env \
   -- npx nsauditor-ai-mcp
 ```
 
