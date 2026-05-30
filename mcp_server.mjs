@@ -592,6 +592,27 @@ export async function startStdioServer() {
   _tier = getTierFromEnv();
   _capabilities = resolveCapabilities(_tier);
 
+  // NSA_ENV_FILE: load the per-environment dotenv file AFTER auth + license
+  // (so it carries scan-target vars only and can alter neither) and BEFORE
+  // createServer()/connect. plugin_manager.mjs captures PLUGIN_TIMEOUT_MS in a
+  // module-level const at import (first tool call), so the file MUST be applied
+  // before any tool call can import it. Fail-fast: a missing / INI file refuses
+  // startup rather than silently scanning ambient credentials (wrong-account →
+  // a false "clean"). stdout is JSON-RPC, so diagnostics go to stderr.
+  try {
+    const fsm = await import('node:fs');
+    const { applyScanEnvFile } = await import('./utils/mcp_env_file.mjs');
+    applyScanEnvFile({
+      env: process.env,
+      fileExists: (p) => fsm.existsSync(p),
+      readFile: (p) => fsm.readFileSync(p, 'utf8'),
+      log: (m) => process.stderr.write(`[nsauditor-mcp] ${m}\n`),
+    });
+  } catch (err) {
+    process.stderr.write(`✗ NSA_ENV_FILE: ${err.message}\n`);
+    process.exit(1);
+  }
+
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
