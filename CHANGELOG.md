@@ -6,6 +6,20 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **`scan_cloud` now runs cloud plugins concurrently** (default up to 20 at once) with a dedicated per-run
+  timeout (`CLOUD_PLUGIN_TIMEOUT_MS`, default 25000ms), instead of sequentially under the network
+  `PLUGIN_TIMEOUT_MS`. This lets a full ~20-plugin cloud audit complete within Claude Desktop's ~60s MCP
+  tool-call limit — previously the heaviest, most security-critical plugins (IAM, S3, EC2, Inspector/GuardDuty,
+  IAM decrypt-path) timed out at the 5s the 60s budget forced under sequential execution. Tunable via
+  `CLOUD_SCAN_CONCURRENCY` (default 20). Cloud plugins are independent, so each runs in its own context; the
+  network-scan / `scan_host` path is unchanged. The anti-false-clean reporting (a cloud is "audited" only if a
+  plugin actually ran) is preserved — a timed-out plugin still surfaces as a coverage gap, never a clean pass.
+
+---
+
 ## 0.1.93 (2026-05-30) — MCP `scan_cloud` tool: audit cloud accounts directly (paired with EE 0.16.2 + agent-skill 0.1.60)
 
 ### Added

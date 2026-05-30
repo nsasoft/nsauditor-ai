@@ -420,6 +420,11 @@ npx nsauditor-ai-mcp
 | `compliance_check` | Compliance mapping with gap analysis |
 | `export_report` | Generate formatted compliance report |
 
+> `scan_cloud` runs the requested clouds' plugins **concurrently** (default up to 20 at once, 25s per-plugin
+> timeout) so a full multi-service cloud audit completes within Claude Desktop's ~60s tool-call limit. Tune with
+> `CLOUD_SCAN_CONCURRENCY` (default 20) and `CLOUD_PLUGIN_TIMEOUT_MS` (default 25000) in the server env. The
+> network `PLUGIN_TIMEOUT_MS` still governs `scan_host` / network scans.
+
 Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
 
 ### Authentication (required)
@@ -503,6 +508,8 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
 - `PLUGIN_TIMEOUT_MS=5000` — reduces per-plugin timeout to 5s so the full scan completes within Claude Desktop's 60s MCP limit
+- `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
+- `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`).
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 
 #### `NSA_ENV_FILE` — point the MCP server at an environment file
