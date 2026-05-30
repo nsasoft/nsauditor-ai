@@ -20,7 +20,7 @@ import { pathToFileURL, fileURLToPath } from "url";
 import { discoverPlugins } from './utils/plugin_discovery.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
-import { scopeSelectionForHost } from './utils/sentinel_scope.mjs';
+import { scopeSelectionForHost, scopeSelectionForProviders } from './utils/sentinel_scope.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -851,6 +851,33 @@ export class PluginManager {
       ai_error: null,
       ai_out_path: null,
     };
+  }
+
+  /**
+   * Cloud-account audit: scope the plugin run to the union of the given cloud
+   * providers (by each plugin's `cloudProvider` field), with no network host.
+   * Sibling of run() that scopes by provider-set instead of by sentinel host,
+   * then reuses the same orchestrate + conclude path. Returns the run()-shaped
+   * output. The cloud plugins ignore `host`; the synthetic label just identifies
+   * the report. An empty selection returns an empty result (surfaced as a note
+   * by the caller) rather than a silent clean.
+   *
+   * @param {string[]} providers  e.g. ['aws'] or ['aws','azure']
+   * @param {object} [opts]
+   */
+  async runCloud(providers, opts = {}) {
+    const host = `cloud:${(providers || []).join('+') || 'none'}`;
+    const all = this.plugins.slice();
+    const { selected } = scopeSelectionForProviders(all, providers || []);
+
+    if (selected.length === 0) {
+      return { host, results: [], conclusion: null, manifest: [], ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
+    }
+
+    const orch = await this._runOrchestrated(host, selected, opts);
+    const conclusion = await this.runConcluder(orch.results);
+
+    return { host, results: orch.results, conclusion, manifest: orch.manifest, ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
   }
 }
 
