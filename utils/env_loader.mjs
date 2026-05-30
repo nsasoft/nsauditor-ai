@@ -25,7 +25,7 @@ function expandTilde(p) {
 // INI signature: a [section] header line, OR no KEY=value line at all.
 function looksLikeIni(content) {
   const hasSection = /^\s*\[[^\]]+\]\s*$/m.test(content);
-  const hasKeyValue = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=/m.test(content);
+  const hasKeyValue = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=/m.test(content);
   return hasSection || !hasKeyValue;
 }
 

@@ -48,3 +48,10 @@ test('no flags → empty patch, shell untouched', () => {
   assert.deepEqual(r.set, {});
   assert.deepEqual(r.unset, []);
 });
+
+test('--env dotenv with only export-prefixed lines is NOT misclassified as INI', () => {
+  const fs = { fileExists: (p) => p.endsWith('exp.env'), readFile: () => 'export AWS_PROFILE=prod\nexport AWS_REGION=us-east-1\n' };
+  const r = resolveScanEnv({ envPath: '/envs/exp.env', env: {}, ...fs });
+  assert.equal(r.set.AWS_PROFILE, 'prod');
+  assert.equal(r.set.AWS_REGION, 'us-east-1');
+});
