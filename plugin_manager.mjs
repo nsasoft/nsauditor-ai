@@ -146,9 +146,15 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     // Forward CLI-derived opts (ports, etc.) so plugins can honor flags like --ports.
     // CLI opts come last so they don't override critical orchestration fields like
     // `context` if the CLI ever accidentally collides on those names.
-    const pluginPromise = mod.run(host, port, { ...cliOpts, context: withBaseContext(ctx), ...extra });
+    // Promise.resolve().then(...) so a plugin that throws SYNCHRONOUSLY (before its
+    // first await) becomes a rejected promise the race below catches, instead of
+    // propagating out of callPlugin and aborting the whole (sequential or parallel) batch.
+    const pluginPromise = Promise.resolve().then(() => mod.run(host, port, { ...cliOpts, context: withBaseContext(ctx), ...extra }));
 
-    const timeoutMs = (cliOpts && cliOpts.timeoutMs) || PLUGIN_TIMEOUT_MS;
+    // Honor a per-run timeout (cloud path) but clamp to a positive number; an
+    // undefined (network path) or non-positive value falls back to PLUGIN_TIMEOUT_MS.
+    const reqTimeout = Number(cliOpts && cliOpts.timeoutMs);
+    const timeoutMs = Number.isFinite(reqTimeout) && reqTimeout > 0 ? reqTimeout : PLUGIN_TIMEOUT_MS;
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -863,27 +869,32 @@ export class PluginManager {
    */
   async _runCloudPluginsParallel(selected, host, opts = {}) {
     const concurrency = Number(process.env.CLOUD_SCAN_CONCURRENCY) || 20;
-    const timeoutMs = Number(process.env.CLOUD_PLUGIN_TIMEOUT_MS) || 25000;
+    const rawTimeout = Number(process.env.CLOUD_PLUGIN_TIMEOUT_MS);
+    const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 25000;
     const toRun = selected.filter((p) => !isConcluder(p));
 
     const entries = await mapLimit(toRun, concurrency, async (mod) => {
-      const ctx = withBaseContext({ host, hostUp: false, tcpOpen: new Set(), udpOpen: new Set() });
-      if (!shouldRunPlugin(mod, ctx)) {
-        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: describeSkipReason(mod, ctx), duration_ms: 0 }, outputs: [] };
+      try {
+        const ctx = withBaseContext({ host, hostUp: false, tcpOpen: new Set(), udpOpen: new Set() });
+        if (!shouldRunPlugin(mod, ctx)) {
+          return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: describeSkipReason(mod, ctx), duration_ms: 0 }, outputs: [] };
+        }
+        if (!this._hasCapabilities(mod, opts?.capabilities)) {
+          return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`, duration_ms: 0 }, outputs: [] };
+        }
+        const startMs = Date.now();
+        const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs });
+        const duration_ms = Date.now() - startMs;
+        let status = 'ran';
+        let reason = null;
+        for (const w of wrappedRuns) {
+          if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${timeoutMs}ms`; }
+          else if (w.result?.error && status !== 'timeout') { status = 'error'; reason = w.result.error; }
+        }
+        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status, reason, duration_ms }, outputs: wrappedRuns };
+      } catch (err) {
+        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'error', reason: String(err?.message || err), duration_ms: 0 }, outputs: [] };
       }
-      if (!this._hasCapabilities(mod, opts?.capabilities)) {
-        return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`, duration_ms: 0 }, outputs: [] };
-      }
-      const startMs = Date.now();
-      const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs });
-      const duration_ms = Date.now() - startMs;
-      let status = 'ran';
-      let reason = null;
-      for (const w of wrappedRuns) {
-        if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${timeoutMs}ms`; }
-        else if (w.result?.error && status !== 'timeout') { status = 'error'; reason = w.result.error; }
-      }
-      return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status, reason, duration_ms }, outputs: wrappedRuns };
     });
 
     return { results: entries.flatMap((e) => e.outputs), manifest: entries.map((e) => e.manifest) };

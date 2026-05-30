@@ -84,3 +84,29 @@ test('runCloud returns the same shape via the parallel path', async () => {
   assert.equal(out.providerStatus.aws.ran, 2);
   assert.equal(out.manifest.length, 2);
 });
+
+test('R-HIGH-1: a synchronously-throwing plugin does not crash the batch', async () => {
+  const c = makeCounter();
+  const syncThrower = { id: '9099', name: 'sync-thrower', cloudProvider: 'aws', priority: 50, runStrategy: 'single', run() { throw new Error('sync boom'); } };
+  const healthy = ['9001', '9002'].map((id) => mockPlugin(id, c));
+  const pm = await pmWith([syncThrower, ...healthy]);
+  const { manifest } = await pm._runCloudPluginsParallel([syncThrower, ...healthy], 'cloud:aws', {});
+  const byId = Object.fromEntries(manifest.map((m) => [m.id, m.status]));
+  assert.equal(byId['9099'], 'error');     // thrower isolated as error, batch survived
+  assert.equal(byId['9001'], 'ran');        // healthy plugins still ran
+  assert.equal(byId['9002'], 'ran');
+});
+
+test('R-LOW-1: a negative CLOUD_PLUGIN_TIMEOUT_MS clamps to the default (no instant-timeout)', async () => {
+  const c = makeCounter();
+  const fast = mockPlugin('9001', c, 5); // 5ms — would only "ran" if the timeout is sane
+  const pm = await pmWith([fast]);
+  const saved = process.env.CLOUD_PLUGIN_TIMEOUT_MS;
+  process.env.CLOUD_PLUGIN_TIMEOUT_MS = '-100';
+  try {
+    const { manifest } = await pm._runCloudPluginsParallel([fast], 'cloud:aws', {});
+    assert.equal(manifest[0].status, 'ran'); // NOT 'timeout' — clamp rescued it
+  } finally {
+    if (saved === undefined) delete process.env.CLOUD_PLUGIN_TIMEOUT_MS; else process.env.CLOUD_PLUGIN_TIMEOUT_MS = saved;
+  }
+});
