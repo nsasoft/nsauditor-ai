@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## [Unreleased] — `--env` / `--aws-profile` + sentinel-host plugin scoping
+## 0.1.91 (2026-05-29; paired with EE 0.16.0) — `--env` / `--aws-profile` + sentinel-host plugin scoping
 
 ### Added
 
