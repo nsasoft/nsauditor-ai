@@ -6,6 +6,8 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.90 (2026-05-29; paired with EE 0.15.9) — Paired no-op for the EE 0.15.9 hotfix (cross-cloud bleed gate moved from preflight() to run() — the load-bearing path). No CE code change.
+
 ## 0.1.89 (2026-05-29; paired with EE 0.15.8) — Paired no-op for the EE cloud-plugin scoping fixes (AWS CLOUD_PROVIDER gate + GCP evidence-gap). No CE code change.
 
 ## 0.1.88 (2026-05-29; paired with EE 0.15.7) — Paired no-op for the EE GCP SDK refresh
