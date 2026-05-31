@@ -6,6 +6,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.95 (2026-05-30) — `scan_cloud` surfaces cloud findings (false-clean fix) — paired with EE 0.16.4 + agent-skill 0.1.63
+
+### Fixed
+- **`scan_cloud` now surfaces cloud findings directly from the scan results** (NEW `findingsSummary`: per-provider
+  severity counts + the CRITICAL/HIGH list), instead of deriving them from the network-host concluder
+  (`result_concluder.mjs`). That concluder is built for port/service scans and does not understand cloud compliance
+  findings — it silently **dropped** them, so a scan could report `audited:true` with **0 findings over real
+  CRITICALs** (shadow-admin IAM users, public Lambda URLs, internet-exposed security groups…). This is a distinct
+  false-clean class from the 0.1.93 fold (which covered *not-audited* reported as clean); here the cloud **was**
+  audited but the findings never reached the caller. Every finding in the raw results is now counted, and every
+  CRITICAL/HIGH is listed (capped at `CLOUD_FINDINGS_CAP`, default 60, with a `truncated` flag — counts are never
+  capped). The misleading host "conclusion" is no longer surfaced for the cloud path. No EE plugin change; the
+  network `scan_host` path is unchanged.
+
+### Changed
+- **Scoping guidance:** the `scan_cloud` tool description and the agent skill now steer "audit my AWS account" to
+  `providers:["aws"]` (audit only the cloud the user names), reducing over-auditing and concurrent load.
+
 ## 0.1.94 (2026-05-30) — parallel `scan_cloud` execution (fits the 60s MCP budget) — paired with EE 0.16.3 + agent-skill 0.1.62
 
 ### Changed
