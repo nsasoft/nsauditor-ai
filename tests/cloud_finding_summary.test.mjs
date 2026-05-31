@@ -48,3 +48,39 @@ test('renderCloudFindingsMarkdown lists every CRITICAL', () => {
   const md = renderCloudFindingsMarkdown(s, ['aws']);
   assert.match(md, /CRITICAL/); assert.match(md, /iam-violator-user/);
 });
+
+test('describeFinding surfaces REAL plugin resource keys (bucket/vault/group/table/key/function/pipeline)', () => {
+  assert.match(describeFinding({ bucket: 'prod-pii-bucket', severity: 'critical', issues: ['Bucket policy grants public access'] }), /prod-pii-bucket/);
+  assert.match(describeFinding({ vault: 'kv-prod', severity: 'high', issues: ['no purge protection'] }), /kv-prod/);
+  assert.match(describeFinding({ group: 'sg-123', severity: 'critical', issues: ['0.0.0.0/0 ingress'] }), /sg-123/);
+  assert.match(describeFinding({ table: 'ddb-tbl', severity: 'high', issues: ['no PITR'] }), /ddb-tbl/);
+  assert.match(describeFinding({ key: 'kms-1', severity: 'high', issues: ['wildcard decrypt'] }), /kms-1/);
+  assert.match(describeFinding({ function: 'fn-x', severity: 'critical', issues: ['public URL'] }), /fn-x/);
+  assert.match(describeFinding({ pipeline: 'pl-1', severity: 'high', issues: ['no encryption'] }), /pl-1/);
+});
+
+test('describeFinding never emits a raw object dump for an indeterminate finding', () => {
+  const d = describeFinding({ severity: 'high', foo: 'bar' });
+  assert.ok(d.length > 0);
+  assert.doesNotMatch(d, /[{}]/); // no JSON.stringify blob on the headline surface
+});
+
+test('cap keeps CRITICALs in the displayed list over HIGHs when truncating', () => {
+  const findings = [
+    ...Array.from({ length: 60 }, (_, i) => ({ severity: 'high', title: 'h' + i })),
+    { severity: 'critical', userName: 'late-crit', issues: ['SHADOW ADMIN'] },
+  ];
+  const s = summarizeCloudFindings([{ id: '1030', result: { findings } }], () => 'aws', 5);
+  assert.equal(s.aws.counts.CRITICAL, 1);          // counts complete
+  assert.equal(s.aws.counts.HIGH, 60);
+  assert.equal(s.aws.findings.length, 5);          // displayed list capped
+  assert.equal(s.aws.truncated, true);
+  assert.ok(s.aws.findings.some((f) => f.severity === 'CRITICAL' && /late-crit/.test(f.title))); // CRITICAL survives
+});
+
+test('a result whose provider cannot be resolved is bucketed under "unknown", never dropped', () => {
+  const s = summarizeCloudFindings([{ id: '9999', result: { findings: [{ severity: 'critical', title: 'orphan-finding' }] } }], () => null);
+  assert.equal(s.unknown.counts.CRITICAL, 1);
+  const md = renderCloudFindingsMarkdown(s, ['aws']); // 'aws' named, but unknown must still render
+  assert.match(md, /orphan-finding/);
+});
