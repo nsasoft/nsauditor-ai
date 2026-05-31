@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.98 (2026-05-31) — Paired no-op bump for EE 0.16.7 + agent-skill 0.1.66
+
+No CE code change. Trio-versioning pin for EE 0.16.7 (CloudTrail plugin 1040 multi-region hotfix: per-region client fast-fail timeout + an errored region no longer discards the whole multi-region scan). The fix is in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped to keep the trio in lockstep.
+
 ## 0.1.97 (2026-05-31) — Paired no-op bump for EE 0.16.6 + agent-skill 0.1.65
 
 No CE code change. Trio-versioning pin for EE 0.16.6 (CloudTrail soft-budget `min()` regression hotfix + plugin 1110 KMS AWS-managed-key grant-decrypt false-positive fold + compliance-engine PASS-tier-not-a-violation fold). All three fixes are in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped to keep the trio in lockstep.
