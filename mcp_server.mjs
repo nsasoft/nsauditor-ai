@@ -25,6 +25,7 @@ import {
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
+import { summarizeCloudFindings, renderCloudFindingsMarkdown } from './utils/cloud_finding_summary.mjs';
 import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
 
 const _require = createRequire(import.meta.url);
@@ -196,7 +197,7 @@ const TOOLS = [
   {
     name: 'scan_cloud',
     description:
-      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Use for "audit my AWS account" / "audit my AWS and Azure accounts".',
+      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -379,12 +380,17 @@ export async function handleScanCloud(args) {
     else process.env.CLOUD_PROVIDER = savedProvider;
   }
 
-  // Render a Markdown summary (best-effort, same as scan_host).
+  // Build the caller-visible findings surface DIRECTLY from the raw results — the
+  // network-host concluder (result_concluder.mjs) doesn't understand cloud
+  // compliance findings and silently drops them (the false-clean this fixes).
+  const providerOf = (id) => (pm.plugins || []).find((p) => String(p.id) === String(id))?.cloudProvider || null;
+  const findingsSummary = summarizeCloudFindings(output.results || [], providerOf);
+
+  // Render Markdown FROM the findings summary (NOT the host renderer, which is
+  // empty for a cloud conclusion). Best-effort.
   let markdown = null;
   try {
-    if (output.conclusion) {
-      markdown = buildMarkdownReport({ host: output.host, conclusion: output.conclusion, toolVersion: TOOL_VERSION });
-    }
+    markdown = renderCloudFindingsMarkdown(findingsSummary, providers);
   } catch { /* swallow — markdown is best-effort */ }
 
   // Anti-false-clean: a requested cloud is "audited" ONLY if >=1 of its plugins
@@ -412,7 +418,7 @@ export async function handleScanCloud(args) {
     providers,
     audited: auditedProviders.length > 0,
     auditedProviders,
-    conclusion: output.conclusion ?? null,
+    findingsSummary,
     manifest: output.manifest ?? [],
     pluginsRan,
     markdown,

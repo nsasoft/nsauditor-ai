@@ -105,3 +105,26 @@ test('Enterprise gate denies below enterprise, allows at enterprise', () => {
 test('scan_cloud is registered as a tool handler', () => {
   assert.equal(typeof toolHandlers.scan_cloud, 'function');
 });
+
+test('surfaces cloud findings from raw results — the dropped-findings false-clean fix', async () => {
+  const crit = (userName) => ({ severity: 'critical', userName, issues: ['SHADOW ADMIN: full wildcard *'] });
+  _setPluginManager({
+    plugins: [{ id: '1030', name: 'iam', cloudProvider: 'aws' }],
+    runCloud: async () => ({
+      host: 'cloud:aws',
+      // 8 AWS CRITICAL live in results[].result.findings — the host concluder drops these.
+      results: [{ id: '1030', result: { findings: Array.from({ length: 8 }, (_, i) => crit('violator-' + i)) } }],
+      conclusion: { host: { up: true }, summary: 'Host cloud:aws is UP' }, // misleading host conclusion — must NOT leak
+      manifest: [{ id: '1030', name: 'iam', status: 'ran' }],
+      providerStatus: { aws: { available: 1, ran: 1, skipped: 0, errored: 0 } },
+      auditedProviders: ['aws'],
+    }),
+  });
+  const out = await handleScanCloud({ providers: ['aws'] });
+  assert.equal(out.audited, true);
+  assert.equal(out.findingsSummary.aws.counts.CRITICAL, 8);          // every CRITICAL surfaced
+  assert.ok(out.findingsSummary.aws.findings.some((f) => /violator-0/.test(f.title)));
+  assert.equal(out.conclusion, undefined);                            // misleading host conclusion NOT leaked
+  assert.match(out.markdown, /CRITICAL/);
+  _setTier();
+});
