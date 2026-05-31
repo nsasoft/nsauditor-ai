@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.1.97 (2026-05-31) — Paired no-op bump for EE 0.16.6 + agent-skill 0.1.65
+
+No CE code change. Trio-versioning pin for EE 0.16.6 (CloudTrail soft-budget `min()` regression hotfix + plugin 1110 KMS AWS-managed-key grant-decrypt false-positive fold + compliance-engine PASS-tier-not-a-violation fold). All three fixes are in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped to keep the trio in lockstep.
+
 ## 0.1.96 (2026-05-31) — Paired no-op bump for EE 0.16.5 + agent-skill 0.1.64
 
 EE 0.16.5 fixes four compliance-mapping false-cleans (perimeter exposures now route cross-framework to PCI/ISO/NIST; CloudTrail fails-closed on abort; GCP Cloud Storage emits an evidence-gap on enumeration failure; internal review-process markers + repo paths scrubbed from the shipped framework JSONs). These live entirely in EE (`data/compliance/*.json` + plugins 1040/1024) — **no CE code change**. Plugin count UNCHANGED (28); all six coverage matrices UNCHANGED.
