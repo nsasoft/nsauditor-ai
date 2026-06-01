@@ -287,6 +287,27 @@ nsauditor-ai scan --host aws --plugins all --compliance soc2
 nsauditor-ai scan --host aws --plugins 1130 --plugin-opts '{"1130":{"vpcEndpointsPageCap":50}}'
 ```
 
+### Scoping the AWS audit to regions — `--aws-region`
+
+By default an AWS audit runs against a single region (`AWS_REGION`, else `us-east-1`). The `--aws-region <one|csv|all>` flag controls which regions the **regional** plugins (security groups, EC2, RDS, KMS, Lambda, Secrets Manager, DynamoDB, CodePipeline/CodeBuild, Backup, SQS/SNS, VPC endpoints, ElastiCache, SES, Inspector/GuardDuty, CloudTrail) audit — each now audits *every in-scope region*, not just the configured one:
+
+```bash
+# A single region
+nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region us-east-1
+
+# A comma-separated list of regions
+nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region us-east-1,eu-west-1,ap-southeast-2
+
+# Every region enabled on the account (via DescribeRegions; static-list fallback on AccessDenied)
+nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region all
+```
+
+- **Precedence:** `--aws-region` flag › `AWS_REGION` (shell / `--env` file) › single-region default.
+- **Default (no flag, no `AWS_REGION`):** scans one region and adds an informational *"incomplete region coverage"* note listing the enabled regions that were **not** scanned. It maps to no compliance control (a disclosure, not a finding — your posture is unchanged); pass `--aws-region all` for full coverage.
+- **Unknown region:** the explicit flag **fails fast** on an unrecognized region code (set `NSA_AWS_REGION_ALLOW_UNKNOWN=1` to permit a brand-new region); an `AWS_REGION`-derived value warns and proceeds.
+- **Global services** (IAM, account-level S3 enumeration) are audited once regardless of `--aws-region`; the S3 auditors resolve **each bucket's own region** and skip + disclose buckets outside the scoped set (closing latent cross-region false-cleans).
+- **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it to scan the server-configured `AWS_REGION`, or pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) to fan out. Omitting does **not** fan out, so a single tool-call stays within Desktop's timeout.
+
 The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, RFC 3161 trusted-timestamps, suppression workflow, identity verification. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
 
 ---
