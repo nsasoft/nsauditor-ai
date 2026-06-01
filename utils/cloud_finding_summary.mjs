@@ -40,6 +40,18 @@ function findingsOf(r) {
  */
 export function summarizeCloudFindings(results, providerOf, cap = Number(process.env.CLOUD_FINDINGS_CAP) || 60) {
   const out = {};
+  // Scan for the FIRST plugin that carries a scanScope (AWS plugins emit it on
+  // result.summary.scanScope). Used to derive the incomplete-coverage advisory.
+  // This runs before the per-finding loop so even results with no findings still
+  // contribute their scanScope (e.g. a region-scoped scan with PASS on all checks).
+  let advisoryScope = null;
+  for (const r of (Array.isArray(results) ? results : [])) {
+    const sc = r?.result?.summary?.scanScope;
+    if (sc && typeof sc === 'object') { advisoryScope = sc; break; }
+  }
+  const advisory = incompleteCoverageAdvisory(advisoryScope);
+  if (advisory) out._incompleteCoverage = advisory;
+
   for (const r of (Array.isArray(results) ? results : [])) {
     const found = findingsOf(r);
     if (!found.length) continue;
@@ -59,6 +71,7 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
   // Sort by severity (CRITICAL first) THEN truncate — so a CRITICAL is never evicted
   // from the displayed list by a HIGH. Counts above are always complete (pre-cap).
   for (const prov of Object.keys(out)) {
+    if (prov === '_incompleteCoverage') continue; // meta-key, not a provider bucket
     const b = out[prov];
     b.findings.sort((a, c) => (RANK[c.severity] || 0) - (RANK[a.severity] || 0));
     if (b.findings.length > cap) { b.truncated = true; b.findings = b.findings.slice(0, cap); }
@@ -66,10 +79,39 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
   return out;
 }
 
+/**
+ * Derive the scan-level incomplete-coverage advisory from a plugin's scanScope.
+ * Returns null unless scope was IMPLICIT (operator expressed no region intent).
+ * Informational + NOT harvested into compliance → maps to zero controls.
+ *
+ * @param {object|null} scanScope  A plugin's result.summary.scanScope object.
+ * @returns {{ severity: 'info', kind: string, text: string }|null}
+ */
+export function incompleteCoverageAdvisory(scanScope) {
+  if (!scanScope || scanScope.source !== 'implicit-default') return null;
+  const unscanned = Array.isArray(scanScope.regionsKnownButNotScanned) ? scanScope.regionsKnownButNotScanned : [];
+  if (unscanned.length > 0) {
+    return {
+      severity: 'info',
+      kind: 'incomplete-region-coverage',
+      text: `Incomplete region coverage — ${unscanned.length} enabled region(s) not scanned (${unscanned.join(', ')}). Re-run with --aws-region all (or set AWS_REGION) for full coverage.`,
+    };
+  }
+  if (scanScope.resolveError) {
+    return {
+      severity: 'info',
+      kind: 'incomplete-region-coverage',
+      text: `Region scope was implicit and region enumeration could not be performed (${scanScope.resolveError}) — coverage NOT verified; pass --aws-region (or all) explicitly.`,
+    };
+  }
+  return null;
+}
+
 /** Compact markdown from a summary. Named providers first, then any extras (e.g. 'unknown') so nothing is hidden. */
 export function renderCloudFindingsMarkdown(summary, providers) {
   const named = providers && providers.length ? providers.slice() : [];
-  const order = [...named, ...Object.keys(summary).filter((p) => !named.includes(p))];
+  // Exclude the meta-key _incompleteCoverage from the provider rendering loop.
+  const order = [...named, ...Object.keys(summary).filter((p) => !named.includes(p) && p !== '_incompleteCoverage')];
   const lines = [];
   for (const prov of order) {
     const b = summary[prov]; if (!b) continue;
@@ -77,6 +119,12 @@ export function renderCloudFindingsMarkdown(summary, providers) {
     lines.push(`## ${String(prov).toUpperCase()} — ${c.CRITICAL || 0} CRITICAL · ${c.HIGH || 0} HIGH · ${c.MEDIUM || 0} MEDIUM · ${c.LOW || 0} LOW · ${c.PASS || 0} PASS`);
     for (const f of (b.findings || [])) lines.push(`- **[${f.severity}]** ${f.plugin}: ${f.title}`);
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
+    lines.push('');
+  }
+  // Append the incomplete-coverage advisory (when present) as an informational note.
+  // This advisory is summary-only and maps to zero compliance controls.
+  if (summary._incompleteCoverage) {
+    lines.push(`> **ℹ️ Advisory:** ${summary._incompleteCoverage.text}`);
     lines.push('');
   }
   return lines.join('\n').trim();
