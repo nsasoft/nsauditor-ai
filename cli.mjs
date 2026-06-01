@@ -821,7 +821,7 @@ function maxSeverityInConclusion(conclusion) {
 
 export async function main() {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, awsRegion } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -853,6 +853,9 @@ Scan options:
                                credentials). Override-on; missing file = hard error.
   --aws-profile <name>         Use a named profile from the OS-default ~/.aws/credentials.
                                Implies CLOUD_PROVIDER=aws; overrides explicit AWS_* keys.
+  --aws-region <r>             AWS region scope: one (us-east-1), CSV (us-east-1,eu-west-1),
+                               or 'all' (every account-enabled region). Default: AWS_REGION
+                               if set, else a single region with an incomplete-coverage notice.
   --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
   --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
   --out <dir>                  Output directory for scan artifacts
@@ -961,6 +964,17 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   } catch (err) {
     console.error(`Error: ${err.message}`);
     process.exit(1);
+  }
+
+  // Build the AWS region intent AFTER env load so AWS_REGION (.env/shell) is visible.
+  // Explicit --aws-region fail-fasts on an unknown region.
+  let awsRegionIntent = null;
+  try {
+    const { buildRegionIntent } = await import('./utils/region_intent.mjs');
+    awsRegionIntent = buildRegionIntent(awsRegion);
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(2);
   }
 
   // Verify license JWT at startup (~5ms for ES256). Populates _verifiedTier
@@ -1835,6 +1849,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   if (ports) opts.ports = ports;
   if (compliance) opts.compliance = compliance;
   if (complianceScope) opts.complianceScope = complianceScope;
+  if (awsRegionIntent) opts.awsRegionIntent = awsRegionIntent;
   const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
 
