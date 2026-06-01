@@ -6,6 +6,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.0 (2026-06-01) — `--aws-region` scoping + multi-region fan-out (paired with EE 0.17.0 + agent-skill 0.2.0)
+
+**Minor-version feature release — the `--aws-region` flag + the MCP `scan_cloud` `regions` argument live in CE.**
+
+NEW `--aws-region <one|csv|all>` CLI flag: scopes an AWS audit to a single region, a CSV of regions, or every account-enabled region (`all`). Built on a new canonical AWS-region data module (`utils/aws_regions.mjs`, no SDK dependency), a `RegionIntent` builder + validator (`utils/region_intent.mjs` — an unknown region fails fast for the explicit flag, warns-and-proceeds when derived from `AWS_REGION`; `NSA_AWS_REGION_ALLOW_UNKNOWN=1` bypasses for a brand-new region), threaded into the scan as `opts.awsRegionIntent`.
+
+The MCP `scan_cloud` tool gains a `regions` argument with a **divergent default**: omit it to scan the server-configured `AWS_REGION` (single region) — omitting does **not** fan out; pass `["all"]` explicitly to scan every enabled region (so a Claude Desktop tool-call does not blow its ~60s timeout by default). An implicit-only "incomplete region coverage" advisory is emitted when the region scope is implicit (it maps to no compliance control, so posture is unchanged).
+
+Precedence: `--aws-region` › `AWS_REGION` › single-region default. The per-region fan-out + scoping is executed by the EE regional plugins (see EE 0.17.0). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
+
 ## 0.1.98 (2026-05-31) — Paired no-op bump for EE 0.16.7 + agent-skill 0.1.66
 
 No CE code change. Trio-versioning pin for EE 0.16.7 (CloudTrail plugin 1040 multi-region hotfix: per-region client fast-fail timeout + an errored region no longer discards the whole multi-region scan). The fix is in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped to keep the trio in lockstep.
