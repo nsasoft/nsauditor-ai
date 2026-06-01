@@ -22,6 +22,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { buildRegionIntent } from './utils/region_intent.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
@@ -120,6 +121,24 @@ export function _setValidateHost(fn) {
   _validateHostFn = fn ?? validateHost;
 }
 
+/**
+ * Build a RegionIntent for the MCP scan_cloud `regions` argument.
+ *
+ * DIVERGENT DEFAULT vs CLI: omitting `regions` (undefined/null) returns null
+ * so the plugins fall back to the server-configured AWS_REGION (single-region
+ * or env-driven). The caller must pass ["all"] EXPLICITLY to fan out to every
+ * enabled region — an implicit fan-out could blow Claude Desktop's tool timeout.
+ *
+ * @param {string[]|undefined|null} regions  Tool arg value
+ * @returns {{ kind: 'all'|'list', explicit: true }|null}
+ */
+export function buildScanCloudRegionIntent(regions) {
+  if (regions === undefined || regions === null) return null; // divergent default: do NOT fan out
+  if (!Array.isArray(regions)) throw new Error('regions must be an array of region codes or ["all"]');
+  if (regions.length === 1 && String(regions[0]).trim().toLowerCase() === 'all') return buildRegionIntent('all');
+  return buildRegionIntent(regions.join(','));
+}
+
 // ---------------------------------------------------------------------------
 // Per-call cryptographic sentinel (CE 0.1.36 — Thread L Phase 2)
 // ---------------------------------------------------------------------------
@@ -205,6 +224,11 @@ const TOOLS = [
           type: 'array',
           items: { type: 'string', enum: ['aws', 'gcp', 'azure'] },
           description: 'Which cloud(s) to audit. Omit to audit all clouds the server is configured for.',
+        },
+        regions: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'AWS region codes (e.g. ["us-east-1","eu-west-1"]) or ["all"] to scan every enabled region. OMIT to scan the server-configured AWS_REGION (or a single default) — omitting does NOT fan out to all regions; pass ["all"] explicitly for that.',
         },
       },
       required: [],
@@ -365,6 +389,11 @@ export async function handleScanCloud(args) {
     if (requested.length > 0) providers = requested;
   }
 
+  // Validate regions BEFORE the scan runs so a bad region rejects cleanly.
+  // buildScanCloudRegionIntent throws on unknown regions; returns null when
+  // omitted (divergent default: does NOT fan out — explicit ["all"] required).
+  const awsRegionIntent = buildScanCloudRegionIntent(args && args.regions);
+
   const pm = await getPluginManager();
 
   // Save/set/restore CLOUD_PROVIDER so the per-plugin .includes() gates pass and
@@ -374,7 +403,7 @@ export async function handleScanCloud(args) {
   let output;
   try {
     process.env.CLOUD_PROVIDER = providers.join(',');
-    output = await pm.runCloud(providers);
+    output = await pm.runCloud(providers, awsRegionIntent ? { awsRegionIntent } : {});
   } finally {
     if (savedProvider === undefined) delete process.env.CLOUD_PROVIDER;
     else process.env.CLOUD_PROVIDER = savedProvider;
