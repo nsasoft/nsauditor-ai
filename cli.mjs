@@ -613,6 +613,11 @@ export async function parseArgs(argv) {
   args.env = envVal === undefined ? undefined : envVal; // string path, or true if value-less
   const awsProfileVal = get('aws-profile');
   args.awsProfile = awsProfileVal === undefined ? undefined : awsProfileVal;
+  // Per-scan AWS region scoping (EE region cycle). `--aws-region <one|csv|all>`.
+  // get() returns undefined (absent), true (value-less flag → error in main()),
+  // or the raw string ('us-east-1' | 'us-east-1,eu-west-1' | 'all').
+  const awsRegionVal = get('aws-region');
+  args.awsRegion = awsRegionVal === undefined ? undefined : awsRegionVal;
 
   return args;
 }
