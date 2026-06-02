@@ -421,6 +421,14 @@ npx nsauditor-ai-mcp
 > (per-provider severity counts + a CRITICAL/HIGH list) for the findings; `audited:false` / `notes` / `pluginsRan:0`
 > still mean a cloud was NOT audited (never a clean pass). Pass `providers:["aws"]` to audit only the cloud named.
 
+> **Full all-region AWS coverage fits Desktop's limit automatically.** When you ask for "all regions" / "full
+> coverage", the agent scans the enabled regions in small **region-group batches** (each within the ~60s window)
+> rather than one long `regions:["all"]` call — so it completes without timing out, and you do **not** raise any
+> timeout for it. Keep `CLOUD_PLUGIN_TIMEOUT_MS` **under** Desktop's ~60s tool-call cap (default `25000`; raise to
+> ~`45000` only for very large accounts — a higher per-plugin cap can let one plugin run past Desktop's wall and
+> cause a hard timeout). For unbounded multi-region scans use the **CLI** (`nsauditor-ai scan … --aws-region all`),
+> which has no MCP tool-call cap — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely.
+
 Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
 
 ### Authentication (required)
@@ -505,7 +513,7 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
 - `PLUGIN_TIMEOUT_MS=5000` — reduces per-plugin timeout to 5s so the full scan completes within Claude Desktop's 60s MCP limit
 - `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
-- `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`).
+- `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`). Keep it **under** Desktop's ~60s tool-call cap (raise to ~`45000` only for very large accounts); full all-region coverage is delivered by automatic region-batching, so it needs **no** timeout increase.
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 
 #### `NSA_ENV_FILE` — point the MCP server at an environment file
