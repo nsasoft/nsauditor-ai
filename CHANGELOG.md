@@ -10,9 +10,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 No CE code change — a docs/paired bump that keeps the npm README current and pins the trio in lockstep with EE 0.18.0. The fixes live entirely in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped so the published README tracks the current Enterprise release.
 
-EE 0.18.0 closes three GCP false-negative CRITICAL/HIGH defects — all substrate-depth fixes on **already-covered controls** (no new controls):
+EE 0.18.0 closes four GCP false-negative CRITICAL/HIGH defects — all substrate-depth fixes on **already-covered controls** (no new controls):
 
 - **GCP evidence-gap routing (plugin 1021)** — an `AccessDenied` GCP firewall / IAM / bucket enumeration now routes into the scan findings (single-owner anchors) and **FAILS** its controls instead of false-CLEANing at the compliance layer.
+- **GCP project-IAM public-exposure now actually fires (plugin 1021)** — the project-IAM-public check called `getIamPolicy` on the Compute `ProjectsClient`, which has no IAM methods, so it failed on every live scan (`client.getIamPolicy is not a function`) and never detected a publicly-bound project IAM policy; it now reads the project IAM policy via the correct Resource Manager `ProjectsClient` (the client plugin 1025 already uses), so `allUsers` / `allAuthenticatedUsers` project-level bindings are detected instead of perpetually evidence-gapping. Caught by the new pack + global-install + test-infra smoke gate; live-validated under pure ADC.
 - **Legacy-ACL public-exposure detection (GCP Cloud Storage, plugin 1024)** — a bucket made public via a legacy ACL (`allUsers` / `allAuthenticatedUsers`) while Uniform Bucket-Level Access is disabled was reading CLEAN; the auditor now scans the bucket ACL + a sampled object-ACL surface → CRITICAL / HIGH + evidence-gap (routed to SOC 2 CC6.6 / HIPAA 164.312(a)(1) / CIS v8 3.3).
 - **GCP IAM impersonation-BFS completeness (plugin 1025)** — project-scope `roles/iam.serviceAccountKeyAdmin` now fires the project-scope impersonation CRITICAL (a long-lived key = offline impersonation of any service account), and a service account privileged via an admin-equivalent custom role (`iam.serviceAccounts.actAs`…) is now marked admin in the impersonation graph so paths terminating there are detected.
 
