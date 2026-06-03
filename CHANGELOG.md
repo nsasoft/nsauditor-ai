@@ -6,6 +6,18 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.1 (2026-06-03) — Paired docs release for EE 0.18.0 (GCP false-negative hardening) + agent-skill 0.2.1
+
+No CE code change — a docs/paired bump that keeps the npm README current and pins the trio in lockstep with EE 0.18.0. The fixes live entirely in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped so the published README tracks the current Enterprise release.
+
+EE 0.18.0 closes three GCP false-negative CRITICAL/HIGH defects — all substrate-depth fixes on **already-covered controls** (no new controls):
+
+- **GCP evidence-gap routing (plugin 1021)** — an `AccessDenied` GCP firewall / IAM / bucket enumeration now routes into the scan findings (single-owner anchors) and **FAILS** its controls instead of false-CLEANing at the compliance layer.
+- **Legacy-ACL public-exposure detection (GCP Cloud Storage, plugin 1024)** — a bucket made public via a legacy ACL (`allUsers` / `allAuthenticatedUsers`) while Uniform Bucket-Level Access is disabled was reading CLEAN; the auditor now scans the bucket ACL + a sampled object-ACL surface → CRITICAL / HIGH + evidence-gap (routed to SOC 2 CC6.6 / HIPAA 164.312(a)(1) / CIS v8 3.3).
+- **GCP IAM impersonation-BFS completeness (plugin 1025)** — project-scope `roles/iam.serviceAccountKeyAdmin` now fires the project-scope impersonation CRITICAL (a long-lived key = offline impersonation of any service account), and a service account privileged via an admin-equivalent custom role (`iam.serviceAccounts.actAs`…) is now marked admin in the impersonation graph so paths terminating there are detected.
+
+Plugin count UNCHANGED at 28; all six coverage matrices (SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS v4.0.1 + ISO 27001:2022 + CIS Controls v8) UNCHANGED.
+
 ## 0.2.0 (2026-06-01) — `--aws-region` scoping + multi-region fan-out (paired with EE 0.17.0 + agent-skill 0.2.0)
 
 **Minor-version feature release — the `--aws-region` flag + the MCP `scan_cloud` `regions` argument live in CE.**

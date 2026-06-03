@@ -17,8 +17,12 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.0 + Enterprise 0.17.0** (June 2026)
+**Latest: CE 0.2.1 + Enterprise 0.18.0** (June 2026)
 
+- 🛡️ **GCP false-negative hardening** (Enterprise 0.18.0 — paired CE 0.2.1, docs-only) — three substrate-depth false-negative closures in the GCP auditors, all on already-covered controls (no new controls):
+  - **GCP evidence-gaps now fail their controls** — a denied GCP firewall / IAM / bucket enumeration (`AccessDenied`) now routes into the scan findings (single-owner anchors) and **FAILS** its controls instead of reading clean (was a compliance-layer false-CLEAN).
+  - **Legacy-ACL public-exposure detection in GCP Cloud Storage** — a bucket made public via a **legacy ACL** (`allUsers` / `allAuthenticatedUsers`) while Uniform Bucket-Level Access is disabled was reading CLEAN; the auditor now scans the bucket ACL + a sampled object-ACL surface → CRITICAL / HIGH (routed to SOC 2 CC6.6 / HIPAA 164.312(a)(1) / CIS v8 3.3).
+  - **GCP IAM impersonation-BFS completeness** — project-scope `roles/iam.serviceAccountKeyAdmin` (mint a long-lived key for any service account = offline impersonation) now fires the project-scope impersonation CRITICAL, and a service account privileged via an **admin-equivalent custom role** (`iam.serviceAccounts.actAs`…) is now marked admin in the impersonation graph so paths terminating there are detected instead of reading clean.
 - 🌐 **`--aws-region` scoping + genuine multi-region fan-out** (CE 0.2.0 — paired EE 0.17.0) — a new `--aws-region <one|csv|all>` CLI flag (and a `regions` argument on the MCP `scan_cloud` tool) scopes an AWS audit to a single region, a CSV of regions, or every account-enabled region (`all`). The EE regional plugins now audit every in-scope region instead of only the configured one, and the S3 auditors resolve each bucket's own region — closing latent cross-region false-cleans. Precedence is `--aws-region` › `AWS_REGION` › single-region default; the no-flag default stays single-region (behaviour-preserving) and discloses any unscanned regions. Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
 
 → Full release history: **[CHANGELOG.md](./CHANGELOG.md)**
