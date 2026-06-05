@@ -35,8 +35,11 @@ function findingsOf(r) {
 /**
  * @param {Array} results              out.results (each {id, result:{findings|data}})
  * @param {(id:any)=>string|null} providerOf  plugin id -> cloudProvider
- * @param {number} [cap]               max CRITICAL/HIGH entries listed per provider
- * @returns {Object} { [provider]: { counts:{SEV:n}, findings:[{severity,plugin,title}], truncated:boolean } }
+ * @param {number} [cap]               max CRITICAL/HIGH entries listed per provider (also caps evidenceGaps independently)
+ * @returns {Object} { [provider]: { counts:{SEV:n}, findings:[{severity,plugin,title}], truncated:boolean,
+ *                                   evidenceGaps:[{severity,plugin,title}], evidenceGapsTruncated?:boolean } }
+ *   evidenceGaps surfaces findings carrying `details.evidenceGap === true` (the no-false-clean
+ *   "could not verify" disclosures) REGARDLESS of severity, so a LOW/INFO gap is never invisible.
  */
 export function summarizeCloudFindings(results, providerOf, cap = Number(process.env.CLOUD_FINDINGS_CAP) || 60) {
   const out = {};
