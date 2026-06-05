@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.3 + Enterprise 0.18.2** (June 2026) — the MCP `scan_cloud` summary now **surfaces evidence-gaps**: a dedicated "Evidence gaps (unverified)" section so a Claude Desktop auditor sees the no-false-clean "we couldn't verify this" disclosures instead of a silent LOW count. Paired with **EE 0.18.2**, which retrofits the AWS S3 / Azure / IAM plugins to mark their scan-coverage gaps via a new CI producer-contract (so they reach the collector across all three clouds). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
+**Latest: CE 0.2.4 + Enterprise 0.18.3** (June 2026) — paired pin for **EE 0.18.3** "GCP IAM + Azure Key Vault false-negative hardening III": an Azure Key Vault custom role granting only a narrow data-plane crypto/extraction verb (`decrypt`/`wrap`/`unwrap`/…) is now flagged; the GCP IAM impersonation BFS fail-closes on depth-cap truncation; and the googleapis-SDK-absent path fail-closes the GCP IAM dims to compliance-routed evidence-gaps instead of silently vanishing. Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
 
 → Full release history: **[CHANGELOG.md](./CHANGELOG.md)**
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
