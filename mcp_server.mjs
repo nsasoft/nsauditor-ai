@@ -216,7 +216,7 @@ const TOOLS = [
   {
     name: 'scan_cloud',
     description:
-      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results.',
+      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results. findingsSummary[provider].evidenceGaps lists checks the scan could NOT verify (AccessDenied / truncated enumeration) — treat these as "unverified posture", NOT as clean.',
     inputSchema: {
       type: 'object',
       properties: {
