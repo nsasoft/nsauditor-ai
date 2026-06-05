@@ -125,3 +125,19 @@ test('evidenceGaps are capped independently with an evidenceGapsTruncated flag',
   assert.equal(s.gcp.evidenceGaps.length, 2);
   assert.equal(s.gcp.evidenceGapsTruncated, true);
 });
+
+test('renderCloudFindingsMarkdown renders an EVIDENCE GAP section labelled unverified', () => {
+  const s = { gcp: { counts: { CRITICAL: 0, HIGH: 0, LOW: 1 }, findings: [],
+    evidenceGaps: [{ severity: 'LOW', plugin: '1025', title: 'GCP IAM impersonation posture UNVERIFIED (evidence gap)' }], truncated: false } };
+  const md = renderCloudFindingsMarkdown(s, ['gcp']);
+  assert.match(md, /EVIDENCE GAP/);
+  assert.match(md, /unverified/i);
+  assert.match(md, /1025: GCP IAM impersonation posture UNVERIFIED/);
+});
+
+test('renderCloudFindingsMarkdown emits NO evidence-gap section when there are none (backward-compat)', () => {
+  const s = { aws: { counts: { CRITICAL: 1, HIGH: 0 }, findings: [{ severity: 'CRITICAL', plugin: '1030', title: 'iam-violator-user — SHADOW ADMIN' }], evidenceGaps: [], truncated: false } };
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  assert.match(md, /iam-violator-user/);
+  assert.doesNotMatch(md, /EVIDENCE GAP/);
+});

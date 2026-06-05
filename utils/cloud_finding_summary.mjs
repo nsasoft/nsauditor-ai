@@ -123,6 +123,8 @@ export function renderCloudFindingsMarkdown(summary, providers) {
     lines.push(`## ${String(prov).toUpperCase()} — ${c.CRITICAL || 0} CRITICAL · ${c.HIGH || 0} HIGH · ${c.MEDIUM || 0} MEDIUM · ${c.LOW || 0} LOW · ${c.PASS || 0} PASS`);
     for (const f of (b.findings || [])) lines.push(`- **[${f.severity}]** ${f.plugin}: ${f.title}`);
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
+    for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}`);
+    if (b.evidenceGapsTruncated) lines.push(`- _…evidence-gap list truncated; see LOW count for totals._`);
     lines.push('');
   }
   // Append the incomplete-coverage advisory (when present) as an informational note.
