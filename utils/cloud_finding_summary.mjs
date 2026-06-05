@@ -59,12 +59,15 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     // bucketed under 'unknown' rather than silently dropped (defense-in-depth against a
     // future id collision / cloudProvider drift — never let a real finding vanish).
     const prov = providerOf(r?.id ?? r?.result?.id) || UNKNOWN_PROVIDER;
-    const bucket = (out[prov] ||= { counts: {}, findings: [], truncated: false });
+    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false });
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
       if (sev === 'CRITICAL' || sev === 'HIGH') {
         bucket.findings.push({ severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) });
+      }
+      if (x && typeof x === 'object' && x.details && x.details.evidenceGap === true) {
+        bucket.evidenceGaps.push({ severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) });
       }
     }
   }
@@ -75,6 +78,7 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     const b = out[prov];
     b.findings.sort((a, c) => (RANK[c.severity] || 0) - (RANK[a.severity] || 0));
     if (b.findings.length > cap) { b.truncated = true; b.findings = b.findings.slice(0, cap); }
+    if (b.evidenceGaps.length > cap) { b.evidenceGapsTruncated = true; b.evidenceGaps = b.evidenceGaps.slice(0, cap); }
   }
   return out;
 }

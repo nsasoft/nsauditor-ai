@@ -84,3 +84,44 @@ test('a result whose provider cannot be resolved is bucketed under "unknown", ne
   const md = renderCloudFindingsMarkdown(s, ['aws']); // 'aws' named, but unknown must still render
   assert.match(md, /orphan-finding/);
 });
+
+test('summarizeCloudFindings collects LOW details.evidenceGap findings into evidenceGaps (not lost)', () => {
+  const results = [{ id: '1025', result: { findings: [
+    { severity: 'low', issues: ['GCP IAM impersonation posture UNVERIFIED (evidence gap)'], details: { evidenceGap: true } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'gcp');
+  assert.equal(s.gcp.counts.LOW, 1);                       // count unchanged/complete
+  assert.equal(s.gcp.findings.length, 0);                  // not in the CRIT/HIGH list
+  assert.equal(s.gcp.evidenceGaps.length, 1);              // surfaced in its own list
+  assert.match(s.gcp.evidenceGaps[0].title, /UNVERIFIED \(evidence gap\)/);
+  assert.equal(s.gcp.evidenceGaps[0].plugin, '1025');
+});
+
+test('a LOW finding WITHOUT evidenceGap is not collected as an evidence gap', () => {
+  const results = [{ id: '1020', result: { findings: [
+    { severity: 'low', issues: ['minor informational note'] },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.counts.LOW, 1);
+  assert.equal(s.aws.evidenceGaps.length, 0);
+});
+
+test('evidenceGaps survive the CRITICAL/HIGH cap (independent collection)', () => {
+  const findings = [];
+  for (let i = 0; i < 70; i++) findings.push({ severity: 'high', title: `h-${i}` });
+  findings.push({ severity: 'low', issues: ['firewall enumeration UNVERIFIED (evidence gap)'], details: { evidenceGap: true } });
+  const s = summarizeCloudFindings([{ id: '1021', result: { findings } }], () => 'gcp', 5);
+  assert.equal(s.gcp.findings.length, 5);                  // CRIT/HIGH list capped
+  assert.equal(s.gcp.truncated, true);
+  assert.equal(s.gcp.evidenceGaps.length, 1);              // the gap is NOT evicted by the findings cap
+  assert.match(s.gcp.evidenceGaps[0].title, /UNVERIFIED \(evidence gap\)/);
+});
+
+test('evidenceGaps are capped independently with an evidenceGapsTruncated flag', () => {
+  const findings = [];
+  for (let i = 0; i < 4; i++) findings.push({ severity: 'low', issues: [`gap-${i} (evidence gap)`], details: { evidenceGap: true } });
+  const s = summarizeCloudFindings([{ id: '1025', result: { findings } }], () => 'gcp', 2);
+  assert.equal(s.gcp.counts.LOW, 4);
+  assert.equal(s.gcp.evidenceGaps.length, 2);
+  assert.equal(s.gcp.evidenceGapsTruncated, true);
+});
