@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.2 + Enterprise 0.18.1** (June 2026) — paired docs release for EE 0.18.1: **GCP false-negative hardening II** (split-range firewall full-IPv4 coverage · IAM impersonation-graph completeness · default-object-ACL public exposure) + a **fleet-wide read-only enforcement guarantee** (a CI meta-test that makes it impossible to ship a mutating cloud API call across all 28 plugins) + the matching **read-only-credential requirement** (EULA §5.5). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED — substrate-depth fixes on already-covered controls.
+**Latest: CE 0.2.3 + Enterprise 0.18.2** (June 2026) — the MCP `scan_cloud` summary now **surfaces evidence-gaps**: a dedicated "Evidence gaps (unverified)" section so a Claude Desktop auditor sees the no-false-clean "we couldn't verify this" disclosures instead of a silent LOW count. Paired with **EE 0.18.2**, which retrofits the AWS S3 / Azure / IAM plugins to mark their scan-coverage gaps via a new CI producer-contract (so they reach the collector across all three clouds). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED.
 
 → Full release history: **[CHANGELOG.md](./CHANGELOG.md)**
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
