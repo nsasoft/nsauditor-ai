@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.2 (2026-06-05) — Paired docs release for EE 0.18.1 (GCP false-negative hardening II + read-only enforcement) + agent-skill 0.2.2
+
+Paired CE bump (no CE code change). EE 0.18.1 batches five cycles on already-covered controls: **(1) plugin 1021 — split-range firewall full-IPv4 coverage** — a GCP INGRESS rule whose split `sourceRanges` union to the whole IPv4 internet (e.g. `0.0.0.0/1` + `128.0.0.0/1`) now flags as the `0.0.0.0/0` CRITICAL via a conservative full-coverage helper, instead of dodging the exact-string check; **(2) plugin 1025 — IAM impersonation-graph completeness** — the SA-impersonation BFS now fail-closes with a LOW evidence-gap (suppressing the over-confident `GRAPH_CLEAN`) when any input is degraded (per-SA policy denied, custom-roles unavailable, or either list pagination-truncated); **(3) plugin 1024 — default-object-ACL public exposure** — a bucket whose DEFAULT object ACL grants `allUsers`/`allAuthenticatedUsers` (every future object born public) is now detected, with empty/non-array treated as an evidence-gap not a PASS; **(4) fleet-wide read-only enforcement** — a new CI meta-test makes it impossible to ship a mutating cloud API call across all 28 plugins; **(5) read-only credential requirement** — EULA §5.5 + README/SECURITY guidance requiring read-only/least-privilege credentials. **Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED** (SOC 2 + HIPAA + NIST CSF 2.0 + PCI DSS v4.0.1 + ISO 27001:2022 + CIS Controls v8) — substrate-depth false-negative fixes on already-covered controls, NOT new controls.
+
+---
+
 ## 0.2.1 (2026-06-03) — Paired docs release for EE 0.18.0 (GCP false-negative hardening) + agent-skill 0.2.1
 
 No CE code change — a docs/paired bump that keeps the npm README current and pins the trio in lockstep with EE 0.18.0. The fixes live entirely in the `@nsasoft/nsauditor-ai-ee` package; CE is bumped so the published README tracks the current Enterprise release.
