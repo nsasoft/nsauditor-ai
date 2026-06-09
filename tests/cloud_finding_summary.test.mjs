@@ -264,3 +264,52 @@ test('D3: a CRITICAL/HIGH flagged finding gets NO action companion (its actionab
   assert.match(s.aws.evidenceGaps[0].title, /evidence gap/);    // gap clause leads the gap line
   assert.equal(s.aws.evidenceGaps[0].action, undefined);        // no duplicate companion
 });
+
+// ── 0.19.3 batch-review folds ────────────────────────────────────────────────
+
+test('describeFinding strips the EE-RT routing prefix at the presentation layer (fold)', () => {
+  // EE prepends a 47-char compliance-routing tag to gap emissions; it is anchor
+  // plumbing, not operator prose — with the 160-char slice it eats the
+  // remediation tail. Routing happens EE-side on the RAW issue strings, so
+  // stripping here is presentation-only.
+  const x = {
+    resource: 'kms:account [us-east-1]', severity: 'info', details: { evidenceGap: true },
+    issues: ['EE-RT.1.2 multi-region-enumeration-incomplete: KMS key enumeration truncated at page cap (5000 keys) in the scanned region(s). Keys beyond the cap were NOT audited — re-scan with higher keysPageCap.'],
+  };
+  const d = describeFinding(x, { prefer: 'gap' });
+  assert.doesNotMatch(d, /EE-RT/);
+  assert.match(d, /KMS key enumeration truncated/);
+  // the generalized budget-anchor variant strips too
+  const d2 = describeFinding({ severity: 'info', issues: ['EE-RT.1.5.x.3 scan-time-budget-exceeded: region us-west-2 errored — posture UNVERIFIED.'] }, { prefer: 'gap' });
+  assert.doesNotMatch(d2, /EE-RT/);
+  assert.match(d2, /region us-west-2 errored/);
+});
+
+test('a CRIT/HIGH gap finding EVICTED by the findings cap keeps its actionable companion (fold)', () => {
+  const gapClause = 'key enumeration could not be completed — evidence gap';
+  const actClause = 'vault grants broad key permissions to 3 principals — over-privileged';
+  const results = [{ id: '1222', result: { findings: [
+    { severity: 'critical', vault: 'kv1', issues: ['public network access enabled'] },
+    { severity: 'critical', vault: 'kv2', issues: ['purge protection disabled'] },
+    { severity: 'high', vault: 'kv3', details: { evidenceGap: true }, issues: [gapClause, actClause] },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'azure', 2);
+  assert.equal(s.azure.findings.length, 2);
+  assert.ok(!s.azure.findings.some((f) => /kv3/.test(f.title)), 'HIGH must be evicted by the cap in this fixture');
+  const g = s.azure.evidenceGaps.find((e) => /kv3/.test(e.title));
+  assert.ok(g, 'gap entry present');
+  assert.match(g.action || '', /over-privileged/, 'evicted HIGH must keep its actionable companion on the gap line');
+  assert.equal('_findingRef' in g, false, 'internal ref must not leak into the MCP payload');
+});
+
+test('a CRIT/HIGH gap finding that SURVIVES the cap still gets NO duplicate companion (D3 preserved)', () => {
+  const results = [{ id: '1222', result: { findings: [
+    { severity: 'high', vault: 'kv3', details: { evidenceGap: true },
+      issues: ['key enumeration could not be completed — evidence gap', 'vault grants broad key permissions — over-privileged'] },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'azure', 10);
+  assert.ok(s.azure.findings.some((f) => /kv3/.test(f.title)));
+  const g = s.azure.evidenceGaps[0];
+  assert.equal(g.action, undefined, 'survivor keeps the D3 no-duplicate rule');
+  assert.equal('_findingRef' in g, false);
+});

@@ -23,6 +23,11 @@ export const GAP_CLAUSE_RE =
 // Substrate-evidence PASS prose (1220/1222 push these into the same issues[] as
 // violations) — informational; never a lead clause while any alternative exists.
 const PASS_CLAUSE_RE = /substrate evidence:/i;
+// EE compliance-routing tag (e.g. 'EE-RT.1.2 multi-region-enumeration-incomplete: ')
+// leading many gap emissions — anchor plumbing for the EE framework JSONs, not
+// operator prose. Stripped at THIS presentation layer only (routing matches the
+// RAW issue strings EE-side) so the 160-char slice spends its budget on substance.
+const ROUTING_PREFIX_RE = /^EE-RT\.[\dx.]+ [a-z][a-z-]*: /;
 
 function classifyClause(s) {
   if (PASS_CLAUSE_RE.test(s)) return 'pass';
@@ -50,6 +55,7 @@ export function describeFinding(x, opts = {}) {
   let why = '';
   if (Array.isArray(x.issues) && x.issues.length) why = pickClause(x.issues, opts.prefer);
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
+  why = why.replace(ROUTING_PREFIX_RE, '');
   const s = ((res ? res + ' — ' : '') + why).trim();
   if (s) return s.slice(0, 160);
   const sev = String(x.severity || x.level || '').toUpperCase();
@@ -95,21 +101,27 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
+      let findingEntry = null;
       if (sev === 'CRITICAL' || sev === 'HIGH') {
-        bucket.findings.push({ severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) });
+        findingEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) };
+        bucket.findings.push(findingEntry);
       }
       if (x && typeof x === 'object' && x.details && x.details.evidenceGap === true) {
         // Lead with the GAP clause (the badge says "unverified" — badging a verified
         // fact is incoherent); carry the first actionable clause as a companion so a
         // mixed rollup's actionable content still reaches the caller (review fold D3).
         const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x, { prefer: 'gap' }) };
-        // No companion for CRITICAL/HIGH — their actionable clause is already itemized
-        // in the findings list above; a companion would just duplicate it.
-        if (sev !== 'CRITICAL' && sev !== 'HIGH') {
-          const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
-          const actionable = clauses.find((i) => classifyClause(i) === 'actionable');
-          if (actionable && clauses.some((i) => classifyClause(i) === 'gap')) gapEntry.action = actionable.slice(0, 160);
+        const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
+        const actionable = clauses.find((i) => classifyClause(i) === 'actionable');
+        if (actionable && clauses.some((i) => classifyClause(i) === 'gap')) {
+          gapEntry.action = actionable.replace(ROUTING_PREFIX_RE, '').slice(0, 160);
         }
+        // For CRITICAL/HIGH the actionable clause is normally itemized in the findings
+        // list above, so the companion would duplicate it — but the findings list is
+        // capped AFTER this loop, and an evicted entry would lose its actionable clause
+        // everywhere. Keep a ref; the post-cap pass below drops the companion only when
+        // the findings-list entry actually survived (0.19.3 batch-review fold).
+        if (findingEntry) gapEntry._findingRef = findingEntry;
         bucket.evidenceGaps.push(gapEntry);
       }
     }
@@ -122,6 +134,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     b.findings.sort((a, c) => (RANK[c.severity] || 0) - (RANK[a.severity] || 0));
     if (b.findings.length > cap) { b.truncated = true; b.findings = b.findings.slice(0, cap); }
     if (b.evidenceGaps.length > cap) { b.evidenceGapsTruncated = true; b.evidenceGaps = b.evidenceGaps.slice(0, cap); }
+    const kept = new Set(b.findings);
+    for (const g of b.evidenceGaps) {
+      if (g._findingRef) {
+        if (kept.has(g._findingRef)) delete g.action; // itemized above — avoid the D3 duplicate
+        delete g._findingRef; // internal ref must never reach the MCP payload
+      }
+    }
   }
   return out;
 }
