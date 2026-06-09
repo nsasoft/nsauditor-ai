@@ -141,3 +141,126 @@ test('renderCloudFindingsMarkdown emits NO evidence-gap section when there are n
   assert.match(md, /iam-violator-user/);
   assert.doesNotMatch(md, /EVIDENCE GAP/);
 });
+
+// ── Actionable-clause-first describeFinding (0.19.2 Desktop validation, prompt #1) ──
+// Plugin 1222 emits ONE rollup finding per vault whose issues[] mixes scan-coverage gap
+// clauses with ACTIONABLE clauses (over-privilege broad-grant). describeFinding showed
+// only issues[0] (the gap clause, truncated) so the actionable CC6.1/CC6.3 finding never
+// reached the Desktop user. The fix: lead with the first NON-gap issue when one exists —
+// the [⚠ EVIDENCE GAP] badge already conveys gap-ness on the gap channel.
+
+const KV_GAP_CLAUSE = "Key Vault 'nsa-cmk-kv' key enumeration could not complete (Forbidden) — key rotation/expiry posture unverified, evidence gap";
+const KV_ACTIONABLE_CLAUSE = "Key Vault 'nsa-cmk-kv' (legacy access-policy model) grants broad ('all'/'purge'/sensitive-crypto) key/secret/certificate permissions to 3 principal(s) — over-privileged access (least-privilege erosion); migrate to Azure RBAC + scoped roles";
+
+test('describeFinding leads with the first ACTIONABLE (non-gap) issue when issues mix gap + actionable clauses', () => {
+  const d = describeFinding({
+    vault: 'nsa-cmk-kv', severity: 'medium',
+    issues: [KV_GAP_CLAUSE, KV_ACTIONABLE_CLAUSE],
+    details: { evidenceGap: true },
+  });
+  assert.match(d, /grants broad/);
+  assert.doesNotMatch(d, /key enumeration could not complete/);
+});
+
+test('describeFinding keeps the gap clause when ALL issues are gap clauses (unchanged behavior)', () => {
+  const d = describeFinding({ vault: 'kv-x', severity: 'medium', issues: [KV_GAP_CLAUSE], details: { evidenceGap: true } });
+  assert.match(d, /key enumeration could not complete/);
+});
+
+test('describeFinding actionable-first does not disturb single-issue actionable findings', () => {
+  const d = describeFinding({ bucket: 'b1', severity: 'critical', issues: ['Bucket policy grants public access'] });
+  assert.match(d, /b1 — Bucket policy grants public access/);
+});
+
+test('summarizeCloudFindings evidence-gap itemization surfaces the actionable clause of a mixed rollup', () => {
+  const results = [{ id: '1222', result: { findings: [{
+    vault: 'nsa-cmk-kv', severity: 'medium',
+    issues: [KV_GAP_CLAUSE, KV_ACTIONABLE_CLAUSE],
+    details: { evidenceGap: true },
+  }] } }];
+  const s = summarizeCloudFindings(results, () => 'azure');
+  assert.equal(s.azure.evidenceGaps.length, 1);
+  // Post-fold-D3 contract: the badge-coherent GAP clause leads the title; the
+  // actionable clause surfaces via the `action` companion (rendered on the same line).
+  assert.match(s.azure.evidenceGaps[0].title, /key enumeration could not complete/);
+  assert.match(s.azure.evidenceGaps[0].action, /grants broad/);
+});
+
+// ── Adversarial-review folds (D1/D2/D3) ──
+// D1: substrate-evidence PASS clauses must never lead while an actionable clause exists.
+// D2: GAP_CLAUSE_RE mirrors the EE EVIDENCE_GAP_ANCHOR (not-assessed / could-not-be-scoped
+//     phrasings are gap clauses, not actionable leads).
+// D3: the evidenceGaps list leads with the GAP clause (badge-coherent) and carries the
+//     first actionable clause as an `action` companion the renderer appends — so the
+//     actionable content of a mixed rollup reaches the Desktop user without badging a
+//     verified fact as "unverified".
+
+const KV_SUBSTRATE_PASS = "Key Vault 'nsa-cmk-kv' substrate evidence: AuditEvent logs exported to Log Analytics — audit-trail PASS";
+const KV_NOT_ASSESSED = "Key Vault 'nsa-cmk-kv' diagnostic-logging posture not assessed (@azure/arm-monitor not available) — manual verification required";
+
+test('D1: substrate-evidence PASS clause never leads when an actionable clause exists', () => {
+  const d = describeFinding({ vault: 'nsa-cmk-kv', severity: 'medium', issues: [KV_GAP_CLAUSE, KV_SUBSTRATE_PASS, KV_ACTIONABLE_CLAUSE] });
+  assert.match(d, /grants broad/);
+  assert.doesNotMatch(d, /substrate evidence/);
+});
+
+test('D1: all-gap-plus-PASS finding leads with the gap clause, not the PASS clause', () => {
+  const d = describeFinding({ vault: 'kv-x', severity: 'medium', issues: [KV_GAP_CLAUSE, KV_SUBSTRATE_PASS] });
+  assert.match(d, /key enumeration could not complete/);
+});
+
+test('D2: a not-assessed clause is a gap clause — the actionable clause still leads', () => {
+  const d = describeFinding({ vault: 'nsa-cmk-kv', severity: 'medium', issues: [KV_NOT_ASSESSED, KV_ACTIONABLE_CLAUSE] });
+  assert.match(d, /grants broad/);
+});
+
+test('D3: describeFinding prefer:"gap" leads with the gap clause of a mixed finding', () => {
+  const d = describeFinding({ vault: 'nsa-cmk-kv', severity: 'medium', issues: [KV_ACTIONABLE_CLAUSE, KV_GAP_CLAUSE] }, { prefer: 'gap' });
+  assert.match(d, /key enumeration could not complete/);
+});
+
+test('D3: gap-list entries lead with the gap clause AND carry the actionable clause as action', () => {
+  const results = [{ id: '1222', result: { findings: [{
+    vault: 'nsa-cmk-kv', severity: 'medium',
+    issues: [KV_GAP_CLAUSE, KV_SUBSTRATE_PASS, KV_ACTIONABLE_CLAUSE],
+    details: { evidenceGap: true },
+  }] } }];
+  const s = summarizeCloudFindings(results, () => 'azure');
+  assert.equal(s.azure.evidenceGaps.length, 1);
+  assert.match(s.azure.evidenceGaps[0].title, /key enumeration could not complete/);
+  assert.match(s.azure.evidenceGaps[0].action, /grants broad/);
+});
+
+test('D3: gap-list entries with NO actionable clause carry no action key', () => {
+  const results = [{ id: '1025', result: { findings: [{
+    severity: 'low', issues: ['GCP IAM impersonation posture UNVERIFIED (evidence gap)'], details: { evidenceGap: true },
+  }] } }];
+  const s = summarizeCloudFindings(results, () => 'gcp');
+  assert.equal(s.gcp.evidenceGaps[0].action, undefined);
+});
+
+test('D3: renderer appends the actionable companion to the gap line', () => {
+  const s = { azure: { counts: { MEDIUM: 1 }, findings: [], truncated: false,
+    evidenceGaps: [{ severity: 'MEDIUM', plugin: '1222', title: 'nsa-cmk-kv — key enumeration could not complete', action: "grants broad ('all'/'purge'/sensitive-crypto) permissions to 3 principal(s)" }] } };
+  const md = renderCloudFindingsMarkdown(s, ['azure']);
+  assert.match(md, /EVIDENCE GAP/);
+  assert.match(md, /actionable: grants broad/);
+});
+
+test('GAP_CLAUSE_RE is exported (EE drift-pins it against EVIDENCE_GAP_ANCHOR)', async () => {
+  const mod = await import('../utils/cloud_finding_summary.mjs');
+  assert.ok(mod.GAP_CLAUSE_RE instanceof RegExp);
+  assert.ok(mod.GAP_CLAUSE_RE.flags.includes('i'));
+});
+
+test('D3: a CRITICAL/HIGH flagged finding gets NO action companion (its actionable clause is already itemized above)', () => {
+  const results = [{ id: '1040', result: { findings: [{
+    resource: 'prod-trail', severity: 'high', details: { evidenceGap: true },
+    issues: ['Trail prod-trail is not multi-region (IsMultiRegionTrail=false)',
+             'read coverage UNVERIFIED — data-event evidence gap'],
+  }] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.findings.length, 1);                       // actionable clause itemized as HIGH
+  assert.match(s.aws.evidenceGaps[0].title, /evidence gap/);    // gap clause leads the gap line
+  assert.equal(s.aws.evidenceGaps[0].action, undefined);        // no duplicate companion
+});

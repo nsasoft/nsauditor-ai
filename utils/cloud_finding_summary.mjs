@@ -12,14 +12,43 @@ const RANK = { CRITICAL: 5, HIGH: 4, MEDIUM: 3, LOW: 2, INFO: 1, PASS: 0 };
 const RESOURCE_KEYS = ['userName', 'bucket', 'bucketName', 'function', 'functionName', 'table', 'tableName', 'instanceId', 'group', 'groupId', 'key', 'keyId', 'vault', 'vaultName', 'pipeline', 'topic', 'queue', 'projectId', 'domain', 'secretName', 'roleName', 'accountName', 'resource', 'resourceId', 'name', 'arn'];
 const REASON_KEYS = ['classification', 'title', 'message', 'reason', 'finding', 'detail'];
 const UNKNOWN_PROVIDER = 'unknown';
+// Scan-coverage gap prose — an EXACT 1:1 mirror of the EE evidence-gap anchor
+// (nsauditor-ai-ee utils/evidence_gap_contract.mjs EVIDENCE_GAP_ANCHOR; an EE meta-test
+// drift-pins source equality). Used ONLY to order clauses WITHIN one finding — a rollup
+// mixing a gap clause with an actionable clause (e.g. Key Vault key-enum gap +
+// over-privilege broad-grant) must put each clause on its proper channel. NEVER used to
+// classify findings — that is the details.evidenceGap marker's job.
+export const GAP_CLAUSE_RE =
+  /evidence[ -]?gap|\bUNVERIFIED\b|posture[^.]{0,60}\bunverified\b|posture[^.]{0,40}\bindeterminate\b|\bindeterminate,\s*manual verification|could not (?:be )?(?:read|verified?|verify|enumerated?|enumerate|complete[d]?|parse[d]?|determine[d]?|retrieve[d]?|scoped?)|did not complete|not a clean result|scan coverage is partial|provenance is partial|failed to (?:fetch|list|retrieve)|\bnot assessed\b|manual verification required/i;
+// Substrate-evidence PASS prose (1220/1222 push these into the same issues[] as
+// violations) — informational; never a lead clause while any alternative exists.
+const PASS_CLAUSE_RE = /substrate evidence:/i;
+
+function classifyClause(s) {
+  if (PASS_CLAUSE_RE.test(s)) return 'pass';
+  if (GAP_CLAUSE_RE.test(s)) return 'gap';
+  return 'actionable';
+}
+
+// Lead-clause pick: actionable > gap > pass by default; the evidence-gap list flips to
+// gap > actionable > pass so the [⚠ EVIDENCE GAP] badge always badges a GAP clause,
+// never a verified fact. Falls back to issues[0] (never empty).
+function pickClause(issues, prefer) {
+  const order = prefer === 'gap' ? ['gap', 'actionable', 'pass'] : ['actionable', 'gap', 'pass'];
+  for (const cls of order) {
+    const hit = issues.find((i) => i && classifyClause(String(i)) === cls);
+    if (hit !== undefined) return String(hit);
+  }
+  return String(issues[0]);
+}
 
 /** Robust one-line descriptor from any plugin finding shape. Never empty, never a raw object dump. */
-export function describeFinding(x) {
+export function describeFinding(x, opts = {}) {
   if (!x || typeof x !== 'object') return String(x ?? '').slice(0, 160);
   let res = '';
   for (const k of RESOURCE_KEYS) { if (x[k]) { res = String(x[k]); break; } }
   let why = '';
-  if (Array.isArray(x.issues) && x.issues.length) why = String(x.issues[0]);
+  if (Array.isArray(x.issues) && x.issues.length) why = pickClause(x.issues, opts.prefer);
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
   const s = ((res ? res + ' — ' : '') + why).trim();
   if (s) return s.slice(0, 160);
@@ -70,7 +99,18 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         bucket.findings.push({ severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) });
       }
       if (x && typeof x === 'object' && x.details && x.details.evidenceGap === true) {
-        bucket.evidenceGaps.push({ severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) });
+        // Lead with the GAP clause (the badge says "unverified" — badging a verified
+        // fact is incoherent); carry the first actionable clause as a companion so a
+        // mixed rollup's actionable content still reaches the caller (review fold D3).
+        const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x, { prefer: 'gap' }) };
+        // No companion for CRITICAL/HIGH — their actionable clause is already itemized
+        // in the findings list above; a companion would just duplicate it.
+        if (sev !== 'CRITICAL' && sev !== 'HIGH') {
+          const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
+          const actionable = clauses.find((i) => classifyClause(i) === 'actionable');
+          if (actionable && clauses.some((i) => classifyClause(i) === 'gap')) gapEntry.action = actionable.slice(0, 160);
+        }
+        bucket.evidenceGaps.push(gapEntry);
       }
     }
   }
@@ -126,7 +166,7 @@ export function renderCloudFindingsMarkdown(summary, providers) {
     lines.push(`## ${String(prov).toUpperCase()} — ${c.CRITICAL || 0} CRITICAL · ${c.HIGH || 0} HIGH · ${c.MEDIUM || 0} MEDIUM · ${c.LOW || 0} LOW · ${c.PASS || 0} PASS`);
     for (const f of (b.findings || [])) lines.push(`- **[${f.severity}]** ${f.plugin}: ${f.title}`);
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
-    for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}`);
+    for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}${g.action ? ` · actionable: ${g.action}` : ''}`);
     if (b.evidenceGapsTruncated) lines.push(`- _…evidence-gap list truncated; see LOW count for totals._`);
     lines.push('');
   }

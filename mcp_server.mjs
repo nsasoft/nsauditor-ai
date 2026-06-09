@@ -193,7 +193,9 @@ function appendCallSentinel(text, callId) {
 // Tool definitions (JSON Schema for input validation)
 // ---------------------------------------------------------------------------
 
-const TOOLS = [
+// Exported for direct testing (the scan_cloud description is a routing surface —
+// tests pin its service-coverage enumeration + contract clauses).
+export const TOOLS = [
   {
     name: 'scan_host',
     description:
@@ -216,7 +218,7 @@ const TOOLS = [
   {
     name: 'scan_cloud',
     description:
-      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results. findingsSummary[provider].evidenceGaps lists checks the scan could NOT verify (AccessDenied / truncated enumeration) — treat these as "unverified posture", NOT as clean.',
+      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. Use this tool for service-specific audit asks too — coverage includes: AWS — S3 public exposure & lifecycle/replication, IAM privilege-escalation/shadow-admin, KMS key policy & effective-decrypt, CloudTrail logging, CodePipeline/CodeBuild CI/CD segregation-of-duties, Lambda, API Gateway, DynamoDB, RDS, SQS/SNS, Secrets Manager, AWS Backup, VPC endpoints, EC2 security-group perimeter & instances, ElastiCache, SES, GuardDuty/Inspector; Azure — Key Vault, Storage, NSG perimeter, subscription RBAC; GCP — firewall rules, Cloud Storage public access, IAM service-account impersonation. Findings map to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, and CIS v8 controls. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results. findingsSummary[provider].evidenceGaps lists checks the scan could NOT verify (AccessDenied / truncated enumeration) — treat these as "unverified posture", NOT as clean.',
     inputSchema: {
       type: 'object',
       properties: {
