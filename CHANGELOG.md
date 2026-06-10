@@ -6,6 +6,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.8 (2026-06-09) — MCP affordance: scan_cloud routing description + actionable gap-list visibility (paired with EE 0.19.3)
+
+A **real Community Edition code change** (the first since 0.2.5), surfaced by the EE 0.19.2 Claude Desktop validation:
+
+- **`scan_cloud` description is now a routing surface** (`mcp/mcp_server.mjs`): it enumerates the real per-service coverage (AWS S3 / IAM / KMS / CloudTrail / CodePipeline-CodeBuild SoD / Lambda / API GW / DynamoDB / RDS / SQS-SNS / Secrets / Backup / VPC endpoints / SG perimeter / ElastiCache / SES / GuardDuty; Azure Key Vault / Storage / NSG / RBAC; GCP firewall / storage / impersonation) plus the 6 compliance frameworks, and directs agents to use the tool for service-specific audit asks. Previously a service-named ask (e.g. "audit my CodePipeline approvals") was not routed to the scanner at all. `TOOLS` is exported for direct testing; 7 pin tests.
+- **Badge-coherent, actionable gap lines** (`utils/cloud_finding_summary.mjs`): `describeFinding(x, {prefer})` classifies issue clauses (gap / substrate-PASS / actionable). The CRIT/HIGH findings list leads actionable-first; the `[⚠ EVIDENCE GAP]` list leads GAP-first and carries the first actionable clause as an `· actionable:` companion — a mixed rollup (e.g. a Key Vault over-privilege grant buried behind a key-enumeration gap clause) is no longer invisible via MCP. The new exported `GAP_CLAUSE_RE` is an exact source mirror of the EE evidence-gap anchor, **cross-repo drift-pinned by an EE meta-test**.
+- **Review folds (cross-cutting pre-publish batch review):** the internal `EE-RT.x.y <token>:` compliance-routing tag is stripped at the presentation layer (it consumed up to 47 chars of each gap line's 160-char budget, cutting the remediation tail); the actionable companion is computed for all severities and deduped post-cap only when the finding's CRIT/HIGH list entry actually survived eviction; substrate-PASS clauses never lead a line while an alternative exists.
+
+Paired with **EE 0.19.3** ("MCP affordance + class-O truncation sweep" — see the EE changelog) + agent-skill 0.2.8. EE 0.19.3 sets its peer floor to `nsauditor-ai >=0.2.8`.
+
 ## 0.2.7 (2026-06-08) — Paired-release pin for EE 0.19.2 (Confirmed false-negative tail)
 
 Paired no-op bump (no Community Edition code change). Enterprise 0.19.2 closes six more gauntlet-confirmed Tier-B false-negatives across the Pro/Enterprise cloud auditors, each TDD'd + independently adversarially reviewed: **1222** Azure Key Vault legacy access-policy per-verb breadth (2-verb decrypt+unwrapKey envelope-decryption grant) + 2 surfaced titlePattern anchor-drifts + drift-detector closure; **1021** GCP broad-but-not-full public firewall ranges → HIGH (RFC1918 discounted); **1070** AWS KMS PendingDeletion keys now policy-audited (reversible deletion); **1100** CodePipeline sticky approval-latch (each prod stage needs its own gate); **1024** GCP Storage bucket-enumeration truncation evidence-gap (class-O); **1040** CloudTrail data-events read-coverage caveat (WriteOnly drops S3 GetObject). Plugin count UNCHANGED at 28; all six coverage matrices UNCHANGED at the count level. Paired with EE 0.19.2 + agent-skill 0.2.7.
