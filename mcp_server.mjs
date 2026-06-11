@@ -421,7 +421,8 @@ export async function handleScanCloud(args) {
   // empty for a cloud conclusion). Best-effort.
   let markdown = null;
   try {
-    markdown = renderCloudFindingsMarkdown(findingsSummary, providers);
+    markdown = renderCloudFindingsMarkdown(findingsSummary, providers,
+      { getFindingsAvailable: typeof toolHandlers.get_findings === 'function' });
   } catch { /* swallow — markdown is best-effort */ }
 
   // Anti-false-clean: a requested cloud is "audited" ONLY if >=1 of its plugins

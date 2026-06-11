@@ -188,7 +188,7 @@ export function incompleteCoverageAdvisory(scanScope) {
 }
 
 /** Compact markdown from a summary. Named providers first, then any extras (e.g. 'unknown') so nothing is hidden. */
-export function renderCloudFindingsMarkdown(summary, providers) {
+export function renderCloudFindingsMarkdown(summary, providers, opts = {}) {
   const named = providers && providers.length ? providers.slice() : [];
   // Exclude the meta-key _incompleteCoverage from the provider rendering loop.
   const order = [...named, ...Object.keys(summary).filter((p) => !named.includes(p) && p !== '_incompleteCoverage')];
@@ -201,6 +201,14 @@ export function renderCloudFindingsMarkdown(summary, providers) {
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
     for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}${g.action ? ` · actionable: ${g.action}` : ''}`);
     if (b.evidenceGapsTruncated) lines.push(`- _…evidence-gap list truncated; see LOW count for totals._`);
+    const drill = opts.getFindingsAvailable ? ' — drill any category via get_findings' : '';
+    for (const tier of ['MEDIUM', 'LOW']) {
+      const rows = (b.rollup && b.rollup[tier]) || [];
+      if (!rows.length) continue;
+      const total = c[tier] || rows.reduce((n, rr) => n + rr.count, 0);
+      const body = rows.map((rr) => `${rr.category} ×${rr.count}`).join(' · ');
+      lines.push(`- ${tier} (${total}) ${body}${drill}`);
+    }
     lines.push('');
   }
   // Append the incomplete-coverage advisory (when present) as an informational note.

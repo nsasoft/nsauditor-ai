@@ -334,3 +334,13 @@ test('summarizeCloudFindings rolls up MEDIUM+LOW by details.category, count-desc
   assert.equal(s.aws.counts.MEDIUM, 4);   // counts stay complete (pre-rollup): the gap LOW is still counted
   assert.equal(s.aws.counts.LOW, 2);
 });
+
+test('renderCloudFindingsMarkdown renders rollup; suffix only when getFindingsAvailable', () => {
+  const summary = { aws: { counts: { MEDIUM: 3, LOW: 0 }, findings: [], evidenceGaps: [],
+    rollup: { MEDIUM: [{ category: 'sqs-age-alarm-missing', count: 2 }, { category: 'sqs-dlq-missing', count: 1 }], LOW: [] } } };
+  const withTool = renderCloudFindingsMarkdown(summary, ['aws'], { getFindingsAvailable: true });
+  assert.match(withTool, /MEDIUM \(3\) sqs-age-alarm-missing ×2 · sqs-dlq-missing ×1 — drill any category via get_findings/);
+  const without = renderCloudFindingsMarkdown(summary, ['aws'], { getFindingsAvailable: false });
+  assert.match(without, /MEDIUM \(3\) sqs-age-alarm-missing ×2 · sqs-dlq-missing ×1/);
+  assert.doesNotMatch(without, /get_findings/);   // no unknown-tool advertisement in a 2a-only build
+});
