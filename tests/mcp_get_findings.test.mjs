@@ -169,3 +169,42 @@ test('E2E dispatch gate: Enterprise tier passes through to handler for get_findi
     'Enterprise pass-through: result carries findings/provider/error from the actual handler');
   _setTier();
 });
+
+test('integration: scan_cloud render composes rollup + bold + get_findings suffix + scanId footer, and the scanId drills', async () => {
+  _resetCloudScanCache(); _setTier('enterprise');
+  _setPluginManager({
+    plugins: [
+      { id: 'p-aws', cloudProvider: 'aws' },
+    ],
+    runCloud: async (reqProviders) => {
+      const providerStatus = {};
+      for (const p of reqProviders) {
+        providerStatus[p] = { available: 1, ran: 1, skipped: 0, errored: 0 };
+      }
+      return {
+        host: `cloud:${reqProviders.join('+')}`,
+        results: [
+          { id: 'p-aws', result: { findings: [
+            { severity: 'MEDIUM', resource: 'sqs-cleartext-queue', details: { category: 'sqs-age-alarm-missing' }, issues: ['no alarm configured'] },
+          ] } },
+        ],
+        conclusion: null,
+        manifest: [
+          { id: 'p-aws', name: 'mock-aws', status: 'ran' },
+        ],
+        providerStatus,
+        auditedProviders: reqProviders,
+      };
+    },
+  });
+  const res = await handleScanCloud({ providers: ['aws'] });
+  // (a) rollup line is BOLD and carries the drill suffix:
+  assert.match(res.markdown, /\*\*MEDIUM \(1\)\*\* sqs-age-alarm-missing ×1 — drill any category via get_findings/);
+  // (b) footer carries the scanId:
+  assert.match(res.markdown, new RegExp(`scanId: ${res.scanId}`));
+  // (c) the scanId actually dispatches — drilling that category returns the finding:
+  const drilled = await handleGetFindings({ provider: 'aws', scanId: res.scanId, category: 'sqs-age-alarm-missing' });
+  assert.equal(drilled.findings.length, 1);
+  assert.equal(drilled.findings[0].resource, 'sqs-cleartext-queue');
+  _setTier();
+});

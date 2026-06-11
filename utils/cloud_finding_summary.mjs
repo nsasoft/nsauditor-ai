@@ -208,7 +208,7 @@ export function renderCloudFindingsMarkdown(summary, providers, opts = {}) {
       if (!rows.length) continue;
       const total = c[tier] || rows.reduce((n, rr) => n + rr.count, 0);
       const body = rows.map((rr) => `${rr.category} ×${rr.count}`).join(' · ');
-      lines.push(`- ${tier} (${total}) ${body}${drill}`);
+      lines.push(`- **${tier} (${total})** ${body}${drill}`);
     }
     lines.push('');
   }
