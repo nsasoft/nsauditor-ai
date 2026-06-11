@@ -313,3 +313,24 @@ test('a CRIT/HIGH gap finding that SURVIVES the cap still gets NO duplicate comp
   assert.equal(g.action, undefined, 'survivor keeps the D3 no-duplicate rule');
   assert.equal('_findingRef' in g, false);
 });
+
+test('summarizeCloudFindings rolls up MEDIUM+LOW by details.category, count-desc, excludes gaps, per-plugin fallback', () => {
+  const results = [{ id: '1150', result: { findings: [
+    { severity: 'MEDIUM', details: { category: 'sqs-age-alarm-missing' } },
+    { severity: 'MEDIUM', details: { category: 'sqs-age-alarm-missing' } },
+    { severity: 'MEDIUM', details: { category: 'sns-failure-alarm-missing' } },
+    { severity: 'LOW', details: { category: 's3-lifecycle-demoted' } },
+    { severity: 'LOW', details: { category: 'kms-gap', evidenceGap: true } },   // excluded from rollup (gap channel)
+    { severity: 'MEDIUM', details: {} },                                        // -> uncategorized(1150) per-plugin
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  const r = s.aws.rollup;
+  assert.deepEqual(r.MEDIUM, [
+    { category: 'sqs-age-alarm-missing', count: 2 },
+    { category: 'sns-failure-alarm-missing', count: 1 },
+    { category: 'uncategorized(1150)', count: 1 },
+  ]);
+  assert.deepEqual(r.LOW, [{ category: 's3-lifecycle-demoted', count: 1 }]);   // the kms-gap LOW is NOT here
+  assert.equal(s.aws.counts.MEDIUM, 4);   // counts stay complete (pre-rollup): the gap LOW is still counted
+  assert.equal(s.aws.counts.LOW, 2);
+});

@@ -97,7 +97,7 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     // bucketed under 'unknown' rather than silently dropped (defense-in-depth against a
     // future id collision / cloudProvider drift — never let a real finding vanish).
     const prov = providerOf(r?.id ?? r?.result?.id) || UNKNOWN_PROVIDER;
-    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false });
+    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map() } });
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
@@ -124,6 +124,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         if (findingEntry) gapEntry._findingRef = findingEntry;
         bucket.evidenceGaps.push(gapEntry);
       }
+      if ((sev === 'MEDIUM' || sev === 'LOW') && !(x && x.details && x.details.evidenceGap === true)) {
+        const cat = (x && x.details && x.details.category)
+          ? String(x.details.category)
+          : `uncategorized(${String(r?.id ?? '')})`;
+        const m = bucket._rollup[sev];
+        m.set(cat, (m.get(cat) || 0) + 1);
+      }
     }
   }
   // Sort by severity (CRITICAL first) THEN truncate — so a CRITICAL is never evicted
@@ -141,6 +148,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         delete g._findingRef; // internal ref must never reach the MCP payload
       }
     }
+    b.rollup = {
+      MEDIUM: [...b._rollup.MEDIUM].map(([category, count]) => ({ category, count }))
+                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
+      LOW: [...b._rollup.LOW].map(([category, count]) => ({ category, count }))
+                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
+    };
+    delete b._rollup;
   }
   return out;
 }
