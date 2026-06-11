@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.9 (2026-06-11) — Paired-release pin for EE 0.19.4 (Routing-Integrity Hardening)
+
+Paired no-op bump (no Community Edition code change; README-refresh only). Enterprise 0.19.4 closes the routing-integrity false-clean class — a real finding (or a visible evidence-gap) that mapped to **zero** compliance controls while the verdict stayed green: a generic build-time routing guard (a complete-partition `nativeFrameworks` allowlist that fails the build on any marked-but-unrouted gap) + GuardDuty (1200) dedupe/class-O routing + a single-source `MULTI_REGION_GAP_PREFIX` routing prefix; a deferred-scope **unmark** across 8 plugins (a capability boundary is not an evidence-gap, so it no longer pollutes the MCP "unverified" list); the 1160 AWS-default VPC-endpoint full-access policy down-rated CRITICAL→MEDIUM with its 3 policy-gap emissions now routed (SOC 2 CC6.6 / HIPAA 164.312(a)(1) + cross-framework PCI 1.4.1 / ISO A.8.22 / CIS 12.2); and 1150 SQS/SNS alarm-independence (alarm posture is now classified even under a `Get*Attributes` deny, and all four `alarm-coverage-unverifiable` causes fail-close soc2{A1.2,CC7.2}+hipaa{164.312(b)}). **PCI DSS coverage matrix shifts 20/8/39 → 19/9/39** (Req 7.2.2 covered→partial — access-by-job-classification is process/HR-gated, a QSA-detectable overclaim — backed by 1030 over-privilege mapping); plugin count UNCHANGED at 28; the other five matrices UNCHANGED. No change to the MCP `scan_cloud` surface or schemas this CE exposes. Paired with EE 0.19.4 + agent-skill 0.2.9.
+
 ## 0.2.8 (2026-06-09) — MCP affordance: scan_cloud routing description + actionable gap-list visibility (paired with EE 0.19.3)
 
 A **real Community Edition code change** (the first since 0.2.5), surfaced by the EE 0.19.2 Claude Desktop validation:
