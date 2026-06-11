@@ -73,7 +73,7 @@ function requireProCapability(toolName) {
   };
 }
 
-function requireEnterpriseCapability(toolName) {
+export function requireEnterpriseCapability(toolName) {
   if (_capabilities.enterpriseMCP) return null; // Enterprise: allow
   return {
     content: [{
@@ -83,6 +83,18 @@ function requireEnterpriseCapability(toolName) {
     isError: true,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Per-provider cloud-scan cache (Stage 2b). One slot per provider, last-writer-wins.
+// Populated ONLY by handleScanCloud, which runs behind the Enterprise dispatch gate.
+// ---------------------------------------------------------------------------
+
+const _cloudScanCache = new Map();   // provider -> { scanId, ts, args, results }
+let _scanIdCounter = 0;
+export function _nextScanId() { return `scan-${++_scanIdCounter}`; }
+export function _putCloudScan(provider, slot) { _cloudScanCache.set(provider, slot); }
+export function _getCloudScan(provider) { return _cloudScanCache.get(provider) || null; }
+export function _resetCloudScanCache() { _cloudScanCache.clear(); _scanIdCounter = 0; }
 
 // ---------------------------------------------------------------------------
 // Lazy singletons — initialised on first use, overridable for tests
@@ -575,8 +587,8 @@ export function createServer() {
       }
     }
 
-    // Gate the Enterprise cloud-audit tool at the MCP dispatch layer.
-    if (name === 'scan_cloud') {
+    // Gate Enterprise cloud-audit tools at the MCP dispatch layer (gate-before-cache-read).
+    if (['scan_cloud', 'get_findings'].includes(name)) {
       const denied = requireEnterpriseCapability(name);
       if (denied) {
         return {
