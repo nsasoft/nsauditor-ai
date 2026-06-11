@@ -9,6 +9,7 @@ import {
   handleScanCloud,
   handleGetFindings,
   _setPluginManager,
+  createServer,
 } from '../mcp_server.mjs';
 
 test('get_findings denies CE tier even when an Enterprise scan populated the cache (gate before cache read)', () => {
@@ -94,5 +95,77 @@ test('get_findings: absent provider -> per-session re-run error', async () => {
   _resetCloudScanCache(); _setTier('enterprise');
   const out = await handleGetFindings({ provider: 'gcp' });
   assert.match(out.error || '', /re-run scan_cloud|per-session|not cached/i);
+  _setTier();
+});
+
+// ---------------------------------------------------------------------------
+// END-TO-END dispatch-gate tests (through the full CallToolRequestSchema path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: invoke the server's tools/call handler directly, bypassing transport.
+ * The MCP SDK stores registered request handlers in server._requestHandlers keyed
+ * by method name ('tools/call' for CallToolRequestSchema).
+ */
+async function dispatchToolCall(server, name, args = {}) {
+  const handler = server._requestHandlers.get('tools/call');
+  if (!handler) throw new Error('tools/call handler not registered on server');
+  return handler({ method: 'tools/call', params: { name, arguments: args } }, {});
+}
+
+test('E2E dispatch gate: CE tier is denied for get_findings through the full server handler', async () => {
+  _resetCloudScanCache();
+  // Populate cache as enterprise, then drop to CE before calling.
+  _setTier('enterprise');
+  _putCloudScan('aws', {
+    scanId: 'scan-1', ts: 1, args: {},
+    results: [{ id: '1', result: { findings: [{ severity: 'MEDIUM', details: { category: 'c' } }] } }],
+  });
+  _setTier('ce');
+  const server = createServer();
+  const result = await dispatchToolCall(server, 'get_findings', { provider: 'aws' });
+  assert.equal(result.isError, true, 'CE tier must receive isError:true from dispatch gate');
+  assert.ok(
+    result.content[0].text.includes('Enterprise') || result.content[0].text.includes('🔒'),
+    'denial text must reference Enterprise upgrade',
+  );
+  _setTier();
+});
+
+test('E2E dispatch gate: Pro tier is denied for get_findings through the full server handler', async () => {
+  _resetCloudScanCache();
+  _setTier('enterprise');
+  _putCloudScan('aws', {
+    scanId: 'scan-1', ts: 1, args: {},
+    results: [{ id: '1', result: { findings: [{ severity: 'MEDIUM', details: { category: 'c' } }] } }],
+  });
+  _setTier('pro');
+  const server = createServer();
+  const result = await dispatchToolCall(server, 'get_findings', { provider: 'aws' });
+  assert.equal(result.isError, true, 'Pro tier must receive isError:true from dispatch gate');
+  assert.ok(
+    result.content[0].text.includes('Enterprise') || result.content[0].text.includes('🔒'),
+    'denial text must reference Enterprise upgrade',
+  );
+  _setTier();
+});
+
+test('E2E dispatch gate: Enterprise tier passes through to handler for get_findings', async () => {
+  _resetCloudScanCache();
+  _setTier('enterprise');
+  _putCloudScan('aws', {
+    scanId: 'scan-1', ts: 1, args: {},
+    results: [{ id: '1', result: { findings: [{ severity: 'MEDIUM', details: { category: 'c' } }] } }],
+  });
+  const server = createServer();
+  const result = await dispatchToolCall(server, 'get_findings', { provider: 'aws' });
+  // Enterprise: gate passes, handler runs — result is a normal content response, not isError.
+  assert.ok(!result.isError, 'Enterprise tier must NOT receive a denial');
+  // The response text may have a call-sentinel footer appended after the JSON;
+  // extract only the leading JSON object before any appended non-JSON text.
+  const jsonText = result.content[0].text.match(/^\{[\s\S]*?\n\}/)?.[0] ?? result.content[0].text;
+  const parsed = JSON.parse(jsonText);
+  assert.ok('findings' in parsed || 'provider' in parsed || 'error' in parsed,
+    'Enterprise pass-through: result carries findings/provider/error from the actual handler');
   _setTier();
 });
