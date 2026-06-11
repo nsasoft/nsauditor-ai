@@ -57,7 +57,7 @@ export function describeFinding(x, opts = {}) {
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
   why = why.replace(ROUTING_PREFIX_RE, '');
   const s = ((res ? res + ' — ' : '') + why).trim();
-  if (s) return s.slice(0, 160);
+  if (s) return s.length > 160 ? s.slice(0, 160).replace(/\s+\S*$/, '') + '…' : s;
   const sev = String(x.severity || x.level || '').toUpperCase();
   return sev ? sev + ' finding (no description)' : 'finding (no description)';
 }
@@ -111,10 +111,11 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         // fact is incoherent); carry the first actionable clause as a companion so a
         // mixed rollup's actionable content still reaches the caller (review fold D3).
         const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x, { prefer: 'gap' }) };
+        gapEntry.gapKind = (x.details.walkthroughRequired === true) ? 'walkthrough-required' : 'couldnt-read';
         const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
-        const actionable = clauses.find((i) => classifyClause(i) === 'actionable');
-        if (actionable && clauses.some((i) => classifyClause(i) === 'gap')) {
-          gapEntry.action = actionable.replace(ROUTING_PREFIX_RE, '').slice(0, 160);
+        const actionableClauses = clauses.filter((i) => classifyClause(i) === 'actionable');
+        if (actionableClauses.length && clauses.some((i) => classifyClause(i) === 'gap')) {
+          gapEntry.action = actionableClauses.map((a) => a.replace(ROUTING_PREFIX_RE, '')).join(' · ').slice(0, 240);
         }
         // For CRITICAL/HIGH the actionable clause is normally itemized in the findings
         // list above, so the companion would duplicate it — but the findings list is

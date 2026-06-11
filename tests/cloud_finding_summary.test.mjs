@@ -344,3 +344,33 @@ test('renderCloudFindingsMarkdown renders rollup; suffix only when getFindingsAv
   assert.match(without, /MEDIUM \(3\) sqs-age-alarm-missing ×2 · sqs-dlq-missing ×1/);
   assert.doesNotMatch(without, /get_findings/);   // no unknown-tool advertisement in a 2a-only build
 });
+
+test('gap companion joins ALL actionable clauses (not just the first)', () => {
+  const x = { severity: 'LOW', details: { evidenceGap: true }, issues: [
+    'KMS key enumeration could not be completed',     // gap (leads)
+    'over-privileged broad grant to 3 principals',    // actionable #1
+    'public key policy wildcard present',             // actionable #2
+  ] };
+  const s = summarizeCloudFindings([{ id: '1222', result: { findings: [x] } }], () => 'azure');
+  const g = s.azure.evidenceGaps[0];
+  assert.match(g.action, /over-privileged broad grant/);
+  assert.match(g.action, /public key policy wildcard/);   // BOTH actionable clauses present
+});
+
+test('describeFinding truncates on a boundary, not mid-word', () => {
+  const long = 'x'.repeat(150) + ' supercalifragilistic';
+  const out = describeFinding({ title: long, severity: 'medium' });
+  assert.ok(out.length <= 161);
+  assert.doesNotMatch(out, /supercalifragil$/);   // not cut mid-word
+  assert.match(out, /…$/);                          // explicit ellipsis
+});
+
+test('evidenceGaps carry gapKind from details.walkthroughRequired (absent -> couldnt-read)', () => {
+  const results = [{ id: '1150', result: { findings: [
+    { severity: 'LOW', details: { evidenceGap: true, walkthroughRequired: true }, issues: ['scope walkthrough'] },
+    { severity: 'LOW', details: { evidenceGap: true }, issues: ['DescribeAlarms AccessDenied'] },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.evidenceGaps[0].gapKind, 'walkthrough-required');
+  assert.equal(s.aws.evidenceGaps[1].gapKind, 'couldnt-read');   // absent -> fail-close default
+});
