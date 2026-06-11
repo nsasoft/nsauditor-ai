@@ -313,3 +313,64 @@ test('a CRIT/HIGH gap finding that SURVIVES the cap still gets NO duplicate comp
   assert.equal(g.action, undefined, 'survivor keeps the D3 no-duplicate rule');
   assert.equal('_findingRef' in g, false);
 });
+
+test('summarizeCloudFindings rolls up MEDIUM+LOW by details.category, count-desc, excludes gaps, per-plugin fallback', () => {
+  const results = [{ id: '1150', result: { findings: [
+    { severity: 'MEDIUM', details: { category: 'sqs-age-alarm-missing' } },
+    { severity: 'MEDIUM', details: { category: 'sqs-age-alarm-missing' } },
+    { severity: 'MEDIUM', details: { category: 'sns-failure-alarm-missing' } },
+    { severity: 'LOW', details: { category: 's3-lifecycle-demoted' } },
+    { severity: 'LOW', details: { category: 'kms-gap', evidenceGap: true } },   // excluded from rollup (gap channel)
+    { severity: 'MEDIUM', details: {} },                                        // -> uncategorized(1150) per-plugin
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  const r = s.aws.rollup;
+  assert.deepEqual(r.MEDIUM, [
+    { category: 'sqs-age-alarm-missing', count: 2 },
+    { category: 'sns-failure-alarm-missing', count: 1 },
+    { category: 'uncategorized(1150)', count: 1 },
+  ]);
+  assert.deepEqual(r.LOW, [{ category: 's3-lifecycle-demoted', count: 1 }]);   // the kms-gap LOW is NOT here
+  assert.equal(s.aws.counts.MEDIUM, 4);   // counts stay complete (pre-rollup): the gap LOW is still counted
+  assert.equal(s.aws.counts.LOW, 2);
+});
+
+test('renderCloudFindingsMarkdown renders rollup; suffix only when getFindingsAvailable', () => {
+  const summary = { aws: { counts: { MEDIUM: 3, LOW: 0 }, findings: [], evidenceGaps: [],
+    rollup: { MEDIUM: [{ category: 'sqs-age-alarm-missing', count: 2 }, { category: 'sqs-dlq-missing', count: 1 }], LOW: [] } } };
+  const withTool = renderCloudFindingsMarkdown(summary, ['aws'], { getFindingsAvailable: true });
+  assert.match(withTool, /\*\*MEDIUM \(3\)\*\* sqs-age-alarm-missing ×2 · sqs-dlq-missing ×1 — drill any category via get_findings/);
+  const without = renderCloudFindingsMarkdown(summary, ['aws'], { getFindingsAvailable: false });
+  assert.match(without, /\*\*MEDIUM \(3\)\*\* sqs-age-alarm-missing ×2 · sqs-dlq-missing ×1/);
+  assert.doesNotMatch(without, /get_findings/);   // no unknown-tool advertisement in a 2a-only build
+});
+
+test('gap companion joins ALL actionable clauses (not just the first)', () => {
+  const x = { severity: 'LOW', details: { evidenceGap: true }, issues: [
+    'KMS key enumeration could not be completed',     // gap (leads)
+    'over-privileged broad grant to 3 principals',    // actionable #1
+    'public key policy wildcard present',             // actionable #2
+  ] };
+  const s = summarizeCloudFindings([{ id: '1222', result: { findings: [x] } }], () => 'azure');
+  const g = s.azure.evidenceGaps[0];
+  assert.match(g.action, /over-privileged broad grant/);
+  assert.match(g.action, /public key policy wildcard/);   // BOTH actionable clauses present
+});
+
+test('describeFinding truncates on a boundary, not mid-word', () => {
+  const long = 'x'.repeat(150) + ' supercalifragilistic';
+  const out = describeFinding({ title: long, severity: 'medium' });
+  assert.ok(out.length <= 161);
+  assert.doesNotMatch(out, /supercalifragil$/);   // not cut mid-word
+  assert.match(out, /…$/);                          // explicit ellipsis
+});
+
+test('evidenceGaps carry gapKind from details.walkthroughRequired (absent -> couldnt-read)', () => {
+  const results = [{ id: '1150', result: { findings: [
+    { severity: 'LOW', details: { evidenceGap: true, walkthroughRequired: true }, issues: ['scope walkthrough'] },
+    { severity: 'LOW', details: { evidenceGap: true }, issues: ['DescribeAlarms AccessDenied'] },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.evidenceGaps[0].gapKind, 'walkthrough-required');
+  assert.equal(s.aws.evidenceGaps[1].gapKind, 'couldnt-read');   // absent -> fail-close default
+});

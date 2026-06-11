@@ -57,7 +57,7 @@ export function describeFinding(x, opts = {}) {
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
   why = why.replace(ROUTING_PREFIX_RE, '');
   const s = ((res ? res + ' — ' : '') + why).trim();
-  if (s) return s.slice(0, 160);
+  if (s) return s.length > 160 ? s.slice(0, 160).replace(/\s+\S*$/, '') + '…' : s;
   const sev = String(x.severity || x.level || '').toUpperCase();
   return sev ? sev + ' finding (no description)' : 'finding (no description)';
 }
@@ -97,7 +97,7 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     // bucketed under 'unknown' rather than silently dropped (defense-in-depth against a
     // future id collision / cloudProvider drift — never let a real finding vanish).
     const prov = providerOf(r?.id ?? r?.result?.id) || UNKNOWN_PROVIDER;
-    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false });
+    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map() } });
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
@@ -111,10 +111,11 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         // fact is incoherent); carry the first actionable clause as a companion so a
         // mixed rollup's actionable content still reaches the caller (review fold D3).
         const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x, { prefer: 'gap' }) };
+        gapEntry.gapKind = (x.details.walkthroughRequired === true) ? 'walkthrough-required' : 'couldnt-read';
         const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
-        const actionable = clauses.find((i) => classifyClause(i) === 'actionable');
-        if (actionable && clauses.some((i) => classifyClause(i) === 'gap')) {
-          gapEntry.action = actionable.replace(ROUTING_PREFIX_RE, '').slice(0, 160);
+        const actionableClauses = clauses.filter((i) => classifyClause(i) === 'actionable');
+        if (actionableClauses.length && clauses.some((i) => classifyClause(i) === 'gap')) {
+          gapEntry.action = actionableClauses.map((a) => a.replace(ROUTING_PREFIX_RE, '')).join(' · ').slice(0, 240);
         }
         // For CRITICAL/HIGH the actionable clause is normally itemized in the findings
         // list above, so the companion would duplicate it — but the findings list is
@@ -123,6 +124,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         // the findings-list entry actually survived (0.19.3 batch-review fold).
         if (findingEntry) gapEntry._findingRef = findingEntry;
         bucket.evidenceGaps.push(gapEntry);
+      }
+      if ((sev === 'MEDIUM' || sev === 'LOW') && !(x && x.details && x.details.evidenceGap === true)) {
+        const cat = (x && x.details && x.details.category)
+          ? String(x.details.category)
+          : `uncategorized(${String(r?.id ?? '')})`;
+        const m = bucket._rollup[sev];
+        m.set(cat, (m.get(cat) || 0) + 1);
       }
     }
   }
@@ -141,6 +149,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         delete g._findingRef; // internal ref must never reach the MCP payload
       }
     }
+    b.rollup = {
+      MEDIUM: [...b._rollup.MEDIUM].map(([category, count]) => ({ category, count }))
+                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
+      LOW: [...b._rollup.LOW].map(([category, count]) => ({ category, count }))
+                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
+    };
+    delete b._rollup;
   }
   return out;
 }
@@ -174,7 +189,7 @@ export function incompleteCoverageAdvisory(scanScope) {
 }
 
 /** Compact markdown from a summary. Named providers first, then any extras (e.g. 'unknown') so nothing is hidden. */
-export function renderCloudFindingsMarkdown(summary, providers) {
+export function renderCloudFindingsMarkdown(summary, providers, opts = {}) {
   const named = providers && providers.length ? providers.slice() : [];
   // Exclude the meta-key _incompleteCoverage from the provider rendering loop.
   const order = [...named, ...Object.keys(summary).filter((p) => !named.includes(p) && p !== '_incompleteCoverage')];
@@ -187,6 +202,14 @@ export function renderCloudFindingsMarkdown(summary, providers) {
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
     for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}${g.action ? ` · actionable: ${g.action}` : ''}`);
     if (b.evidenceGapsTruncated) lines.push(`- _…evidence-gap list truncated; see LOW count for totals._`);
+    const drill = opts.getFindingsAvailable ? ' — drill any category via get_findings' : '';
+    for (const tier of ['MEDIUM', 'LOW']) {
+      const rows = (b.rollup && b.rollup[tier]) || [];
+      if (!rows.length) continue;
+      const total = c[tier] || rows.reduce((n, rr) => n + rr.count, 0);
+      const body = rows.map((rr) => `${rr.category} ×${rr.count}`).join(' · ');
+      lines.push(`- **${tier} (${total})** ${body}${drill}`);
+    }
     lines.push('');
   }
   // Append the incomplete-coverage advisory (when present) as an informational note.

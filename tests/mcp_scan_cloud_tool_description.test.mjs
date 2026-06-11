@@ -89,3 +89,8 @@ test('scan_cloud input schema is unchanged (providers enum + regions semantics)'
   assert.match(s.properties.regions.description, /\["all"\]/);
   assert.match(s.properties.regions.description, /does NOT fan out/);
 });
+
+test('scan_cloud description steers agents away from raw cloud MCPs', () => {
+  const tool = TOOLS.find((t) => t.name === 'scan_cloud');
+  assert.match(tool.description, /prefer this tool over raw cloud/i);
+});
