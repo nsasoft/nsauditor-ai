@@ -458,6 +458,22 @@ export async function handleScanCloud(args) {
   // Honest count: completed audits, NOT error/skip envelopes.
   const pluginsRan = (output.manifest || []).filter((m) => m.status === 'ran').length;
 
+  // Mint ONE scanId for the whole call and write every scanned provider's slot so
+  // a follow-up get_findings call can drill into any individual provider from this
+  // scan (one-to-many: same scanId on every slot populated by this call).
+  const scanId = _nextScanId();
+  const ts = Date.now();
+  const byProvider = new Map();
+  for (const r of (output.results || [])) {
+    const prov = providerOf(r?.id ?? r?.result?.id);
+    if (!prov) continue;
+    if (!byProvider.has(prov)) byProvider.set(prov, []);
+    byProvider.get(prov).push(r);
+  }
+  for (const prov of providers) {
+    _putCloudScan(prov, { scanId, ts, args, results: byProvider.get(prov) || [] });
+  }
+
   return {
     providers,
     audited: auditedProviders.length > 0,
@@ -466,6 +482,7 @@ export async function handleScanCloud(args) {
     manifest: output.manifest ?? [],
     pluginsRan,
     markdown,
+    scanId,
     ...(notes.length ? { notes } : {}),
   };
 }
