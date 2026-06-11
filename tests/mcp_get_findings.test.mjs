@@ -7,6 +7,7 @@ import {
   _resetCloudScanCache,
   requireEnterpriseCapability,
   handleScanCloud,
+  handleGetFindings,
   _setPluginManager,
 } from '../mcp_server.mjs';
 
@@ -56,5 +57,42 @@ test('a multi-provider scan writes every scanned provider slot under ONE scanId'
   assert.equal(_getCloudScan('aws').scanId, res.scanId);
   assert.equal(_getCloudScan('azure').scanId, res.scanId);   // one-to-many: same id on both slots
   assert.equal(_getCloudScan('aws').results.length, 1);      // aws slot holds only aws results
+  _setTier();
+});
+
+test('get_findings filters by severity/category and returns full untruncated text', async () => {
+  _resetCloudScanCache(); _setTier('enterprise');
+  _putCloudScan('aws', { scanId: 'scan-1', ts: 1, args: {}, results: [{ id: '1150', result: { findings: [
+    { severity: 'MEDIUM', resource: 'sqs-cleartext-queue', region: 'us-east-1',
+      details: { category: 'sqs-age-alarm-missing' }, issues: ['x'.repeat(400)] },
+  ] } }] });
+  const out = await handleGetFindings({ provider: 'aws', severity: 'MEDIUM', category: 'sqs-age-alarm-missing' });
+  assert.equal(out.findings.length, 1);
+  assert.equal(out.findings[0].resource, 'sqs-cleartext-queue');
+  assert.ok(out.findings[0].text.length >= 400);   // full untruncated
+  _setTier();
+});
+test('get_findings paginates with a disclosed server-side cap', async () => {
+  _resetCloudScanCache(); _setTier('enterprise');
+  const findings = Array.from({ length: 50 }, (_, i) => ({ severity: 'LOW', details: { category: 'c' }, issues: [String(i)] }));
+  _putCloudScan('aws', { scanId: 'scan-1', ts: 1, args: {}, results: [{ id: '1', result: { findings } }] });
+  const out = await handleGetFindings({ provider: 'aws', limit: 999 });
+  assert.ok(out.findings.length <= 20);
+  assert.match(out.note || '', /cap/i);
+  assert.ok(out.nextCursor);
+  _setTier();
+});
+test('get_findings: scanId omitted + multiple slots + no provider -> error listing slots', async () => {
+  _resetCloudScanCache(); _setTier('enterprise');
+  _putCloudScan('aws', { scanId: 'scan-1', ts: 1, args: {}, results: [] });
+  _putCloudScan('azure', { scanId: 'scan-1', ts: 1, args: {}, results: [] });
+  const out = await handleGetFindings({});
+  assert.match(out.error || '', /provider/i);
+  _setTier();
+});
+test('get_findings: absent provider -> per-session re-run error', async () => {
+  _resetCloudScanCache(); _setTier('enterprise');
+  const out = await handleGetFindings({ provider: 'gcp' });
+  assert.match(out.error || '', /re-run scan_cloud|per-session|not cached/i);
   _setTier();
 });

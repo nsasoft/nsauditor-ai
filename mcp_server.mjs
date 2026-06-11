@@ -26,7 +26,7 @@ import { buildRegionIntent } from './utils/region_intent.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
-import { summarizeCloudFindings, renderCloudFindingsMarkdown } from './utils/cloud_finding_summary.mjs';
+import { summarizeCloudFindings, renderCloudFindingsMarkdown, describeFinding } from './utils/cloud_finding_summary.mjs';
 import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
 
 const _require = createRequire(import.meta.url);
@@ -205,6 +205,9 @@ function appendCallSentinel(text, callId) {
 // Tool definitions (JSON Schema for input validation)
 // ---------------------------------------------------------------------------
 
+// Max findings per page — also referenced in the TOOLS inputSchema description below.
+const GET_FINDINGS_MAX_LIMIT = 20;   // ~500 chars/finding -> ~10KB page (Desktop 60s budget)
+
 // Exported for direct testing (the scan_cloud description is a routing surface —
 // tests pin its service-coverage enumeration + contract clauses).
 export const TOOLS = [
@@ -247,6 +250,20 @@ export const TOOLS = [
       },
       required: [],
     },
+  },
+  {
+    name: 'get_findings',
+    description:
+      'Drill into the findings of the MOST RECENT scan_cloud scan (per-provider, per-session cache — NOT live state; cleared when the MCP server restarts). Filter by provider/plugin/severity/category and paginate (cursor/limit). Returns full untruncated finding text. Requires an Enterprise license. Use the scanId from the scan_cloud summary footer; if you get a "re-run scan_cloud" error the cache was cleared or superseded.',
+    inputSchema: { type: 'object', properties: {
+      scanId: { type: 'string', description: 'scanId from the scan_cloud summary footer (optional; staleness guard).' },
+      provider: { type: 'string', enum: ['aws', 'gcp', 'azure'], description: 'Which provider slot to drill (required when multiple are cached).' },
+      plugin: { type: 'string', description: 'Filter to one plugin id, e.g. "1150".' },
+      severity: { type: 'string', description: 'Filter: CRITICAL|HIGH|MEDIUM|LOW|INFO.' },
+      category: { type: 'string', description: 'Filter to one details.category, e.g. "sqs-age-alarm-missing".' },
+      cursor: { type: 'string', description: 'Pagination cursor from a previous nextCursor.' },
+      limit: { type: 'number', description: `Page size (server-capped at ${GET_FINDINGS_MAX_LIMIT}).` },
+    } },
   },
   {
     name: 'probe_service',
@@ -474,6 +491,10 @@ export async function handleScanCloud(args) {
     _putCloudScan(prov, { scanId, ts, args, results: byProvider.get(prov) || [] });
   }
 
+  if (markdown != null && typeof toolHandlers.get_findings === 'function') {
+    markdown += `\n\n> _scanId: ${scanId} — drill any category via get_findings (provider="${providers[0]}")._`;
+  }
+
   return {
     providers,
     audited: auditedProviders.length > 0,
@@ -485,6 +506,43 @@ export async function handleScanCloud(args) {
     scanId,
     ...(notes.length ? { notes } : {}),
   };
+}
+
+export async function handleGetFindings(args = {}) {
+  const slots = ['aws', 'gcp', 'azure'].filter((p) => _getCloudScan(p));
+  let provider = args.provider && String(args.provider).toLowerCase();
+  if (!provider) {
+    if (slots.length === 1) provider = slots[0];
+    else if (slots.length === 0) return { error: 'No cloud scan is cached for this session — run scan_cloud first. (The cache is per-session and is cleared when the MCP server restarts.)' };
+    else return { error: `Multiple cached scans — pass provider (one of: ${slots.map((p) => `${p}:${_getCloudScan(p).scanId}`).join(', ')}).` };
+  }
+  const slot = _getCloudScan(provider);
+  if (!slot) return { error: `No cached scan for provider '${provider}' — run scan_cloud first (per-session cache, cleared on server restart).` };
+  if (args.scanId && args.scanId !== slot.scanId) return { error: `scanId '${args.scanId}' is no longer cached (displaced by ${slot.scanId}) — re-run scan_cloud.` };
+  let rows = [];
+  for (const r of (slot.results || [])) for (const f of (r?.result?.findings ?? r?.findings ?? [])) {
+    const sev = String(f?.severity || 'INFO').toUpperCase();
+    const cat = (f?.details && f.details.category) ? String(f.details.category) : `uncategorized(${String(r?.id ?? '')})`;
+    if (args.severity && sev !== String(args.severity).toUpperCase()) continue;
+    if (args.category && cat !== String(args.category)) continue;
+    if (args.plugin && String(r?.id) !== String(args.plugin)) continue;
+    // Extract the resource identifier directly from the finding object (same key
+    // priority as describeFinding's RESOURCE_KEYS) — avoids split-after-truncation
+    // ambiguity when describeFinding truncates into the ' — ' separator.
+    const FINDING_RESOURCE_KEYS = ['userName','bucket','bucketName','function','functionName','table','tableName','instanceId','group','groupId','key','keyId','vault','vaultName','pipeline','topic','queue','projectId','domain','secretName','roleName','accountName','resource','resourceId','name','arn'];
+    let res = '';
+    for (const k of FINDING_RESOURCE_KEYS) { if (f && f[k]) { res = String(f[k]); break; } }
+    rows.push({ plugin: String(r?.id ?? ''), severity: sev, category: cat,
+      resource: res, region: f?.region || f?.details?.region || '',
+      text: Array.isArray(f?.issues) ? f.issues.join(' · ') : String(f?.title || f?.classification || '') });
+  }
+  const start = Number(args.cursor) || 0;
+  const limit = Math.min(Number(args.limit) || GET_FINDINGS_MAX_LIMIT, GET_FINDINGS_MAX_LIMIT);
+  const page = rows.slice(start, start + limit);
+  const out = { provider, scanId: slot.scanId, total: rows.length, findings: page };
+  if (Number(args.limit) > GET_FINDINGS_MAX_LIMIT) out.note = `limit capped server-side at ${GET_FINDINGS_MAX_LIMIT} (≈10KB/page).`;
+  if (start + limit < rows.length) out.nextCursor = String(start + limit);
+  return out;
 }
 
 export async function handleProbeService(args) {
@@ -546,6 +604,7 @@ export async function handleListPlugins() {
 export const toolHandlers = {
   scan_host: handleScanHost,
   scan_cloud: handleScanCloud,
+  get_findings: handleGetFindings,
   probe_service: handleProbeService,
   get_vulnerabilities: handleGetVulnerabilities,
   list_plugins: handleListPlugins,
