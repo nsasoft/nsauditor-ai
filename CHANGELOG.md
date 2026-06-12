@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.11 (2026-06-12) — Paired content bump for EE 0.20.0 (GDPR Article 32 — the 7th compliance framework)
+
+> **DRAFT — pending operator legal review. Not yet published.**
+
+Paired content bump (no engine behavior change). EE 0.20.0 adds the **seventh compliance framework**: GDPR **Article 32 (security-of-processing) infrastructure substrate** — mapped against Regulation (EU) 2016/679, an 11-unit sub-measure matrix (4 covered / 5 partial / 2 OOS) — explicitly **GDPR Article 32 infrastructure substrate ONLY, NOT GDPR compliance** (Art. 32 is the only article an infrastructure scanner can substrate-evidence; the rest of GDPR's 99 articles are OOS-by-design). On the CE side: the `scan_cloud` tool description now **lists GDPR Article 32 (security-of-processing substrate)** alongside the existing six frameworks, so Desktop agents surface it; the paired **agent-skill 0.2.11** teaches the 7th framework (scope doctrine, four-factor proportionality, sub-measure discipline, Art. 83(4) lower fine tier). Plugin count UNCHANGED at 28; the six existing coverage matrices UNCHANGED. Paired with EE 0.20.0 + agent-skill 0.2.11.
+
 ## 0.2.10 (2026-06-11) — MCP affordance II: actionable-finding visibility (category rollup) + `get_findings` drill-down (paired with EE 0.19.4 + agent-skill 0.2.10)
 
 A **real Community Edition feature** that closes the MEDIUM-invisibility false-clean surfaced by the EE 0.19.4 Claude Desktop validation: the `scan_cloud` summary itemized only CRITICAL/HIGH + evidence-gaps, so actionable MEDIUM/LOW findings (e.g. 4 live SQS/SNS no-alarm MEDIUMs) were count-only and a Desktop agent narrated "the alarm dimension came back clean" while they fired.

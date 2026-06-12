@@ -55,7 +55,7 @@ test('scan_cloud description enumerates Azure + GCP service coverage', () => {
   assert.match(d, /impersonation/i);
 });
 
-test('scan_cloud description names the six compliance frameworks (compliance-named asks route too)', () => {
+test('scan_cloud description names the seven compliance frameworks (compliance-named asks route too)', () => {
   const d = scanCloudTool().description;
   assert.match(d, /SOC 2/);
   assert.match(d, /HIPAA/);
@@ -63,6 +63,7 @@ test('scan_cloud description names the six compliance frameworks (compliance-nam
   assert.match(d, /PCI DSS/);
   assert.match(d, /ISO 27001/);
   assert.match(d, /CIS/);
+  assert.match(d, /GDPR Article 32/); // 7th framework — Art. 32 substrate, not GDPR compliance
 });
 
 test('scan_cloud description tells the agent to use this tool for service-specific asks', () => {
