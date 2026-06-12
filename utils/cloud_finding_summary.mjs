@@ -9,7 +9,10 @@ const RANK = { CRITICAL: 5, HIGH: 4, MEDIUM: 3, LOW: 2, INFO: 1, PASS: 0 };
 // Resource-identifying keys, most-specific first so a precise label wins over the
 // generic resource/name/arn fallbacks. Grounded in the REAL EE plugin emissions
 // (S3 1020 emits `bucket`, Key Vault `vault`, DynamoDB `table`, KMS `key`, …).
-const RESOURCE_KEYS = ['userName', 'bucket', 'bucketName', 'function', 'functionName', 'table', 'tableName', 'instanceId', 'group', 'groupId', 'key', 'keyId', 'vault', 'vaultName', 'pipeline', 'topic', 'queue', 'projectId', 'domain', 'secretName', 'roleName', 'accountName', 'resource', 'resourceId', 'name', 'arn'];
+// Exported as the SINGLE SOURCE OF TRUTH — get_findings (mcp_server.mjs) imports this
+// rather than re-declaring the list, so the two resource-extraction surfaces can never
+// drift on which key names a finding's resource.
+export const RESOURCE_KEYS = ['userName', 'bucket', 'bucketName', 'function', 'functionName', 'table', 'tableName', 'instanceId', 'group', 'groupId', 'key', 'keyId', 'vault', 'vaultName', 'pipeline', 'topic', 'queue', 'projectId', 'domain', 'secretName', 'roleName', 'accountName', 'resource', 'resourceId', 'name', 'arn'];
 const REASON_KEYS = ['classification', 'title', 'message', 'reason', 'finding', 'detail'];
 const UNKNOWN_PROVIDER = 'unknown';
 // Scan-coverage gap prose — an EXACT 1:1 mirror of the EE evidence-gap anchor

@@ -26,7 +26,7 @@ import { buildRegionIntent } from './utils/region_intent.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
-import { summarizeCloudFindings, renderCloudFindingsMarkdown, describeFinding } from './utils/cloud_finding_summary.mjs';
+import { summarizeCloudFindings, renderCloudFindingsMarkdown, describeFinding, RESOURCE_KEYS } from './utils/cloud_finding_summary.mjs';
 import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
 
 const _require = createRequire(import.meta.url);
@@ -526,12 +526,12 @@ export async function handleGetFindings(args = {}) {
     if (args.severity && sev !== String(args.severity).toUpperCase()) continue;
     if (args.category && cat !== String(args.category)) continue;
     if (args.plugin && String(r?.id) !== String(args.plugin)) continue;
-    // Extract the resource identifier directly from the finding object (same key
-    // priority as describeFinding's RESOURCE_KEYS) — avoids split-after-truncation
-    // ambiguity when describeFinding truncates into the ' — ' separator.
-    const FINDING_RESOURCE_KEYS = ['userName','bucket','bucketName','function','functionName','table','tableName','instanceId','group','groupId','key','keyId','vault','vaultName','pipeline','topic','queue','projectId','domain','secretName','roleName','accountName','resource','resourceId','name','arn'];
+    // Extract the resource identifier directly from the finding object using the SAME
+    // key priority as describeFinding (the shared RESOURCE_KEYS imported from
+    // cloud_finding_summary.mjs) — avoids split-after-truncation ambiguity when
+    // describeFinding truncates into the ' — ' separator, and can never drift from it.
     let res = '';
-    for (const k of FINDING_RESOURCE_KEYS) { if (f && f[k]) { res = String(f[k]); break; } }
+    for (const k of RESOURCE_KEYS) { if (f && f[k]) { res = String(f[k]); break; } }
     rows.push({ plugin: String(r?.id ?? ''), severity: sev, category: cat,
       resource: res, region: f?.region || f?.details?.region || '',
       text: Array.isArray(f?.issues) ? f.issues.join(' · ') : String(f?.title || f?.classification || '') });
