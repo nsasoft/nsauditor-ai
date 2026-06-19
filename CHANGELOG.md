@@ -6,9 +6,13 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.12 (2026-06-18) — Paired content bump for EE 0.30.0 (AWS + Azure false-negative depth-pass + cross-source compliance-mapping parity)
+
+Paired content bump (no CE engine behavior change). EE 0.30.0 is a detection-depth + mapping-correctness release: it closes a wave of cloud-misconfiguration false-negatives across AWS (S3 access-point public-exposure · resource-policy effective-exposure on Lambda/DynamoDB/SQS-SNS/VPC-endpoints/Secrets/API-Gateway · EC2-SG public-vs-private-CIDR + split-range · KMS effective-decrypt + cross-account key-policy · IAM ListUsers truncation) and Azure (storage/NSG/Key-Vault/cloud-scanner class-O fail-opens), then makes the compliance verdict consistent across all seven frameworks (architecturally-identical confidentiality / least-privilege exposures route to the same controls — incl. a public application entry-point now on NIST CSF **PR.AA-05**). **No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED.** The CE-side `scan_cloud` description (which already names all seven frameworks) is unchanged; this is a README/version content bump for marketing lockstep. Paired with EE 0.30.0 + agent-skill 0.2.12. **EE 0.30.0 requires CE 0.2.8+.**
+
 ## 0.2.11 (2026-06-12) — Paired content bump for EE 0.20.0 (GDPR Article 32 — the 7th compliance framework)
 
-> **DRAFT — pending operator legal review. Not yet published.**
+> **Published 2026-06-12 — live on npm.**
 
 Paired content bump (no engine behavior change). EE 0.20.0 adds the **seventh compliance framework**: GDPR **Article 32 (security-of-processing) infrastructure substrate** — mapped against Regulation (EU) 2016/679, an 11-unit sub-measure matrix (4 covered / 5 partial / 2 OOS) — explicitly **GDPR Article 32 infrastructure substrate ONLY, NOT GDPR compliance** (Art. 32 is the only article an infrastructure scanner can substrate-evidence; the rest of GDPR's 99 articles are OOS-by-design). On the CE side: the `scan_cloud` tool description now **lists GDPR Article 32 (security-of-processing substrate)** alongside the existing six frameworks, so Desktop agents surface it; the paired **agent-skill 0.2.11** teaches the 7th framework (scope doctrine, four-factor proportionality, sub-measure discipline, Art. 83(4) lower fine tier). Plugin count UNCHANGED at 28; the six existing coverage matrices UNCHANGED. Paired with EE 0.20.0 + agent-skill 0.2.11.
 
