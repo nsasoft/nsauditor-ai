@@ -867,7 +867,9 @@ Scan options:
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send delta alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
-  --compliance <framework>     Run compliance mapping (e.g. soc2). Enterprise only.
+  --compliance <framework>     Map findings to controls. 'all' = all 7 frameworks, or a CSV
+                               of soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr (aliases
+                               nist/pci/iso/cis). Unknown tokens fail fast. Enterprise only.
   --compliance-scope <path>    JSON file describing the assessment scope
 
 License subcommands:
