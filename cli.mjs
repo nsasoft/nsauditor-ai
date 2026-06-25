@@ -928,7 +928,7 @@ Cloud-scan hosts:
 Examples:
   nsauditor-ai scan --host 10.0.0.1 --plugins all
   CLOUD_PROVIDER=aws AWS_PROFILE=default \\
-    nsauditor-ai scan --host aws --plugins 020 --compliance soc2
+    nsauditor-ai scan --host aws --plugins all --compliance all   # full AWS audit, all 7 frameworks
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
   nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
   nsauditor-ai license --status
