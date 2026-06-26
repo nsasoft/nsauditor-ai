@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.18 (2026-06-25) — clearer sentinel-host auto-scope skip message (multi-cloud)
+
+The per-host auto-scope log line no longer implies other clouds are dropped. On a multi-cloud run (`--host aws,gcp,azure`) the AWS pass printed `skipping 35 non-aws plugin(s) (other clouds + non-cloud)` — misleading, because Azure/GCP **are** scanned, just on their own pass. Now reads: `skipping 35 non-aws plugin(s) not applicable to this host (other-cloud plugins run on their own --host pass; non-cloud plugins need a network host/CIDR)`. The `--host` `--help` auto-scope note is reworded to match. Message-only change (no behavior change); CLI-only (CE). Paired EE 0.31.4 + agent-skill 0.2.16.
+
 ## 0.2.17 (2026-06-25) — `--host` multi-cloud comma list + clearer help (CLI usability fix)
 
 `--host aws,gcp,azure` now scans **one or more clouds in a single run** (comma-separated; `--host aws` for one cloud). Previously a comma list was treated as a single bogus hostname and rejected by the SSRF guard (`getaddrinfo ENOTFOUND aws,gcp,azure`) — there was no way to audit multiple clouds in one command. `parseHostArg` now splits a comma list and parses each token, so cloud sentinels, CIDRs, ranges, and plain hosts all compose (e.g. `aws,10.0.0.0/30`); the existing multi-host loop scans each. The `--host` `--help` now documents the comma form, shows a `--host aws,gcp,azure` example, and warns that the `aws|gcp|azure` (pipe) form is *notation* — a shell treats `|` as a pipe. **CLI-only change (CE)**; EE 0.31.4 unaffected (peer `nsauditor-ai >=0.2.8` unchanged). TDD: 5 new `parseHostArg` comma tests (RED→GREEN); host_iterator suite 29/29. Paired EE 0.31.4 + agent-skill 0.2.16.

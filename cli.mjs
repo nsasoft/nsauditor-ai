@@ -922,8 +922,10 @@ Cloud-scan hosts:
                                  cloud-scanner plugins via the provider's control-plane
                                  API, and imply CLOUD_PROVIDER=<host> when unset. With
                                  --plugins all the scan AUTO-SCOPES to only that cloud's
-                                 plugins (other clouds + non-cloud plugins are skipped and
-                                 the skip is logged) — so --plugins all is safe here.
+                                 plugins (plugins not applicable to this host are skipped +
+                                 logged — other-cloud plugins run on their OWN --host pass,
+                                 non-cloud plugins need a network host) — so --plugins all
+                                 is safe here.
                                  Note: the composite zero-trust checker (1023) has no
                                  single cloud and is therefore skipped under this
                                  auto-scope; to run it, select it explicitly

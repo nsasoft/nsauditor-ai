@@ -1,6 +1,6 @@
 {
   "name": "nsauditor-ai",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "Modular AI-assisted network security audit platform — Community Edition",
   "type": "module",
   "private": false,

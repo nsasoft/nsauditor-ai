@@ -784,7 +784,8 @@ export class PluginManager {
         console.error(
           `Cloud host '${scope.provider}' → running ${scope.selected.length} ` +
           `${scope.provider.toUpperCase()} plugin(s); skipping ${scope.skipped.length} ` +
-          `non-${scope.provider} plugin(s) (other clouds + non-cloud).`,
+          `non-${scope.provider} plugin(s) not applicable to this host ` +
+          `(other-cloud plugins run on their own --host pass; non-cloud plugins need a network host/CIDR).`,
         );
       }
     }
