@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.19 (2026-06-26) — Paired content bump for EE 0.31.5 (RDS Multi-AZ DB cluster REAL snapshot detection + at-rest snapshot routing fleet sweep)
+
+A paired content bump — no CE engine behavior change. The Enterprise engine promotes a non-Aurora RDS Multi-AZ DB cluster snapshot to real detection (public `restore=all` CRITICAL, cross-account / unencrypted HIGH) and closes a cross-framework **single-framework snapshot false-clean** (an unencrypted snapshot now routes to the at-rest control in **all seven** frameworks; a public/cross-account share also routes to access-control — SOC 2 CC6.1 + the Required HIPAA §164.312(a)(1)). **No new framework, no new plugins (still 28), no coverage-matrix changes.** Paired with EE 0.31.5 + agent-skill 0.2.17. **EE 0.31.5 requires CE 0.2.8+.**
+
 ## 0.2.18 (2026-06-25) — clearer sentinel-host auto-scope skip message (multi-cloud)
 
 The per-host auto-scope log line no longer implies other clouds are dropped. On a multi-cloud run (`--host aws,gcp,azure`) the AWS pass printed `skipping 35 non-aws plugin(s) (other clouds + non-cloud)` — misleading, because Azure/GCP **are** scanned, just on their own pass. Now reads: `skipping 35 non-aws plugin(s) not applicable to this host (other-cloud plugins run on their own --host pass; non-cloud plugins need a network host/CIDR)`. The `--host` `--help` auto-scope note is reworded to match. Message-only change (no behavior change); CLI-only (CE). Paired EE 0.31.4 + agent-skill 0.2.16.
