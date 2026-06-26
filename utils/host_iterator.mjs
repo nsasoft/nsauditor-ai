@@ -137,6 +137,8 @@ export function expandRange(range) {
  * Detect input type and return array of hosts.
  * - If contains '/' → CIDR
  * - If contains '-' with IP pattern → dash range
+ * - If contains ',' → comma-separated list (each token parsed + flattened, e.g.
+ *   `aws,gcp,azure` → multi-cloud, or `10.0.0.1,10.0.0.2`)
  * - If file exists → host file
  * - Otherwise → single IP/hostname
  */
@@ -149,6 +151,24 @@ export async function parseHostArg(arg) {
   // Match dash-range notation: 192.168.1.1-50 or 192.168.1.1-192.168.1.50
   if (/^\d{1,3}(\.\d{1,3}){3}-\d/.test(arg)) {
     return expandRange(arg);
+  }
+
+  // Comma-separated list (e.g. multi-cloud `aws,gcp,azure`, or `10.0.0.1,10.0.0.2`):
+  // split and parse each token recursively so cloud sentinels, CIDRs, and ranges all
+  // compose. A real host-file whose path happens to contain a comma is still read as a
+  // file (checked first); otherwise the comma is treated as a list separator.
+  if (typeof arg === 'string' && arg.includes(',')) {
+    if (!path.isAbsolute(arg)) {
+      const r = path.resolve(arg);
+      if (r.startsWith(process.cwd() + path.sep)) {
+        try { await fsp.access(arg); return parseHostFile(arg); } catch { /* not a file → treat as a list */ }
+      }
+    }
+    const out = [];
+    for (const token of arg.split(',').map((t) => t.trim()).filter(Boolean)) {
+      out.push(...await parseHostArg(token));
+    }
+    return out;
   }
 
   // Path traversal guard: reject absolute paths and paths resolving outside cwd

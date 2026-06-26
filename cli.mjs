@@ -913,8 +913,12 @@ Environment:
   COMPLIANCE_TSA_URL             RFC 3161 timestamp authority for SOC 2 attestation
 
 Cloud-scan hosts:
-  --host aws | gcp | azure       Sentinel literals (case-insensitive). These are not
-                                 DNS-resolved; they route the scan to the matching
+  --host aws[,gcp,azure]         One or more cloud sentinel literals, comma-separated
+                                 (case-insensitive): use 'aws' for one cloud, or
+                                 'aws,gcp,azure' to audit all three in one run (each cloud
+                                 is scanned in turn). Do NOT write aws|gcp|azure with pipe
+                                 characters — your shell treats | as a pipe. Sentinels are
+                                 not DNS-resolved; they route the scan to the matching
                                  cloud-scanner plugins via the provider's control-plane
                                  API, and imply CLOUD_PROVIDER=<host> when unset. With
                                  --plugins all the scan AUTO-SCOPES to only that cloud's
@@ -929,6 +933,7 @@ Examples:
   nsauditor-ai scan --host 10.0.0.1 --plugins all
   CLOUD_PROVIDER=aws AWS_PROFILE=default \\
     nsauditor-ai scan --host aws --plugins all --compliance all   # full AWS audit, all 7 frameworks
+  nsauditor-ai scan --host aws,gcp,azure --plugins all --compliance all   # all 3 clouds in one run
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
   nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
   nsauditor-ai license --status

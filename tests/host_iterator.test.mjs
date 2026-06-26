@@ -167,3 +167,33 @@ test('parseHostArg with host file reads file', async () => {
     await fsp.unlink(fullPath).catch(() => {});
   }
 });
+
+/* ------------------- parseHostArg comma-separated list ------------------- */
+// Multi-cloud / multi-host: `--host aws,gcp,azure` must scan all three (and a single
+// cloud must still work). Was the root cause of the "SSRF guard ENOTFOUND aws,gcp,azure"
+// failure — a comma list was returned as one bogus host instead of being split.
+
+test('parseHostArg splits a comma list of cloud sentinels into each cloud', async () => {
+  const hosts = await parseHostArg('aws,gcp,azure');
+  assert.deepStrictEqual(hosts, ['aws', 'gcp', 'azure']);
+});
+
+test('parseHostArg trims whitespace around comma-separated tokens', async () => {
+  const hosts = await parseHostArg('aws, gcp , azure');
+  assert.deepStrictEqual(hosts, ['aws', 'gcp', 'azure']);
+});
+
+test('parseHostArg keeps a single cloud sentinel unchanged', async () => {
+  const hosts = await parseHostArg('aws');
+  assert.deepStrictEqual(hosts, ['aws']);
+});
+
+test('parseHostArg splits a comma list of plain hosts', async () => {
+  const hosts = await parseHostArg('10.0.0.1,10.0.0.2');
+  assert.deepStrictEqual(hosts, ['10.0.0.1', '10.0.0.2']);
+});
+
+test('parseHostArg comma list composes with CIDR tokens', async () => {
+  const hosts = await parseHostArg('aws,10.0.0.0/30');
+  assert.deepStrictEqual(hosts, ['aws', '10.0.0.1', '10.0.0.2']);
+});
