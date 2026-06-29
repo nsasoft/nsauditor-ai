@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.21 (2026-06-29) — Paired content bump for EE 0.31.7 (RDS audit-log no-false-clean (generation + retention) + opt-in positive-substrate RoC surfacing)
+
+No CE engine behavior change — detection and compliance routing live in the Enterprise engine; this is a paired content bump (README + this changelog). EE 0.31.7 closes the *zero-audit-log* false-clean: a database producing no audit logs (CloudWatch exports off, or PostgreSQL pgAudit disabled/misconfigured) now fails closed against every framework's audit-log-**generation** control (SOC 2 CC7.2 · HIPAA §164.312(b) · PCI 10.2.1 · CIS 8.2 + 8.5 · NIST PR.PS-04 · ISO A.8.15, + NIST DE.CM-09 for pgAudit) — not the retention controls. It also adds a conservative PCI DSS 10.5.1 ≥12-month retention substrate and surfaces opt-in positive-substrate evidence per-control in the RoC. **No new framework, no new plugins (still 28), all seven coverage matrices UNCHANGED.** Paired **EE 0.31.7** + agent-skill 0.2.19. **EE 0.31.7 requires CE 0.2.8+.**
+
+---
+
 ## 0.2.20 (2026-06-27) — Paired content bump for EE 0.31.6 (RDS enumeration-truncation no-false-clean class CLOSED + audit-log retention routing-depth sweep; CIS matrix 17/22/114 → 17/23/113)
 
 No CE engine behavior change — detection and compliance routing live in the Enterprise engine; this is a paired content bump (README + this changelog). EE 0.31.6 closes the RDS *enumeration-truncation* silent-false-clean class across all four plugin-1140 enumerators (snapshots, live DB/cluster lists, audit-log groups now fail closed on page-cap truncation), registers the RDS auditor in the compliance-engine drift detector, and maps RDS audit-log retention to every framework's retention control — flipping **CIS Controls v8 Safeguard 8.10 "Retain Audit Logs" OOS → partial** (CIS matrix **17/22/114 → 17/23/113**; IG1 cyber-insurance baseline UNCHANGED at 23/56). The other six coverage matrices are UNCHANGED; plugin count UNCHANGED at 28. Paired **EE 0.31.6** + agent-skill 0.2.18. **EE 0.31.6 requires CE 0.2.8+.**
