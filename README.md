@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.21 + Enterprise 0.31.7** (June 2026) — paired bump for the Enterprise "RDS audit-log no-false-clean (generation + retention) + opt-in positive-substrate RoC surfacing" cycle. No new framework, no new plugins (still 28), all seven coverage matrices unchanged; no CE engine change. Requires CE 0.2.8+. Full detail in **[CHANGELOG.md](./CHANGELOG.md)**.
+**Latest: CE 0.2.22 + Enterprise 0.31.8** (July 2026) — paired bump for the Enterprise "GAP-1 positive-substrate polish — framework-aware PCI Req 10.5.1 caveat restoration + SOC 2 GRC-push hygiene" cycle. No new framework, no new plugins (still 28), all seven coverage matrices unchanged; no CE engine change. Requires CE 0.2.8+. Full detail in **[CHANGELOG.md](./CHANGELOG.md)**.
 
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
 
