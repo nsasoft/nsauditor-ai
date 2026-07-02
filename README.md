@@ -66,6 +66,16 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS C
 → **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
 → **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
 
+### Prefer to buy through AWS Marketplace?
+
+Enterprise Edition is also available as an **[AWS Marketplace container listing](https://aws.amazon.com/marketplace/pp?sku=etar8knc8dx7bshizrrnnjbzi)** — same product, same local ES256 license key, billed through your AWS account (consolidated billing / EDP drawdown, procurement-friendly; custom Enterprise terms via AWS Private Offers). *Launching now in limited availability — if the listing shows "not available," it hasn't gone fully public yet: [contact us](https://www.nsauditor.com/support.html) for immediate access via a Private Offer.*
+
+How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS dependency at scan time):
+
+1. **Subscribe** on the listing (tiers `base` / `growth` / `scale` mirror the 5 / 25 / unlimited-seat plans).
+2. **Register** your email + AWS account ID at the URL shown in the listing's usage instructions — your **ES256 license key arrives by email**.
+3. **Pull and run** the Docker image from the Marketplace registry (commands in the listing's usage instructions and your license email) with `NSAUDITOR_LICENSE_KEY=<your key>`. One tier-agnostic image — upgrades are just a new license key, never a new image. The container runs fully offline after that; billing lives in AWS, enforcement is your local key.
+
 ### Feature comparison
 
 | | Community (Free) | Pro ($49/mo) | Enterprise ($2k+/yr) |
