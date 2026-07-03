@@ -20,7 +20,7 @@ import { pathToFileURL, fileURLToPath } from "url";
 import { discoverPlugins } from './utils/plugin_discovery.mjs';
 import { getTierFromEnv } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
-import { scopeSelectionForHost, scopeSelectionForProviders } from './utils/sentinel_scope.mjs';
+import { scopeSelectionForHost, scopeSelectionForProviders, excludeMismatchedCloudPlugins, isCloudSentinelHost } from './utils/sentinel_scope.mjs';
 import { mapLimit } from './utils/concurrency.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -588,7 +588,24 @@ export class PluginManager {
       return await this.runConcluder(resultsArg);
     }
 
-    const arr = await this._runAcrossPorts(plugin, host, opts);
+    // BUG2(b) fold B: runByName must honor the same cloud-intent contract as
+    // run() — a cloud auditor runs ONLY on its own sentinel host (no bypass via a
+    // direct single-plugin invocation) — and threads opts.hostKind so the EE gate
+    // can enforce it as defense-in-depth.
+    const rb = excludeMismatchedCloudPlugins([plugin], host);
+    if (rb.skipped.length) {
+      const need = plugin.cloudProvider;
+      console.error(
+        `Plugin ${plugin.id} (${plugin.name}) is a ${need} cloud auditor — it runs only on --host ${need} ` +
+        `(host '${host}' is ${rb.sentinel ? `the '${rb.sentinel}' cloud` : 'a network target'}). Skipping.`,
+      );
+      return { id: plugin.id, name: plugin.name, result: { up: false, skipped: true, data: [] } };
+    }
+    const rbOpts = {
+      ...opts,
+      hostKind: isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network',
+    };
+    const arr = await this._runAcrossPorts(plugin, host, rbOpts);
     const filtered = arr.filter(Boolean);
     if (filtered.length === 0) return { id: plugin.id, name: plugin.name, result: { up: false, data: [] } };
     if (filtered.length === 1) return filtered[0];
@@ -769,6 +786,17 @@ export class PluginManager {
       opts = maybeOpts || {};
     }
 
+    // BUG2(b): tag the host kind so plugins + the EE cloud gate can honor the
+    // "--host is the sole cloud-intent signal" contract as defense-in-depth
+    // (alongside the network-host exclusion below). Cloned so the caller's opts
+    // object — shared across concurrent hosts in the CLI multi-host path — is
+    // never mutated; hostKind stays a scalar string so the shallow opts spread
+    // in callPlugin (:152) / _runOne (:517) forwards it verbatim to every plugin.
+    opts = {
+      ...opts,
+      hostKind: isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network',
+    };
+
     // Sentinel-host scoping: on --host aws|gcp|azure with the implicit `all`,
     // run only that cloud's plugins; skip other clouds + non-cloud plugins.
     const scope = scopeSelectionForHost(selection, host, rawSpec);
@@ -786,6 +814,42 @@ export class PluginManager {
           `${scope.provider.toUpperCase()} plugin(s); skipping ${scope.skipped.length} ` +
           `non-${scope.provider} plugin(s) not applicable to this host ` +
           `(other-cloud plugins run on their own --host pass; non-cloud plugins need a network host/CIDR).`,
+        );
+      }
+    }
+
+    // BUG2(b): a cloud auditor (any plugin with a `cloudProvider` tag) runs IFF
+    // the host is ITS sentinel — the symmetric inverse of the sentinel scoping
+    // above. Fires for the implicit `all` AND an explicit `--plugins 1020`
+    // selection: a network scan must NEVER audit a cloud estate (even with cloud
+    // creds in the env), and a `--host gcp` scan must not run an explicitly-listed
+    // AWS auditor. '--host' is the sole cloud-intent signal — no escape hatch.
+    const netScope = excludeMismatchedCloudPlugins(selection, host);
+    if (netScope.excludedCloud && netScope.skipped.length) {
+      selection = netScope.selected;
+      const ids = netScope.skipped.map((p) => p?.id ?? '?').join(', ');
+      if (netScope.sentinel) {
+        // foreign-cloud plugin explicitly selected on a mismatched sentinel host
+        const foreign = [...new Set(netScope.skipped.map((p) => p?.cloudProvider).filter(Boolean))].join('/');
+        console.error(
+          `Host '${host}' is the '${netScope.sentinel}' cloud → skipping ${netScope.skipped.length} ` +
+          `non-${netScope.sentinel} cloud auditor(s) [${ids}] (${foreign} auditors require --host ${foreign}). ` +
+          `A cloud auditor runs only on its own sentinel host — '--host' is the sole cloud-scan trigger.`,
+        );
+      } else {
+        console.error(
+          `Host '${host}' is a network target → skipping ${netScope.skipped.length} cloud auditor(s) ` +
+          `[${ids}]: cloud plugins require a cloud sentinel host (--host aws|gcp|azure). ` +
+          `Credentials in the environment are a capability, not an intent signal — '--host' is the ` +
+          `sole cloud-scan trigger. (To audit a cloud, run e.g. \`--host aws\`.)`,
+        );
+      }
+      // review fold 4: if the exclusion emptied the selection, say so loudly — an
+      // empty result is NOT a clean pass (mirrors the sentinel zero-match warning).
+      if (selection.length === 0) {
+        console.error(
+          `WARNING: after excluding cloud auditors for host '${host}', ZERO plugins remain — ` +
+          `NOTHING was audited (an empty result is NOT a clean pass). To audit a cloud, use --host aws|gcp|azure.`,
         );
       }
     }
@@ -884,7 +948,11 @@ export class PluginManager {
           return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'skipped', reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`, duration_ms: 0 }, outputs: [] };
         }
         const startMs = Date.now();
-        const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs });
+        // BUG2(b) fold B: thread hostKind on the MCP/cloud-parallel path too, so
+        // the defense-in-depth signal is present on EVERY cloud dispatch route
+        // (selection here is already scoped to each plugin's cloudProvider).
+        const cloudHostKind = mod.cloudProvider ? `cloud:${mod.cloudProvider}` : opts.hostKind;
+        const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs, hostKind: cloudHostKind });
         const duration_ms = Date.now() - startMs;
         let status = 'ran';
         let reason = null;

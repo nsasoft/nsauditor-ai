@@ -76,10 +76,13 @@ test('sentinel scope with zero matching plugins runs nothing (and must not look 
   assert.equal(manifest.filter((m) => m.status === 'ran').length, 0);
 });
 
-test('PluginManager.run(host=aws, explicit list) runs exactly the requested plugins', async () => {
-  const plugins = [stubPlugin('1020', 'aws'), stubPlugin('1021', 'gcp')];
+test('PluginManager.run(host=aws, explicit list) runs the aws plugin but SKIPS a foreign-cloud one', async () => {
+  // BUG2(b) fold A: a cloud auditor runs iff the host is ITS sentinel. An
+  // explicitly-listed GCP plugin on --host aws is a cross-cloud escape hatch and
+  // must be skipped (the operator's "--host is the sole intent signal" contract).
+  const plugins = [stubPlugin('1020', 'aws'), stubPlugin('1021', 'gcp'), { id: '004', name: 'net', priority: 10, run: async () => ({ findings: [] }) }];
   const pm = await PluginManager.create({ plugins });
-  const { manifest } = await pm.run('aws', ['1020', '1021'], {});
+  const { manifest } = await pm.run('aws', ['1020', '1021', '004'], {});
   const ran = manifest.filter((m) => m.status === 'ran').map((m) => m.id).sort();
-  assert.deepEqual(ran, ['1020', '1021']);
+  assert.deepEqual(ran, ['004', '1020'], 'aws + non-cloud run; the gcp auditor is skipped on --host aws');
 });

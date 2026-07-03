@@ -42,6 +42,39 @@ export function scopeSelectionForHost(selection, host, spec) {
 }
 
 /**
+ * BUG2(b) (operator-confirmed contract 2026-07-03): the INVERSE of
+ * scopeSelectionForHost — a cloud auditor plugin runs IF AND ONLY IF the host is
+ * ITS OWN cloud sentinel. `--host` is the sole cloud-intent signal; credentials
+ * in the environment are a capability, never intent; there is NO escape hatch
+ * (not the implicit `all`, not an explicit `--plugins 1020` selection).
+ *
+ * Strips every cloud-tagged plugin whose `cloudProvider` does NOT match the
+ * host's sentinel:
+ *   - NETWORK host (IP / CIDR / hostname → sentinel === null): ALL cloud plugins
+ *     are foreign → all stripped (the reported router-scan bug).
+ *   - SENTINEL host P (aws/gcp/azure): a foreign-cloud plugin (e.g. an AWS
+ *     auditor explicitly selected on `--host gcp`) is stripped; P's own plugins
+ *     and non-cloud plugins are kept. (Complements scopeSelectionForHost, which
+ *     only scopes the implicit `all` — this also covers explicit selections.)
+ *
+ * @param {Array<object>} selection  resolved plugin objects (each may have .cloudProvider)
+ * @param {string} host
+ * @returns {{selected: object[], skipped: object[], sentinel: string|null, excludedCloud: boolean}}
+ */
+export function excludeMismatchedCloudPlugins(selection, host) {
+  const sentinel = isCloudSentinelHost(host) ? String(host).trim().toLowerCase() : null;
+  const selected = [];
+  const skipped = [];
+  for (const p of selection) {
+    // non-cloud plugins (no cloudProvider) always survive; a cloud plugin
+    // survives only when the host IS its sentinel.
+    if (p && p.cloudProvider && p.cloudProvider !== sentinel) skipped.push(p);
+    else selected.push(p);
+  }
+  return { selected, skipped, sentinel, excludedCloud: skipped.length > 0 };
+}
+
+/**
  * Multi-cloud generalization of scopeSelectionForHost: scope a resolved plugin
  * selection to the union of the given providers (by each plugin's cloudProvider
  * field). Used by pluginManager.runCloud() / the MCP scan_cloud tool. Network

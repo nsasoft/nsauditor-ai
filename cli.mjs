@@ -18,6 +18,7 @@ import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
+import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability, inferRequiredTier } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
@@ -185,7 +186,8 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     console.warn('[OpenAI] No conclusion.summary available; skipping.');
     return {
       file_paths: { folder: outDir, plain: null, ai_json: null, raw_json: null, html: null, admin_html: null },
-      ai_conclusion: null
+      ai_conclusion: null,
+      ai_status: 'no_summary',
     };
   }
 
@@ -306,10 +308,13 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   // --- Bail out early if sending disabled -----------------------------------
   const providerLabel = aiProvider === 'claude' ? 'Claude' : aiProvider === 'ollama' ? 'Ollama' : 'OpenAI';
   if (!sendEnabled || !key) {
-    console.log(`[${providerLabel}] AI_ENABLED=false; not sending. Model=${model}`);
+    // BUG2(a): distinguish "AI disabled" from "AI enabled but key unresolved" —
+    // the old single message misdiagnosed a keychain/env key miss as AI_ENABLED=false.
+    console.log(aiBailMessage({ sendEnabled, key, aiProvider, model }));
     return {
       file_paths: { folder: outDir, plain: null, ai_json: null, raw_json: adminRawPath, html: null, admin_html: adminHtmlPath },
-      ai_conclusion: null
+      ai_conclusion: null,
+      ai_status: sendEnabled ? 'key_unresolved' : 'skipped',
     };
   }
 
@@ -335,14 +340,32 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
   // --- Send to AI provider ---------------------------------------------------
   let aiConclusionText = null;
+  // review fold 8: contain the serialization — hoisting userContent above the
+  // try (so the catch can name the timeout) must not let a JSON.stringify throw
+  // (e.g. a circular payload) escape maybeSendToOpenAI uncaught. (payloadForAI is
+  // already serialized once at the aiPayloadPath write above, so this is
+  // defensive; the fallback keeps the timeout math + stub path alive.)
+  let userContent;
+  try {
+    userContent = `Scan payload:\n${JSON.stringify(payloadForAI, null, 2)}`;
+  } catch (e) {
+    console.warn(`[${providerLabel}] Failed to serialize AI payload:`, e?.message || e);
+    userContent = `Scan payload:\n${String(payloadForAI?.summary ?? '(unserializable payload)')}`;
+  }
+  // AbortController timeout — prevents the pipeline hanging on a stalled AI provider.
+  // BUG1: scale with payload size (cloud-scale 28-40KB payloads exceeded the old
+  // flat 120s default and aborted); an explicit NSA_AI_TIMEOUT_MS still wins.
+  // Hoisted above the try so the catch's fail-visible stub can name the timeout.
+  const AI_TIMEOUT_MS = computeAiTimeoutMs({
+    payloadBytes: userContent.length,
+    host,
+    envOverride: process.env.NSA_AI_TIMEOUT_MS,
+  });
   try {
     console.log(`[${providerLabel}] Sending summary, model:`, model);
 
     let resp;
-    const userContent = `Scan payload:\n${JSON.stringify(payloadForAI, null, 2)}`;
 
-    // AbortController timeout — prevents the pipeline hanging on a stalled AI provider.
-    const AI_TIMEOUT_MS = Number(process.env.NSA_AI_TIMEOUT_MS) || 120_000; // 2 min default
     const ac = new AbortController();
     const aiTimer = setTimeout(() => ac.abort(), AI_TIMEOUT_MS);
 
@@ -359,7 +382,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
           messages: [
             { role: 'user', content: userContent }
           ]
-        }, { signal: ac.signal });
+        }, { signal: ac.signal, timeout: AI_TIMEOUT_MS });
 
         console.log(`[${providerLabel}] Response id:`, resp?.id ?? '(unknown)');
 
@@ -381,7 +404,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
             { role: 'system', content: promptText },
             { role: 'user', content: userContent }
           ]
-        }, { signal: ac.signal });
+        }, { signal: ac.signal, timeout: AI_TIMEOUT_MS });
 
         console.log(`[${providerLabel}] Response id:`, resp?.id ?? '(unknown)');
 
@@ -398,7 +421,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
               { role: 'system', content: promptText },
               { role: 'user', content: userContent }
             ]
-          }, { signal: ac.signal });
+          }, { signal: ac.signal, timeout: AI_TIMEOUT_MS });
         } else if (client.chat?.completions?.create) {
           resp = await client.chat.completions.create({
             model,
@@ -406,7 +429,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
               { role: 'system', content: promptText },
               { role: 'user', content: userContent }
             ]
-          }, { signal: ac.signal });
+          }, { signal: ac.signal, timeout: AI_TIMEOUT_MS });
         } else {
           throw new Error('OpenAI SDK: neither responses.create nor chat.completions.create is available.');
         }
@@ -491,13 +514,17 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
         html: aiHtmlPath,
         admin_html: adminHtmlPath
       },
-      ai_conclusion: aiConclusionText
+      ai_conclusion: aiConclusionText,
+      // review fold D: a 200 with no extractable text is NOT "ok" — the
+      // end-of-scan summary must not read "OK" when there is no conclusion.
+      ai_status: (typeof aiConclusionText === 'string' && aiConclusionText.trim()) ? 'ok' : 'empty',
     };
   } catch (err) {
-    console.error(`[${providerLabel}] Send failed:`, err?.stack || err?.message || String(err));
+    const errMsg = String(err?.message || err);
+    console.error(`[${providerLabel}] Send failed:`, err?.stack || errMsg);
     try {
       await fsp.writeFile(aiErrPath, JSON.stringify({
-        error: String(err?.message || err),
+        error: errMsg,
         stack: err?.stack || null,
         provider: aiProvider,
         model
@@ -507,16 +534,38 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
       console.warn(`[${providerLabel}] Also failed to write error file:`, e?.message || e);
     }
 
+    // BUG1 (fail-VISIBLE): also write a human-readable scan_response_ai.txt stub
+    // so the operator sees WHY there is no AI conclusion (the JSON error file +
+    // the console.error above both scroll away in a 3-cloud run). Names the error
+    // and, on a timeout/abort, the NSA_AI_TIMEOUT_MS remedy.
+    let aiFailureStubPath = null;
+    try {
+      await fsp.writeFile(aiTxtPath, aiFailureStubText({
+        host, model, providerLabel, errorMessage: errMsg,
+        timeoutMs: AI_TIMEOUT_MS, whenIso: new Date().toISOString(),
+      }), 'utf8');
+      aiFailureStubPath = aiTxtPath;
+      console.log(`[${providerLabel}] Wrote AI failure stub:`, aiTxtPath);
+    } catch (e) {
+      console.warn(`[${providerLabel}] Also failed to write AI failure stub:`, e?.message || e);
+    }
+
     return {
       file_paths: {
         folder: outDir,
+        // review fold 16: keep `plain` NULL on failure — a downstream consumer
+        // uses `plain != null` as an AI-success proxy. The visible stub is
+        // surfaced on its own `ai_failure_stub` key + via ai_status/ai_error.
         plain: null,
         ai_json: null,
+        ai_failure_stub: aiFailureStubPath,
         raw_json: adminRawPath,
         html: null,
         admin_html: adminHtmlPath
       },
-      ai_conclusion: null
+      ai_conclusion: null,
+      ai_status: 'failed',
+      ai_error: errMsg,
     };
   }
 }
@@ -705,7 +754,10 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     }
   } catch { /* EE not installed — CE proceeds unchanged */ }
 
-  const { file_paths: ai_file_paths, ai_conclusion } = await maybeSendToOpenAI({ host, results, conclusion, promptMode, outDir });
+  const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error } = await maybeSendToOpenAI({ host, results, conclusion, promptMode, outDir });
+  // BUG1 (fail-VISIBLE): a one-line end-of-scan AI status so a failed/aborted AI
+  // conclusion is not silently swallowed under the per-stage logs.
+  console.log(aiSummaryLine({ host, ai_status, ai_error }));
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
@@ -755,7 +807,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     console.warn('[ScanHistory] Failed to record/compare scan:', err?.message || err);
   }
 
-  return { host, results, conclusion, ai_file_paths, ai_conclusion, scanDiff };
+  return { host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff };
 }
 
 /* -------------------- CI/CD severity threshold helpers ------------------- */
