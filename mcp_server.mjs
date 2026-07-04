@@ -587,6 +587,19 @@ export async function handleProbeService(args) {
       `environment are a capability, not an intent signal.`,
     );
   }
+  // M1-SSRF (fold): validateHost whitelists the cloud-sentinel literals past the
+  // SSRF DNS check. That is safe ONLY because a sentinel host must reach a CLOUD
+  // plugin (which ignores `host`). A NETWORK plugin (no cloudProvider) routed a
+  // sentinel host would socket.connect(port, 'aws') without SSRF re-validation —
+  // a bypass if the literal resolves internally. Reject it, restoring the
+  // invariant that scopeSelectionForHost enforces on the pm.run() path.
+  if (isCloudSentinelHost(host) && !plugin.cloudProvider) {
+    const s = String(host).trim().toLowerCase();
+    throw new Error(
+      `Plugin ${plugin.id} (${plugin.name}) is a network plugin — it does not run against the ` +
+      `'${s}' cloud sentinel. Use a network host/IP/CIDR, or a cloud auditor with host: "${s}".`,
+    );
+  }
   const hostKind = isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network';
   const result = await pm._runOne(plugin, host, args.port, { hostKind });
   return result;

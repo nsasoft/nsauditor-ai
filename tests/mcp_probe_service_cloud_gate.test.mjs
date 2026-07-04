@@ -89,4 +89,19 @@ describe('M-1: MCP probe_service honors the cloud-intent contract', () => {
     assert.equal(pm.calls[0].id, '002');
     assert.equal(pm.calls[0].hostKind, 'network');
   });
+
+  // M1-SSRF (Mythos fold-verification of 59ee981): the validateHost sentinel
+  // whitelist bypasses resolveAndValidate for aws/gcp/azure. That is safe for a
+  // cloud plugin (it ignores host), but a NETWORK plugin routed host='aws' would
+  // socket.connect(port,'aws') WITHOUT SSRF re-validation — a bypass if 'aws'
+  // resolves internally (DNS search domain / /etc/hosts). A sentinel host must
+  // only ever reach a CLOUD plugin (mirroring scopeSelectionForHost on pm.run).
+  it('does NOT execute a NETWORK plugin on a cloud sentinel host — restores the SSRF invariant (M1-SSRF)', async () => {
+    await assert.rejects(
+      () => handleProbeService({ host: 'aws', port: 22, pluginName: '002' }),
+      (err) => /network plugin|does not run against|cloud sentinel/i.test(err.message),
+      'a network plugin on a sentinel host must be rejected (not routed the literal token to a socket)',
+    );
+    assert.equal(pm.calls.length, 0, 'the network plugin must NOT be dispatched with host=aws');
+  });
 });
