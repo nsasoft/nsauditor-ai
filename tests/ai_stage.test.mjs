@@ -97,6 +97,14 @@ test('aiFailureStubText: a non-timeout failure names the error but does not fabr
   assert.equal(/NSA_AI_TIMEOUT_MS/.test(txt), false, 'no timeout remedy for a non-timeout error');
 });
 
+test('aiFailureStubText: the SDK "Request timed out." DOES get the NSA_AI_TIMEOUT_MS remedy (review fold R-3)', () => {
+  const txt = aiFailureStubText({
+    host: 'h', model: 'm', providerLabel: 'Claude',
+    errorMessage: 'Request timed out.', timeoutMs: 600_000, whenIso: '2026-07-04T00:00:00.000Z',
+  });
+  assert.match(txt, /NSA_AI_TIMEOUT_MS/, 'an SDK request-timeout is a timeout the remedy addresses');
+});
+
 test('aiFailureStubText: a network "Connect Timeout Error" does NOT get the NSA_AI_TIMEOUT_MS remedy (review fold 9)', () => {
   // A TCP-connect failure is not the local AbortController firing — raising the
   // AI timeout is the wrong remedy, so only a literal abort should surface it.

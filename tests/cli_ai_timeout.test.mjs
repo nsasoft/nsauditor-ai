@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { computeAiTimeoutMs } from '../utils/ai_stage.mjs';
 
 /**
  * Tests for the AbortController timeout pattern used around AI provider calls
  * in cli.mjs (maybeSendToOpenAI). The function is not exported, so we mirror
- * the exact pattern and verify it aborts within the configured window.
+ * the exact pattern and verify it aborts within the configured window. The
+ * default/override math lives in the exported computeAiTimeoutMs (see the
+ * dedicated ai_stage.test.mjs) — the last test here pins it against the SHIPPED
+ * function (review fold R-4: the previous version re-implemented the math inline
+ * and asserted its own copy, i.e. it was green over dead logic).
  */
 
 /**
@@ -58,10 +63,12 @@ test('AbortController timeout: clears timer when AI call succeeds quickly', asyn
   assert.equal(timerCleared, true);
 });
 
-test('NSA_AI_TIMEOUT_MS: parsed as number with 120_000 default', () => {
-  const fromEnv = (val) => Number(val) || 120_000;
-  assert.equal(fromEnv(undefined), 120_000);
-  assert.equal(fromEnv(''), 120_000);
-  assert.equal(fromEnv('30000'), 30_000);
-  assert.equal(fromEnv('0'), 120_000); // 0 coerces to 120_000 via || fallback
+test('NSA_AI_TIMEOUT_MS default/override via the SHIPPED computeAiTimeoutMs (R-4)', () => {
+  // no override, tiny payload → the 120s floor
+  assert.equal(computeAiTimeoutMs({ envOverride: undefined, payloadBytes: 0 }), 120_000);
+  assert.equal(computeAiTimeoutMs({ envOverride: '', payloadBytes: 0 }), 120_000);
+  // a valid override wins even over payload scaling
+  assert.equal(computeAiTimeoutMs({ envOverride: '30000', payloadBytes: 999_999 }), 30_000);
+  // 0 / invalid override is ignored → falls through to the floor
+  assert.equal(computeAiTimeoutMs({ envOverride: '0', payloadBytes: 0 }), 120_000);
 });

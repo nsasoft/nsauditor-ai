@@ -85,6 +85,18 @@ test('pm.run(network host, EXPLICIT cloud plugin) still SKIPS it — creds/selec
   assert.deepEqual(ran, ['004'], 'only the non-cloud plugin runs');
 });
 
+test('excluded cloud plugins appear as SKIPPED manifest entries — machine-visible (fold R-5)', async () => {
+  const plugins = [stubPlugin('1020', 'aws'), { id: '004', name: 'net', priority: 10, run: async () => ({ findings: [] }) }];
+  const pm = await PluginManager.create({ plugins });
+  const { manifest } = await pm.run('192.168.1.1', 'all', {});
+  const entry = manifest.find((m) => m.id === '1020');
+  assert.ok(entry, 'the excluded cloud plugin has a manifest entry (not silently dropped)');
+  assert.equal(entry.status, 'skipped');
+  assert.match(entry.reason, /cloud auditor|--host aws/i, 'the skip reason names the required sentinel');
+  // the non-cloud plugin still ran
+  assert.equal(manifest.find((m) => m.id === '004')?.status, 'ran');
+});
+
 test('pm.run(host=aws, all) is UNCHANGED — cloud plugins still run on their sentinel', async () => {
   const plugins = [
     stubPlugin('1020', 'aws'),

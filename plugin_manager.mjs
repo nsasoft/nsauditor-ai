@@ -588,10 +588,11 @@ export class PluginManager {
       return await this.runConcluder(resultsArg);
     }
 
-    // BUG2(b) fold B: runByName must honor the same cloud-intent contract as
-    // run() — a cloud auditor runs ONLY on its own sentinel host (no bypass via a
-    // direct single-plugin invocation) — and threads opts.hostKind so the EE gate
-    // can enforce it as defense-in-depth.
+    // BUG2(b): runByName (a public PluginManager entry) honors the same
+    // cloud-intent contract as run() — a cloud auditor runs ONLY on its own
+    // sentinel host — and threads opts.hostKind. Defense-in-depth for direct
+    // library consumers; the LIVE MCP single-plugin route (probe_service →
+    // _runOne) is guarded at its own call site in mcp_server.handleProbeService.
     const rb = excludeMismatchedCloudPlugins([plugin], host);
     if (rb.skipped.length) {
       const need = plugin.cloudProvider;
@@ -825,6 +826,21 @@ export class PluginManager {
     // creds in the env), and a `--host gcp` scan must not run an explicitly-listed
     // AWS auditor. '--host' is the sole cloud-intent signal — no escape hatch.
     const netScope = excludeMismatchedCloudPlugins(selection, host);
+    // review fold R-5: excluded cloud plugins are removed from `selection` before
+    // dispatch, so without a manifest entry they leave no machine-readable trace
+    // in pm.run()'s result. (The requirements/capability skip classes DO push a
+    // manifest entry; the sentinel-scope skip at :812 does not — a separate
+    // pre-existing gap, not addressed here.) A `skipped` entry surfaces the
+    // exclusion to MCP scan_host responses + pm.run() library consumers (the CLI
+    // does not currently render the manifest). One entry per excluded plugin.
+    const cloudSkipManifest = netScope.skipped.map((p) => ({
+      id: String(p?.id || ''),
+      name: p?.name || 'Plugin',
+      status: 'skipped',
+      reason: `${p?.cloudProvider || 'cloud'} cloud auditor requires --host ${p?.cloudProvider || 'aws|gcp|azure'} ` +
+        `(host '${host}' is ${netScope.sentinel ? `the '${netScope.sentinel}' cloud` : 'a network target'})`,
+      duration_ms: 0,
+    }));
     if (netScope.excludedCloud && netScope.skipped.length) {
       selection = netScope.selected;
       const ids = netScope.skipped.map((p) => p?.id ?? '?').join(', ');
@@ -860,10 +876,13 @@ export class PluginManager {
 
     let results = [];
     let manifest = [];
+    // R-5: surface excluded cloud auditors as skipped manifest entries (before
+    // the dispatched plugins), so the exclusion is machine-visible, not stderr-only.
+    if (cloudSkipManifest.length) manifest.push(...cloudSkipManifest);
     if (orchestrate) {
       const orch = await this._runOrchestrated(host, selection, opts);
       results = orch.results;
-      manifest = orch.manifest;
+      manifest = manifest.concat(orch.manifest);
     } else {
       // Legacy path: simple run across ports for each plugin (except concluder)
       const toRun = selection.filter((p) => !isConcluder(p));

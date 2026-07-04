@@ -31,6 +31,10 @@ export async function recordScan(outputDir, summary) {
     openPorts: Array.isArray(summary.openPorts) ? summary.openPorts : [],
     os: summary.os ?? null,
     findingsCount: summary.findingsCount ?? 0,
+    // review re-fold R-1: persist the cloud/service split so a cloud (--host aws)
+    // scan's findings are machine-visible in history (findingsCount already
+    // includes them; this surfaces how many came from cloud auditors).
+    cloudFindingsCount: summary.cloudFindingsCount ?? 0,
     services: Array.isArray(summary.services) ? summary.services.map((s) => ({
       port: s.port ?? null,
       protocol: s.protocol ?? 'tcp',

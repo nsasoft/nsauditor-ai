@@ -4,8 +4,14 @@
 // (`aws`/`gcp`/`azure`) and the plugin selection is the IMPLICIT `all`, run only
 // the plugins tagged with that provider (`plugin.cloudProvider`), skipping the
 // other clouds + the non-cloud network plugins (which would otherwise probe the
-// literal string "aws" and emit unreachable-host noise). Explicit plugin
-// selections are always honored as-is.
+// literal string "aws" and emit unreachable-host noise).
+//
+// scopeSelectionForHost honors an EXPLICIT plugin selection as-is (it only scopes
+// the implicit `all`). The CLOUD-INTENT contract itself, however, is NOT waivable
+// by explicit selection: excludeMismatchedCloudPlugins (BUG2b) strips any cloud
+// auditor whose cloudProvider does not match the host's sentinel — including an
+// explicitly-listed foreign-cloud plugin and every cloud plugin on a network host.
+// '--host' is the sole cloud-scan trigger; credentials/selection are not intent.
 
 export const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
 

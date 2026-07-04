@@ -23,6 +23,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { buildRegionIntent } from './utils/region_intent.mjs';
+import { excludeMismatchedCloudPlugins, isCloudSentinelHost } from './utils/sentinel_scope.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
@@ -343,6 +344,13 @@ export async function validateHost(host) {
     throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
   }
 
+  // Cloud-sentinel hosts (aws/gcp/azure) are scoping tokens, NOT DNS names — they
+  // route to the cloud-scanner plugins (probe_service enforces the cloud-intent
+  // gate downstream; the CLI whitelists them the same way in scanSingleHost).
+  // Skip the SSRF DNS resolution for them so the sentinel path is reachable
+  // (otherwise dns.lookup('aws') ENOTFOUND is misread as a blocked address).
+  if (isCloudSentinelHost(h)) return h;
+
   // DNS resolution check — catches rebinding, decimal/octal IPs, IPv6-mapped addrs.
   // NSA_ALLOW_ALL_HOSTS=1 bypasses RFC 1918 checks for local network auditing.
   if (!process.env.NSA_ALLOW_ALL_HOSTS) {
@@ -564,7 +572,23 @@ export async function handleProbeService(args) {
     throw new Error(`Unknown plugin: ${args.pluginName}`);
   }
 
-  const result = await pm._runOne(plugin, host, args.port);
+  // M-1 (BUG2b): probe_service is the LIVE MCP single-plugin route (dispatches
+  // via _runOne). It must honor the same cloud-intent contract as run()/runByName
+  // — a cloud auditor runs IFF the host is ITS sentinel; a network host (or the
+  // wrong cloud) must NEVER trigger it, even with cloud creds in the env.
+  const gate = excludeMismatchedCloudPlugins([plugin], host);
+  if (gate.skipped.length) {
+    const need = plugin.cloudProvider;
+    throw new Error(
+      `Plugin ${plugin.id} (${plugin.name}) is a ${need} cloud auditor — it does not run against ` +
+      `${gate.sentinel ? `the '${gate.sentinel}' cloud` : `network host '${host}'`}. ` +
+      `For a cloud audit use the scan_cloud tool (providers: ["${need}"]), or call probe_service ` +
+      `with host: "${need}". Cloud auditors run only on their own cloud; credentials in the ` +
+      `environment are a capability, not an intent signal.`,
+    );
+  }
+  const hostKind = isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network';
+  const result = await pm._runOne(plugin, host, args.port, { hostKind });
   return result;
 }
 

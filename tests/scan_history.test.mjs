@@ -65,6 +65,22 @@ test('recordScan writes valid JSONL', async () => {
   }
 });
 
+test('recordScan persists cloudFindingsCount (review re-fold R-1 — not dropped by the whitelist)', async () => {
+  const dir = await makeTmpDir();
+  try {
+    await recordScan(dir, makeSummary({ findingsCount: 201, cloudFindingsCount: 201 }));
+    const parsed = JSON.parse((await fsp.readFile(path.join(dir, 'scan_history.jsonl'), 'utf8')).trim());
+    assert.equal(parsed.findingsCount, 201);
+    assert.equal(parsed.cloudFindingsCount, 201, 'the cloud/service split must reach the JSONL, not be silently dropped');
+    // a scan with no cloud findings defaults to 0 (never undefined)
+    await recordScan(dir, makeSummary({ timestamp: '2025-02-02T00:00:00Z' }));
+    const all = (await fsp.readFile(path.join(dir, 'scan_history.jsonl'), 'utf8')).trim().split('\n');
+    assert.equal(JSON.parse(all[1]).cloudFindingsCount, 0);
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('recordScan appends multiple entries', async () => {
   const dir = await makeTmpDir();
   try {

@@ -53,7 +53,9 @@ export function aiBailMessage({ sendEnabled, key, aiProvider, model }) {
  */
 export function computeAiTimeoutMs({ payloadBytes = 0, host = '', envOverride } = {}) {
   const explicit = Number(envOverride);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit; // operator override wins
+  // optional fold: an explicit override wins, truncated to an integer ms (a
+  // fractional value would otherwise be passed verbatim to setTimeout/the SDK).
+  if (Number.isFinite(explicit) && explicit > 0) return Math.trunc(explicit);
   const FLOOR_MS = 120_000; // 2 min — unchanged for small network-host payloads
   const CEIL_MS = 600_000;  // 10 min hard cap
   const MS_PER_KB = 15_000;
@@ -72,11 +74,16 @@ export function computeAiTimeoutMs({ payloadBytes = 0, host = '', envOverride } 
  * @returns {string} the scan_response_ai.txt body for the failure case.
  */
 export function aiFailureStubText({ host, model, providerLabel, errorMessage, timeoutMs, whenIso }) {
-  // review fold 9: match ONLY the local AbortController abort (the case
-  // NSA_AI_TIMEOUT_MS actually fixes) — NOT a network "Connect Timeout Error"
-  // (undici TCP-connect failure) or a socket ETIMEDOUT, for which raising the
-  // local timeout is the wrong remedy.
-  const aborted = /\babort/i.test(String(errorMessage || ''));
+  // review fold 9 + R-3: match the local AbortController abort ("Request was
+  // aborted.") AND the SDK request-timeout ("Request timed out." — the
+  // APIConnectionTimeoutError the SDK `timeout` option raises, racing the
+  // AbortController per fold-10) — both cases NSA_AI_TIMEOUT_MS addresses. We do
+  // NOT match the raw undici "Connect Timeout Error" / socket ETIMEDOUT strings
+  // (raising the local timeout is the wrong remedy for a TCP-connect failure).
+  // Caveat: the Anthropic SDK reclassifies a connect-timeout as "Request timed
+  // out." — so on the Claude path a connect failure may still surface the remedy;
+  // that is acceptable (a wrapped SDK timeout is plausibly the local window).
+  const aborted = /\babort|request timed out/i.test(String(errorMessage || ''));
   const lines = [
     `Model: ${model}`,
     `Provider: ${providerLabel}`,

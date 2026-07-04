@@ -357,7 +357,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   // flat 120s default and aborted); an explicit NSA_AI_TIMEOUT_MS still wins.
   // Hoisted above the try so the catch's fail-visible stub can name the timeout.
   const AI_TIMEOUT_MS = computeAiTimeoutMs({
-    payloadBytes: userContent.length,
+    payloadBytes: Buffer.byteLength(userContent, 'utf8'), // optional fold: UTF-8 bytes, not UTF-16 units
     host,
     envOverride: process.env.NSA_AI_TIMEOUT_MS,
   });
@@ -373,7 +373,9 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
       if (aiProvider === 'claude') {
         // --- Claude (Anthropic) ---
         const { default: Anthropic } = await import('@anthropic-ai/sdk');
-        const client = new Anthropic({ apiKey: key });
+        // R-3: maxRetries:0 so the outer AbortController/timeout can't race the
+        // SDK's own internal retry loop (which would multiply the wall-clock).
+        const client = new Anthropic({ apiKey: key, maxRetries: 0 });
 
         resp = await client.messages.create({
           model,
@@ -396,7 +398,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
         // --- Ollama (OpenAI-compatible API) ---
         const { default: OpenAI } = await import('openai');
         const ollamaBase = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
-        const client = new OpenAI({ baseURL: ollamaBase, apiKey: key });
+        const client = new OpenAI({ baseURL: ollamaBase, apiKey: key, maxRetries: 0 }); // R-3
 
         resp = await client.chat.completions.create({
           model,
@@ -412,7 +414,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
       } else {
         // --- OpenAI ---
         const { default: OpenAI } = await import('openai');
-        const client = new OpenAI({ apiKey: key });
+        const client = new OpenAI({ apiKey: key, maxRetries: 0 }); // R-3
 
         if (client.responses?.create) {
           resp = await client.responses.create({
@@ -764,7 +766,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   try {
     const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
     const services = conclusion?.result?.services ?? [];
-    const findingsCount = services.reduce((n, svc) => {
+    const serviceFindingsCount = services.reduce((n, svc) => {
       if (svc.anonymousLogin === true) n++;
       if (svc.axfrAllowed === true) n++;
       if (Array.isArray(svc.weakAlgorithms)) n += svc.weakAlgorithms.length;
@@ -773,6 +775,15 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       if (Array.isArray(cves)) n += cves.length;
       return n;
     }, 0);
+    // review fold R-1: cloud plugins emit findings on `results[].result.findings`,
+    // NOT as service-level attrs — so a cloud (--host aws) scan recorded
+    // findingsCount:0 in scan_history over a 201-finding scan (a false-clean
+    // history channel). Roll cloud findings into findingsCount + surface the split.
+    const cloudFindingsCount = (results || []).reduce((n, r) => {
+      const f = r?.result?.findings;
+      return n + (Array.isArray(f) ? f.length : 0);
+    }, 0);
+    const findingsCount = serviceFindingsCount + cloudFindingsCount;
 
     const scanSummary = {
       timestamp: new Date().toISOString(),
@@ -781,6 +792,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       openPorts: services.filter((s) => s.status === 'open').map((s) => s.port),
       os: conclusion?.result?.host?.os ?? null,
       findingsCount,
+      cloudFindingsCount,
       services: services.map((s) => ({
         port: s.port, protocol: s.protocol ?? 'tcp',
         service: s.service ?? null, version: s.version ?? null,
@@ -982,6 +994,13 @@ Cloud-scan hosts:
                                  single cloud and is therefore skipped under this
                                  auto-scope; to run it, select it explicitly
                                  (--plugins 023,...) or scan a network host/CIDR.
+                                 INVERSE (cloud scope integrity): a cloud auditor runs
+                                 ONLY on its own sentinel host. On a NETWORK host (IP /
+                                 CIDR / hostname) the cloud-scanner plugins NEVER run —
+                                 not via --plugins all, not via an explicit --plugins
+                                 1020, and not because cloud credentials are present in
+                                 the environment. '--host' is the sole cloud-scan
+                                 trigger; credentials are a capability, not intent.
 
 Examples:
   nsauditor-ai scan --host 10.0.0.1 --plugins all
