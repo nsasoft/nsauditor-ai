@@ -96,6 +96,23 @@ test('hosts[] sentinels + CLOUD_PROVIDER from an --env file that covers all legs
   assert.equal(r.set.CLOUD_PROVIDER, 'aws,gcp,azure'); // file value present + covers legs → untouched
 });
 
+// ── host-source precedence: hosts[] (the dispatched --host-file) wins over the
+//    --host string, mirroring the CLI's host-file-XOR-host dispatch. Reconciling
+//    BOTH would over-widen CLOUD_PROVIDER and could false-throw on a leg that is
+//    never actually dispatched (2026-07-05 review LOW: both-widen precedence). ──
+
+test('hosts[] takes precedence over the --host string (no union of both sources)', () => {
+  const r = resolveScanEnv({ host: 'aws', hosts: ['gcp', 'azure'], env: {}, ...NOFS });
+  assert.equal(r.set.CLOUD_PROVIDER, 'gcp,azure'); // the dispatched host-file legs, NOT 'aws,gcp,azure'
+});
+
+test('host-file legs covered by CLOUD_PROVIDER do NOT throw on an un-dispatched --host leg', () => {
+  // --host aws + --host-file <gcp file> + stale CLOUD_PROVIDER=gcp: the scan dispatches
+  // the gcp file (gcp covers it), so the never-dispatched 'aws' leg must not fail-fast.
+  const r = resolveScanEnv({ host: 'aws', hosts: ['gcp'], env: { CLOUD_PROVIDER: 'gcp' }, ...NOFS });
+  assert.equal(r.set.CLOUD_PROVIDER, undefined); // gcp already covers the gcp file → untouched, no throw
+});
+
 // ── single-sentinel regressions (existing behavior must be byte-identical) ──
 
 test('single sentinel host still implies its provider when unset (regression)', () => {

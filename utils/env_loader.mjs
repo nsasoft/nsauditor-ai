@@ -49,14 +49,18 @@ function providerMatchesHost(effective, hostProvider) {
 }
 
 // The distinct cloud-sentinel legs implied by the scan target, in first-appearance
-// order, lowercased + deduped. Accepts a `--host` string (single 'aws' or a CSV
-// 'aws,gcp,azure') AND/OR a pre-resolved `hosts` array (the --host-file path);
-// non-sentinel tokens (IPs / CIDRs / hostnames) are ignored. Returns [] when the
-// target has no cloud leg (a pure network scan needs no CLOUD_PROVIDER).
+// order, lowercased + deduped. Mirrors the CLI's host-file-XOR-host dispatch
+// precedence: a pre-resolved `hosts` array (the --host-file path) is the
+// authoritative source when present; otherwise the `--host` string (single 'aws'
+// or a CSV 'aws,gcp,azure') is used. The two are NEVER unioned — the scan
+// dispatches exactly one source, so reconciling both would over-widen
+// CLOUD_PROVIDER and could false-throw on a leg that is never dispatched.
+// Non-sentinel tokens (IPs / CIDRs / hostnames) are ignored; [] means no cloud
+// leg (a pure network scan needs no CLOUD_PROVIDER).
 function sentinelLegs(host, hosts) {
-  const tokens = [];
-  if (typeof host === 'string') tokens.push(...host.split(','));
-  if (Array.isArray(hosts)) tokens.push(...hosts);
+  const tokens = Array.isArray(hosts)
+    ? hosts.slice()
+    : (typeof host === 'string' ? host.split(',') : []);
   const legs = [];
   for (const raw of tokens) {
     const t = String(raw).trim().toLowerCase();

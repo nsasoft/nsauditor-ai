@@ -991,6 +991,10 @@ export class PluginManager {
         // ({ up:false, skipped:true, ... }) → 'skipped' (not 'ran') iff nothing ran
         // and there was no timeout/error, so a self-skipped cloud is not counted as
         // audited (auditedProviders derives from status==='ran' at :1034).
+        // NB: the `!sawRealRun` term is defensive-only on this path — cloud plugins
+        // are runStrategy:'single' (one wrappedRun), so a skip+real-run MIX cannot
+        // arise here (unlike the multi-port network path in _runOrchestrated, which
+        // has the mutation-pinned mix test). Kept for uniformity with that classifier.
         let status = 'ran';
         let reason = null;
         let sawRealRun = false;
