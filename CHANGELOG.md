@@ -6,6 +6,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.24 (2026-07-05) — Multi-cloud scope-integrity: `--host aws,gcp,azure` / `--host-file` CLOUD_PROVIDER reconcile (false-clean fix) + manifest skip-status
+
+Closes a **false-clean** in the multi-cloud one-liner: `--host aws,gcp,azure` (and a `--host-file` of cloud sentinels) under a stale or tool-implied `CLOUD_PROVIDER` silently skipped the un-covered cloud legs and reported them **"audited-clean" over zero API calls**. CE-side, matrix-neutral, TDD'd + externally reviewed across two rounds (Mythos 🟢 SHIP-CLEAR on both commits).
+
+- **Move 2.7 — `resolveScanEnv` CSV/host-file reconcile (`utils/env_loader.mjs`):** the reconcile previously fired only for a SINGLE sentinel host, so the CSV multi-host form never matched. It now derives the distinct cloud legs from a `--host` string (single **or** CSV) **and** a `--host-file` resolved host list, and either **fail-fasts** (an operator-pinned `CLOUD_PROVIDER` that misses any leg → a hard error, not a silent skip) or **implies the union** of the legs. Throw-vs-imply keys on operator-pinned (captured *before* the `--aws-profile` implication), so the reasonable `--aws-profile prod --host aws,gcp,azure` flow union-merges instead of wrongly throwing. All three panel-found reachability paths closed (stale `.env`, `--aws-profile` self-poison, `--host-file` with `host=undefined`). `sentinelLegs` gives the `--host-file` source precedence over `--host` (mirrors the CLI's host-file-XOR-host dispatch — no over-widening, no false-positive throw). Help text corrected to match.
+- **Move 2.8 (cheap half) — manifest skip-status (`plugin_manager.mjs`):** both classifiers now map a gate-skip envelope `{up:false, skipped:true, …}` to status `'skipped'` (only when nothing ran + no timeout/error — timeout/error still win, a skip+real-run mix stays `'ran'`), so a self-skipped cloud drops out of `auditedProviders` → the pre-existing anti-false-clean note surfaces `audited:false` instead of a bare "audited, 0 findings".
+- TDD throughout (RED→GREEN, mutation-proven guards + an argv-level `--host-file` end-to-end test); regression **1198 / 1197 pass / 1** pre-existing license-env baseline; no framework/plugin change. Paired **EE 0.31.10** (the in-tree GCP scope-integrity gate for 1024/1025 + T4 positive-substrate) + agent-skill 0.2.22 (peer `>=0.2.8` unchanged). Deferred residuals (`--host <path>` implicit host-file, the strict-gate skip envelope across 5 plugins, the up-front-parse TOCTOU) tracked for the next cycle.
+
+---
+
 ## 0.2.23 (2026-07-03) — Operator bug-fix cycle: network-host cloud-scope integrity (BUG2b) + AI-conclusion robustness (BUG1) + bail-message (BUG2a)
 
 A **real Community-Edition fix cycle** (not a paired no-op) addressing three operator-reported bugs from a live test against the test-infra + a router host (`tasks/BUG_REPORT.md` in the paired EE repo). Each fix was TDD'd and externally reviewed across multiple rounds (Mythos: CHANGES REQUESTED → fold → 🟢 PASS) with fable-5 adversarial-review workflows.
