@@ -912,7 +912,8 @@ Usage:
 
 Scan options:
   --host, --ip, --target <h>   Target host, IP, or CIDR
-  --host-file <path>           File with one host per line
+  --host-file <path>           File with one host per line (cloud sentinels in the
+                               file reconcile CLOUD_PROVIDER the same as --host)
   --env <path>                 Load a dotenv (KEY=value) file for this scan (per-account
                                credentials). Override-on; missing file = hard error.
   --aws-profile <name>         Use a named profile from the OS-default ~/.aws/credentials.
@@ -984,7 +985,11 @@ Cloud-scan hosts:
                                  characters — your shell treats | as a pipe. Sentinels are
                                  not DNS-resolved; they route the scan to the matching
                                  cloud-scanner plugins via the provider's control-plane
-                                 API, and imply CLOUD_PROVIDER=<host> when unset. With
+                                 API, and imply CLOUD_PROVIDER to the cloud leg(s) when
+                                 unset ('aws,gcp,azure' → CLOUD_PROVIDER=aws,gcp,azure).
+                                 A CLOUD_PROVIDER already pinned to a cloud that does NOT
+                                 cover every requested leg is a hard error (fail-fast),
+                                 not a silent skip of the uncovered legs. With
                                  --plugins all the scan AUTO-SCOPES to only that cloud's
                                  plugins (plugins not applicable to this host are skipped +
                                  logged — other-cloud plugins run on their OWN --host pass,
@@ -1028,6 +1033,16 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     console.error('Error: --aws-profile requires a profile name (e.g. --aws-profile prod)');
     process.exit(2);
   }
+  // Resolve the scan host list up-front (scan command only) so the CLOUD_PROVIDER
+  // reconcile below (resolveScanEnv) sees --host-file cloud-sentinel legs too. With
+  // --host-file the `host` arg is undefined, so without this a host-file of cloud
+  // sentinels would bypass the fail-fast/imply reconcile entirely. Reused as the
+  // scan target below (no double-parse); a parse failure is left to the scan-time
+  // resolution so the existing error path + exit code are unchanged.
+  let resolvedHosts = null;
+  if (cmd === 'scan' && hostFile) {
+    try { resolvedHosts = await parseHostFile(hostFile); } catch { /* defer to scan-time resolution */ }
+  }
   try {
     const { resolveScanEnv } = await import('./utils/env_loader.mjs');
     const fsm = await import('node:fs');
@@ -1035,6 +1050,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       envPath: typeof args.env === 'string' ? args.env : undefined,
       awsProfile: typeof args.awsProfile === 'string' ? args.awsProfile : undefined,
       host,
+      hosts: resolvedHosts ?? undefined,
       env: process.env,
       fileExists: (p) => fsm.existsSync(p),
       readFile: (p) => fsm.readFileSync(p, 'utf8'),
@@ -1912,7 +1928,10 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // Resolve host list
   let hosts;
   if (hostFile) {
-    hosts = await parseHostFile(hostFile);
+    // Reuse the up-front resolution done for the CLOUD_PROVIDER reconcile (avoids a
+    // second parse + duplicate suspicious-line warnings); re-parse only if that was
+    // skipped/failed so a genuine host-file error still surfaces here as before.
+    hosts = resolvedHosts ?? await parseHostFile(hostFile);
   } else if (host) {
     hosts = await parseHostArg(host);
   } else {

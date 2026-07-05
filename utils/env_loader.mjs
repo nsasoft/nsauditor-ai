@@ -48,17 +48,39 @@ function providerMatchesHost(effective, hostProvider) {
   return tokens.includes(hostProvider);
 }
 
+// The distinct cloud-sentinel legs implied by the scan target, in first-appearance
+// order, lowercased + deduped. Accepts a `--host` string (single 'aws' or a CSV
+// 'aws,gcp,azure') AND/OR a pre-resolved `hosts` array (the --host-file path);
+// non-sentinel tokens (IPs / CIDRs / hostnames) are ignored. Returns [] when the
+// target has no cloud leg (a pure network scan needs no CLOUD_PROVIDER).
+function sentinelLegs(host, hosts) {
+  const tokens = [];
+  if (typeof host === 'string') tokens.push(...host.split(','));
+  if (Array.isArray(hosts)) tokens.push(...hosts);
+  const legs = [];
+  for (const raw of tokens) {
+    const t = String(raw).trim().toLowerCase();
+    if (CLOUD_SENTINELS.has(t) && !legs.includes(t)) legs.push(t);
+  }
+  return legs;
+}
+
 /**
  * @param {object} args
  * @param {string} [args.envPath]     value of --env
  * @param {string} [args.awsProfile]  value of --aws-profile
- * @param {string} [args.host]        --host value (for sentinel CLOUD_PROVIDER implication)
+ * @param {string} [args.host]        --host value: a single sentinel ('aws'), a
+ *                                    CSV of sentinels ('aws,gcp,azure'), or a
+ *                                    network host — for CLOUD_PROVIDER implication
+ * @param {string[]} [args.hosts]     pre-resolved host list (the --host-file path,
+ *                                    where `host` is undefined); reconciled the
+ *                                    same way as a CSV `host`
  * @param {object} args.env           snapshot of current process.env (read-only)
  * @param {(p:string)=>boolean} args.fileExists
  * @param {(p:string)=>string}  args.readFile
  * @returns {{set: Record<string,string>, unset: string[]}}
  */
-export function resolveScanEnv({ envPath, awsProfile, host, env = {}, fileExists, readFile }) {
+export function resolveScanEnv({ envPath, awsProfile, host, hosts, env = {}, fileExists, readFile }) {
   const set = {};
   const unset = [];
 
@@ -79,6 +101,16 @@ export function resolveScanEnv({ envPath, awsProfile, host, env = {}, fileExists
     Object.assign(set, dotenv.parse(content));
   }
 
+  // Capture whether the OPERATOR (not the tool) pinned CLOUD_PROVIDER — from the
+  // --env file (step 1) or the shell env — BEFORE the --aws-profile implication
+  // in step 2. This is what decides throw-vs-imply for sentinel legs (step 3):
+  //  • operator-pinned provider that misses a host leg → conflict → fail-fast;
+  //  • unpinned (or only tool/profile-implied) → imply the UNION of the legs.
+  // Without this snapshot, --aws-profile's implied bare 'aws' (step 2) would look
+  // like an operator pin and wrongly THROW on a `--host aws,gcp,azure` run.
+  const operatorPinned = providerAlreadySet(set, env);
+  const operatorProvider = operatorPinned ? effectiveProvider(set, env) : '';
+
   // 2. --aws-profile: AWS_PROFILE wins; clear explicit keys; load ~/.aws/config; imply aws.
   if (typeof awsProfile === 'string' && awsProfile.length) {
     set.AWS_PROFILE = awsProfile;
@@ -90,23 +122,34 @@ export function resolveScanEnv({ envPath, awsProfile, host, env = {}, fileExists
     if (!providerAlreadySet(set, env)) set.CLOUD_PROVIDER = 'aws';
   }
 
-  // 3. Sentinel host implies its provider when CLOUD_PROVIDER is still unset.
-  //    Fail-fast on a host vs CLOUD_PROVIDER contradiction: if the effective
-  //    provider (--env file + shell env) is set to a cloud that does NOT match
-  //    the host, scoping would select host-plugins that then all self-skip on
-  //    the awsScanSkipReason gate → ZERO plugins run → a silent "clean" report.
-  if (typeof host === 'string' && CLOUD_SENTINELS.has(host.trim().toLowerCase())) {
-    const hostProvider = host.trim().toLowerCase();
-    const effective = effectiveProvider(set, env);
-    if (effective && !providerMatchesHost(effective, hostProvider)) {
-      throw new Error(
-        `--host '${hostProvider}' conflicts with CLOUD_PROVIDER='${effective}': the host and the ` +
-        `effective cloud provider do not match, which would silently skip every plugin (an empty ` +
-        `"clean" report). Resolve by dropping the conflicting CLOUD_PROVIDER, or scan the matching host ` +
-        `(--host ${effective.split(',')[0].trim()}).`,
-      );
+  // 3. Sentinel host leg(s) imply their provider(s) when the operator hasn't
+  //    pinned CLOUD_PROVIDER; fail-fast when a pinned provider does NOT cover
+  //    every leg. Handles a single sentinel ('aws'), a CSV ('aws,gcp,azure'),
+  //    AND a --host-file resolved list (`hosts`) uniformly — each is a set of
+  //    legs. A leg that the effective provider does not cover would silently
+  //    self-skip on the awsScanSkipReason/gcpScanSkipReason gate → ZERO plugins
+  //    run on that leg → a silent "clean" report for a whole cloud.
+  const legs = sentinelLegs(host, hosts);
+  if (legs.length) {
+    if (operatorPinned) {
+      const uncovered = legs.filter((leg) => !providerMatchesHost(operatorProvider, leg));
+      if (uncovered.length) {
+        throw new Error(
+          `--host '${legs.join(',')}' conflicts with CLOUD_PROVIDER='${operatorProvider}': the host ` +
+          `leg(s) [${uncovered.join(', ')}] are not covered by the effective cloud provider, so every ` +
+          `plugin on ${uncovered.length > 1 ? 'those legs' : 'that leg'} would silently self-skip (an ` +
+          `empty "clean" report). Resolve by dropping the conflicting CLOUD_PROVIDER, or set ` +
+          `CLOUD_PROVIDER to include ${uncovered.join(',')} (e.g. CLOUD_PROVIDER=${legs.join(',')}).`,
+        );
+      }
+      // pinned provider covers every leg → leave the operator's value untouched
+    } else {
+      // Unpinned (or only tool/profile-implied): imply the UNION of the legs so
+      // each cloud leg runs. This overrides a bare 'aws' that step 2's
+      // --aws-profile implication may have written — 'aws' ⊆ the union, and the
+      // aws leg still resolves the profile via AWS_PROFILE.
+      set.CLOUD_PROVIDER = legs.join(',');
     }
-    if (!providerAlreadySet(set, env)) set.CLOUD_PROVIDER = hostProvider;
   }
 
   return { set, unset };

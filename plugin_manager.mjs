@@ -728,9 +728,15 @@ export class PluginManager {
       const wrappedRuns = await callPlugin(mod, host, ctx, outputs, opts);
       const duration_ms = Date.now() - startMs;
 
-      // Determine manifest status from the plugin results
+      // Determine manifest status from the plugin results. A gate-skip envelope
+      // ({ up:false, skipped:true, ... }) carries neither `timedOut` nor `error`,
+      // so classify it as 'skipped' (not 'ran') iff nothing actually ran and there
+      // was no timeout/error — otherwise a self-skipped plugin would be miscounted
+      // as audited. Timeout/error still win over a skip; a skip+real-run mix is 'ran'.
       let status = 'ran';
       let reason = null;
+      let sawRealRun = false;
+      let skipReason = null;
       for (const wrapped of wrappedRuns) {
         if (wrapped.result?.timedOut) {
           status = 'timeout';
@@ -738,7 +744,15 @@ export class PluginManager {
         } else if (wrapped.result?.error && status !== 'timeout') {
           status = 'error';
           reason = wrapped.result.error;
+        } else if (wrapped.result?.skipped === true) {
+          skipReason = wrapped.result.reason || wrapped.result.skipReason || 'skipped by plugin gate';
+        } else {
+          sawRealRun = true;
         }
+      }
+      if (status === 'ran' && skipReason != null && !sawRealRun) {
+        status = 'skipped';
+        reason = skipReason;
       }
 
       manifest.push({
@@ -973,12 +987,21 @@ export class PluginManager {
         const cloudHostKind = mod.cloudProvider ? `cloud:${mod.cloudProvider}` : opts.hostKind;
         const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs, hostKind: cloudHostKind });
         const duration_ms = Date.now() - startMs;
+        // Same classifier as _runOrchestrated: a gate-skip envelope
+        // ({ up:false, skipped:true, ... }) → 'skipped' (not 'ran') iff nothing ran
+        // and there was no timeout/error, so a self-skipped cloud is not counted as
+        // audited (auditedProviders derives from status==='ran' at :1034).
         let status = 'ran';
         let reason = null;
+        let sawRealRun = false;
+        let skipReason = null;
         for (const w of wrappedRuns) {
           if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${timeoutMs}ms`; }
           else if (w.result?.error && status !== 'timeout') { status = 'error'; reason = w.result.error; }
+          else if (w.result?.skipped === true) { skipReason = w.result.reason || w.result.skipReason || 'skipped by plugin gate'; }
+          else { sawRealRun = true; }
         }
+        if (status === 'ran' && skipReason != null && !sawRealRun) { status = 'skipped'; reason = skipReason; }
         return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status, reason, duration_ms }, outputs: wrappedRuns };
       } catch (err) {
         return { manifest: { id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'error', reason: String(err?.message || err), duration_ms: 0 }, outputs: [] };
