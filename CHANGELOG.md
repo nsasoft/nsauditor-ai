@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.25 (2026-07-07) — Paired content bump for EE 0.32.0 (Enterprise GRC push activation — Vanta + Drata)
+
+Paired content bump — **no CE engine/CLI/MCP change this cycle**. The README "What's New" is trimmed to a concise headline + CHANGELOG pointer, and a new **GRC Connectors (Vanta & Drata)** section documents the Enterprise scan-time GRC push (opt-in via `COMPLIANCE_GRC_PROVIDER`, ZDE-redaction-gated, per-platform status + honest-status callout). **EE 0.32.0** ships the headline: the Vanta push connector is now wired for scan-time activation and a new Drata connector (Custom Connections) ships alongside it, plus the T1/T2 AWS positive-substrate curation (60 PASS-tier findings; display-only, non-flipping, count-neutral). Live validation against production Vanta/Drata tenants is in progress — early-access, single-workspace, not a multi-tenant sync. **No new plugins (still 28), all seven coverage matrices UNCHANGED.** Paired **EE 0.32.0** + **agent-skill 0.2.23** (peer `nsauditor-ai >=0.2.8` unchanged).
+
 ## 0.2.24 (2026-07-05) — Multi-cloud scope-integrity: `--host aws,gcp,azure` / `--host-file` CLOUD_PROVIDER reconcile (false-clean fix) + manifest skip-status
 
 Closes a **false-clean** in the multi-cloud one-liner: `--host aws,gcp,azure` (and a `--host-file` of cloud sentinels) under a stale or tool-implied `CLOUD_PROVIDER` silently skipped the un-covered cloud legs and reported them **"audited-clean" over zero API calls**. CE-side, matrix-neutral, TDD'd + externally reviewed across two rounds (Mythos 🟢 SHIP-CLEAR on both commits).
