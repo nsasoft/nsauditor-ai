@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.26 (2026-07-09) — Paired content bump for EE 0.32.1 (compliance report-quality hygiene + deeper positive-substrate curation + GRC-connector DRY refactor)
+
+Paired version bump for the EE 0.32.1 trio — no CE code change this cycle. EE 0.32.1 is a matrix-neutral patch: it cleans internal engineering markers (`[[wiki-links]]`, `EE-RT` work-codes, reviewer-codes, `Rn-SEVERITY` review-round IDs) out of the "Why this violates" rationales that render into every Report on Compliance across all seven frameworks (~900 rationales), fixes a KMS-parse-failure rationale that leaked a reviewer-code + a foreign-framework token into all seven reports, opts more Azure + deeper-AWS PASS-tier findings into the display-only positive-substrate RoC view, and collapses the Vanta + Drata push loops into a shared `_runPushBatch`. No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED. Paired **EE 0.32.1** + **agent-skill 0.2.24**.
+
+---
+
 ## 0.2.25 (2026-07-07) — Paired content bump for EE 0.32.0 (Enterprise GRC push activation — Vanta + Drata)
 
 Paired content bump — **no CE engine/CLI/MCP change this cycle**. The README "What's New" is trimmed to a concise headline + CHANGELOG pointer, and a new **GRC Connectors (Vanta & Drata)** section documents the Enterprise scan-time GRC push (opt-in via `COMPLIANCE_GRC_PROVIDER`, ZDE-redaction-gated, per-platform status + honest-status callout). **EE 0.32.0** ships the headline: the Vanta push connector is now wired for scan-time activation and a new Drata connector (Custom Connections) ships alongside it, plus the T1/T2 AWS positive-substrate curation (60 PASS-tier findings; display-only, non-flipping, count-neutral). Live validation against production Vanta/Drata tenants is in progress — early-access, single-workspace, not a multi-tenant sync. **No new plugins (still 28), all seven coverage matrices UNCHANGED.** Paired **EE 0.32.0** + **agent-skill 0.2.23** (peer `nsauditor-ai >=0.2.8` unchanged).

@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Enterprise GRC push activation + AWS positive-substrate evidence uplift.** The Enterprise **Vanta** push connector is now wired for scan-time activation, a **Drata** connector library ships alongside it (Secureframe on the roadmap), and AWS PASS-tier findings now surface as positive substrate evidence in the compliance RoC. See the **[GRC Connectors](#grc-connectors-vanta--drata)** section below, and **[CHANGELOG.md](./CHANGELOG.md)** for the full per-release history.
+**Compliance report-quality hygiene + deeper positive-substrate curation (Enterprise 0.32.1).** The Enterprise compliance reports' "Why this violates" rationales are now clean of internal engineering markers across all seven frameworks, more Azure + AWS PASS-tier findings surface as positive substrate evidence, and the GRC connectors got an internal DRY refactor — matrix-neutral, no new plugins. (The **Vanta** + **Drata** GRC push connectors shipped in 0.32.0; Secureframe on the roadmap — see the **[GRC Connectors](#grc-connectors-vanta--drata)** section below.) See **[CHANGELOG.md](./CHANGELOG.md)** for the full per-release history.
 
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
 
