@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Compliance report-quality hygiene + deeper positive-substrate curation (Enterprise 0.32.1).** The Enterprise compliance reports' "Why this violates" rationales are now clean of internal engineering markers across all seven frameworks, more Azure + AWS PASS-tier findings surface as positive substrate evidence, and the GRC connectors got an internal DRY refactor — matrix-neutral, no new plugins. (The **Vanta** + **Drata** GRC push connectors shipped in 0.32.0; Secureframe on the roadmap — see the **[GRC Connectors](#grc-connectors-vanta--drata)** section below.) See **[CHANGELOG.md](./CHANGELOG.md)** for the full per-release history.
+**GRC connector trio complete (Secureframe) + cross-framework report-quality leak closure (Enterprise 0.32.2).** Enterprise now ships the **Secureframe** GRC push connector — completing the **Vanta · Drata · Secureframe** trio at the same early-access opt-in shape — and closes a **cross-framework leak** in the Enterprise compliance reports' "Why this violates" rationales: an internal `Inherits from soc2.json` note, bare foreign control-ids, and cross-framework routing-maps no longer leak a **foreign** framework's name into a HIPAA / PCI / ISO / NIST / CIS / GDPR Report on Compliance. Matrix-neutral, no new plugins. See the **[GRC Connectors](#grc-connectors-vanta-drata-secureframe)** section below, and **[CHANGELOG.md](./CHANGELOG.md)** for the full per-release history.
 
 → See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
 
@@ -58,7 +58,7 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS C
   - **GDPR Article 32 (Security of Processing)** (Regulation (EU) 2016/679) — **4 covered + 5 partial + 2 OOS across 11 Art. 32 sub-measure units**; **GDPR Article 32 infrastructure substrate only — NOT GDPR compliance** (GDPR is a 99-article legal regime; Art. 32 security-of-processing is the only article an infrastructure scanner can substrate-evidence; the rest is operator-side, out of scope by design). Four-factor proportionality (substrate *for* your "appropriate to the risk" determination, never an absolute pass/fail); personal-data-scope attestation (pair with your Art. 30 records of processing); **Art. 83(4) lower fine tier** (€10M/2%, not the €20M/4% headline tier); Art. 32(3)/Art. 42 cloud-provider certification-inheritance
 - 🔐 **Cryptographically signed evidence** — SHA-256 chain-of-custody + RFC 3161 trusted timestamps + Ed25519 suppression signing. Non-repudiation, not just integrity. Auditors can verify offline.
 - 🏛️ **Zero Data Exfiltration architecture** — your scan data never leaves your infrastructure. Air-gapped deployment supported. AI analysis happens locally (Ollama) or via your own API keys. Important for PCI DSS CDE-isolation threat models.
-- 🔗 **GRC connectors — Vanta + Drata (Enterprise)** — map compliance findings to your GRC platform's evidence/test records and push them at **scan time** (opt-in). Suppression-aware outcome mapping, idempotent retries, rate-limit handling, token redaction, and Zero-Data-Exfiltration egress redaction. Secureframe on the roadmap; live validation against production tenants is in progress. See **[GRC Connectors](#grc-connectors-vanta--drata)** below.
+- 🔗 **GRC connectors — Vanta + Drata + Secureframe (Enterprise)** — map compliance findings to your GRC platform's evidence/test records and push them at **scan time** (opt-in). Suppression-aware outcome mapping (Vanta) / structured records (Drata + Secureframe), idempotent retries, rate-limit handling, token redaction, and Zero-Data-Exfiltration egress redaction. Early-access, single-workspace; live validation against production tenants is in progress. See **[GRC Connectors](#grc-connectors-vanta-drata-secureframe)** below.
 - 🗄️ **WORM evidence storage** — S3 Object Lock COMPLIANCE-mode for SEC Rule 17a-4(f) / FINRA 4511 retention compliance
 - 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
 - 🎯 **11 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 8-of-8 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + GRC connector)
@@ -110,7 +110,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | Recurring-scan attestation (Type II operating-effectiveness) | — | — | ✅ |
 | WORM evidence storage (S3 Object Lock — SEC 17a-4 / FINRA 4511) | — | — | ✅ |
 | **Enterprise — integration + deployment** | | | |
-| GRC connectors — Vanta + Drata push (scan-time, opt-in); Secureframe planned | — | — | ✅ |
+| GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation | — | — | ✅ |
 | Docker per-scan isolation | — | — | ✅ |
 | Air-gapped deployment | — | — | ✅ |
@@ -121,32 +121,32 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 
 ---
 
-## GRC Connectors (Vanta & Drata)
+## GRC Connectors (Vanta, Drata, Secureframe)
 
 *Enterprise feature. Requires `@nsasoft/nsauditor-ai-ee`.*
 
-Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta or Drata workspace reflects the latest cloud posture without a manual export/import round-trip.
+Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta, Drata, or Secureframe workspace reflects the latest cloud posture without a manual export/import round-trip.
 
 **Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, egress is redaction-gated: resource identifiers can be hashed or removed, the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
 
 ```bash
 # Enable the scan-time push (Enterprise)
-COMPLIANCE_GRC_PROVIDER=vanta        # or: drata
+COMPLIANCE_GRC_PROVIDER=vanta        # or: drata | secureframe
 COMPLIANCE_GRC_TOKEN=<your API key>  # never serialized to artifacts
 # Optional:
 # COMPLIANCE_GRC_REDACTION=hash      # off | hash | remove  (egress identifier redaction)
-# COMPLIANCE_GRC_CONTROL_MAP=/path/to/config.json  # provider config: Vanta control→test map, or Drata connection ({connectionId, resourceId, schemaMap})
+# COMPLIANCE_GRC_CONTROL_MAP=/path/to/config.json  # provider config: Vanta control→test map, Drata connection ({connectionId, resourceId, schemaMap}), or Secureframe ({workspaceId, collectionId, schemaMap})
 ```
 
 | Platform | Status | Model |
 |---|---|---|
 | **Vanta** | Connector + scan-time activation shipped | Maps findings to Vanta test results; suppression-aware outcome mapping (pass / fail / passed-with-compensating-control), framework-dimensioned idempotency keys, retry with rate-limit backoff, circuit breaker |
 | **Drata** | Connector library shipped | Pushes structured records via Drata **Custom Connections**; your Drata **Test Builder** rules (Advanced/Enterprise plans) evaluate them — the connector delivers evidence, your rules do the evaluation |
-| **Secureframe** | On the roadmap | — |
+| **Secureframe** | Connector library shipped (early-access) | Pushes structured records to a workspace evidence collection; **your** Secureframe rules evaluate them — the connector carries the control `status` verbatim, it does not compute pass/fail. API shape published-assumed; live-tenant validation deferred (partner intake) |
 
 **Reliability + audit-integrity built in:** idempotent retries (a network-timed-out push won't create duplicate records), per-attempt + total-duration timeout caps, a consecutive-failure circuit breaker, token redaction across every log and error path, and a durable per-control push audit log written next to your scan artifacts.
 
-> **Honest status.** The Vanta and Drata connectors are shipped, opt-in, and covered by an extensive test suite. **Live validation against production Vanta / Drata tenants is in progress** as partner onboarding proceeds — until it completes, treat production use as early-access and validate against your own tenant first. This is a single-workspace, operator-configured connector; it is not a multi-tenant managed sync.
+> **Honest status.** The Vanta, Drata, and Secureframe connectors are shipped, opt-in, and covered by an extensive test suite. **Live validation against production Vanta / Drata / Secureframe tenants is in progress** as partner onboarding proceeds — until it completes, treat production use as early-access and validate against your own tenant first. This is a single-workspace, operator-configured connector; it is not a multi-tenant managed sync. (Secureframe's API shape is published-assumed pending partner intake; its idempotency keys are SENT but vendor-side dedup is unverified.)
 
 ---
 
@@ -306,7 +306,7 @@ Results land in `./out/<host>_<timestamp>/`:
 | — | **GDPR Article 32 Compliance Engine (NEW EE 0.20.0)** | Enterprise | **GDPR Article 32 (Security of Processing)** infrastructure substrate (Regulation (EU) 2016/679) — **4 covered + 5 partial + 2 OOS across 11 Art. 32 sub-measure units** (the 7th framework). **This is GDPR Article 32 infrastructure substrate ONLY — NOT GDPR compliance.** GDPR is a 99-article legal regime; Art. 32 security-of-processing is the only article whose evidence is technical infrastructure state, so the rest of GDPR (lawful basis, consent, DSARs, records of processing, DPIAs, transfers) is operator-side and out of scope by design. **Four-factor proportionality** — Art. 32 measures are "appropriate to the risk" taking into account state-of-the-art / cost / nature-scope-context-purposes / risk; nothing is an absolute pass/fail, the engine produces substrate *for* the operator's determination. **Personal-data-scope attestation** — the scanner reads configuration, not data classification; a finding is an Art. 32 concern only if the resource processes personal data (pair with your Art. 30 records of processing). Controller-vs-processor role applicability + Art. 28 processor agreements. **Art. 83(4) lower fine tier** — Art. 32 infringements cap at €10M or 2% of turnover, NOT the €20M / 4% Art. 83(5) headline tier (which is for the basic principles + data-subject rights). Art. 32(3)/Art. 42 cloud-provider certification-inheritance (ISO 27001 / SOC 2 / C5 / EU Cloud CoC adherence as an element of demonstrable compliance, not a substitute). Use `--compliance gdpr` or any combination for multi-framework reports from a single scan. |
 | — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle, Type II rolling-quarter cadence. |
 | — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope-drift surface (CC8.1). |
-| — | GRC Platform Connector | Enterprise | Vanta + Drata connectors (Secureframe planned) — scan-time push (opt-in), retry/backoff, deterministic idempotency, rate-limit handling, circuit breaker, foreign-token detection, ZDE egress redaction. See [GRC Connectors](#grc-connectors-vanta--drata). |
+| — | GRC Platform Connector | Enterprise | Vanta + Drata + Secureframe connectors — scan-time push (opt-in), retry/backoff, deterministic idempotency, rate-limit handling, circuit breaker, foreign-token detection, ZDE egress redaction. See [GRC Connectors](#grc-connectors-vanta-drata-secureframe). |
 | — | WORM Evidence Storage | Enterprise | S3 Object Lock COMPLIANCE-mode + resource redaction + SHA-256 manifest. SEC 17a-4 / FINRA 4511 retention-compatible. |
 | — | Tabletop Simulation | Enterprise | Probe-event manifest + SIEM detection correlation, configurable coverage bands (Type II / High-Assurance presets). |
 

@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.27 (2026-07-10) — Paired content bump for EE 0.32.2 (GRC connector trio complete — Secureframe + cross-framework report-quality leak closure)
+
+Paired version bump for the EE 0.32.2 trio — no CE code change this cycle. EE 0.32.2 is a **matrix-neutral** release with two legs: (1) a new **Secureframe** GRC push connector completes the Vanta · Drata · Secureframe trio at the same early-access opt-in shape (records model — NSAuditor pushes structured control records to a workspace evidence collection and your Secureframe rules evaluate them; outbound, single-workspace, opt-in; API shape published-assumed, live-tenant validation deferred); and (2) the **cross-framework foreign-token leak** in the Enterprise compliance rationales is closed — an internal `Inherits from soc2.json CC6.1` note, bare foreign control-ids, cross-framework routing-maps, and a `real-engine verified ==` QA-note no longer leak a foreign framework's name into a HIPAA / PCI / ISO / NIST / CIS / GDPR Report on Compliance (~300 rationales across all seven frameworks, pure-deletion + class-level guard, routing byte-neutral). No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED. Paired **EE 0.32.2** + **agent-skill 0.2.25**.
+
+---
+
 ## 0.2.26 (2026-07-09) — Paired content bump for EE 0.32.1 (compliance report-quality hygiene + deeper positive-substrate curation + GRC-connector DRY refactor)
 
 Paired version bump for the EE 0.32.1 trio — no CE code change this cycle. EE 0.32.1 is a matrix-neutral patch: it cleans internal engineering markers (`[[wiki-links]]`, `EE-RT` work-codes, reviewer-codes, `Rn-SEVERITY` review-round IDs) out of the "Why this violates" rationales that render into every Report on Compliance across all seven frameworks (~900 rationales), fixes a KMS-parse-failure rationale that leaked a reviewer-code + a foreign-framework token into all seven reports, opts more Azure + deeper-AWS PASS-tier findings into the display-only positive-substrate RoC view, and collapses the Vanta + Drata push loops into a shared `_runPushBatch`. No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED. Paired **EE 0.32.1** + **agent-skill 0.2.24**.
