@@ -883,6 +883,43 @@ function maxSeverityInConclusion(conclusion) {
   return max;
 }
 
+/**
+ * CLI GRC-push startup preflight. Gates on the SAME condition the push itself runs
+ * under — a `scan` that requests a compliance framework — so a framework-less recon
+ * scan or a non-scan command with a globally-set `COMPLIANCE_GRC_PROVIDER` is NEVER
+ * hard-failed at startup (the push is gated by `runCompliancePhase` returning null
+ * with no frameworks — `nsauditor-ai-ee/utils/compliance_phase.mjs`). When a push IS
+ * configured, validate the config now via EE's `preflightGrcConfig` so a bad token /
+ * control-map / provider / redaction mode fails IMMEDIATELY instead of after a full
+ * scan (a real per-org UX gap for an MSP). GRC push is an EE feature, so:
+ *   - not a scan / no framework / GRC not requested → no-op (never imports EE);
+ *   - EE unavailable → skip silently (no EE ⇒ no push ⇒ nothing to preflight;
+ *     mirrors the enrichScan EE-optional pattern);
+ *   - EE too old to export the fn → skip;
+ *   - a `GrcConfigError` from preflightGrcConfig PROPAGATES so main() can
+ *     fail-fast (exit 1) with the module's token-free message.
+ * @param {object} env - process.env (or a test env)
+ * @param {object} [opts] - { cmd, frameworks, importEE(test seam) }
+ * @returns {Promise<{ran:boolean, reason?:string}>}
+ */
+export async function preflightGrcIfRequested(env, opts = {}) {
+  const { cmd, frameworks, importEE } = opts;
+  if (cmd !== 'scan') return { ran: false, reason: 'not-scan' };
+  if (!String(frameworks ?? '').trim()) return { ran: false, reason: 'no-frameworks' };
+  if (!String(env?.COMPLIANCE_GRC_PROVIDER ?? '').trim()) return { ran: false, reason: 'not-requested' };
+  let ee;
+  try {
+    ee = importEE ? await importEE() : await import('@nsasoft/nsauditor-ai-ee');
+  } catch {
+    return { ran: false, reason: 'ee-unavailable' };
+  }
+  if (typeof ee?.preflightGrcConfig !== 'function') return { ran: false, reason: 'ee-too-old' };
+  // Config fail-fast. The zero-map guard runs UNSCOPED (frameworks not threaded) —
+  // safe (no false-fails); a per-framework-empty map still warns+no_ops at push time.
+  await ee.preflightGrcConfig(env);
+  return { ran: true };
+}
+
 export async function main() {
   const args = await parseArgs(process.argv);
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, awsRegion } = args;
@@ -1059,6 +1096,20 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     for (const k of patch.unset) delete process.env[k];
   } catch (err) {
     console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+
+  // GRC-push startup preflight (EE 0.32.x): if this scan would push (a `scan` with a
+  // compliance framework + COMPLIANCE_GRC_PROVIDER set), validate the config NOW (after
+  // --env load) so a bad token / control-map / provider fails fast instead of after a
+  // full scan. The helper gates on the exact push condition (so a framework-less recon
+  // scan / non-scan command is never hard-failed) + silently skips if EE isn't installed.
+  try {
+    await preflightGrcIfRequested(process.env, { cmd, frameworks: args.compliance ?? process.env.COMPLIANCE_FRAMEWORKS });
+  } catch (err) {
+    // GrcConfigError (bad token/map/provider/redaction). The module's message is
+    // token-free by construction; surface it and fail-fast.
+    console.error(`Error: GRC push config invalid — ${err.message}`);
     process.exit(1);
   }
 
