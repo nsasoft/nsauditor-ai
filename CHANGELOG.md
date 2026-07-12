@@ -6,6 +6,14 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.28 (2026-07-12) — GRC-push startup preflight (CE code change) + paired bump for EE 0.32.3 (RDS cluster-level SSL enforcement)
+
+**CE code change this cycle:** the CLI now runs a **GRC-push configuration preflight** at scan startup. When a scan requests a compliance framework and `COMPLIANCE_GRC_PROVIDER` is set, `preflightGrcConfig(process.env)` validates the provider / token / control-map **before** the scan runs, so a misconfiguration fails **fast** with a clear message instead of only surfacing at push time after a full multi-region scan — a real per-org UX fix for MSP/MSSP operators pointing `--env clientX.env` at many client tenants. Framework-less recon scans are unaffected (the preflight is gated to scan + framework + provider). GRC push remains a CLI-only surface (not reachable via the MCP `scan_cloud` tool), by design.
+
+**Paired with EE 0.32.3** — a **matrix-neutral** RDS false-negative depth pass: plugin 1140 now audits **cluster-level SSL enforcement** (closing a cleartext false-negative on instance-less Aurora Serverless v1 clusters, whose cluster parameter group was never checked) and applies **staged-parameter (`ParameterApplyStatus`) discipline** so a set-but-not-yet-applied `rds.force_ssl` / `pgaudit` is no longer affirmed as effective. No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED (the new cluster findings route to existing transit-encryption controls via a titlePattern-only anchor edit). Paired **EE 0.32.3** + **agent-skill 0.2.26**.
+
+---
+
 ## 0.2.27 (2026-07-10) — Paired content bump for EE 0.32.2 (GRC connector trio complete — Secureframe + cross-framework report-quality leak closure)
 
 Paired version bump for the EE 0.32.2 trio — no CE code change this cycle. EE 0.32.2 is a **matrix-neutral** release with two legs: (1) a new **Secureframe** GRC push connector completes the Vanta · Drata · Secureframe trio at the same early-access opt-in shape (records model — NSAuditor pushes structured control records to a workspace evidence collection and your Secureframe rules evaluate them; outbound, single-workspace, opt-in; API shape published-assumed, live-tenant validation deferred); and (2) the **cross-framework foreign-token leak** in the Enterprise compliance rationales is closed — an internal `Inherits from soc2.json CC6.1` note, bare foreign control-ids, cross-framework routing-maps, and a `real-engine verified ==` QA-note no longer leak a foreign framework's name into a HIPAA / PCI / ISO / NIST / CIS / GDPR Report on Compliance (~300 rationales across all seven frameworks, pure-deletion + class-level guard, routing byte-neutral). No new framework, plugin count UNCHANGED at 28, all seven coverage matrices UNCHANGED. Paired **EE 0.32.2** + **agent-skill 0.2.25**.
