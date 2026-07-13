@@ -6,6 +6,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.29 (2026-07-13) — Paired bump for EE 0.32.4 (RDS false-negative depth pass, part 2)
+
+**No CE code change this cycle** — a paired content/version bump for the EE 0.32.4 trio. Enterprise 0.32.4 is a **matrix-neutral** RDS false-negative-and-report-quality depth pass on plugin 1140: **RDS Proxy client↔proxy TLS** (a proxy with `RequireTLS` off accepts cleartext client connections — a transit leg distinct from the DB-engine SSL parameter — now a HIGH finding, fail-closed on false-or-absent), a new **retained / cross-region-replicated automated-backup at-rest surface** (an unencrypted automated backup that survives instance/cluster deletion, invisible to the live-resource and snapshot scans, is now caught), the **Aurora cluster-member double-audit closure** (a provisioned Aurora cluster's members no longer double-report the cluster-scoped SSL / Multi-AZ settings as instance-level false positives), and a **cross-framework report-quality leak closure** (a renderer backstop strips foreign framework control-ids out of the violation prose that renders into every framework report). No new plugins, all seven coverage matrices unchanged. See **[CHANGELOG.md](./CHANGELOG.md)** and the EE package for the full history. Paired **EE 0.32.4** + agent-skill 0.2.27.
+
+---
+
 ## 0.2.28 (2026-07-12) — GRC-push startup preflight (CE code change) + paired bump for EE 0.32.3 (RDS cluster-level SSL enforcement)
 
 **CE code change this cycle:** the CLI now runs a **GRC-push configuration preflight** at scan startup. When a scan requests a compliance framework and `COMPLIANCE_GRC_PROVIDER` is set, `preflightGrcConfig(process.env)` validates the provider / token / control-map **before** the scan runs, so a misconfiguration fails **fast** with a clear message instead of only surfacing at push time after a full multi-region scan — a real per-org UX fix for MSP/MSSP operators pointing `--env clientX.env` at many client tenants. Framework-less recon scans are unaffected (the preflight is gated to scan + framework + provider). GRC push remains a CLI-only surface (not reachable via the MCP `scan_cloud` tool), by design.
