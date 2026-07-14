@@ -983,6 +983,11 @@ License subcommands:
   nsauditor-ai license --plugins        List discovered plugins grouped by source
                                         (CE / EE / custom) with active-or-required-tier
 
+  Bought on AWS Marketplace? Your license key is delivered by registration, not npm:
+  register at https://www.nsauditor.com/ai/marketplace/register/ with your AWS account
+  ID + Agreement ID (agmt-..., from AWS Console -> AWS Marketplace -> Manage subscriptions),
+  then install the emailed key with 'license install <key>' or NSAUDITOR_LICENSE_KEY.
+
 MCP server-auth subcommands (EE-SEC.1):
   nsauditor-ai mcp install-key          Generate a new MCP auth key, persist (Keychain
                                         on macOS, ~/.nsauditor/.env elsewhere), print
@@ -1147,7 +1152,10 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         console.log(`✗ ${tierLabel[result.tier] ?? 'Community Edition (CE)'}`);
         console.log(`  Reason: ${result.reason}`);
         if (!key) {
-          console.log('\n→ View Pro/Enterprise pricing: https://www.nsauditor.com/ai/pricing/');
+          console.log('\n→ Bought on AWS Marketplace? Register to receive your license key:');
+          console.log('    https://www.nsauditor.com/ai/marketplace/register/');
+          console.log('    (you need your AWS account ID + Agreement ID — see the listing Usage Instructions)');
+          console.log('→ View Pro/Enterprise pricing: https://www.nsauditor.com/ai/pricing/');
         }
       }
       // CE 0.1.35 (Thread L mitigation v2): version provenance footer
