@@ -6,6 +6,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.30 (2026-07-18) — Marketplace registration in CLI help; paired with EE 0.32.5 report-quality release
+
+- **AWS Marketplace license registration surfaced in the CLI.** `--help` and `nsauditor-ai license --status` now name the registration step, so a Marketplace buyer can complete fulfilment without leaving the terminal.
+- Paired with **EE 0.32.5** — matrix-neutral report-quality + routing-integrity release: API Gateway mapping repair (routing was never broken; the defect was stale auditor-facing prose), six rationale rewrites, `renderJSON` no longer shipping raw routing regexes, a CI/CD AccessDenied false-negative closed fail-closed, and three mutation-proven compliance-guard hardenings. Plugin count UNCHANGED at 28; all seven coverage matrices UNCHANGED.
+
 ## 0.2.29 (2026-07-13) — Paired bump for EE 0.32.4 (RDS false-negative depth pass, part 2)
 
 **No CE code change this cycle** — a paired content/version bump for the EE 0.32.4 trio. Enterprise 0.32.4 is a **matrix-neutral** RDS false-negative-and-report-quality depth pass on plugin 1140: **RDS Proxy client↔proxy TLS** (a proxy with `RequireTLS` off accepts cleartext client connections — a transit leg distinct from the DB-engine SSL parameter — now a HIGH finding, fail-closed on false-or-absent), a new **retained / cross-region-replicated automated-backup at-rest surface** (an unencrypted automated backup that survives instance/cluster deletion, invisible to the live-resource and snapshot scans, is now caught), the **Aurora cluster-member double-audit closure** (a provisioned Aurora cluster's members no longer double-report the cluster-scoped SSL / Multi-AZ settings as instance-level false positives), and a **cross-framework report-quality leak closure** (a renderer backstop strips foreign framework control-ids out of the violation prose that renders into every framework report). No new plugins, all seven coverage matrices unchanged. See **[CHANGELOG.md](./CHANGELOG.md)** and the EE package for the full history. Paired **EE 0.32.4** + agent-skill 0.2.27.
