@@ -6,6 +6,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.31 (2026-07-19) — Paired bump for EE 0.32.6 (network-scan false-negative closures)
+
+**No CE code change this cycle** — a paired content/version bump for the EE 0.32.6 trio. Enterprise 0.32.6 is a **matrix-neutral** false-negative-hardening release on the EE analysis-agent (network-scan) path: **cleartext transport** is now flagged where before only weak-TLS-where-TLS-exists was — a conditional inversion in the crypto agent (a service that should be encrypted but offers no TLS at all used to read clean) → **SOC 2 CC6.7**; **SMB-alone** exposure is now its own **HIGH** finding rather than being silenced by an `SMB && RDP` conjunction — a severity-inverted conjunction in the exposure agent (SMB without RDP is the higher-risk case) → **CC6.6**; and **WinRM 5985/5986 · Elasticsearch 9300 · MSRPC 135 · a new aggregate open-port-count rule** are new exposure signals → **CC6.6**. Routed SOC 2-first with drift-detector coverage; **SOC 2 routing only this cycle — the cross-framework mappings (HIPAA §164.312(e)(1) · CIS 4.x · NIST PR.*) are deferred**. No new plugins, plugin count UNCHANGED at 28, all seven coverage matrices unchanged. See the EE package for the full detail. Paired **EE 0.32.6** + agent-skill 0.2.29.
+
 ## 0.2.30 (2026-07-18) — Marketplace registration in CLI help; paired with EE 0.32.5 report-quality release
 
 - **AWS Marketplace license registration surfaced in the CLI.** `--help` and `nsauditor-ai license --status` now name the registration step, so a Marketplace buyer can complete fulfilment without leaving the terminal.
