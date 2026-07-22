@@ -33,14 +33,14 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 ## What It Does
 
 ```
-Scan → Verify → Prioritize → Track → Act
+Scan → Analyze → Prioritize → Track → Act
 ```
 
 - **27 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, MCP (Model Context Protocol), and more
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
-- **Verified vulnerabilities (Pro)** — safe, non-destructive probes confirm findings are real, not just version-matched guesses. If it can't be verified, it's flagged as "potential" not "confirmed"
+- **Risk-scored prioritization (Pro)** — findings carry a composite risk score (severity × exploitability × impact × exposure) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
 - **Continuous monitoring (CTEM)** — watch mode rescans on a schedule, diffs against previous results, and fires webhook alerts on changes
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
 - **CI/CD ready** — SARIF output with `--fail-on` severity gating for pipeline integration
@@ -93,7 +93,6 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | CTEM watch mode | ✅ basic | ✅ advanced | ✅ advanced |
 | **Pro features (vulnerability assessment)** | | | |
 | CVE matching + MITRE ATT&CK mapping | — | ✅ | ✅ |
-| Verified vulnerabilities (safe non-destructive probes) | — | ✅ | ✅ |
 | Risk scoring + prioritization | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
@@ -118,7 +117,6 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | **Enterprise — integration + deployment** | | | |
 | GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation | — | — | ✅ |
-| Docker per-scan isolation | — | — | ✅ |
 | Air-gapped deployment | — | — | ✅ |
 
 **This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions, no telemetry. Pro and Enterprise features ship via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package and install alongside the CE binary once licensed.
