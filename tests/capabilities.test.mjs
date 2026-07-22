@@ -23,7 +23,7 @@ test('Enterprise tier enables all capabilities', () => {
   assert.ok(caps.coreScanning);
   assert.ok(caps.cloudScanners);
   assert.ok(caps.zeroTrust);
-  assert.ok(caps.dockerIsolation);
+  assert.ok(caps.enterpriseMCP);
 });
 
 test('unknown tier falls back to CE', () => {
@@ -69,12 +69,20 @@ test('globalThis.redactSensitiveForAI is allowed on Enterprise tier (enhancedRed
 test('CAPABILITIES covers all expected keys', () => {
   const expected = [
     'coreScanning', 'aiAnalysis', 'basicCTEM', 'basicRedaction', 'basicMCP', 'findingQueue',
-    'intelligenceEngine', 'riskScoring', 'proAI', 'analysisAgents', 'verificationEngine',
-    'advancedCTEM', 'enhancedRedaction', 'proMCP', 'pdfExport', 'brandedReports',
-    'cloudScanners', 'zeroTrust', 'complianceEngine', 'zdePolicyEngine',
-    'enterpriseCTEM', 'enterpriseMCP', 'usageMetering', 'airGapped', 'dockerIsolation',
+    'intelligenceEngine', 'riskScoring', 'proAI', 'analysisAgents',
+    'advancedCTEM', 'enhancedRedaction', 'proMCP', 'pdfExport',
+    'cloudScanners', 'zeroTrust', 'complianceEngine', 'enterpriseMCP', 'airGapped',
   ];
   for (const key of expected) {
     assert.ok(key in CAPABILITIES, `CAPABILITIES missing: ${key}`);
+  }
+
+  // Removed 2026-07-21 (capability claim audit): these named flags no longer exist —
+  // verificationEngine/brandedReports/usageMetering/dockerIsolation had no implementation,
+  // and zdePolicyEngine/enterpriseCTEM had no distinct engine/datastore behind the name
+  // (their real cores ship + are claimed in prose). Assert they are GONE so the map cannot
+  // silently regain a phantom flag.
+  for (const key of ['verificationEngine', 'brandedReports', 'usageMetering', 'dockerIsolation', 'zdePolicyEngine', 'enterpriseCTEM']) {
+    assert.ok(!(key in CAPABILITIES), `CAPABILITIES must not re-add removed phantom flag: ${key}`);
   }
 });

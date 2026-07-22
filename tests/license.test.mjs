@@ -15,9 +15,9 @@ const LICENSE_MANAGER = join(__dirname, '..', '..', 'nsauditor-ai-license-manger
 // ── Test Fixture JWTs ───────────────────────────────────────────────────────
 // Real JWTs signed with the production EC key pair (expire ~2036).
 
-const VALID_PRO_KEY = 'pro_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoicHJvIiwib3JnIjoidGVzdC1wcm9AZml4dHVyZS5jb20iLCJzZWF0cyI6MSwibGljZW5zZUlkIjoibGljXzM0ODRlZjU4LWYzMjUtNDUxOS04NjY5LTIzYjY3M2Y0YjZkYyIsImNhcGFiaWxpdGllcyI6WyJpbnRlbGxpZ2VuY2VFbmdpbmUiLCJyaXNrU2NvcmluZyIsInByb0FJIiwicHJvTUNQIiwiYW5hbHlzaXNBZ2VudHMiLCJ2ZXJpZmljYXRpb25FbmdpbmUiLCJhZHZhbmNlZENURU0iLCJlbmhhbmNlZFJlZGFjdGlvbiIsInBkZkV4cG9ydCIsImJyYW5kZWRSZXBvcnRzIl0sInN1YiI6ImxpY2Vuc2UiLCJpc3MiOiJuc2Fzb2Z0IiwiYXVkIjoibnNhdWRpdG9yLWFpIiwiaWF0IjoxNzc2MjA3MzI3LCJleHAiOjIwOTE1NjczMjd9.qt3wIqVShLAS2TdtFmY7_MvIFb0dEbpQ2AG-FiAxgp0VR7h9CJv2CG_FfXjPipd4f0n6QDkcv8pungZvK8BKZA';
+const VALID_PRO_KEY = 'pro_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoicHJvIiwib3JnIjoidGVzdC1wcm9AZml4dHVyZS5jb20iLCJzZWF0cyI6MSwibGljZW5zZUlkIjoibGljXzM0ODRlZjU4LWYzMjUtNDUxOS04NjY5LTIzYjY3M2Y0YjZkYyIsImNhcGFiaWxpdGllcyI6WyJpbnRlbGxpZ2VuY2VFbmdpbmUiLCJyaXNrU2NvcmluZyIsInByb0FJIiwicHJvTUNQIiwiYW5hbHlzaXNBZ2VudHMiLCJhZHZhbmNlZENURU0iLCJlbmhhbmNlZFJlZGFjdGlvbiIsInBkZkV4cG9ydCJdLCJzdWIiOiJsaWNlbnNlIiwiaXNzIjoibnNhc29mdCIsImF1ZCI6Im5zYXVkaXRvci1haSIsImlhdCI6MTc3NjIwNzMyNywiZXhwIjoyMDkxNTY3MzI3fQ.phWmshDZcPiseoxevvTs-a4mrVU02ykJu7Y3iaSJu8EoBzimJv9Etpctth3TjNYEuwp2pw9IOcziV05EZmpl6g';
 
-const VALID_ENTERPRISE_KEY = 'enterprise_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6IlRlc3QgRW50ZXJwcmlzZSBDb3JwIiwic2VhdHMiOjI1LCJsaWNlbnNlSWQiOiJsaWNfMmVlNDU1ODctYTEzYy00ODcwLWIzNjMtMzhmNmNmNjMwNmE5IiwiY2FwYWJpbGl0aWVzIjpbImludGVsbGlnZW5jZUVuZ2luZSIsInJpc2tTY29yaW5nIiwicHJvQUkiLCJwcm9NQ1AiLCJhbmFseXNpc0FnZW50cyIsInZlcmlmaWNhdGlvbkVuZ2luZSIsImFkdmFuY2VkQ1RFTSIsImVuaGFuY2VkUmVkYWN0aW9uIiwicGRmRXhwb3J0IiwiYnJhbmRlZFJlcG9ydHMiLCJjbG91ZFNjYW5uZXJzIiwiemVyb1RydXN0IiwiY29tcGxpYW5jZUVuZ2luZSIsInpkZVBvbGljeUVuZ2luZSIsImVudGVycHJpc2VDVEVNIiwiZW50ZXJwcmlzZU1DUCIsInVzYWdlTWV0ZXJpbmciLCJhaXJHYXBwZWQiLCJkb2NrZXJJc29sYXRpb24iXSwic3ViIjoibGljZW5zZSIsImlzcyI6Im5zYXNvZnQiLCJhdWQiOiJuc2F1ZGl0b3ItYWkiLCJpYXQiOjE3NzYyMDczMzAsImV4cCI6MjA5MTU2NzMzMH0.nUTUQEzvUiERCLK-MNJ7hbwyJCgAOp_AzPjtEnNEB1gNYTbyHFoVpmwA_1PqGzxs_pdlfwbDJz-k8wdSPAgN1Q';
+const VALID_ENTERPRISE_KEY = 'enterprise_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6IlRlc3QgRW50ZXJwcmlzZSBDb3JwIiwic2VhdHMiOjI1LCJsaWNlbnNlSWQiOiJsaWNfMmVlNDU1ODctYTEzYy00ODcwLWIzNjMtMzhmNmNmNjMwNmE5IiwiY2FwYWJpbGl0aWVzIjpbImludGVsbGlnZW5jZUVuZ2luZSIsInJpc2tTY29yaW5nIiwicHJvQUkiLCJwcm9NQ1AiLCJhbmFseXNpc0FnZW50cyIsImFkdmFuY2VkQ1RFTSIsImVuaGFuY2VkUmVkYWN0aW9uIiwicGRmRXhwb3J0IiwiY2xvdWRTY2FubmVycyIsInplcm9UcnVzdCIsImNvbXBsaWFuY2VFbmdpbmUiLCJlbnRlcnByaXNlTUNQIiwiYWlyR2FwcGVkIl0sInN1YiI6ImxpY2Vuc2UiLCJpc3MiOiJuc2Fzb2Z0IiwiYXVkIjoibnNhdWRpdG9yLWFpIiwiaWF0IjoxNzc2MjA3MzMwLCJleHAiOjIwOTE1NjczMzB9.tEquNlzat4gy0J2o7UINC_qSxVU_uNXwhtZhQ5QUfuZsjroouMw-hsN6Qcqg6kmWRNzkQlWVK3RhyWF9ZW0vog';
 
 // Expired 1 hour ago (well beyond 120s clock tolerance)
 const EXPIRED_PRO_KEY = 'pro_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWVyIjoicHJvIiwib3JnIjoiZXhwaXJlZEBmaXh0dXJlLmNvbSIsInNlYXRzIjoxLCJsaWNlbnNlSWQiOiJsaWNfZXhwaXJlZC1maXh0dXJlIiwiY2FwYWJpbGl0aWVzIjpbImludGVsbGlnZW5jZUVuZ2luZSJdLCJzdWIiOiJsaWNlbnNlIiwiaXNzIjoibnNhc29mdCIsImF1ZCI6Im5zYXVkaXRvci1haSIsImlhdCI6MTc3NjIwMDE0OSwiZXhwIjoxNzc2MjAzNzQ5fQ.YRnSaPumXgq0UVEf8q2bkjTPOzn0bYSeHU17Up1iyCP0kEIz8l8cAOjQ-yGNNM-FF4rjWo3f8gseAkqbW746NQ';
@@ -119,7 +119,10 @@ describe('loadLicense', () => {
     assert.ok(result.licenseId.startsWith('lic_'));
     assert.ok(Array.isArray(result.capabilities));
     assert.ok(result.capabilities.includes('intelligenceEngine'));
-    assert.ok(result.capabilities.includes('brandedReports'));
+    assert.ok(result.capabilities.includes('pdfExport'));
+    // brandedReports removed 2026-07-21 (capability claim audit) — no longer minted.
+    assert.ok(!result.capabilities.includes('brandedReports'));
+    assert.ok(!result.capabilities.includes('verificationEngine'));
     assert.ok(result.expiresAt);
   });
 
@@ -130,7 +133,11 @@ describe('loadLicense', () => {
     assert.equal(result.org, 'Test Enterprise Corp');
     assert.equal(result.seats, 25);
     assert.ok(result.capabilities.includes('cloudScanners'));
-    assert.ok(result.capabilities.includes('dockerIsolation'));
+    assert.ok(result.capabilities.includes('enterpriseMCP'));
+    // dockerIsolation / zdePolicyEngine / enterpriseCTEM / usageMetering removed
+    // 2026-07-21 (capability claim audit) — no longer minted.
+    assert.ok(!result.capabilities.includes('dockerIsolation'));
+    assert.ok(!result.capabilities.includes('zdePolicyEngine'));
     assert.ok(result.capabilities.includes('intelligenceEngine')); // includes pro caps
   });
 

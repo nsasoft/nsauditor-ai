@@ -14,23 +14,21 @@ export const CAPABILITIES = {
   riskScoring:        { tier: 'pro' },
   proAI:              { tier: 'pro' },
   analysisAgents:     { tier: 'pro' },
-  verificationEngine: { tier: 'pro' },
   advancedCTEM:       { tier: 'pro' },
   enhancedRedaction:  { tier: 'pro' },
   proMCP:             { tier: 'pro' },
   pdfExport:          { tier: 'pro' },
-  brandedReports:     { tier: 'pro' },
 
   // Enterprise
   cloudScanners:      { tier: 'enterprise' },
   zeroTrust:          { tier: 'enterprise' },
   complianceEngine:   { tier: 'enterprise' },
-  zdePolicyEngine:    { tier: 'enterprise' },
-  enterpriseCTEM:     { tier: 'enterprise' },
   enterpriseMCP:      { tier: 'enterprise' },
-  usageMetering:      { tier: 'enterprise' },
   airGapped:          { tier: 'enterprise' },
-  dockerIsolation:    { tier: 'enterprise' },
+  // Removed 2026-07-21 (capability claim audit): verificationEngine / brandedReports /
+  // usageMetering / dockerIsolation (no implementation) + zdePolicyEngine / enterpriseCTEM
+  // (real cores ship + are claimed in prose; no distinct engine/datastore behind the flag).
+  // Keep in lockstep with EE index.mjs EE_CAPABILITIES + license-manager keygen.mjs.
 };
 
 const TIER_CAPS = {
