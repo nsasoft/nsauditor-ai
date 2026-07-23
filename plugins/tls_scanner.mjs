@@ -57,6 +57,15 @@ const WEAK_TLS_PROTOCOLS = new Set(['TLSv1', 'TLSv1.1', 'SSLv3', 'SSLv2']);
 // Weak cipher name fragments — mirrors plugins/040_tls_cert_auditor.mjs.
 const WEAK_CIPHER_FRAGMENTS = ['RC4', '3DES', 'DES', 'NULL', 'EXPORT', 'ADH', 'AECDH', 'ANON', 'SEED', 'IDEA', 'CAMELLIA128'];
 
+// Cipher policy for the PROBE socket only (rationale at its use site in check()).
+// `eNULL` (no-encryption suites) is NOT part of OpenSSL's `ALL` by convention, so it must
+// be named explicitly or a server accepting NULL-SHA is undetectable. `aNULL` (anonymous,
+// ADH/AECDH) IS inside `ALL` at SECLEVEL=0 — we deliberately allow it so the suite can be
+// GRADED, then re-probe without it to recover certificate evidence, because an anonymous
+// handshake presents no certificate.
+const PROBE_CIPHERS = 'ALL:eNULL:@SECLEVEL=0';
+const PROBE_CIPHERS_AUTHENTICATED = 'ALL:eNULL:!aNULL:@SECLEVEL=0';
+
 function isWeakCipherName(name) {
   const u = String(name || '').toUpperCase();
   if (!u || u === 'UNKNOWN') return false;
@@ -133,7 +142,7 @@ export default {
         hostname: hostname || null
       };
 
-      const check = (version) => new Promise((resolve) => {
+      const check = (version, cipherPolicy = PROBE_CIPHERS) => new Promise((resolve) => {
         let settled = false;
         const options = {
           host,
@@ -151,7 +160,7 @@ export default {
           // probe's client policy (standard scanner practice — sslscan / testssl.sh do the
           // same); it sends no data and does not weaken anything the operator runs.
           // Guarded by tests/tls_scanner_real_tls_integration.test.mjs against a real server.
-          ciphers: 'ALL:@SECLEVEL=0'
+          ciphers: cipherPolicy
         };
         const socket = tlsApi.connect(options, () => {
           if (settled) return;
@@ -194,6 +203,17 @@ export default {
 
       result.isTLSService = result.supportedVersions.length > 0;
       result.supportsOld = result.supportedVersions.some(v => v === 'TLSv1' || v === 'TLSv1.1');
+
+      // An anonymous (aNULL) suite presents NO certificate, so if the probe negotiated one
+      // the cert axes would go silent on exactly the worst-configured hosts — a false-clean
+      // on the two axes this producer exists to close. Re-probe ONCE excluding aNULL, purely
+      // to recover cert evidence; the weak-cipher grading from the first pass is retained.
+      // Costs an extra handshake only on the rare anonymous-capable server.
+      if (result.isTLSService && !leafCert) {
+        const known = result.supportedVersions[result.supportedVersions.length - 1];
+        const again = await check(known, PROBE_CIPHERS_AUTHENTICATED);
+        if (again.success && again.cert && again.cert.subject) leafCert = again.cert;
+      }
       // Public cert facts only — the full cert stays in-process (ZDE).
       result.certExpiry = leafCert?.valid_to || null;
       result.certSelfSigned = isSelfSignedCert(leafCert);
