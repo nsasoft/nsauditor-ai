@@ -46,6 +46,32 @@ const DEFAULT_PORTS = {
   995: 'pop3s'
 };
 
+// ── crypto_agent producer contract ──────────────────────────────────────────
+// The EE crypto_agent (agents/crypto_agent.mjs) grades TLS quality off structured
+// fields on each service record. Before this producer leg no CE plugin set them,
+// so a real scan read clean over deprecated protocols / weak ciphers / expired /
+// self-signed certs. We emit only public handshake facts (versions, cipher names,
+// cert validity dates) — ZDE-safe, and only where a handshake was observed.
+const WEAK_TLS_PROTOCOLS = new Set(['TLSv1', 'TLSv1.1', 'SSLv3', 'SSLv2']);
+
+// Weak cipher name fragments — mirrors plugins/040_tls_cert_auditor.mjs.
+const WEAK_CIPHER_FRAGMENTS = ['RC4', '3DES', 'DES', 'NULL', 'EXPORT', 'ADH', 'AECDH', 'ANON', 'SEED', 'IDEA', 'CAMELLIA128'];
+
+function isWeakCipherName(name) {
+  const u = String(name || '').toUpperCase();
+  if (!u || u === 'UNKNOWN') return false;
+  return WEAK_CIPHER_FRAGMENTS.some((f) => u.includes(f));
+}
+
+// Self-signed iff issuer == subject (CN+O). A real self-signed leaf also self-loops
+// its issuerCertificate under getPeerCertificate(true); the name check is the robust,
+// stub-friendly signal (040 remains the deep cert auditor).
+function isSelfSignedCert(cert) {
+  if (!cert || !cert.subject || !cert.issuer) return false;
+  const s = cert.subject, i = cert.issuer;
+  return Boolean(s.CN && i.CN && s.CN === i.CN && (s.O || '') === (i.O || ''));
+}
+
 function parseCsvEnv(name, fallback) {
   const v = process.env[name];
   if (!v) return fallback;
@@ -118,8 +144,10 @@ export default {
           settled = true;
           const protocol = socket.getProtocol?.();
           const cipher = socket.getCipher?.();
+          let cert = null;
+          try { cert = socket.getPeerCertificate?.(true) || null; } catch { cert = null; }
           try { socket.end?.(); } catch {}
-          resolve({ success: true, protocol, cipher: cipher ? cipher.name : 'Unknown' });
+          resolve({ success: true, protocol, cipher: cipher ? cipher.name : 'Unknown', cert });
         });
         socket.setTimeout?.(timeoutMs);
         socket.on?.('timeout', () => {
@@ -135,12 +163,15 @@ export default {
         });
       });
 
+      let leafCert = null;
       for (const v of versions) {
         const res = await check(v);
         if (res.success) {
           const proto = res.protocol || v;
           result.supportedVersions.push(proto);
           result.ciphers[proto] = res.cipher;
+          // Keep the first observed leaf cert (all versions serve the same cert).
+          if (!leafCert && res.cert && res.cert.subject) leafCert = res.cert;
         }
         if (debug) {
           result.errors.push({ version: v, success: !!res.success, error: res.success ? 'none' : res.error });
@@ -149,6 +180,9 @@ export default {
 
       result.isTLSService = result.supportedVersions.length > 0;
       result.supportsOld = result.supportedVersions.some(v => v === 'TLSv1' || v === 'TLSv1.1');
+      // Public cert facts only — the full cert stays in-process (ZDE).
+      result.certExpiry = leafCert?.valid_to || null;
+      result.certSelfSigned = isSelfSignedCert(leafCert);
 
       return result;
     }
@@ -177,7 +211,15 @@ export default {
         probe_port: r.port,
         probe_service: r.service,
         probe_info,
-        response_banner: JSON.stringify(bannerObj)
+        response_banner: JSON.stringify(bannerObj),
+        // Structured evidence for the crypto_agent producer contract (see conclude()).
+        tlsEvidence: {
+          tls: r.isTLSService,
+          supportedVersions: r.supportedVersions,
+          ciphers: r.ciphers,
+          certExpiry: r.certExpiry || null,
+          certSelfSigned: r.certSelfSigned === true
+        }
       };
     });
 
@@ -205,6 +247,25 @@ export async function conclude({ host, result }) {
     const info = r?.probe_info || null;
     const banner = r?.response_banner || null;
     const status = /TLS: /.test(String(info||'')) ? 'open' : 'closed';
+
+    // crypto_agent producer contract — attach the TLS-quality fields ONLY where a
+    // handshake was observed (status === 'open'), so the consumer's "encrypted
+    // wherever this fires" premise stays code-true.
+    const ev = r?.tlsEvidence || {};
+    let contract = {};
+    if (status === 'open') {
+      const supportedVersions = Array.isArray(ev.supportedVersions) ? ev.supportedVersions : [];
+      const weakProtocols = supportedVersions.filter((v) => WEAK_TLS_PROTOCOLS.has(v));
+      const weakCiphers = [...new Set(Object.values(ev.ciphers || {}).filter(isWeakCipherName))];
+      contract = {
+        tls: true, // status === 'open' ⇒ a handshake was observed
+        weakProtocols,
+        weakCiphers,
+        certSelfSigned: ev.certSelfSigned === true,
+        ...(ev.certExpiry ? { certExpiry: ev.certExpiry } : {})
+      };
+    }
+
     items.push({
       port,
       protocol: 'tcp',
@@ -216,7 +277,8 @@ export async function conclude({ host, result }) {
       banner,
       source: 'tls-scanner',
       evidence: [r],
-      authoritative: true
+      authoritative: true,
+      ...contract
     });
   }
   return items;
