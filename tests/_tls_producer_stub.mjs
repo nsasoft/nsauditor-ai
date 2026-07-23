@@ -24,6 +24,12 @@ const SCENARIOS = {
       fingerprint256: 'AA:BB:CC',
     },
   },
+  // A port that speaks no TLS at all — every forced-version handshake fails.
+  notls: {
+    supports: () => false,
+    ciphers: {},
+    cert: null,
+  },
   // A self-signed cert whose DN carries only an Organization (no CN) — typical of
   // appliances / IoT / internal CAs / `openssl req -subj "/O=..."`. issuer == subject.
   'selfsigned-noCN': {

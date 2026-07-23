@@ -23,7 +23,7 @@ process.env.TLS_SCANNER_PORTS = '4443:https';
 process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_TIMEOUT_MS = '1500';
 
-const { default: tlsScanner } = await import('../plugins/tls_scanner.mjs');
+const { default: tlsScanner, conclude, authoritativePorts } = await import('../plugins/tls_scanner.mjs');
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 
 async function scanTo443(scenario) {
@@ -82,6 +82,33 @@ test('producer contract: an O-only (no-CN) self-signed cert is still detected', 
   assert.ok(svc, 'service record for port 4443 should exist');
   assert.equal(svc.certSelfSigned, true,
     'issuer == subject with only an O (no CN) is self-signed — must not be missed');
+});
+
+test('producer contract: the record is AUTHORITATIVE (the 040-merge-trap defense)', async () => {
+  // upsertService drops a NON-authoritative record's custom fields when an authoritative
+  // record already owns the key. The contract fields therefore only survive because
+  // tls_scanner emits them authoritatively. If that flag is ever flipped, every contract
+  // field silently vanishes behind an authoritative sibling — pin it.
+  process.env.TLS_PRODUCER_SCENARIO = 'vuln';
+  const raw = await tlsScanner.run('127.0.0.1');
+  const items = await conclude({ host: '127.0.0.1', result: raw });
+  const item = items.find((i) => i.port === 4443);
+  assert.ok(item, 'conclude() should emit the port 4443 record');
+  assert.equal(item.authoritative, true,
+    'the TLS-evidence fields survive the concluder merge ONLY on an authoritative record');
+  assert.ok(authoritativePorts instanceof Set, 'authoritativePorts must remain a Set');
+});
+
+test('producer contract: a port with NO handshake carries none of the contract fields', async () => {
+  // The consumer premise is "encrypted wherever this fires". Contract fields must be
+  // attached ONLY where a handshake was observed — the direction that keeps that true.
+  const svc = await scanTo443('notls');
+  assert.ok(svc, 'a closed/no-TLS record should still exist');
+  assert.notEqual(svc.status, 'open', 'positive control: no handshake was observed here');
+  for (const field of ['tls', 'weakProtocols', 'weakCiphers', 'certExpiry', 'certSelfSigned']) {
+    assert.equal(svc[field], undefined,
+      `${field} must NOT be attached where no TLS handshake was observed`);
+  }
 });
 
 test('producer contract: field shapes match what crypto_agent reads', async () => {

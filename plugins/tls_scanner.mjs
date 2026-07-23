@@ -141,7 +141,17 @@ export default {
           servername: hostname,
           rejectUnauthorized: false,
           minVersion: version,
-          maxVersion: version
+          maxVersion: version,
+          // A scanner must be able to PROPOSE legacy suites, or it cannot discover them.
+          // Node 20+/OpenSSL 3 refuse to offer TLSv1/TLSv1.1 at the default security level
+          // and fail client-side before any packet: ERR_SSL_NO_PROTOCOLS_AVAILABLE
+          // (error:0A0000BF SSL routines:tls_setup_handshake). Without this, weakProtocols
+          // could NEVER populate against a real legacy server — the branch was dead in
+          // production while a stubbed unit test stayed green. @SECLEVEL=0 lowers only this
+          // probe's client policy (standard scanner practice — sslscan / testssl.sh do the
+          // same); it sends no data and does not weaken anything the operator runs.
+          // Guarded by tests/tls_scanner_real_tls_integration.test.mjs against a real server.
+          ciphers: 'ALL:@SECLEVEL=0'
         };
         const socket = tlsApi.connect(options, () => {
           if (settled) return;
