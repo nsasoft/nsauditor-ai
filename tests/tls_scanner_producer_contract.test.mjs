@@ -74,6 +74,16 @@ test('producer contract (clean host): handshake marked, nothing spuriously flagg
   assert.ok(new Date(svc.certExpiry) > new Date(), 'the fixture cert is valid');
 });
 
+test('producer contract: an O-only (no-CN) self-signed cert is still detected', async () => {
+  // Regression for the review finding: a self-signed leaf whose DN carries only an
+  // Organization (no CN) — appliances / IoT / internal CAs — must not slip past the
+  // self-signed check just because it lacks a CN.
+  const svc = await scanTo443('selfsigned-noCN');
+  assert.ok(svc, 'service record for port 4443 should exist');
+  assert.equal(svc.certSelfSigned, true,
+    'issuer == subject with only an O (no CN) is self-signed — must not be missed');
+});
+
 test('producer contract: field shapes match what crypto_agent reads', async () => {
   const svc = await scanTo443('vuln');
   // The consumer guards are Array.isArray(...)/=== true/new Date(...); assert the

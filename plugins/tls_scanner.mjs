@@ -63,13 +63,17 @@ function isWeakCipherName(name) {
   return WEAK_CIPHER_FRAGMENTS.some((f) => u.includes(f));
 }
 
-// Self-signed iff issuer == subject (CN+O). A real self-signed leaf also self-loops
-// its issuerCertificate under getPeerCertificate(true); the name check is the robust,
-// stub-friendly signal (040 remains the deep cert auditor).
+// Self-signed iff the issuer DN equals the subject DN. A real self-signed leaf also
+// self-loops its issuerCertificate under getPeerCertificate(true); the DN-equality
+// check is the robust, stub-friendly signal (040 remains the deep cert auditor).
+// Keyed on CN|O|OU (Node omits absent DN fields) so an O-only / OU-only self-signed
+// cert — appliances, IoT, internal CAs, `openssl req -subj "/O=..."` — is caught,
+// not only CN-bearing DNs. Requires a non-empty DN so two empty DNs don't match.
 function isSelfSignedCert(cert) {
   if (!cert || !cert.subject || !cert.issuer) return false;
-  const s = cert.subject, i = cert.issuer;
-  return Boolean(s.CN && i.CN && s.CN === i.CN && (s.O || '') === (i.O || ''));
+  const dnKey = (x) => `${x.CN || ''}|${x.O || ''}|${x.OU || ''}`;
+  const subjectDn = dnKey(cert.subject);
+  return subjectDn !== '||' && subjectDn === dnKey(cert.issuer);
 }
 
 function parseCsvEnv(name, fallback) {
@@ -256,6 +260,12 @@ export async function conclude({ host, result }) {
     if (status === 'open') {
       const supportedVersions = Array.isArray(ev.supportedVersions) ? ev.supportedVersions : [];
       const weakProtocols = supportedVersions.filter((v) => WEAK_TLS_PROTOCOLS.has(v));
+      // weakCiphers reports the NEGOTIATED cipher per version (run() connects with
+      // node's default, strong client cipher list), so a non-empty value is a true
+      // positive but an empty value is NOT proof "no weak cipher is accepted" — the
+      // server may accept RC4/3DES that a default client never proposes. A forced
+      // per-cipher enumeration (like the per-version handshake) is the follow-up; the
+      // consumer only raises a finding on a non-empty value, so it never over-reads [].
       const weakCiphers = [...new Set(Object.values(ev.ciphers || {}).filter(isWeakCipherName))];
       contract = {
         tls: true, // status === 'open' ⇒ a handshake was observed

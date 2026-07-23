@@ -24,6 +24,19 @@ const SCENARIOS = {
       fingerprint256: 'AA:BB:CC',
     },
   },
+  // A self-signed cert whose DN carries only an Organization (no CN) — typical of
+  // appliances / IoT / internal CAs / `openssl req -subj "/O=..."`. issuer == subject.
+  'selfsigned-noCN': {
+    supports: (v) => v === 'TLSv1.2' || v === 'TLSv1.3',
+    ciphers: { 'TLSv1.2': 'ECDHE-RSA-AES256-GCM-SHA384', 'TLSv1.3': 'TLS_AES_256_GCM_SHA384' },
+    cert: {
+      subject: { O: 'ACME Appliance' }, // no CN
+      issuer: { O: 'ACME Appliance' },  // issuer == subject → self-signed
+      valid_from: 'Jan  1 00:00:00 2024 GMT',
+      valid_to: 'Jan  1 00:00:00 2999 GMT',
+      fingerprint256: '11:22:33',
+    },
+  },
   // A correctly configured host: only TLS 1.2/1.3, strong ciphers, CA-signed cert
   // valid far into the future.
   clean: {
