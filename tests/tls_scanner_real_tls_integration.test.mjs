@@ -25,6 +25,26 @@ process.env.TLS_SCANNER_TIMEOUT_MS = '4000';
 const { default: tlsScanner } = await import('../plugins/tls_scanner.mjs');
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 
+/**
+ * Fixture material, or null when openssl is genuinely unavailable.
+ *
+ * These four guards exist to stop a stub from masking real-client behaviour. If a slim
+ * image without openssl made them all skip, the suite would go green while proving
+ * nothing — the exact failure shape they defend against, reintroduced through the back
+ * door. So in CI a missing openssl is a HARD FAILURE; only an interactive dev box is
+ * allowed to skip.
+ */
+function requireCert(t) {
+  const material = makeCert();
+  if (material) return material;
+  if (process.env.CI) {
+    assert.fail('openssl is required for the real-node:tls guards — refusing to skip in CI, ' +
+      'a silent skip would let the anti-mock-masking guards evaporate');
+  }
+  t.skip('openssl unavailable — cannot build a local TLS server (would hard-fail in CI)');
+  return null;
+}
+
 /** Generate a throwaway self-signed cert. Returns null if openssl is unavailable. */
 function makeCert() {
   try {
@@ -60,8 +80,8 @@ async function scanServer(material, { ciphers, maxVersion = 'TLSv1.2' }) {
 }
 
 test('REAL node:tls — a legacy-capable server yields weakProtocols (no stub can mask this)', async (t) => {
-  const material = makeCert();
-  if (!material) { t.skip('openssl unavailable — cannot build a local TLS server'); return; }
+  const material = requireCert(t);
+  if (!material) return;
   try {
     const svc = await scanServer(material, { ciphers: 'ALL:@SECLEVEL=0' });
 
@@ -84,8 +104,8 @@ test('REAL node:tls — a legacy-capable server yields weakProtocols (no stub ca
 });
 
 test('REAL node:tls — a weak-cipher-only server is VISIBLE and its cipher flagged', async (t) => {
-  const material = makeCert();
-  if (!material) { t.skip('openssl unavailable'); return; }
+  const material = requireCert(t);
+  if (!material) return;
   try {
     // CAMELLIA128 is present in the OpenSSL build but excluded from node's DEFAULT client
     // list: before the probe carried an explicit cipher policy this handshake failed
@@ -104,8 +124,8 @@ test('REAL node:tls — a weak-cipher-only server is VISIBLE and its cipher flag
 });
 
 test('REAL node:tls — a NULL-cipher server (no encryption at all) is detected', async (t) => {
-  const material = makeCert();
-  if (!material) { t.skip('openssl unavailable'); return; }
+  const material = requireCert(t);
+  if (!material) return;
   try {
     // eNULL suites carry NO encryption. OpenSSL excludes them from `ALL` by convention, so
     // without naming eNULL explicitly in the probe policy a server accepting NULL-SHA is
@@ -124,8 +144,8 @@ test('REAL node:tls — a NULL-cipher server (no encryption at all) is detected'
 });
 
 test('REAL node:tls — an ANONYMOUS-cipher server still yields cert evidence', async (t) => {
-  const material = makeCert();
-  if (!material) { t.skip('openssl unavailable'); return; }
+  const material = requireCert(t);
+  if (!material) return;
   try {
     // An anonymous (aNULL) suite presents NO certificate. Proposing aNULL is what lets the
     // scanner GRADE it, but if the probe simply negotiates it, certExpiry/certSelfSigned go
