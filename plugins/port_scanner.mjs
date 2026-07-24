@@ -300,3 +300,75 @@ export default {
     };
   },
 };
+
+/* --------------------------- conclude adapter --------------------------- */
+
+/**
+ * services[] enumerates services FOUND, so only an OPEN port becomes a record.
+ * A refusal (RST) or a timeout is the absence of a service, and neither is lost:
+ * both stay in the conclusion's evidence[] stream and in this scan's own
+ * tcpClosed / tcpFiltered / udpNoResponse buckets.
+ *
+ * Measured, on a default sweep of localhost (50 ports from config/services.json):
+ * 41 refusals, 1 listener. Materializing refusals would put 42 rows into
+ * services[] to carry one bit of signal — and every consumer renders services
+ * unfiltered (report_md's table, export_csv's row-per-service, SARIF results,
+ * attack_map, and the scan_history baseline that deltas compare against).
+ */
+const MATERIALIZED_STATUSES = new Set(["open"]);
+
+/**
+ * Without this adapter, result_concluder falls through to fallbackRecord(),
+ * which keeps only `rows.find(Boolean)` — ONE record for the whole sweep. Since
+ * this plugin emits one row PER scanned port, that collapsed N open ports into
+ * the first-SCANNED port and dropped the rest before any consumer (CE reports,
+ * EE analysis agents) ever saw them. It also derived that survivor's status from
+ * the host-level `result.up`, so a filtered port was reported `open` whenever any
+ * other port on the host was open.
+ *
+ * `service` is deliberately the not-fingerprinted label, NOT a well-known-port
+ * name: a TCP connect proves a port answers, not which protocol speaks on it.
+ * Consumers that infer a protocol from the port number must do so themselves, at
+ * their own (lower) confidence tier — the EE crypto_agent, for one, rates a
+ * label-derived cleartext finding HIGH with certainty prose and a port-inferred
+ * one MEDIUM with an explicit "UNCONFIRMED" caveat. Emitting `'ftp'` for port 21
+ * here would silently promote every unfingerprinted listener into the confident
+ * tier. Identification is the job of the protocol probes, which are authoritative
+ * for their ports and overwrite these records on merge.
+ *
+ * @param {{host?: string, result?: object}} args
+ * @returns {Promise<object[]>} one ServiceRecord per affirmatively-observed port
+ */
+export async function conclude({ result } = {}) {
+  const rows = Array.isArray(result?.data) ? result.data : [];
+  const items = [];
+
+  for (const row of rows) {
+    const port = Number(row?.probe_port);
+    if (!Number.isInteger(port) || port <= 0) continue;
+
+    const status = String(row?.status || "");
+    if (!MATERIALIZED_STATUSES.has(status)) continue;
+
+    items.push({
+      port,
+      protocol: String(row?.probe_protocol || "tcp").toLowerCase(),
+      service: "unknown",
+      program: result?.program || "Unknown",
+      version: result?.version || "Unknown",
+      // From the ROW, never from the host-level result.up.
+      status,
+      info: row?.probe_info || null,
+      banner: row?.response_banner || null,
+      source: "port_scanner",
+      // The record's OWN probe row. The full sweep is already pushed to the
+      // conclusion's top-level evidence[]; repeating it on every record would be
+      // O(n^2) duplication of the same rows.
+      evidence: [row],
+      // A connect scan never outranks a protocol probe for the same port.
+      authoritative: false,
+    });
+  }
+
+  return items;
+}
