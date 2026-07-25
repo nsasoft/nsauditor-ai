@@ -104,7 +104,18 @@ describe('getTierFromEnv', () => {
 
 describe('loadLicense', () => {
   it('returns CE tier when no key', async () => {
-    const result = await loadLicense(undefined);
+    // "No key" must mean no key ON ANY MACHINE. Without these seams the
+    // resolution chain reads the operator's real Keychain and
+    // ~/.nsauditor/.env, so this case passed only on a box that happens to
+    // have no license installed — it failed for a reviewer and passed here
+    // solely because the suite had been run with HOME redirected. The
+    // NSAUDITOR_LICENSE_STATE_FILE isolation in before() covers state writes;
+    // it never covered key RESOLUTION. Both sources are pinned, not just the
+    // file: on macOS the Keychain alone would still leak a key in.
+    const result = await loadLicense(undefined, {
+      _homeFileOverride: '/nonexistent/nsauditor-license-test/.env',
+      _keychainGet: async () => null,
+    });
     assert.equal(result.tier, 'ce');
     assert.equal(result.valid, false);
     assert.equal(result.reason, 'no key provided');

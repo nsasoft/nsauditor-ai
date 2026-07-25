@@ -594,7 +594,13 @@ export async function loadLicense(keyStr, opts = {}) {
   // Explicit keyStr argument wins (preserves the existing behavior for
   // callers like the `license --status` subcommand which passes the env
   // var directly). When omitted, run the multi-source resolution chain.
-  let raw = keyStr ?? (await resolveLicenseKey());
+  // `opts` carries the same `_`-prefixed test seams resolveLicenseKey documents
+  // (_homeFileOverride, _keychainGet). They were reachable only by calling that
+  // function directly, so a test exercising the no-key path THROUGH loadLicense
+  // read the operator's real ~/.nsauditor/.env and Keychain — machine-dependent,
+  // and it made the "no key" case pass or fail depending on whose box ran it.
+  // No production caller passes a second argument, so threading is inert there.
+  let raw = keyStr ?? (await resolveLicenseKey(opts));
   if (!raw) return { valid: false, tier: 'ce', reason: 'no key provided' };
 
   // Thread K (CE 0.1.32): support `keychain:LABEL` indirection on the
