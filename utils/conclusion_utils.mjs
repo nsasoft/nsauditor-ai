@@ -48,8 +48,39 @@ export function normalizeService(svc) {
   };
 }
 
+/**
+ * Liveness resolution for a merge. Authority governs IDENTITY (what the service
+ * IS — service/program/version/banner/contract fields); it must never govern
+ * LIVENESS (whether the port is open).
+ *
+ * A successful TCP connect is a direct observation: something is listening. A
+ * protocol probe that then fails to speak that protocol has learned about the
+ * SERVICE, not about the port — so its `closed`/`unknown` must not erase the
+ * observation. Measured before this guard existed: a real listener on 6379 that
+ * does not speak Redis was found `open` by port_scanner, overwritten to
+ * `unknown` by db_scanner's failed probe (authoritative:true), and the EE
+ * exposure_agent's HIGH "Database port 6379 open" finding went 1 -> 0. The same
+ * shape was confirmed on tls_scanner ('closed'), ssh_scanner (whose
+ * 'Connection closed before banner' matches statusFrom's /closed/ regex) and
+ * opensearch_scanner — a live, reachable port rendering as closed with zero
+ * findings, which in a compliance-evidence product is a false clean.
+ *
+ * Only DOWNGRADES are blocked: an affirmative `open` from either record wins,
+ * and otherwise the caller's own default (the `base` record) is preserved, so
+ * this changes nothing else about the existing precedence.
+ *
+ * @param {object} base  - the record whose status would have won before
+ * @param {object} other - the record it is merging with
+ * @returns {string} the resolved status
+ */
+function resolveLiveness(base, other) {
+  if (base?.status === 'open' || other?.status === 'open') return 'open';
+  return base?.status || 'unknown';
+}
+
 // Merge by protocol:port with basic authority precedence.
-// If 'authoritative' flag is true on a record, it wins over non-authoritative.
+// If 'authoritative' flag is true on a record, it wins over non-authoritative —
+// for identity. See resolveLiveness above for why status is handled separately.
 export function upsertService(services, next, { authoritative = false } = {}) {
   const key = keyOf(next);
   const i = services.findIndex(s => keyOf(s) === key);
@@ -60,7 +91,16 @@ export function upsertService(services, next, { authoritative = false } = {}) {
   const cur = services[i];
   // Authority precedence
   if (authoritative && !cur.__authoritative) {
-    services[i] = { ...cur, ...next, __authoritative: true };
+    services[i] = {
+      ...cur,
+      ...next,
+      status: resolveLiveness(next, cur),
+      // This branch alone used to drop the prior record's evidence, so the very
+      // probe that established the port was open left no trace on the merged
+      // record. The other two branches always concatenated.
+      evidence: (cur.evidence || []).concat(next.evidence || []),
+      __authoritative: true,
+    };
     return;
   }
   if (!authoritative && cur.__authoritative) {
@@ -71,6 +111,7 @@ export function upsertService(services, next, { authoritative = false } = {}) {
       version: cur.version || next.version || null,
       info: cur.info || next.info || null,
       banner: cur.banner || next.banner || null,
+      status: resolveLiveness(cur, next),
       evidence: (cur.evidence || []).concat(next.evidence || [])
     };
     return;
@@ -79,6 +120,7 @@ export function upsertService(services, next, { authoritative = false } = {}) {
   services[i] = {
     ...cur,
     ...next,
+    status: resolveLiveness(next, cur),
     evidence: (cur.evidence || []).concat(next.evidence || []),
     __authoritative: cur.__authoritative || authoritative
   };

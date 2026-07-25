@@ -197,3 +197,64 @@ test('upsertService: custom flags survive merge', () => {
   upsertService(services, normalizeService({ port: 21, service: 'ftp' }), { authoritative: false });
   assert.equal(services[0].anonymousLogin, true, 'authoritative flag survives non-auth merge');
 });
+
+/* ---------------------------------------------------------------------------
+ * MERGE CONTRACT: authority governs IDENTITY, never LIVENESS.
+ *
+ * A TCP connect that succeeds is a direct observation: something is listening.
+ * A protocol probe that subsequently fails to speak that protocol has learned
+ * something about the SERVICE, not about whether the port is open — so it must
+ * never downgrade a measured `open`.
+ *
+ * Measured against the real chain before this guard existed: a real listener on
+ * 6379 that does not speak Redis was discovered `open` by port_scanner, then
+ * overwritten to `unknown` by db_scanner's failed probe (authoritative:true) —
+ * and the EE exposure_agent's HIGH "Database port 6379 open" finding went from
+ * 1 to 0. Same shape confirmed on tls_scanner (status 'closed'), ssh_scanner,
+ * and opensearch_scanner: a live, reachable port rendering as closed/unknown
+ * with zero findings. In a compliance-evidence product that is a false clean.
+ * ------------------------------------------------------------------------- */
+
+test('upsertService: an authoritative NON-open record must not downgrade an observed open', () => {
+  const services = [];
+  upsertService(services, normalizeService({ port: 6379, service: 'unknown', status: 'open' }), { authoritative: false });
+  upsertService(services, normalizeService({ port: 6379, service: 'tcp-6379', status: 'unknown' }), { authoritative: true });
+  assert.equal(services[0].status, 'open',
+    'a failed protocol probe learned about the SERVICE, not about whether the port is open');
+});
+
+test('upsertService: authority still wins for IDENTITY while liveness is preserved', () => {
+  // The guard must not become a blanket "ignore the authoritative record".
+  const services = [];
+  upsertService(services, normalizeService({ port: 3306, service: 'unknown', program: 'Unknown', status: 'open' }), { authoritative: false });
+  upsertService(services, normalizeService({ port: 3306, service: 'mysql', program: 'MySQL', status: 'unknown' }), { authoritative: true });
+  assert.equal(services[0].status, 'open', 'liveness comes from the affirmative observation');
+  assert.equal(services[0].service, 'mysql', 'identity still comes from the authoritative probe');
+  assert.equal(services[0].program, 'MySQL');
+});
+
+test('upsertService: an authoritative open record still upgrades a non-open one', () => {
+  // Only DOWNGRADES are blocked. A probe that positively observes `open` on a
+  // record previously marked filtered/unknown must still win.
+  const services = [];
+  upsertService(services, normalizeService({ port: 443, service: 'unknown', status: 'filtered' }), { authoritative: false });
+  upsertService(services, normalizeService({ port: 443, service: 'https', status: 'open' }), { authoritative: true });
+  assert.equal(services[0].status, 'open');
+});
+
+test('upsertService: the guard holds in BOTH merge orders', () => {
+  const authFirst = [];
+  upsertService(authFirst, normalizeService({ port: 9200, service: 'opensearch', status: 'unknown' }), { authoritative: true });
+  upsertService(authFirst, normalizeService({ port: 9200, service: 'unknown', status: 'open' }), { authoritative: false });
+  assert.equal(authFirst[0].status, 'open',
+    'the non-authoritative observation of `open` must survive arriving second');
+});
+
+test('upsertService: the authority branch concats evidence like the other two branches', () => {
+  const services = [];
+  upsertService(services, normalizeService({ port: 8080, service: 'unknown', status: 'open', evidence: [{ probe_port: 8080, status: 'open' }] }), { authoritative: false });
+  upsertService(services, normalizeService({ port: 8080, service: 'http', status: 'open', evidence: [{ probe_port: 8080, probe_info: 'HTTP 200' }] }), { authoritative: true });
+  assert.equal(services[0].evidence.length, 2,
+    'the authority branch dropped the prior record\'s evidence, so the observation that ' +
+    'established the port was open left no trace on the merged record');
+});
