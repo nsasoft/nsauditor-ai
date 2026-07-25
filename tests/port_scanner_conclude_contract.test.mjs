@@ -87,11 +87,16 @@ test("port_scanner conclude(): EVERY open port materializes as its own service r
   }
 });
 
-test("port_scanner conclude(): status comes from the port's OWN row, never from the host-level result.up", async () => {
-  // A filtered port cannot be produced against loopback (non-listening ports
-  // RST rather than time out), so this case feeds the REAL concluder a
-  // port_scanner-SHAPED result. The multi-port case above is the real-chain lens;
-  // this one pins the status derivation that a real timeout would exercise.
+test("port_scanner conclude(): a FILTERED port is never reported open because another port on the host is", async () => {
+  // Defect class (b) — the false POSITIVE. fallbackRecord derived the surviving
+  // record's status from `result.up`, a HOST-level boolean, so a filtered port
+  // inherited "open" from an unrelated listener. Verified against the old chain:
+  // this exact input produced the finding "Management port 3389 (port) open"
+  // while the genuinely open port 22 disappeared entirely.
+  //
+  // A filtered port cannot be produced against loopback (non-listening ports RST
+  // rather than time out), so this case feeds the REAL concluder a
+  // port_scanner-SHAPED result. The multi-port case above is the real-chain lens.
   const raw = {
     up: true, program: "Unknown", version: "Unknown", os: null, type: "port-scan",
     tcpOpen: [22], tcpClosed: [], tcpFiltered: [3389], udpOpen: [], udpClosed: [], udpNoResponse: [],
@@ -105,11 +110,34 @@ test("port_scanner conclude(): status comes from the port's OWN row, never from 
 
   const filtered = concluded.services.find((s) => s.port === 3389);
   assert.ok(!filtered || filtered.status !== "open",
-    "a FILTERED port must never be reported open just because another port on the host is open " +
-    "(fallbackRecord derived status from result.up — a host-level boolean — and fabricated an exposure)");
+    "a FILTERED port must never be reported open just because another port on the host is open");
 
   const open = concluded.services.find((s) => s.port === 22);
   assert.ok(open && open.status === "open", "the genuinely open port must be present and open");
+});
+
+test("port_scanner conclude(): a record's status is read from its own row, not re-derived from the host-level result.up", async () => {
+  // The status FIELD, pinned independently of the materialization filter above.
+  // Materializing only 'open' rows means every emitted record is open anyway, so
+  // a `result.up ? 'open' : 'unknown'` derivation would look identical on any
+  // real scan — and the case above would still pass, because it is satisfied by
+  // the filtered port's ABSENCE. This input separates the two: a row that says
+  // open on a result that says the host is down. The real scanner cannot produce
+  // it (an open row implies up), which is exactly why the pin has to be explicit
+  // — otherwise the derivation is unfalsifiable and free to rot back.
+  const raw = {
+    up: false, program: "Unknown", version: "Unknown", os: null, type: "port-scan",
+    tcpOpen: [22], tcpClosed: [], tcpFiltered: [], udpOpen: [], udpClosed: [], udpNoResponse: [],
+    data: [
+      { probe_protocol: "tcp", probe_port: 22, status: "open", probe_info: "TCP connect success (peer closed)", response_banner: null, rtt_ms: 2, error: null },
+    ],
+  };
+
+  const concluded = await conclude(raw);
+  const svc = concluded.services.find((s) => s.port === 22);
+  assert.ok(svc, "the open row must still materialize");
+  assert.equal(svc.status, "open",
+    "status must come from the row that says 'open', not from the host-level result.up flag");
 });
 
 test("port_scanner conclude(): a refused port is NOT a service — the open ports scanned after it still are", { timeout: 15000 }, async () => {
@@ -219,6 +247,32 @@ test("port_scanner conclude(): a TCP-connect discovery is labelled 'unknown', NO
   } finally {
     a.close();
   }
+});
+
+test("port_scanner conclude(): the well-known cleartext ports are labelled 'unknown' too — no port→name map", async () => {
+  // The case above binds an EPHEMERAL port (>32768), so on its own it only pins
+  // that the label is not a blanket constant — a port-keyed map like
+  // {21:'ftp', 23:'telnet', 80:'http'} would sail straight past it while doing
+  // exactly the damage the comment there warns about. The ports that matter are
+  // precisely the ones a test cannot bind unprivileged, so pin them from a
+  // port_scanner-SHAPED result instead of leaving the claim unenforceable.
+  const wellKnown = [21, 23, 25, 80, 110, 143, 389, 587];
+  const raw = {
+    up: true, program: "Unknown", version: "Unknown", os: null, type: "port-scan",
+    tcpOpen: wellKnown, tcpClosed: [], tcpFiltered: [], udpOpen: [], udpClosed: [], udpNoResponse: [],
+    data: wellKnown.map((p) => ({
+      probe_protocol: "tcp", probe_port: p, status: "open",
+      probe_info: "TCP connect success (peer closed)", response_banner: null, rtt_ms: 2, error: null,
+    })),
+  };
+
+  const concluded = await conclude(raw);
+  assert.equal(concluded.services.length, wellKnown.length, "precondition: every open row must materialize");
+  const labelled = concluded.services.filter((s) => s.service !== "unknown");
+  assert.deepEqual(labelled, [],
+    "a TCP connect on a well-known port identifies nothing — labelling these would promote every " +
+    "unfingerprinted listener out of the consumers' inferred tier and into their confident one " +
+    `(got: ${JSON.stringify(concluded.services.map((s) => ({ port: s.port, service: s.service })))})`);
 });
 
 test("port_scanner conclude(): each service carries its OWN probe row as evidence", { timeout: 15000 }, async () => {
