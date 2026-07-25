@@ -525,24 +525,25 @@ export const CAPABILITIES = {
   intelligenceEngine: { tier: 'pro' },
   riskScoring:        { tier: 'pro' },
   proAI:              { tier: 'pro' },
-  analysisAgents:     { tier: 'pro' },  // NEW: parallel agents
-  verificationEngine: { tier: 'pro' },  // NEW: probe verification
+  analysisAgents:     { tier: 'pro' },  // parallel agents
   advancedCTEM:       { tier: 'pro' },
   enhancedRedaction:  { tier: 'pro' },
   proMCP:             { tier: 'pro' },
   pdfExport:          { tier: 'pro' },
-  brandedReports:     { tier: 'pro' },
 
   // Enterprise
   cloudScanners:      { tier: 'enterprise' },
   zeroTrust:          { tier: 'enterprise' },
   complianceEngine:   { tier: 'enterprise' },
-  zdePolicyEngine:    { tier: 'enterprise' },
-  enterpriseCTEM:     { tier: 'enterprise' },
   enterpriseMCP:      { tier: 'enterprise' },
-  usageMetering:      { tier: 'enterprise' },
   airGapped:          { tier: 'enterprise' },
-  dockerIsolation:    { tier: 'enterprise' },  // NEW: per-scan containers
+  // Capability flags are printed to licensees (`license --capabilities`) and must name
+  // only capabilities that SHIP. Six were removed 2026-07-21 (capability-claim audit):
+  // verificationEngine / brandedReports / usageMetering / dockerIsolation had no
+  // implementation; zdePolicyEngine / enterpriseCTEM named no distinct engine or
+  // datastore (their real cores ship and are described in prose). Shipped set is
+  // 8 pro + 5 enterprise (+6 CE = 19 on an Enterprise license). This doc mirrors
+  // utils/capabilities.mjs — keep both in lockstep with the EE + licensing keygens.
 };
 ```
 
