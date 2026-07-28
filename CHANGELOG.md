@@ -6,6 +6,23 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.33 (2026-07-28) — Paired with EE 0.32.8: capability-claim honesty pass, part 2 (the air-gapped-delivery class)
+
+Paired with **Enterprise 0.32.8**, a documentation-and-prose release — no detection, routing, or compliance behaviour changes in either package. 0.32.7 withdrew six phantom capability *flags*; an audit of the air-gapped-delivery claims found the same class one layer down, in prose, across **22 sites** in the three published packages.
+
+**CE change this cycle — the ZDE section's air-gap claim.** *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* was false in two ways, and both are corrected:
+
+- **The absolute form.** A **default** scan attempts NVD egress unless `NSAUDITOR_OFFLINE_ONLY=1` is set. The claim is now *"Air-gappable, once configured for it"*, with the qualifier stated rather than implied: scanning, analysis, license verification and evidence-pack generation all run with no outbound network access, and the only other outbound paths — AI enrichment and the GRC push — are opt-in and off by default.
+- **"Enterprise includes offline NVD feeds."** **Withdrawn** — no feed data is delivered with the product and no pipeline produces a bundle. What Enterprise adds is the offline *query* path: CVE lookups served from a local NVD store, emitting an explicit coverage gap rather than a silent clean when the store cannot answer. Populating that store is the operator's.
+
+**New guard.** `tests/capability_claim_honesty.test.mjs` fails the build both if the absolute claim returns **and** if the honest qualifier is deleted — because withdrawing an overclaim by deletion trades one inaccuracy for another. Each withdrawn pattern carries a hand-written probe it must match, so the pattern list cannot be dead and green at the same time. Mutation-proven before landing.
+
+On the Enterprise side the same sweep found **three overclaims in runtime prose** — coverage-gap rationales that render verbatim into the assessor-facing evidence pack and instructed the reader to run a CLI command that does not exist. See the Enterprise changelog for that detail and the full 22-site table.
+
+Plugin count UNCHANGED at 28; all seven coverage matrices UNCHANGED.
+
+---
+
 ## 0.2.32 (2026-07-21) — Paired with EE 0.32.7: cross-framework routing + capability-claim honesty pass
 
 Paired with **Enterprise 0.32.7**, which does two things: the network-scan analysis agents' findings now route in **all seven compliance frameworks** (they previously reached only SOC 2 off the same scan — a host serving cleartext or exposing SMB failed SOC 2 and read clean in HIPAA / NIST / ISO / CIS / PCI / GDPR), and a **capability-claim honesty pass** withdraws several Pro/Enterprise capabilities that were advertised without a shipping implementation. See the Enterprise package for the full detail.
