@@ -8,7 +8,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## 0.2.33 (2026-07-28) — Paired with EE 0.32.8: capability-claim honesty pass, part 2 (the air-gapped-delivery class)
 
-Paired with **Enterprise 0.32.8**, a documentation-and-prose release — no detection, routing, or compliance behaviour changes in either package. 0.32.7 withdrew six phantom capability *flags*; an audit of the air-gapped-delivery claims found the same class one layer down, in prose, across **22 sites** in the three published packages.
+Paired with **Enterprise 0.32.8**, a documentation-and-prose release — no detection, routing, or compliance behaviour changes in either package. 0.32.7 withdrew six phantom capability *flags*; an audit of the air-gapped-delivery claims found the same class one layer down, in prose, across **27 sites** (distinct lines) in the three published packages.
 
 **CE change this cycle — the ZDE section's air-gap claim.** *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* was false in two ways, and both are corrected:
 
@@ -17,7 +17,7 @@ Paired with **Enterprise 0.32.8**, a documentation-and-prose release — no dete
 
 **New guard.** `tests/capability_claim_honesty.test.mjs` fails the build both if the absolute claim returns **and** if the honest qualifier is deleted — because withdrawing an overclaim by deletion trades one inaccuracy for another. Each withdrawn pattern carries a hand-written probe it must match, so the pattern list cannot be dead and green at the same time. Mutation-proven before landing.
 
-On the Enterprise side the same sweep found **three overclaims in runtime prose** — coverage-gap rationales that render verbatim into the assessor-facing evidence pack and instructed the reader to run a CLI command that does not exist. See the Enterprise changelog for that detail and the full 22-site table.
+On the Enterprise side the same sweep found **five wrong rendered runtime strings** — coverage-gap rationales that render verbatim into the assessor-facing evidence pack and instructed the reader to run a CLI command that does not exist. See the Enterprise changelog for that detail and the full 22-site table.
 
 Plugin count UNCHANGED at 28; all seven coverage matrices UNCHANGED.
 
