@@ -8,7 +8,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## 0.2.33 (2026-07-28) — Paired with EE 0.32.8: capability-claim honesty pass, part 2 (the air-gapped-delivery class)
 
-Paired with **Enterprise 0.32.8**, a documentation-and-prose release — no detection, routing, or compliance behaviour changes in either package. 0.32.7 withdrew six phantom capability *flags*; an audit of the air-gapped-delivery claims found the same class one layer down, in prose, across **27 sites** (distinct lines) in the three published packages.
+Paired with **Enterprise 0.32.8**. Mostly a documentation-and-prose release — no detection, routing, or compliance behaviour change — **plus one CLI fix found by the pre-publish smoke gate** (below).
+
+### Fix — `--out <dir>` silently wrote to the parent directory when the directory name contained a dot
+
+Running the documented command with a version-named output directory — `--out .../audit-evidence-samples/ee-0.32.8` — wrote every artifact to `.../audit-evidence-samples/` instead. Exit 0, no warning, evidence in a folder the operator did not ask for.
+
+`resolveBaseOutDir` decided file-vs-directory by asking whether the path had an extension, and `path.parse('ee-0.32.8').ext` is `'.8'`. So it treated the directory as a file and returned its parent. The same shape breaks `v1.2.3` and `release-2026.07` — and it hit the exact naming convention used for this project's own evidence archives, which is how a full three-cloud audit run surfaced it.
+
+An extension is now recognised as file-like only when it **starts with a letter** (`.json`, `.html`, `.csv`, `.sarif`). A trailing `.8` / `.07` / `.28` is a version or date component, not a file type. The documented `--out report.json` affordance is unchanged and is pinned by its own test in the opposite direction, so the fix cannot degrade into "always treat it as a directory".
+
+**Why it matters beyond the inconvenience:** a flag whose entire job is to say where the evidence goes must not put it somewhere else without saying so. Scattering artifacts into a shared parent risks mixing runs, and a silent success is worse than a failure here. 0.32.7 withdrew six phantom capability *flags*; an audit of the air-gapped-delivery claims found the same class one layer down, in prose, across **27 sites** (distinct lines) in the three published packages.
 
 **CE change this cycle — the ZDE section's air-gap claim.** *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* was false in two ways, and both are corrected:
 

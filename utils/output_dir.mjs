@@ -37,9 +37,23 @@ export function resolveBaseOutDir() {
     process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out'
   );
   const parsed = path.parse(raw);
-  // If env var pointed at a file (has an extension), use its parent dir.
-  // Otherwise treat the whole value as a directory.
-  return parsed.ext ? (parsed.dir || 'out') : (raw || 'out');
+  // If env var pointed at a FILE, use its parent dir; otherwise treat the whole
+  // value as a directory.
+  //
+  // ⚠️ "Has a dot" is NOT the same as "is a file", and reading it that way was a
+  // silent evidence-misplacement bug (found by the EE 0.32.8 pre-publish smoke
+  // gate). `path.parse('ee-0.32.8').ext` is `'.8'`, so `--out .../ee-0.32.8`
+  // resolved to `.../` and every artifact landed in the PARENT folder — exit 0,
+  // no warning, evidence scattered into a directory shared with other runs. It
+  // hit the naming convention this project uses for its own evidence archives,
+  // and the same shape breaks `v1.2.3` and `release-2026.07`.
+  //
+  // A file extension starts with a LETTER (`.json`, `.html`, `.csv`, `.sarif`).
+  // A trailing `.8` / `.07` / `.28` is a version or date component. Keying on the
+  // first character distinguishes them without guessing at a list of known
+  // extensions — and keeps the documented `--out report.json` affordance working.
+  const isFileExtension = /^\.[A-Za-z]/.test(parsed.ext);
+  return isFileExtension ? (parsed.dir || 'out') : (raw || 'out');
 }
 
 // (toCleanPath moved to utils/path_helpers.mjs in v0.1.20 — no _internals export needed.)
