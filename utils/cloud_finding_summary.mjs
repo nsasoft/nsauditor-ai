@@ -26,11 +26,19 @@ export const GAP_CLAUSE_RE =
 // Substrate-evidence PASS prose (1220/1222 push these into the same issues[] as
 // violations) — informational; never a lead clause while any alternative exists.
 const PASS_CLAUSE_RE = /substrate evidence:/i;
-// EE compliance-routing tag (e.g. 'EE-RT.1.2 multi-region-enumeration-incomplete: ')
-// leading many gap emissions — anchor plumbing for the EE framework JSONs, not
-// operator prose. Stripped at THIS presentation layer only (routing matches the
-// RAW issue strings EE-side) so the 160-char slice spends its budget on substance.
-const ROUTING_PREFIX_RE = /^EE-RT\.[\dx.]+ [a-z][a-z-]*: /;
+// EE compliance-routing tag leading many gap emissions — anchor plumbing for the EE
+// framework JSONs, not operator prose. Stripped at THIS presentation layer only (routing
+// matches the RAW issue strings EE-side) so the 160-char slice spends its budget on
+// substance; the [⚠ EVIDENCE GAP] badge already says it is a gap.
+//
+// TWO SPELLINGS, and the old one must stay. EE renamed the prefix in its A1 cycle ③ —
+// `EE-RT.1.2 multi-region-enumeration-incomplete: ` became
+// `Evidence gap (multi-region enumeration incomplete): ` — because it renders as the
+// violation TITLE in the customer's evidence pack and an internal roadmap id has no
+// business there. CE ships independently of EE and an operator can pair ANY supported EE
+// with this CE, so dropping the old alternative would leave the old prefix unstripped on
+// every paired-with-older-EE run. Recognise both.
+const ROUTING_PREFIX_RE = /^(?:EE-RT\.[\dx.]+ [a-z][a-z-]*|Evidence gap \((?:scan time budget exceeded|multi-region enumeration incomplete)\)): /;
 
 function classifyClause(s) {
   if (PASS_CLAUSE_RE.test(s)) return 'pass';

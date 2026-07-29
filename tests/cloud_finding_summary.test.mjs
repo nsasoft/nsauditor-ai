@@ -283,6 +283,22 @@ test('describeFinding strips the EE-RT routing prefix at the presentation layer 
   const d2 = describeFinding({ severity: 'info', issues: ['EE-RT.1.5.x.3 scan-time-budget-exceeded: region us-west-2 errored — posture UNVERIFIED.'] }, { prefer: 'gap' });
   assert.doesNotMatch(d2, /EE-RT/);
   assert.match(d2, /region us-west-2 errored/);
+
+  // EE's A1 cycle ③ renamed both prefixes (the old ones rendered as the violation TITLE in
+  // the customer's evidence pack). CE ships independently, so BOTH spellings must strip:
+  // the two above prove the legacy pairing still works, these two prove the current one does.
+  const d3 = describeFinding({
+    severity: 'info', details: { evidenceGap: true },
+    issues: ['Evidence gap (multi-region enumeration incomplete): KMS key enumeration truncated at page cap (5000 keys) in the scanned region(s). Keys beyond the cap were NOT audited.'],
+  }, { prefer: 'gap' });
+  assert.doesNotMatch(d3, /Evidence gap \(/);
+  assert.match(d3, /KMS key enumeration truncated/);
+  const d4 = describeFinding({
+    severity: 'info',
+    issues: ['Evidence gap (scan time budget exceeded): region us-west-2 errored — posture UNVERIFIED.'],
+  }, { prefer: 'gap' });
+  assert.doesNotMatch(d4, /Evidence gap \(/);
+  assert.match(d4, /region us-west-2 errored/);
 });
 
 test('a CRIT/HIGH gap finding EVICTED by the findings cap keeps its actionable companion (fold)', () => {
