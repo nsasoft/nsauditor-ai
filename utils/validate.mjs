@@ -57,11 +57,33 @@ export async function checkPlugins({ discover, pkgRoot = PKG_ROOT } = {}) {
     const fn = discover || (await import('./plugin_discovery.mjs')).discoverPlugins;
     const result = await fn(pkgRoot);
     const plugins = Array.isArray(result) ? result : (result?.plugins ?? []);
+    // `discoverPlugins` reads THREE sources: CE plugins under `pkgRoot`, the EE package
+    // resolved GLOBALLY (it is a separate npm package, so `pkgRoot` cannot and should not
+    // reach it), and NSAUDITOR_PLUGIN_PATH. Reporting the aggregate count beside a single
+    // `basePath` produced "28 plugins loaded / basePath: <dir>" for a directory containing
+    // NONE of them — a false report from the command an operator runs to check their install.
+    // Each plugin already carries `_source`; use it, so `basePath` describes what it counts.
+    const bySource = {};
+    for (const p of plugins) bySource[p?._source ?? 'unknown'] = (bySource[p?._source ?? 'unknown'] ?? 0) + 1;
+    const ceCount = bySource.ce ?? 0;
+    const others = Object.entries(bySource).filter(([k]) => k !== 'ce');
+    // Only claim attribution we actually have. An injected `discover` (tests, embedders) may
+    // return plugins without `_source`; asserting "0 at basePath" there would be a different
+    // false report from the one this fix removes.
+    const attributable = Object.keys(bySource).some((k) => k !== 'unknown');
+    const suffix = others.length ? ` (+ ${others.map(([k, n]) => `${n} ${k}`).join(', ')})` : '';
     return {
       name: 'plugins',
       status: STATUSES.OK,
-      message: `${plugins.length} plugin${plugins.length === 1 ? '' : 's'} loaded`,
-      details: { count: plugins.length, basePath: pkgRoot },
+      message: attributable
+        ? `${ceCount} plugin${ceCount === 1 ? '' : 's'} at basePath${suffix}`
+        : `${plugins.length} plugin${plugins.length === 1 ? '' : 's'} loaded`,
+      details: {
+        count: plugins.length,
+        basePathCount: attributable ? ceCount : plugins.length,
+        bySource,
+        basePath: pkgRoot,
+      },
     };
   } catch (err) {
     return {

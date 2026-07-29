@@ -6,6 +6,25 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.34 (2026-07-29) — Paired with EE 0.32.9: the MCP summary learns both spellings of the evidence-gap prefix
+
+EE 0.32.9 renamed the evidence-gap routing prefix — it renders as the **violation title** in the customer's evidence pack, and it used to be an internal roadmap id no auditor could resolve:
+
+```
+before:  EE-RT.1.2 multi-region-enumeration-incomplete:
+after:   Evidence gap (multi-region enumeration incomplete):
+```
+
+`ROUTING_PREFIX_RE` in `utils/cloud_finding_summary.mjs` strips that prefix at the presentation layer so the 160-character `scan_cloud` summary spends its budget on substance — and it only knew the old spelling. Without this, the summary would have re-printed ~51 characters of a prefix the `[⚠ EVIDENCE GAP]` badge already conveys.
+
+**BOTH spellings are recognised, deliberately.** CE ships independently of EE and an operator can pair any supported EE with this CE, so dropping the legacy alternative would leave the old prefix unstripped on every paired-with-older-EE run.
+
+**Also — `validate` stopped misreporting where plugins came from.** `checkPlugins` returned the AGGREGATE count across all three discovery sources beside a single `basePath`, so `nsauditor-ai validate` could say *"28 plugins loaded / basePath: <dir>"* for a directory containing none of them (the EE package is resolved globally — `pkgRoot` cannot reach it, by design). It now reports per source: `27 plugins at basePath (+ 28 ee)`, with `details.basePathCount` and `details.bySource`. When an injected `discover` returns plugins carrying no source label, the aggregate wording is kept rather than claiming an attribution we do not have.
+
+Found by the release gate: three tests had been passing **vacuously** because `@nsasoft/nsauditor-ai-ee` did not resolve from the CE dev tree, so their assertions were skipped. One of them also expected EE plugin ids in the retired 3-digit range (`020`), years after they moved to 1000+. All three now assert in both worlds.
+
+No other behaviour change. Suite 1236/1236.
+
 ## 0.2.33 (2026-07-28) — Paired with EE 0.32.8: capability-claim honesty pass, part 2 (the air-gapped-delivery class)
 
 Paired with **Enterprise 0.32.8**. Mostly a documentation-and-prose release — no detection, routing, or compliance behaviour change — **plus one CLI fix found by the pre-publish smoke gate** (below).

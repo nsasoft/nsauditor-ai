@@ -104,7 +104,10 @@ test('CE-0.1.30.3: --plugins includes EE group header only when @nsasoft/nsaudit
   if (/EE plugins/.test(r.stdout)) {
     assert.match(r.stdout, /EE plugins \(from @nsasoft\/nsauditor-ai-ee\):/);
     // At least one EE plugin (020 AWS S3 / 030 IAM / etc.) should follow.
-    assert.match(r.stdout, /^\s+(020|021|022|023|030)\s+/m);
+    // EE plugin ids reserve the 1000+ range (1020 S3 / 1030 IAM / …). This asserted the
+    // 3-digit ids EE used before that move, and passed VACUOUSLY for as long as EE did
+    // not resolve on the dev box — the `if` above skipped it entirely.
+    assert.match(r.stdout, /^\s+(1020|1021|1022|1030)\s+/m);
   }
 });
 
@@ -137,10 +140,22 @@ test('CE-0.1.30.3: capability-gated plugin shows ✗ requires: <tier> on CE-only
   // no-op (the EE group header doesn't appear). If they ARE, then on
   // CE tier they must show ✗ requires:.
   const r = runCli(['license', '--plugins']);
-  if (/EE plugins/.test(r.stdout)) {
-    // Look for at least ONE ✗ requires: line under the EE group.
-    // The exact tier name varies by plugin (some are 'pro', some 'enterprise').
-    assert.match(r.stdout, /✗ requires:\s+(pro|enterprise)/);
+  if (!/EE plugins/.test(r.stdout)) return;   // CE-only install — nothing to gate
+  // ⚠️ The resolved TIER decides which of the two shapes is correct, and the original
+  // assertion only covered one of them. On a dev box where an enterprise license resolves
+  // (from ~/.nsauditor, which runCli's env-clearing does not always reach), every EE plugin
+  // is `✓ active` and NO `✗ requires:` line exists — so this failed the moment EE resolved.
+  // Assert the gate BOTH ways: on CE tier the capability-gated plugins must be refused, and
+  // on a paid tier they must be active. Either way the gating is exercised, never skipped.
+  const tier = (r.stdout.match(/current tier:\s*(\w+)/) ?? [])[1] ?? 'ce';
+  if (tier === 'ce') {
+    assert.match(r.stdout, /✗ requires:\s+(pro|enterprise)/,
+      'on CE tier the capability-gated EE plugins must show the tier they require');
+  } else {
+    assert.match(r.stdout, /^\s+1020\s+.*✓ active/m,
+      `on tier "${tier}" the capability-gated EE plugins must be active`);
+    assert.doesNotMatch(r.stdout, /✗ requires:\s+(pro|enterprise)/,
+      `on tier "${tier}" nothing should still be refused for lack of tier`);
   }
 });
 

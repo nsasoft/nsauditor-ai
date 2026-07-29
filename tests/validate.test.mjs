@@ -397,8 +397,15 @@ test('checkPlugins: opts.pkgRoot override works for testing', async () => {
   try {
     const result = await checkPlugins({ pkgRoot: tmp });
     assert.equal(result.status, STATUSES.OK);
-    assert.equal(result.details.count, 0);
+    // `count` is the AGGREGATE across all three discovery sources, and the EE package is
+    // resolved globally — `pkgRoot` cannot reach it, by design. The property this test is
+    // for is that the override reaches the CE source, which is `basePathCount`. Asserting
+    // the aggregate was zero only held while EE happened not to resolve on the dev box; the
+    // moment it did, the test failed and exposed that `checkPlugins` was reporting
+    // "28 plugins loaded" for a directory containing none.
+    assert.equal(result.details.basePathCount, 0, 'the pkgRoot override must isolate the CE source');
     assert.equal(result.details.basePath, tmp);
+    assert.equal(result.details.bySource.ce ?? 0, 0);
   } finally {
     await fsp.rm(tmp, { recursive: true, force: true });
   }
