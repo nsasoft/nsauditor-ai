@@ -6,6 +6,14 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.35 (2026-08-03) — Paired with EE 0.32.10: a version bump, and the honest reason for it
+
+**No CE behaviour change.** This is the paired half of the Enterprise 0.32.10 cycle, published in lockstep so the two halves of the product never drift apart on the registry.
+
+What moved is on the Enterprise side, and it is worth reading if you evaluate tooling on how it treats its own instruments: the dependency-advisory gate had been auditing the maintainer's working tree while calling it the production closure. It now packs the tarball, installs it the way you would, and audits **that** — and it refuses to report a clean result unless it can first prove an advisory database actually answered. Measured on the corrected subject, the two trees shared 5 of 26 advisory packages and **zero** high-severity ones, so the number that had been reported for weeks described a tree no customer installs.
+
+Also in the paired release: the SOC 2 coverage matrix is enumerated in full (**10 / 4 / 37 = 51** — completeness, not a coverage change; no control moved status and no routing changed), the Type II documentation now says which mechanisms are reachable from a shipped entry point and which are roadmap, and every unhedged mention of a not-yet-shipping capability is off the public pages.
+
 ## 0.2.34 (2026-07-29) — Paired with EE 0.32.9: the MCP summary learns both spellings of the evidence-gap prefix
 
 EE 0.32.9 renamed the evidence-gap routing prefix — it renders as the **violation title** in the customer's evidence pack, and it used to be an internal roadmap id no auditor could resolve:
