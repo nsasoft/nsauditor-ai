@@ -887,7 +887,7 @@ export function createServer() {
           `If versions in this response don't match your shell, the response was\n` +
           `AI-generated rather than retrieved from the MCP server (see CE 0.1.33 advisory).`;
 
-        const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service, get_vulnerabilities, risk_summary, and more.'}`;
+        const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service and get_vulnerabilities.'}`;
 
         return {
           content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2) + tierSuffix + versionLines, callId) }],
