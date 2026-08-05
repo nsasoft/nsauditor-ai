@@ -7,6 +7,7 @@ import {
   handleGetVulnerabilities,
   handleListPlugins,
   toolHandlers,
+  TOOLS,
   createServer,
   validateHost,
   _setPluginManager,
@@ -257,9 +258,17 @@ describe('MCP Server — tool handlers', () => {
   // -----------------------------------------------------------------------
   // 10. toolHandlers map completeness
   // -----------------------------------------------------------------------
-  it('toolHandlers contains all four tool names', () => {
-    const expected = ['scan_host', 'probe_service', 'get_vulnerabilities', 'list_plugins'];
-    for (const name of expected) {
+  it('toolHandlers is in exact one-to-one correspondence with TOOLS', () => {
+    // Was 'contains all four tool names' over a 4-name subset while the map held six — a
+    // completeness title over a check that could not fail on an addition. The pairing is what
+    // actually matters: a TOOLS entry with no handler is advertised and dead, and a handler
+    // with no TOOLS entry is reachable and undocumented.
+    assert.deepEqual(
+      Object.keys(toolHandlers).sort(),
+      TOOLS.map((t) => t.name).sort(),
+      'every advertised tool needs a handler and every handler needs to be advertised',
+    );
+    for (const name of Object.keys(toolHandlers)) {
       assert.equal(typeof toolHandlers[name], 'function', `handler for ${name} should be a function`);
     }
   });

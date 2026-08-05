@@ -58,17 +58,35 @@ function pickClause(issues, prefer) {
   return String(issues[0]);
 }
 
-/** Robust one-line descriptor from any plugin finding shape. Never empty, never a raw object dump. */
+/**
+ * Robust one-line descriptor from any plugin finding shape. Never empty, never a raw object
+ * dump, and — since 0.32.11 — never MULTI-LINE.
+ *
+ * ⚠️ ONE-LINE IS A RENDERING CONTRACT, not tidiness. The markdown renderer emits one list
+ * item per line (`- **[TAG]** plugin: title`), so an embedded newline terminates the item and
+ * dumps the remainder as unformatted body text. Several producers build their issue as
+ * `"…:\n- alpha\n- beta"`, which is exactly the shape that breaks it, and the breakage is
+ * worst on the disclosures that matter most — a truncated scope declaration reads as a
+ * complete one.
+ *
+ * @param {object} x
+ * @param {{prefer?: 'gap', max?: number}} [opts] `max` overrides the 160-char budget for
+ *   channels whose whole purpose is to state a boundary (see the deferred-scope channel,
+ *   where a 160-char slice discloses one deferred dimension out of eight and so claims more
+ *   coverage than it has).
+ */
 export function describeFinding(x, opts = {}) {
-  if (!x || typeof x !== 'object') return String(x ?? '').slice(0, 160);
+  const max = Number.isFinite(opts.max) ? opts.max : 160;
+  const flat = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (!x || typeof x !== 'object') return flat(x).slice(0, max);
   let res = '';
   for (const k of RESOURCE_KEYS) { if (x[k]) { res = String(x[k]); break; } }
   let why = '';
   if (Array.isArray(x.issues) && x.issues.length) why = pickClause(x.issues, opts.prefer);
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
-  why = why.replace(ROUTING_PREFIX_RE, '');
-  const s = ((res ? res + ' — ' : '') + why).trim();
-  if (s) return s.length > 160 ? s.slice(0, 160).replace(/\s+\S*$/, '') + '…' : s;
+  why = flat(why).replace(ROUTING_PREFIX_RE, '');
+  const s = ((res ? flat(res) + ' — ' : '') + why).trim();
+  if (s) return s.length > max ? s.slice(0, max).replace(/\s+\S*$/, '') + '…' : s;
   const sev = String(x.severity || x.level || '').toUpperCase();
   return sev ? sev + ' finding (no description)' : 'finding (no description)';
 }
@@ -108,10 +126,26 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     // bucketed under 'unknown' rather than silently dropped (defense-in-depth against a
     // future id collision / cloudProvider drift — never let a real finding vanish).
     const prov = providerOf(r?.id ?? r?.result?.id) || UNKNOWN_PROVIDER;
-    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map() } });
+    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], deferredScope: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map(), INFO: new Map() } });
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
+      // A STATIC CAPABILITY BOUNDARY, not a per-scan gap. Its own channel, deliberately:
+      // contract-v1 §2 freezes `deferredScope` as "must NOT route as a live gap", and the
+      // 2026-06-10 operator decision unmarked these from `evidenceGap` precisely so a
+      // boundary would not fail every scan universally. Surfacing it must not undo that by
+      // the back door — so it gets a channel and a badge of its own, and never the gap badge.
+      if (x && typeof x === 'object' && x.details && x.details.deferredScope === true) {
+        bucket.deferredScope.push({
+          plugin: String(r?.id ?? ''),
+          scopeId: x.details.deferredScopeId ? String(x.details.deferredScopeId) : null,
+          category: x.details.category ? String(x.details.category) : null,
+          // A boundary statement gets a wider budget than a finding: these declarations run
+          // to several hundred characters across four to eight deferred dimensions, and a
+          // 160-char slice discloses ONE of them while reading like the whole boundary.
+          title: describeFinding(x, { max: 420 }),
+        });
+      }
       let findingEntry = null;
       if (sev === 'CRITICAL' || sev === 'HIGH') {
         findingEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) };
@@ -136,7 +170,13 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         if (findingEntry) gapEntry._findingRef = findingEntry;
         bucket.evidenceGaps.push(gapEntry);
       }
-      if ((sev === 'MEDIUM' || sev === 'LOW') && !(x && x.details && x.details.evidenceGap === true)) {
+      // INFO joined MEDIUM/LOW at 0.32.11. It was the ONLY populated tier with no channel at
+      // all: not in the header, not in findings[], not in the rollup — so on a real AWS scan
+      // 55 of 62 INFO records appeared in no summary anywhere. Records that already have a
+      // channel (evidence gaps, scope boundaries) are excluded, or the same record is counted
+      // twice and a cross-cloud roll-up becomes arithmetically wrong.
+      const hasOwnChannel = !!(x && x.details && (x.details.evidenceGap === true || x.details.deferredScope === true));
+      if ((sev === 'MEDIUM' || sev === 'LOW' || sev === 'INFO') && !hasOwnChannel) {
         const cat = (x && x.details && x.details.category)
           ? String(x.details.category)
           : `uncategorized(${String(r?.id ?? '')})`;
@@ -160,12 +200,9 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
         delete g._findingRef; // internal ref must never reach the MCP payload
       }
     }
-    b.rollup = {
-      MEDIUM: [...b._rollup.MEDIUM].map(([category, count]) => ({ category, count }))
-                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
-      LOW: [...b._rollup.LOW].map(([category, count]) => ({ category, count }))
-                .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category)),
-    };
+    const rollupOf = (tier) => [...b._rollup[tier]].map(([category, count]) => ({ category, count }))
+      .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category));
+    b.rollup = { MEDIUM: rollupOf('MEDIUM'), LOW: rollupOf('LOW'), INFO: rollupOf('INFO') };
     delete b._rollup;
   }
   return out;
@@ -208,13 +245,27 @@ export function renderCloudFindingsMarkdown(summary, providers, opts = {}) {
   for (const prov of order) {
     const b = summary[prov]; if (!b) continue;
     const c = b.counts || {};
-    lines.push(`## ${String(prov).toUpperCase()} — ${c.CRITICAL || 0} CRITICAL · ${c.HIGH || 0} HIGH · ${c.MEDIUM || 0} MEDIUM · ${c.LOW || 0} LOW · ${c.PASS || 0} PASS`);
+    // INFO is a column. It was omitted until 0.32.11, so a header could read "…0 LOW · 17
+    // PASS" over 62 unreported INFO records — the tier that carries the evidence gaps and the
+    // scope boundaries, i.e. exactly the material a reader needs to tell an incomplete scan
+    // from a clean one.
+    lines.push(`## ${String(prov).toUpperCase()} — ${c.CRITICAL || 0} CRITICAL · ${c.HIGH || 0} HIGH · ${c.MEDIUM || 0} MEDIUM · ${c.LOW || 0} LOW · ${c.INFO || 0} INFO · ${c.PASS || 0} PASS`);
     for (const f of (b.findings || [])) lines.push(`- **[${f.severity}]** ${f.plugin}: ${f.title}`);
     if (b.truncated) lines.push(`- _…CRITICAL/HIGH list truncated; see counts above for totals._`);
     for (const g of (b.evidenceGaps || [])) lines.push(`- **[⚠ EVIDENCE GAP — unverified]** ${g.plugin}: ${g.title}${g.action ? ` · actionable: ${g.action}` : ''}`);
     if (b.evidenceGapsTruncated) lines.push(`- _…evidence-gap list truncated; see LOW count for totals._`);
+    // A DISTINCT badge, and the wording is load-bearing in both directions: it must not say
+    // "gap" (that is the unverified-this-scan channel, and contract-v1 forbids routing a
+    // boundary as one), and it must not be silent (surface nobody assessed is otherwise
+    // indistinguishable from surface assessed and found clean — the cardinal class here).
+    for (const d of (b.deferredScope || [])) {
+      lines.push(`- **[🔎 SCOPE NOT ASSESSED — outside this release's evidence scope, not a finding]** ${d.plugin}: ${d.title}`);
+    }
     const drill = opts.getFindingsAvailable ? ' — drill any category via get_findings' : '';
-    for (const tier of ['MEDIUM', 'LOW']) {
+    if ((b.deferredScope || []).length && opts.getFindingsAvailable) {
+      lines.push('- _Scope declarations are abridged here; read them in full via get_findings._');
+    }
+    for (const tier of ['MEDIUM', 'LOW', 'INFO']) {
       const rows = (b.rollup && b.rollup[tier]) || [];
       if (!rows.length) continue;
       const total = c[tier] || rows.reduce((n, rr) => n + rr.count, 0);

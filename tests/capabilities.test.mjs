@@ -70,7 +70,7 @@ test('CAPABILITIES covers all expected keys', () => {
   const expected = [
     'coreScanning', 'aiAnalysis', 'basicCTEM', 'basicRedaction', 'basicMCP', 'findingQueue',
     'intelligenceEngine', 'riskScoring', 'proAI', 'analysisAgents',
-    'advancedCTEM', 'enhancedRedaction', 'proMCP', 'pdfExport',
+    'advancedCTEM', 'enhancedRedaction', 'proMCP',
     'cloudScanners', 'zeroTrust', 'complianceEngine', 'enterpriseMCP', 'airGapped',
   ];
   for (const key of expected) {
@@ -85,4 +85,52 @@ test('CAPABILITIES covers all expected keys', () => {
   for (const key of ['verificationEngine', 'brandedReports', 'usageMetering', 'dockerIsolation', 'zdePolicyEngine', 'enterpriseCTEM']) {
     assert.ok(!(key in CAPABILITIES), `CAPABILITIES must not re-add removed phantom flag: ${key}`);
   }
+});
+
+// ── 0.32.11 — N3e: A CLAIM SURFACE WITH NO TEXT TO SWEEP ─────────────────────────
+//
+// Gate-3 measured this end to end. `license --capabilities` printed bare identifiers
+// (`✓ airGapped`, `✓ pdfExport`), an assistant read the list, and — having no description to
+// quote — EXPANDED the identifier: "air-gapped deployment" (the exact phrase withdrawn from
+// the README, the skill, six web surfaces and the Marketplace listing) and "the output is
+// auditor-consumable via pdfExport" (a capability that throws 'Not implemented').
+//
+// No text sweep can catch that, because at sweep time the claim exists only as an
+// identifier. The countermeasure is to give the reader reviewed text to quote instead.
+test('every capability carries a description — an identifier alone is a claim generator', () => {
+  const missing = Object.entries(CAPABILITIES)
+    .filter(([, v]) => !v.desc || typeof v.desc !== 'string' || v.desc.trim().length < 20)
+    .map(([k]) => k);
+  assert.deepEqual(missing, [],
+    'these capabilities ship as bare identifiers, so a reader will expand the NAME: ' + missing.join(', '));
+});
+
+test('no capability description re-asserts a withdrawn claim', () => {
+  // The register is the reviewed one. `airGapped` is the live trap: offline OPERATION ships;
+  // "air-gapped deployment" (a delivery mechanism — an offline tarball, an install script)
+  // was withdrawn. A description written by expanding the identifier would re-mint it.
+  const WITHDRAWN = [
+    /air[- ]?gapped (?:deployment|install|installation)/i,
+    /offline (?:installation )?tarball/i,
+    /\brfc[- ]?3161\b/i,
+    /\bed25519\b/i,
+    /verification engine|active (?:safe )?probe/i,
+    /\bpdf export\b|\bbranded report/i,
+  ];
+  const hits = [];
+  for (const [name, v] of Object.entries(CAPABILITIES)) {
+    for (const re of WITHDRAWN) {
+      if (re.test(v.desc || '')) hits.push(`${name}: ${re}`);
+    }
+  }
+  assert.deepEqual(hits, [], 'a withdrawn claim was re-introduced through a capability description:\n' + hits.join('\n'));
+  // POSITIVE CONTROL — the pattern list must be able to fire, or the zero above means nothing.
+  assert.ok(WITHDRAWN.some((re) => re.test('supports air-gapped deployment via an offline tarball')),
+    'the withdrawn-claim patterns match nothing — this assertion is vacuous');
+});
+
+test('pdfExport is gone from the registry', () => {
+  assert.ok(!('pdfExport' in CAPABILITIES),
+    'pdfExport is registered again — it has no reader, no implementation, and Gate-3 caught it ' +
+    'being retold to a customer as a shipped capability');
 });

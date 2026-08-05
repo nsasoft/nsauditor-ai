@@ -965,7 +965,14 @@ Scan options:
   --fail-on <severity>         Exit non-zero if any finding ≥ severity
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
-  --watch                      CTEM continuous mode
+  --watch                      CTEM continuous ALERTING mode: re-scan on --interval,
+                               diff against the previous cycle, fire --webhook-url when a
+                               change crosses --alert-severity. NOT an evidence cadence —
+                               it adds no retention or cross-run aggregation, skips SARIF/
+                               CSV/Markdown output and --fail-on, and dies with this process.
+                               Each tick is an ordinary scan, so with --compliance it writes
+                               that tick's artifacts; nothing relates them across ticks. For
+                               SOC 2 Type II history use a scheduler (cron/systemd/CI).
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send delta alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
@@ -1173,12 +1180,22 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log(`  nsauditor-ai (CE):              ${TOOL_VERSION}`);
       console.log(`  @nsasoft/nsauditor-ai-ee (EE):  ${_eeVersion}`);
     } else if (rawArgs.includes('--capabilities')) {
+      const { CAPABILITIES } = await import('./utils/capabilities.mjs');
       const tier = getTierFromEnv();
       const caps = resolveCapabilities(tier);
       console.log(`Active capabilities for tier: ${tier}\n`);
+      // ⚠️ PRINT THE DESCRIPTION, NOT JUST THE NAME. This list is read back by assistants,
+      // and a bare identifier is a claim with no text behind it: `✓ airGapped` was expanded
+      // into "air-gapped deployment" — a withdrawn phrase — and `✓ pdfExport` into "the
+      // output is auditor-consumable via pdfExport", for a function that throws. A reader
+      // given reviewed text quotes it; a reader given an identifier invents one.
       for (const [name, enabled] of Object.entries(caps)) {
+        const desc = CAPABILITIES[name] && CAPABILITIES[name].desc;
         console.log(`  ${enabled ? '✓' : '✗'} ${name}`);
+        if (desc) console.log(`      ${desc}`);
       }
+      console.log('\nEach line above states what the capability DOES. Quote these descriptions '
+        + 'rather than expanding the flag name — the name is an identifier, not a claim.');
     } else if (rawArgs.includes('--plugins')) {
       // CE-0.1.30.3 — real enumeration of discovered plugins, grouped by
       // source (CE / EE / custom NSAUDITOR_PLUGIN_PATH). Pre-fix this

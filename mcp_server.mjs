@@ -29,6 +29,8 @@ import { resolveCapabilities } from './utils/capabilities.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
 import { summarizeCloudFindings, renderCloudFindingsMarkdown, describeFinding, RESOURCE_KEYS } from './utils/cloud_finding_summary.mjs';
 import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
+import _nodeFs from 'node:fs';
+import _nodePath from 'node:path';
 
 const _require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = _require('./package.json');
@@ -265,6 +267,22 @@ export const TOOLS = [
       cursor: { type: 'string', description: 'Pagination cursor from a previous nextCursor.' },
       limit: { type: 'number', description: `Page size (server-capped at ${GET_FINDINGS_MAX_LIMIT}).` },
     } },
+  },
+  {
+    name: 'compliance_matrix',
+    description:
+      'Return the SHIPPED compliance coverage matrix for a framework — how many controls are Covered, Partial and Out of Scope, with the control ids and the per-group out-of-scope reasons. Frameworks: soc2, hipaa, nist-csf, pci-dss, iso-27001, cis-v8, gdpr (GDPR is Article 32 security-of-processing substrate ONLY, never "GDPR compliance"), or "all" for the counts across every framework. ALWAYS call this tool before stating or tabulating any coverage matrix, and quote the numbers it returns verbatim. Do NOT derive a matrix from the plugin inventory, from a scan result, or from documentation — coverage is a property of the shipped framework maps, not of the plugin list, and a derived matrix will disagree with the customer\'s own report. Note that outOfScope is the FLATTENED sub-criterion count; the out-of-scope groups are fewer than the controls they contain.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        framework: {
+          type: 'string',
+          enum: ['soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr', 'all'],
+          description: 'Which framework matrix to return. Omit or pass "all" for the counts across all seven.',
+        },
+      },
+      required: [],
+    },
   },
   {
     name: 'probe_service',
@@ -638,6 +656,93 @@ export async function handleListPlugins() {
 }
 
 /** Map tool name to handler. Exported for testing. */
+// ---------------------------------------------------------------------------
+// compliance_matrix — the SHIPPED coverage matrix, derived at call time.
+//
+// Gate-3 prompt 5 published a wrong SOC 2 matrix (5/18/38 = 61 against a shipped
+// 10/4/37 = 51) and its own note gave the reason: "No MCP tool returns the coverage
+// matrix." With no authoritative surface, an assistant asked for an exact matrix will
+// derive one from whatever it CAN see — here, the plugin inventory. This tool does not
+// supply knowledge; it removes the option to synthesise.
+//
+// TWO RULES, both load-bearing:
+//   1. DERIVE, never transcribe. The numbers are read out of the shipped framework JSON on
+//      every call. A constant here would rot exactly like the transcribed matrices this repo
+//      keeps catching — inside the instrument built to stop them.
+//   2. FAIL CLOSED. `plugin_discovery.mjs` swallows an unresolvable EE into `catch {}` so CE
+//      runs standalone, and copying that here would answer "no matrix" — which is precisely
+//      the void an assistant fills with a synthesised one.
+const FRAMEWORK_STEMS = ['soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr'];
+
+function _defaultResolveEE() {
+  // `@nsasoft/nsauditor-ai-ee/data/compliance/*.json` is NOT importable — EE's `exports` map
+  // publishes ./plugins/*, ./utils/*, ./agents/*, ./mcp/* and no ./data/*, so a direct
+  // specifier throws ERR_PACKAGE_PATH_NOT_EXPORTED even though `files[]` ships the directory.
+  // Resolve the manifest and path-join, the same way plugin_discovery.mjs finds ./plugins.
+  return _nodePath.dirname(_require.resolve('@nsasoft/nsauditor-ai-ee/package.json'));
+}
+
+function _readFrameworkSummary(eeRoot, stem) {
+  const file = _nodePath.join(eeRoot, 'data', 'compliance', `${stem}.json`);
+  const raw = JSON.parse(_nodeFs.readFileSync(file, 'utf8'));
+  const cs = raw.coverageSummary || {};
+  const covered = Array.isArray(cs.covered) ? cs.covered : [];
+  const partial = Array.isArray(cs.partial) ? cs.partial : [];
+  const groups = Array.isArray(cs.outOfScope) ? cs.outOfScope : [];
+  // ⚠️ `outOfScope` is an array of GROUPS ({ids, title, reason}), not of ids. soc2's 11
+  // groups flatten to 37 ids; publishing `groups.length` yields a plausible-looking 10/4/11.
+  const oosIds = groups.reduce((n, g) => n + (Array.isArray(g.ids) ? g.ids.length : 0), 0);
+  return {
+    framework: stem,
+    label: raw.frameworkLabel || raw.framework || stem,
+    version: raw.version || null,
+    covered: covered.length,
+    partial: partial.length,
+    outOfScope: oosIds,
+    total: covered.length + partial.length + oosIds,
+    coveredIds: covered,
+    partialIds: partial,
+    outOfScopeGroups: groups.map((g) => ({ ids: g.ids || [], title: g.title || null, reason: g.reason || null })),
+  };
+}
+
+export async function handleComplianceMatrix(args = {}) {
+  const which = args.framework == null ? 'all' : String(args.framework);
+  if (which !== 'all' && !FRAMEWORK_STEMS.includes(which)) {
+    throw new Error(`unknown framework '${which}' (valid: ${FRAMEWORK_STEMS.join(', ')}, all)`);
+  }
+  const resolveEE = typeof args._resolveEE === 'function' ? args._resolveEE : _defaultResolveEE;
+  let eeRoot;
+  try {
+    eeRoot = resolveEE();
+  } catch {
+    throw new Error(
+      'The compliance coverage matrix is shipped with the Enterprise plugin pack, and ' +
+      '@nsasoft/nsauditor-ai-ee is not installed / not resolvable from this server. ' +
+      'Install it (npm i -g @nsasoft/nsauditor-ai-ee) and restart the MCP server. ' +
+      'Do NOT reconstruct the matrix from the plugin inventory or from documentation — ' +
+      'coverage is a property of the shipped framework maps, not of the plugin list.',
+    );
+  }
+
+  if (which !== 'all') return _readFrameworkSummary(eeRoot, which);
+
+  // The all-frameworks view drops the per-group `reason` prose: keeping it for all seven is
+  // ~52 KB against a ~10 KB per-response norm here, and a response an assistant truncates is
+  // a response an assistant partially synthesises.
+  const frameworks = {};
+  for (const stem of FRAMEWORK_STEMS) {
+    const { coveredIds, partialIds, outOfScopeGroups, ...counts } = _readFrameworkSummary(eeRoot, stem);
+    frameworks[stem] = counts;
+  }
+  return {
+    frameworks,
+    note: 'Counts are derived from the shipped data/compliance/<framework>.json coverageSummary at call time. ' +
+      'outOfScope is the FLATTENED sub-criterion count, not the number of out-of-scope groups. ' +
+      'Call this tool with a single framework to get the control ids and the per-group out-of-scope reasons.',
+  };
+}
+
 export const toolHandlers = {
   scan_host: handleScanHost,
   scan_cloud: handleScanCloud,
@@ -645,6 +750,7 @@ export const toolHandlers = {
   probe_service: handleProbeService,
   get_vulnerabilities: handleGetVulnerabilities,
   list_plugins: handleListPlugins,
+  compliance_matrix: handleComplianceMatrix,
 };
 
 // ---------------------------------------------------------------------------

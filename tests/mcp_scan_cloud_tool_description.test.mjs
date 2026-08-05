@@ -18,11 +18,17 @@ function scanCloudTool() {
 }
 
 test('TOOLS is exported and contains the full tool set', () => {
+  // ⚠️ THIS WAS A SUBSET CHECK WEARING A COMPLETENESS TITLE (fixed 0.32.11). It listed five
+  // names and asserted `includes` — so it omitted `get_findings`, which already shipped, and
+  // no addition could ever fail it. The MCP tool list is the customer's whole view of this
+  // server; a tool appearing or vanishing unannounced is exactly what a pin is for. Equality,
+  // sorted, both directions.
   assert.ok(Array.isArray(TOOLS));
-  const names = TOOLS.map((t) => t.name);
-  for (const n of ['scan_host', 'scan_cloud', 'probe_service', 'get_vulnerabilities', 'list_plugins']) {
-    assert.ok(names.includes(n), `tool ${n} present`);
-  }
+  assert.deepEqual(
+    TOOLS.map((t) => t.name).sort(),
+    ['compliance_matrix', 'get_findings', 'get_vulnerabilities', 'list_plugins', 'probe_service', 'scan_cloud', 'scan_host'],
+    'the exported MCP tool set changed — update this pin deliberately, in the same commit',
+  );
 });
 
 test('scan_cloud description enumerates AWS service coverage (routing surface)', () => {

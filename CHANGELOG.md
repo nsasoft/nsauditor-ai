@@ -6,6 +6,37 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.36 (2026-08-05) — Paired with EE 0.32.11: the summary stops hiding its own scope limits, and a new MCP tool removes the reason to invent a matrix
+
+This is a substantive CE release, not a lockstep bump. Every item was driven by the Desktop-MCP Gate-3 battery.
+
+### `scan_cloud`'s summary was dropping a whole tier
+
+`renderCloudFindingsMarkdown` rendered `CRITICAL · HIGH · MEDIUM · LOW · PASS`. **INFO was not a column**, `findings[]` admitted only CRITICAL/HIGH, and the rollup only MEDIUM/LOW — so on a real AWS scan **55 of 62 INFO records appeared in no summary anywhere**. Several were `deferredScope` declarations, the EE contract marker that exists so a customer can tell *not assessed* from *assessed and clean*. The plugins emitted them correctly; this layer dropped them.
+
+- **INFO is a header column and rolls up by category.** Records with their own channel (evidence gaps, scope boundaries) are excluded from the rollup so a cross-cloud roll-up cannot double-count them.
+- **`findingsSummary[provider].deferredScope[]` is new** (additive), rendered under `[🔎 SCOPE NOT ASSESSED]` — deliberately NOT the evidence-gap badge, which would re-assert the routing claim EE's contract forbids for a static boundary.
+- **`describeFinding` collapses whitespace.** Producers build these declarations as `"…:\n- alpha\n- beta"`, and the renderer emits one list item per line, so an embedded newline terminated the item and dumped the rest as unformatted text — a truncated disclosure reading as a complete one. It also takes an optional `max`, because a 160-character slice of an eight-dimension boundary discloses one dimension and looks like the whole boundary.
+
+### NEW MCP tool: `compliance_matrix`
+
+Asked for the SOC 2 coverage matrix, an assistant with no authoritative surface built one from the plugin inventory and published 5 / 18 / 38 = 61 against a shipped 10 / 4 / 37 = 51. `compliance_matrix` returns any of the seven frameworks (or all seven), **derived from the shipped EE framework JSON at call time, never a constant**, and **fails closed** with an explicit "Enterprise pack not installed" rather than an empty matrix — an empty matrix is the void a synthesised one fills. `outOfScope` is the **flattened** sub-criterion count, not the group count.
+
+### `pdfExport` withdrawn, and every capability now has a description
+
+`pdfExport` was registered and minted while nothing implemented or read it. Gone. More durably: `CAPABILITIES` entries now carry a `desc`, and `license --capabilities` prints it. Bare identifiers are a claim surface with no text to sweep — a reader with nothing to quote expands the NAME, which is how `airGapped` became "air-gapped deployment", a withdrawn phrase.
+
+### `--watch` is described honestly, including the part the first correction got wrong
+
+`--watch` is a CTEM **alerting** loop. But "writes no evidence artifacts" is false: `opts.compliance` is set before the watch branch and each tick runs an ordinary scan, so `--watch --compliance <fw> --out <dir>` writes that tick's artifacts. The register now says what is actually missing — no retention, no cross-run aggregation, no period sampling, and SARIF/CSV/Markdown and `--fail-on` are skipped. The artifacts are not the missing piece; the relation between them is.
+
+### Also
+
+- Two MCP guards that could not fail are now equality pins — one listed five tool names and asserted `includes` while six shipped; the other checked four of six handlers. Both were completeness titles over subset checks.
+- `tests/license.test.mjs` no longer asserts a withdrawn capability is present in a frozen fixture JWT. That assertion kept passing after the flag was removed everywhere — a green assertion, inside the suite, asserting a phantom is still minted.
+
+---
+
 ## 0.2.35 (2026-08-03) — Paired with EE 0.32.10: a version bump, and the honest reason for it
 
 **No CE behaviour change.** This is the paired half of the Enterprise 0.32.10 cycle, published in lockstep so the two halves of the product never drift apart on the registry.

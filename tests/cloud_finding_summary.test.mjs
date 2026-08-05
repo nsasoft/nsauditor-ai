@@ -390,3 +390,104 @@ test('evidenceGaps carry gapKind from details.walkthroughRequired (absent -> cou
   assert.equal(s.aws.evidenceGaps[0].gapKind, 'walkthrough-required');
   assert.equal(s.aws.evidenceGaps[1].gapKind, 'couldnt-read');   // absent -> fail-close default
 });
+
+// ── 0.32.11: THE INFO TIER AND THE deferredScope MARKER WERE INVISIBLE ────────────
+//
+// Gate-3 (2026-08-05) found that of AWS's 62 INFO findings, ~7 were the evidence gaps
+// already reported and the other ~55 appeared in NO summary at all — several of them
+// `deferredScope` declarations ("S3 Multi-Region Access Points not evaluated", "DynamoDB
+// multi-region table enumeration deferred"). The open question was whether the assistant
+// summarised badly or the PRODUCT's own summary hid its scope limitations.
+//
+// Measured by driving this module: the header renders CRITICAL·HIGH·MEDIUM·LOW·PASS with
+// INFO absent as a COLUMN, `findings[]` admits only CRITICAL/HIGH, the rollup admits only
+// MEDIUM/LOW, and only `details.evidenceGap === true` reaches `evidenceGaps[]`. A
+// deferredScope INFO finding was counted at the counts line and then rendered by no branch.
+// So it is the product, and `deferredScope` is a contract-v1 FROZEN marker whose entire
+// purpose is to let a customer tell *not assessed* from *assessed and clean*.
+
+test('INFO is a column in the rendered header — a tier that exists must be countable', () => {
+  const results = [{ id: '1060', result: { findings: [
+    { severity: 'INFO', resource: 'r1', issues: ['an informational observation'], details: { category: 'obs' } },
+    { severity: 'CRITICAL', resource: 'r2', issues: ['a real problem'], details: { category: 'bad' } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  const header = md.split('\n')[0];
+  assert.match(header, /1 INFO/,
+    'the header omitted the INFO tier while 1 INFO finding existed — the summary reports ' +
+    'fewer findings than the scan emitted, which is how a third of a scan goes missing');
+  assert.match(header, /1 CRITICAL/); // positive control: the header is really being read
+});
+
+test('deferredScope declarations reach the summary — "not assessed" must not read as "clean"', () => {
+  const results = [{ id: '1060', result: { findings: [
+    { severity: 'INFO', resource: 'dynamodb:account',
+      issues: ['Deferred scope (auditor walkthrough recommended) — multi-region table enumeration is not evaluated in this release.'],
+      details: { category: 'dynamodb-scope-deferred-v1', deferredScope: true, deferredScopeId: 'EE-RT.2' } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.deferredScope.length, 1, 'the structured payload must carry a deferredScope surface');
+  assert.match(s.aws.deferredScope[0].title, /multi-region table enumeration/);
+
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  assert.match(md, /multi-region table enumeration/,
+    'a declaration of what was NOT assessed is absent from the rendered summary — the ' +
+    'report reads more complete than the scan was');
+});
+
+test('a deferredScope declaration is NOT badged as an evidence gap', () => {
+  // contract-v1 §2: `deferredScope` "must NOT route as a live gap". The 2026-06-10 operator
+  // decision deliberately UNMARKED these from evidenceGap because a capability boundary
+  // routed would fail every scan universally. Surfacing must not undo that by the back door —
+  // badging a static boundary "⚠ EVIDENCE GAP — unverified" re-asserts exactly the claim the
+  // unmarking removed.
+  const results = [{ id: '1060', result: { findings: [
+    { severity: 'INFO', resource: 'r', issues: ['Deferred scope — X is not evaluated.'],
+      details: { category: 'c', deferredScope: true, deferredScopeId: 'EE-RT.2' } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.evidenceGaps.length, 0, 'a deferredScope finding must not enter the evidenceGaps channel');
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  assert.ok(!/EVIDENCE GAP[^\n]*X is not evaluated/.test(md),
+    'the boundary was rendered under the evidence-gap badge');
+});
+
+test('a multi-line issue does not break the markdown list', () => {
+  // Five of the nine deferredScope producers build the issue as "…—\n- bullet\n- bullet".
+  // The render loop emits one list item per line, so an embedded newline terminates the item
+  // and dumps the rest as unformatted body text.
+  const results = [{ id: '1130', result: { findings: [
+    { severity: 'INFO', resource: 'v', issues: ['Deferred scope — the following are not evaluated:\n- alpha\n- beta'],
+      details: { category: 'c', deferredScope: true, deferredScopeId: 'EE-RT.12' } },
+  ] } }];
+  const md = renderCloudFindingsMarkdown(summarizeCloudFindings(results, () => 'aws'), ['aws']);
+  const scopeLines = md.split('\n').filter((l) => /alpha/.test(l));
+  assert.equal(scopeLines.length, 1, 'the declaration spilled across lines and broke the list');
+  assert.ok(/^- /.test(scopeLines[0]), 'the spilled remainder is no longer a list item');
+});
+
+test('the INFO tier rolls up by category so 55 observations are visible without 55 lines', () => {
+  const findings = Array.from({ length: 12 }, (_, i) => ({
+    severity: 'INFO', resource: 'r' + i, issues: ['obs ' + i],
+    details: { category: i < 8 ? 'kms-key-note' : 'lifecycle-note' },
+  }));
+  const s = summarizeCloudFindings([{ id: '1070', result: { findings } }], () => 'aws');
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  assert.match(md, /kms-key-note ×8/);
+  assert.match(md, /lifecycle-note ×4/);
+});
+
+test('an INFO evidence gap still reaches the gap channel and is not double-counted in the rollup', () => {
+  const results = [{ id: '1030', result: { findings: [
+    { severity: 'INFO', resource: 'g', issues: ['Evidence gap: could not read the policy'],
+      details: { category: 'gap', evidenceGap: true } },
+    { severity: 'INFO', resource: 'o', issues: ['plain observation'], details: { category: 'obs' } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'aws');
+  assert.equal(s.aws.evidenceGaps.length, 1);
+  const info = (s.aws.rollup.INFO || []).map((r) => r.category);
+  assert.deepEqual(info, ['obs'],
+    'an evidence gap was rolled up as an ordinary observation as well as badged — the same ' +
+    'record counted on two channels is how a cross-cloud roll-up becomes arithmetically wrong');
+});

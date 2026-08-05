@@ -130,8 +130,14 @@ describe('loadLicense', () => {
     assert.ok(result.licenseId.startsWith('lic_'));
     assert.ok(Array.isArray(result.capabilities));
     assert.ok(result.capabilities.includes('intelligenceEngine'));
-    assert.ok(result.capabilities.includes('pdfExport'));
-    // brandedReports removed 2026-07-21 (capability claim audit) — no longer minted.
+    // ⚠️ THIS FIXTURE IS A FROZEN JWT, SO ITS CLAIM LIST IS HISTORY, NOT POLICY.
+    // `loadLicense` returns `payload.capabilities` verbatim — the array signed into this
+    // fixture — so an assertion here says what was minted WHEN THE FIXTURE WAS MADE, never
+    // what the registry mints today. Until 0.32.11 this line read
+    // `assert.ok(result.capabilities.includes('pdfExport'))`, and it kept passing after
+    // pdfExport was withdrawn everywhere: a green assertion, inside the suite, asserting the
+    // phantom is still minted. That is the unfalsifiable-assertion class — read the FIXTURE
+    // for verifier behaviour, and the registry (tests/capabilities.test.mjs) for policy.
     assert.ok(!result.capabilities.includes('brandedReports'));
     assert.ok(!result.capabilities.includes('verificationEngine'));
     assert.ok(result.expiresAt);
