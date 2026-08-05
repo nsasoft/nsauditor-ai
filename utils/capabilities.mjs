@@ -26,8 +26,8 @@ export const CAPABILITIES = {
   aiAnalysis:         { tier: 'ce', desc: 'AI analysis of scan output via any configured provider (OpenAI / Claude / Ollama), basic prompts.' },
   basicCTEM:          { tier: 'ce', desc: 'Continuous watch mode: interval re-scan, delta report, webhook alert. An ALERTING loop — it adds no evidence retention or cross-run aggregation.' },
   basicRedaction:     { tier: 'ce', desc: 'Redaction of secrets and identifiers from AI prompt payloads before egress.' },
-  basicMCP:           { tier: 'ce', desc: 'MCP tools scan_host and list_plugins.' },
-  findingQueue:       { tier: 'ce', desc: 'Structured finding queue written alongside the scan output.' },
+  basicMCP:           { tier: 'ce', desc: 'MCP tools scan_host, list_plugins and compliance_matrix (the coverage matrix is ungated — it reports what the installed framework maps say).' },
+  findingQueue:       { tier: 'ce', desc: 'The finding-queue data structure. NOTE: the persisted scan_finding_queue.json artifact is written by the Enterprise plugin pack behind the Pro-tier intelligenceEngine gate, so a CE-only install has the structure and not the file.' },
 
   // Pro
   intelligenceEngine: { tier: 'pro', desc: 'Offline CPE generation and NVD CVE matching against detected services.' },

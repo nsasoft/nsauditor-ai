@@ -70,7 +70,7 @@ function requireProCapability(toolName) {
   return {
     content: [{
       type: 'text',
-      text: `🔒 **${toolName}** requires a Pro license.\n\nView Pro/Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins`,
+      text: `🔒 **${toolName}** requires a Pro license.\n\nView Pro/Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins, compliance_matrix`,
     }],
     isError: true,
   };
@@ -81,7 +81,7 @@ export function requireEnterpriseCapability(toolName) {
   return {
     content: [{
       type: 'text',
-      text: `🔒 **${toolName}** (cloud account auditing) requires an Enterprise license.\n\nView Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins`,
+      text: `🔒 **${toolName}** (cloud account auditing) requires an Enterprise license.\n\nView Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins, compliance_matrix`,
     }],
     isError: true,
   };
