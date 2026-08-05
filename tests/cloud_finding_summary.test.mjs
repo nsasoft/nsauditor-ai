@@ -461,10 +461,21 @@ test('a multi-line issue does not break the markdown list', () => {
     { severity: 'INFO', resource: 'v', issues: ['Deferred scope — the following are not evaluated:\n- alpha\n- beta'],
       details: { category: 'c', deferredScope: true, deferredScopeId: 'EE-RT.12' } },
   ] } }];
-  const md = renderCloudFindingsMarkdown(summarizeCloudFindings(results, () => 'aws'), ['aws']);
-  const scopeLines = md.split('\n').filter((l) => /alpha/.test(l));
-  assert.equal(scopeLines.length, 1, 'the declaration spilled across lines and broke the list');
-  assert.ok(/^- /.test(scopeLines[0]), 'the spilled remainder is no longer a list item');
+  const s = summarizeCloudFindings(results, () => 'aws');
+  const md = renderCloudFindingsMarkdown(s, ['aws']);
+  // ⚠️ ASSERT CO-LOCATION, NOT LINE COUNT (fixed at review). The first version filtered lines
+  // matching /alpha/ and asserted exactly one — but under the very mutant it names ("- alpha"
+  // spilled onto its own line) that filter STILL returns exactly one line, which even starts
+  // with "- ". The test passed under its own defect. What actually breaks is that the badge
+  // and its content stop sharing a line.
+  const badgeLine = md.split('\n').find((l) => /SCOPE NOT ASSESSED/.test(l));
+  assert.ok(badgeLine, 'positive control: the scope badge must be rendered at all');
+  assert.match(badgeLine, /alpha/,
+    'the declaration spilled across lines: the badge is detached from its content, so the ' +
+    'remainder renders as unformatted body text and a truncated disclosure reads as a whole one');
+  assert.match(badgeLine, /beta/);
+  assert.ok(!/\n/.test(s.aws.deferredScope[0].title),
+    'the structured payload still carries embedded newlines — the renderer is not the only consumer');
 });
 
 test('the INFO tier rolls up by category so 55 observations are visible without 55 lines', () => {

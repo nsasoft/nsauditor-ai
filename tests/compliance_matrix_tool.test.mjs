@@ -110,3 +110,45 @@ test('an unknown framework is rejected by name, not silently defaulted', async (
   assert.ok(err, 'an unknown framework was accepted');
   assert.match(err.message, /sox/);
 });
+
+// ── ADDED AT REVIEW — the two legs the first version could not express ────────────
+//
+// 'the numbers are DERIVED … not transcribed' re-reads the SAME file the handler reads, so a
+// hard-coded constant matching today's shipped values passes it. That is a drift detector, not
+// a derivation proof. The discriminating leg points the handler at a DIFFERENT root and
+// requires it to report THAT root's numbers.
+test('a constant cannot pass: the handler reports the numbers of the root it was given', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ee-fixture-'));
+  fs.mkdirSync(path.join(root, 'data', 'compliance'), { recursive: true });
+  // Deliberately NOT the shipped triple — 2 / 1 / 3 = 6.
+  fs.writeFileSync(path.join(root, 'data', 'compliance', 'soc2.json'), JSON.stringify({
+    framework: 'soc2', frameworkLabel: 'FIXTURE', version: '0', controls: {},
+    coverageSummary: {
+      covered: ['X1', 'X2'], partial: ['Y1'],
+      outOfScope: [{ ids: ['Z1', 'Z2'], title: 't', reason: 'r' }, { ids: ['Z3'], title: 't2', reason: 'r2' }],
+    },
+  }));
+  const m = await handleComplianceMatrix({ framework: 'soc2', _resolveEE: () => root });
+  assert.equal(m.covered, 2);
+  assert.equal(m.partial, 1);
+  assert.equal(m.outOfScope, 3, 'the OOS ids of the GIVEN root must be flattened, not the shipped ones');
+  assert.equal(m.total, 6, 'a constant matching the shipped 10/4/37=51 would fail here');
+});
+
+test('FAILS CLOSED on a framework file that parses but carries no usable coverageSummary', async () => {
+  // Every default in the reader degrades to [], so this used to publish 0 / 0 / 0 with the same
+  // authority as a real matrix — over a framework whose file was simply unreadable. A tool built
+  // to stop an assistant synthesising a matrix must not hand it a zero to synthesise around.
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ee-empty-'));
+  fs.mkdirSync(path.join(root, 'data', 'compliance'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'data', 'compliance', 'soc2.json'), JSON.stringify({ framework: 'soc2' }));
+  const err = await handleComplianceMatrix({ framework: 'soc2', _resolveEE: () => root }).then(() => null, (e) => e);
+  assert.ok(err, 'the handler returned a 0/0/0 matrix instead of refusing');
+  assert.match(err.message, /NOT a framework with zero coverage/);
+});

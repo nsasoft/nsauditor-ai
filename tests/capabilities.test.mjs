@@ -109,24 +109,54 @@ test('no capability description re-asserts a withdrawn claim', () => {
   // The register is the reviewed one. `airGapped` is the live trap: offline OPERATION ships;
   // "air-gapped deployment" (a delivery mechanism — an offline tarball, an install script)
   // was withdrawn. A description written by expanding the identifier would re-mint it.
+  //
+  // ⚠️ EACH ENTRY CARRIES ITS OWN PROBE, and every probe is asserted to fire (added at review).
+  // The first version hand-wrote six patterns and gave them ONE positive control, which
+  // exercised two of the six — so four could have been dead and the clean result would have
+  // read identically. This is a hand-written twin of EE scripts/claim_surface_patterns.mjs;
+  // when a family is withdrawn THERE, port it HERE, because these descriptions are printed to
+  // customers by `license --capabilities` and no other guard reads them (EE's honesty test is
+  // scoped to six hand-listed docs, and gate:claims sweeps web roots).
   const WITHDRAWN = [
-    /air[- ]?gapped (?:deployment|install|installation)/i,
-    /offline (?:installation )?tarball/i,
-    /\brfc[- ]?3161\b/i,
-    /\bed25519\b/i,
-    /verification engine|active (?:safe )?probe/i,
-    /\bpdf export\b|\bbranded report/i,
+    { id: 'airgap-deployment', re: /air[- ]?gapped (?:deployment|install|installation|delivery)/i,
+      probe: 'supports air-gapped deployment' },
+    { id: 'offline-install-tarball', re: /offline (?:installation |install )?tarball/i,
+      probe: 'ships an offline installation tarball' },
+    { id: 'install-script', re: /air[- ]?gapped install script|offline install script/i,
+      probe: 'an air-gapped install script is provided' },
+    { id: 'rfc-3161', re: /\brfc[- ]?3161\b/i, probe: 'RFC 3161 timestamps on every report' },
+    { id: 'trusted-timestamp', re: /trusted timestamp|timestamp authority|\bTSA\b/i,
+      probe: 'trusted timestamping via a Time-Stamp Authority' },
+    { id: 'ed25519', re: /\bed25519\b/i, probe: 'Ed25519 attestation of every artifact' },
+    { id: 'suppression-signing', re: /suppression[ -](?:signing|signature)|signed suppressions?\b/i,
+      probe: 'cryptographically signed suppressions' },
+    { id: 'clock-attestation', re: /(?:NTP )?clock attestation/i, probe: 'NTP clock attestation on every report' },
+    { id: 'verification-engine', re: /verification engine|verification probe|active (?:safe )?probe|probe[- ]confirmed/i,
+      probe: 'runs a safe verification probe per finding' },
+    { id: 'branded-reports', re: /branded report|\bpdf export\b|white[- ]?label/i,
+      probe: 'branded reports and PDF export' },
+    { id: 'docker-isolation', re: /docker isolation|per[- ]scan (?:container|isolation)|read-only filesystem/i,
+      probe: 'per-scan Docker isolation' },
+    { id: 'nvd-feed-bundles', re: /monthly (?:NVD )?feed bundles?|feed bundle/i,
+      probe: 'monthly NVD feed bundles' },
+    { id: 'arm64-image', re: /\barm64\b/i, probe: 'arm64 images are published' },
+    { id: 'multi-tenant', re: /multi[- ]tenant|native push|live sync/i,
+      probe: 'multi-tenant safe with native push and live sync' },
   ];
+
+  // POSITIVE CONTROL, PER ENTRY. A pattern that matches nothing is an exemption nobody
+  // exercises, and that is how a real claim gets waved through later.
+  const dead = WITHDRAWN.filter((w) => !w.re.test(w.probe)).map((w) => w.id);
+  assert.deepEqual(dead, [], 'these withdrawn-claim patterns match their own probe: ' + dead.join(', '));
+
   const hits = [];
   for (const [name, v] of Object.entries(CAPABILITIES)) {
-    for (const re of WITHDRAWN) {
-      if (re.test(v.desc || '')) hits.push(`${name}: ${re}`);
+    for (const w of WITHDRAWN) {
+      if (w.re.test(v.desc || '')) hits.push(`${name} {${w.id}}: ${v.desc}`);
     }
   }
-  assert.deepEqual(hits, [], 'a withdrawn claim was re-introduced through a capability description:\n' + hits.join('\n'));
-  // POSITIVE CONTROL — the pattern list must be able to fire, or the zero above means nothing.
-  assert.ok(WITHDRAWN.some((re) => re.test('supports air-gapped deployment via an offline tarball')),
-    'the withdrawn-claim patterns match nothing — this assertion is vacuous');
+  assert.deepEqual(hits, [],
+    'a withdrawn claim was re-introduced through a capability description:\n' + hits.join('\n'));
 });
 
 test('pdfExport is gone from the registry', () => {

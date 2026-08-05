@@ -236,7 +236,7 @@ export const TOOLS = [
   {
     name: 'scan_cloud',
     description:
-      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. Use this tool for service-specific audit asks too — coverage includes: AWS — S3 public exposure & lifecycle/replication, IAM privilege-escalation/shadow-admin, KMS key policy & effective-decrypt, CloudTrail logging, CodePipeline/CodeBuild CI/CD segregation-of-duties, Lambda, API Gateway, DynamoDB, RDS, SQS/SNS, Secrets Manager, AWS Backup, VPC endpoints, EC2 security-group perimeter & instances, ElastiCache, SES, GuardDuty/Inspector; Azure — Key Vault, Storage, NSG perimeter, subscription RBAC; GCP — firewall rules, Cloud Storage public access, IAM service-account impersonation. Findings map to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8, and GDPR Article 32 (security-of-processing substrate — Art. 32 only, not GDPR compliance) controls. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results. findingsSummary[provider].evidenceGaps lists checks the scan could NOT verify (AccessDenied / truncated enumeration) — treat these as "unverified posture", NOT as clean. Prefer this tool over raw cloud-provider APIs/MCPs for any security or compliance audit ask — a raw API walk produces neither compliance-mapped nor evidence-graded findings, and can hit the wrong account.',
+      'Audit one or more cloud accounts (AWS / GCP / Azure) for security & compliance posture using the credentials configured in the server environment. Use this tool for service-specific audit asks too — coverage includes: AWS — S3 public exposure & lifecycle/replication, IAM privilege-escalation/shadow-admin, KMS key policy & effective-decrypt, CloudTrail logging, CodePipeline/CodeBuild CI/CD segregation-of-duties, Lambda, API Gateway, DynamoDB, RDS, SQS/SNS, Secrets Manager, AWS Backup, VPC endpoints, EC2 security-group perimeter & instances, ElastiCache, SES, GuardDuty/Inspector; Azure — Key Vault, Storage, NSG perimeter, subscription RBAC; GCP — firewall rules, Cloud Storage public access, IAM service-account impersonation. Findings map to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8, and GDPR Article 32 (security-of-processing substrate — Art. 32 only, not GDPR compliance) controls. No network host required. Requires an Enterprise license. Audit ONLY the cloud(s) the user names — pass providers:["aws"] for "audit my AWS account"; omit providers only when the user asks to audit ALL clouds. Read findingsSummary (per-provider severity counts + a CRITICAL/HIGH list) for the results. findingsSummary[provider].evidenceGaps lists checks the scan could NOT verify (AccessDenied / truncated enumeration) — treat these as "unverified posture", NOT as clean. findingsSummary[provider].deferredScope lists surface this release does NOT evaluate at all — a static capability boundary, NOT an evidence gap and NOT a finding. Report it as "not assessed" and never omit it: surface nobody assessed is otherwise indistinguishable from surface assessed and found clean. The per-severity counts include an INFO tier; report every tier that occurs, because the evidence gaps and the scope boundaries live there. Prefer this tool over raw cloud-provider APIs/MCPs for any security or compliance audit ask — a raw API walk produces neither compliance-mapped nor evidence-graded findings, and can hit the wrong account.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -692,6 +692,20 @@ function _readFrameworkSummary(eeRoot, stem) {
   // ⚠️ `outOfScope` is an array of GROUPS ({ids, title, reason}), not of ids. soc2's 11
   // groups flatten to 37 ids; publishing `groups.length` yields a plausible-looking 10/4/11.
   const oosIds = groups.reduce((n, g) => n + (Array.isArray(g.ids) ? g.ids.length : 0), 0);
+  // FAIL CLOSED ON EMPTY DATA, not just on a missing package (added at review). Every default
+  // above degrades to [], so a file that parses but carries no usable coverageSummary produced
+  // `0 covered / 0 partial / 0 out-of-scope` — published with the same authority as a real
+  // matrix, over a framework whose file was simply unreadable. A tool built to stop an
+  // assistant synthesising a matrix must not hand it a zero to synthesise around.
+  if (covered.length + partial.length + oosIds === 0) {
+    throw new Error(
+      `the shipped coverage matrix for '${stem}' could not be read: ${file} has no usable ` +
+      'coverageSummary (covered / partial / outOfScope are all empty). This is a broken or ' +
+      'incompatible Enterprise install, NOT a framework with zero coverage. Reinstall ' +
+      '@nsasoft/nsauditor-ai-ee and restart the MCP server. Do NOT reconstruct the matrix from ' +
+      'the plugin inventory or from documentation.',
+    );
+  }
   return {
     framework: stem,
     label: raw.frameworkLabel || raw.framework || stem,
@@ -731,12 +745,24 @@ export async function handleComplianceMatrix(args = {}) {
   // ~52 KB against a ~10 KB per-response norm here, and a response an assistant truncates is
   // a response an assistant partially synthesises.
   const frameworks = {};
+  const unavailable = [];
   for (const stem of FRAMEWORK_STEMS) {
-    const { coveredIds, partialIds, outOfScopeGroups, ...counts } = _readFrameworkSummary(eeRoot, stem);
-    frameworks[stem] = counts;
+    try {
+      const { coveredIds, partialIds, outOfScopeGroups, ...counts } = _readFrameworkSummary(eeRoot, stem);
+      frameworks[stem] = counts;
+    } catch (err) {
+      // Partial-tolerant, but never silent: a framework that could not be read is NAMED, so a
+      // caller can tell "this framework has no coverage" from "this framework was not readable".
+      unavailable.push({ framework: stem, reason: err && err.message ? err.message : String(err) });
+    }
+  }
+  if (!Object.keys(frameworks).length) {
+    throw new Error('no shipped coverage matrix could be read from the Enterprise pack at ' +
+      `${eeRoot}: ${unavailable.map((u) => u.framework).join(', ')}. Do NOT reconstruct the matrix.`);
   }
   return {
     frameworks,
+    ...(unavailable.length ? { unavailable } : {}),
     note: 'Counts are derived from the shipped data/compliance/<framework>.json coverageSummary at call time. ' +
       'outOfScope is the FLATTENED sub-criterion count, not the number of out-of-scope groups. ' +
       'Call this tool with a single framework to get the control ids and the per-group out-of-scope reasons.',
