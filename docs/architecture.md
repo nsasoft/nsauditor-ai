@@ -18,7 +18,7 @@ NSAuditor AI is a **self-hosted, AI-assisted security intelligence platform** th
 
 **Core principles:**
 
-- **Zero Data Exfiltration (ZDE)** — fully functional air-gapped; no customer data ever touches Nsasoft infrastructure
+- **Zero Data Exfiltration (ZDE)** — no customer data ever touches Nsasoft infrastructure; air-gappable once configured for it (a default run queries the public NVD CVE API — see the egress register in the EE `docs/architecture.md` §14.1.1 for the full enumeration)
 - **Local-First Intelligence** — all analysis runs inside the customer environment
 - **Verified Findings** — vulnerabilities are confirmed through active probing, not just version matching. If it can't be verified, it's flagged as "potential" not "confirmed"
 - **Explicit Opt-In** — any external call (AI APIs, NVD updates) must be manually enabled
