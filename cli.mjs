@@ -761,9 +761,21 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // AWS accounts. EE 0.3.2 + CE 0.1.30 ship as a paired release; mixing
   // versions is supported but the EE-side cloud-harvest behavior requires
   // CE-0.1.30+ to take effect.
+  // ⚠️ THE IMPORT AND THE CALL GET SEPARATE CATCHES, AND THE SPLIT IS THE POINT.
+  // A single bare `catch {}` around both made "EE is not installed" — a legitimate,
+  // expected, silent skip for every Community user — indistinguishable from "EE ran and
+  // THREW", which silently deletes the deliverable: the scan exits 0, writes no compliance
+  // report, and prints nothing. That is the false-clean shape, and it is the channel a
+  // whole class of defects has reached production through (a malformed env var did exactly
+  // this until 0.33.0 moved the parse). Absence stays silent; failure is named and the run
+  // is marked, because an operator who asked for `--compliance` and got no report must not
+  // have to diff directories to discover it.
+  let ee = null;
   try {
-    const { enrichScan } = await import('@nsasoft/nsauditor-ai-ee');
-    const eeEnrichment = await enrichScan(conclusion, {
+    ee = await import('@nsasoft/nsauditor-ai-ee');
+  } catch { /* EE not installed — CE proceeds unchanged. The ONLY silent case. */ }
+  try {
+    const eeEnrichment = ee ? await ee.enrichScan(conclusion, {
       host,
       outDir,
       compliance:      opts.compliance ?? process.env.COMPLIANCE_FRAMEWORKS ?? null,
@@ -775,12 +787,21 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       slaPolicy:             opts.slaPolicy,
       results,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
-    });
+    }) : null;
     if (eeEnrichment?.enrichedPrompt) {
       conclusion.result = conclusion.result || {};
       conclusion.result.eeEnrichment = eeEnrichment;
     }
-  } catch { /* EE not installed — CE proceeds unchanged */ }
+  } catch (err) {
+    // EE IS PRESENT AND FAILED. Never silent: name the stage that was lost, and mark the
+    // conclusion so a downstream reader can tell "no findings" from "the stage that finds
+    // them did not run". Still non-fatal — a scan that completed its CE work is worth
+    // keeping — but it is now a visible degradation rather than an invisible one.
+    console.error(`[EE] enrichment FAILED — this scan has no compliance report, no `
+      + `intelligence enrichment and no analysis-agent findings: ${err?.message ?? err}`);
+    conclusion.result = conclusion.result || {};
+    conclusion.result.eeEnrichmentError = String(err?.message ?? err);
+  }
 
   const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error } = await maybeSendToOpenAI({ host, results, conclusion, promptMode, outDir });
   // BUG1 (fail-VISIBLE): a one-line end-of-scan AI status so a failed/aborted AI
@@ -1129,8 +1150,10 @@ Cloud-scan hosts:
                                  is safe here.
                                  Note: the composite zero-trust checker (1023) has no
                                  single cloud and is therefore skipped under this
-                                 auto-scope; to run it, select it explicitly
-                                 (--plugins 1023,...) or scan a network host/CIDR.
+                                 auto-scope. It runs on a NETWORK host/CIDR scan with
+                                 the full plugin set; selecting it by id on its own
+                                 does not work, because it needs a discovery plugin to
+                                 confirm the host is up first.
                                  INVERSE (cloud scope integrity): a cloud auditor runs
                                  ONLY on its own sentinel host. On a NETWORK host (IP /
                                  CIDR / hostname) the cloud-scanner plugins NEVER run —

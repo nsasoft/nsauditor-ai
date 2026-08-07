@@ -61,7 +61,7 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 
 If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, or GDPR Article 32 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
 
-- ☁️ **28 enterprise plugins — 27 cloud auditors across AWS / Azure / GCP, plus one cross-cloud zero-trust posture check** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
+- ☁️ **28 enterprise plugins — 27 cloud auditors across AWS / Azure / GCP, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
 - 📋 **7 compliance frameworks shipped** — generate any combination from a single scan:
   - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
   - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
@@ -73,7 +73,7 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS C
 - 🔐 **Evidence with a verifiable chain of custody** — SHA-256 sidecars on every artifact, verifiable offline. RFC 3161 trusted timestamps are **opt-in since EE 0.33.0** via `NSAUDITOR_TSA_URL`, require an outbound call to the authority you name, and have never been exercised against a real one. **Ed25519 suppression signing is implemented in the package but not reachable from any shipped entry point** — no first-party run signs a suppression, so do not plan around it.
 - 🏛️ **Zero Data Exfiltration architecture** — no scan data is collected, transmitted, or stored by Nsasoft; reports are written to your local disk. Air-gapped operation once configured for it (`NSAUDITOR_OFFLINE_ONLY=1` plus a local NVD store; a default run queries NIST's public CVE API). AI analysis happens locally (Ollama) or via your own API keys. Important for PCI DSS CDE-isolation threat models.
 - 🔗 **GRC connectors — Vanta + Drata + Secureframe (Enterprise)** — map compliance findings to your GRC platform's evidence/test records and push them at **scan time** (opt-in). Suppression-aware outcome mapping (Vanta) / structured records (Drata + Secureframe), idempotent retries, rate-limit handling, token redaction, and Zero-Data-Exfiltration egress redaction. Early-access, single-workspace; live validation against production tenants is in progress. See **[GRC Connectors](#grc-connectors-vanta-drata-secureframe)** below.
-- 🗄️ **WORM evidence storage** — S3 Object Lock COMPLIANCE-mode for SEC Rule 17a-4(f) / FINRA 4511 retention compliance
+- 🗄️ **WORM posture VALIDATION** — we read your bucket's S3 Object Lock configuration per CloudTrail trail bucket and fail the control when it is absent, in GOVERNANCE mode or under-retained. That is substrate FOR a SEC Rule 17a-4(f) / FINRA 4511 retention claim, not the claim itself: the engine WRITING artifacts into the immutable store is built and **not reachable** (no caller), so the retention guarantee stays yours to make about your own archive
 - 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
 - 🎯 **11 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 8-of-8 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + GRC connector)
 
@@ -104,7 +104,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | Risk scoring + prioritization | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
-| 28 enterprise plugins — 27 cloud (AWS / Azure / GCP) + 1 cross-cloud zero-trust check | — | — | ✅ |
+| 28 enterprise plugins — 27 cloud (AWS / Azure / GCP) + 1 network-scan zero-trust check | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
 | **Enterprise — compliance (7 frameworks)** | | | |
 | SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
@@ -121,7 +121,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | Chain-of-custody manifests | — | — | ✅ |
 | SLA / MTTR tracking + compensating controls | — | — | ✅ |
 | Recurring-scan attestation (Type II operating-effectiveness) | — | — | ✅ |
-| WORM evidence storage (S3 Object Lock — SEC 17a-4 / FINRA 4511) | — | — | ✅ |
+| WORM POSTURE VALIDATION on your own buckets (S3 Object Lock — SEC 17a-4 / FINRA 4511 substrate). The engine WRITING into the immutable store is built, **not reachable** | — | — | ✅ |
 | **Enterprise — integration + deployment** | | | |
 | GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation — built, **not reachable** (no caller) | — | — | 🚧 |
@@ -265,7 +265,7 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
-**28 enterprise plugins: 27 cloud auditors across AWS, GCP and Azure substrate, plus one cross-cloud zero-trust posture check** (`1023`) — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 27 declare, so `1023` is run by explicit selection (`--plugins 1023`) or against a network host.
+**28 enterprise plugins: 27 cloud auditors across AWS, GCP and Azure substrate, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 27 declare, so `1023` never runs on a cloud pass. It runs on a network-host scan with the full plugin set — measured on the shipped CLI, selecting it by id on its own does not work, because it requires the host to be confirmed up by a discovery plugin.
 
 → **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the signed evidence pack actually looks like.
 
@@ -319,7 +319,7 @@ Results land in `./out/<host>_<timestamp>/`:
 | — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle, Type II rolling-quarter cadence. |
 | — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope-drift surface (CC8.1). |
 | — | GRC Platform Connector | Enterprise | Vanta + Drata + Secureframe connectors — scan-time push (opt-in), retry/backoff, deterministic idempotency, rate-limit handling, circuit breaker, foreign-token detection, ZDE egress redaction. See [GRC Connectors](#grc-connectors-vanta-drata-secureframe). |
-| — | WORM Evidence Storage | Enterprise | S3 Object Lock COMPLIANCE-mode + resource redaction + SHA-256 manifest. SEC 17a-4 / FINRA 4511 retention-compatible. |
+| — | WORM Posture Validation | Enterprise | Reads S3 Object Lock configuration on your trail buckets + resource redaction + SHA-256 manifest — substrate for a SEC 17a-4 / FINRA 4511 claim. The archive WRITER (`prepareArchive`) is built and **not reachable**: no caller, so no first-party run writes into an immutable store. |
 | — | Tabletop Simulation | Enterprise | Probe-event manifest + SIEM detection correlation, configurable coverage bands (Type II / High-Assurance presets). |
 
 **Running EE plugins** (after `nsauditor-ai license install <key>`):
@@ -449,7 +449,7 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 |---|---|
 | `scan_host` | Run a full plugin scan against a host — service detection, OS fingerprint, structured findings |
 | `list_plugins` | List available scanner plugins with their IDs, priorities and requirements |
-| `compliance_matrix` | Return the shipped coverage matrix for a framework — Covered / Partial / Out of scope, with the per-group out-of-scope reasons |
+| `compliance_matrix` | Return the shipped coverage matrix for a framework — Covered / Partial / Out of scope, with the per-group out-of-scope reasons. **Needs the Enterprise pack installed**: the matrices are its data, so on a Community-only install this fails closed with an install instruction rather than returning an empty matrix (an empty matrix is what gets filled in with a guess) |
 
 **Unlocked by Pro** (licence key + `@nsasoft/nsauditor-ai-ee`):
 
@@ -869,7 +869,7 @@ NSAUDITOR_SIGNING_KEY=            # A REFERENCE, never key material: keychain:LA
 
 Two of these are deliberately **not** capabilities yet, and saying so here is the point:
 
-- **`NSAUDITOR_SIGNING_KEY` is groundwork.** It parses and resolves to a signer, but no
+- **`NSAUDITOR_SIGNING_KEY` is groundwork, and less wired than this note used to say.** EE 0.33.0 stopped parsing it at option-resolution time — a malformed value used to abort the EE stage for a setting nothing reads — so it is now carried through unparsed; `parseSigningRef` / `resolveSigner` hold the parse and the offline veto at the point a key would be used, and no
   shipped entry point signs a suppression, so setting it changes nothing today. It exists
   now because the signature record's `algorithm` and `backend` fields had to be frozen
   *before* the first signature reaches a customer archive — retrofitting that later breaks
