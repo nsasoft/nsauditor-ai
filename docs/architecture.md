@@ -665,30 +665,36 @@ services:
 
 ### 11.1 Tool Registry with Schema Validation
 
+> ⚠️ **This section previously showed a `CE_TOOLS` / `PRO_TOOLS` / `ENTERPRISE_TOOLS`
+> registry that does not exist**, naming seven tools that are not registered anywhere.
+> It read as shipped code because it was written as shipped code. What follows is derived
+> from `mcp_server.mjs`'s exported `TOOLS` array and its dispatch-layer gates.
+
+There is **one** registry, not three. All seven tools are listed to every client; the
+licence gate is applied at DISPATCH, so an unlicensed call returns a `🔒` refusal naming
+the required tier rather than an empty result:
+
 ```javascript
-// CE tools (always available)
-const CE_TOOLS = [
-  { name: 'scan_host',     schema: ScanHostSchema },
-  { name: 'list_plugins',  schema: ListPluginsSchema },
+// mcp_server.mjs — one exported array, served verbatim by the ListTools handler
+export const TOOLS = [
+  { name: 'scan_host',          /* … */ },   // every tier
+  { name: 'scan_cloud',         /* … */ },   //   gated: Enterprise
+  { name: 'get_findings',       /* … */ },   //   gated: Enterprise
+  { name: 'compliance_matrix',  /* … */ },   // every tier
+  { name: 'probe_service',      /* … */ },   //   gated: Pro
+  { name: 'get_vulnerabilities',/* … */ },   //   gated: Pro
+  { name: 'list_plugins',       /* … */ },   // every tier
 ];
 
-// Pro tools (requires license)
-const PRO_TOOLS = [
-  { name: 'probe_service',       schema: ProbeServiceSchema },
-  { name: 'get_vulnerabilities', schema: GetVulnsSchema },
-  { name: 'risk_summary',        schema: RiskSummarySchema },
-  { name: 'scan_compare',        schema: ScanCompareSchema },
-  { name: 'save_finding',        schema: SaveFindingSchema },  // NEW: validated finding save
-];
-
-// Enterprise tools
-const ENTERPRISE_TOOLS = [
-  { name: 'start_assessment',    schema: AssessmentSchema },
-  { name: 'prioritize_risks',    schema: PrioritizeSchema },
-  { name: 'compliance_check',    schema: ComplianceSchema },
-  { name: 'export_report',       schema: ExportSchema },
-];
+// …and the gate is in the CallTool handler, not in the listing:
+if (name === 'probe_service' || name === 'get_vulnerabilities') { /* requireProCapability */ }
+if (['scan_cloud', 'get_findings'].includes(name))              { /* requireEnterpriseCapability */ }
 ```
+
+Why the listing is not filtered: a tool that vanishes from the list is indistinguishable
+from a tool that does not exist, so an assistant simply routes around it and the operator
+never learns a licence would have answered their question. A refusal that names the tier
+is the actionable form.
 
 ### 11.2 save_finding Tool (NEW)
 

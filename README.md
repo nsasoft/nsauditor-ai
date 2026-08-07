@@ -438,32 +438,32 @@ nsauditor-ai-mcp
 npx nsauditor-ai-mcp
 ```
 
-**CE Tools:**
+The server registers **seven** tools and lists all seven to every client. The licence is
+checked when a tool is CALLED, not when the list is served — so an unlicensed call returns
+an explicit 🔒 refusal naming the tier it needs, never an empty result that reads as "nothing
+found". A higher tier does not add tools; it unlocks the ones already in the list.
+
+**Available on every tier:**
 
 | Tool | Purpose |
 |---|---|
-| `scan_host` | Run full scan against a host with plugin selection |
-| `list_plugins` | List available scanner plugins with metadata |
+| `scan_host` | Run a full plugin scan against a host — service detection, OS fingerprint, structured findings |
+| `list_plugins` | List available scanner plugins with their IDs, priorities and requirements |
+| `compliance_matrix` | Return the shipped coverage matrix for a framework — Covered / Partial / Out of scope, with the per-group out-of-scope reasons |
 
-**Pro Tools** (requires license key + `@nsasoft/nsauditor-ai-ee`):
+**Unlocked by Pro** (licence key + `@nsasoft/nsauditor-ai-ee`):
 
 | Tool | Purpose |
 |---|---|
-| `probe_service` | Deep scan a specific port/service |
-| `get_vulnerabilities` | Query CVEs by CPE string |
-| `risk_summary` | Prioritized risk overview from last scan |
-| `scan_compare` | Diff two scan results with risk weighting |
-| `save_finding` | Save a validated finding to the finding queue (schema-checked) |
+| `probe_service` | Run one specific plugin against a single `host:port` |
+| `get_vulnerabilities` | Look up known CVEs for a CPE (Common Platform Enumeration) string via the NVD API |
 
-**Enterprise Tools** (requires Enterprise license):
+**Unlocked by Enterprise:**
 
 | Tool | Purpose |
 |---|---|
 | `scan_cloud` | Audit one or more cloud accounts (AWS / GCP / Azure) using server-configured credentials; no network host. "Audit my AWS account" / "Audit my AWS and Azure accounts". |
-| `start_assessment` | Multi-host orchestrated assessment workflow |
-| `prioritize_risks` | Cross-host risk prioritization |
-| `compliance_check` | Compliance mapping with gap analysis |
-| `export_report` | Generate formatted compliance report |
+| `get_findings` | Drill into the findings of the most recent `scan_cloud` run (per-provider session cache — not live state) |
 
 > `scan_cloud` runs the requested clouds' plugins **concurrently** (default up to 20 at once, 25s per-plugin
 > timeout) so a full multi-service cloud audit completes within Claude Desktop's ~60s tool-call limit. Tune with
