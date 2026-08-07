@@ -1,7 +1,7 @@
 {
   "name": "nsauditor-ai",
   "version": "0.2.36",
-  "description": "Modular AI-assisted network security audit platform — Community Edition",
+  "description": "Modular AI-assisted network security audit platform \u2014 Community Edition",
   "type": "module",
   "private": false,
   "scripts": {
@@ -59,5 +59,8 @@
     "scanner",
     "vulnerability",
     "mcp"
-  ]
+  ],
+  "overrides": {
+    "fast-uri": "3.1.3"
+  }
 }
