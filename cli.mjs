@@ -928,6 +928,45 @@ function maxSeverityInConclusion(conclusion) {
  * @param {object} [opts] - { cmd, frameworks, importEE(test seam) }
  * @returns {Promise<{ran:boolean, reason?:string}>}
  */
+/**
+ * STARTUP POSTURE VETO — `NSAUDITOR_OFFLINE_ONLY=1` against a configured egress path.
+ *
+ * EE raises this as an `NsauditorConfigError` from `resolveComplianceEnvOpts`, and exports
+ * that function specifically so CE can fail fast at startup with the SAME definition of
+ * "offline". Until now nothing called it, and the veto's only route into CE was through
+ * `enrichScan` — straight into the bare `catch {}` on the scan path, which does not abort
+ * the scan: it silently drops the ENTIRE EE stage (intelligence, agents, the compliance
+ * report). A quiet skip wearing a fail-fast's name, one repo over from the test that
+ * forbids exactly that.
+ *
+ * Deliberately NOT gated on the command and NOT gated on a licence tier — a contradiction
+ * between two operator settings is a configuration error under every command, and
+ * `enrichScan` never even evaluated it below Pro tier. `tests/cli_posture_preflight.test.mjs`
+ * pins both of those as decisions rather than accidents, and explains why this exits 2 while
+ * the GRC preflight below exits 1.
+ *
+ * EE stays optional: an unresolvable EE means no EE egress paths to veto, and that is a
+ * reason, not a failure.
+ *
+ * @param {Record<string,string|undefined>} env
+ * @param {{importEE?: Function}} [opts]  `importEE` is the test seam — these cases must not
+ *   require EE to be installed, the same convention `preflightGrcIfRequested` uses.
+ * @returns {Promise<{ran: boolean, reason?: string}>}
+ * @throws the EE `NsauditorConfigError` verbatim, so main() can print it and exit 2
+ */
+export async function preflightNsauditorPosture(env, opts = {}) {
+  const { importEE } = opts;
+  let ee;
+  try {
+    ee = importEE ? await importEE() : await import('@nsasoft/nsauditor-ai-ee');
+  } catch {
+    return { ran: false, reason: 'ee-unavailable' };
+  }
+  if (typeof ee?.resolveComplianceEnvOpts !== 'function') return { ran: false, reason: 'ee-too-old' };
+  ee.resolveComplianceEnvOpts(env);
+  return { ran: true };
+}
+
 export async function preflightGrcIfRequested(env, opts = {}) {
   const { cmd, frameworks, importEE } = opts;
   if (cmd !== 'scan') return { ran: false, reason: 'not-scan' };
@@ -1160,6 +1199,17 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // --env load) so a bad token / control-map / provider fails fast instead of after a
   // full scan. The helper gates on the exact push condition (so a framework-less recon
   // scan / non-scan command is never hard-failed) + silently skips if EE isn't installed.
+  // Posture veto FIRST — before the GRC preflight and before any scan work. An operator who
+  // has forbidden outbound connections and also configured one must hear about it here, not
+  // from an EE stage that a bare catch would drop on the floor. Exit 2 matches
+  // `compliance attest`, the other door into the same veto.
+  try {
+    await preflightNsauditorPosture(process.env);
+  } catch (err) {
+    console.error(`Fatal: ${err.message}`);
+    process.exit(2);
+  }
+
   try {
     await preflightGrcIfRequested(process.env, { cmd, frameworks: args.compliance ?? process.env.COMPLIANCE_FRAMEWORKS });
   } catch (err) {
