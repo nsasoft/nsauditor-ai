@@ -19,16 +19,25 @@
 //  2. FAIL CLOSED when EE is absent. An empty matrix is what an assistant synthesises over.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOOLS, toolHandlers, handleComplianceMatrix } from '../mcp_server.mjs';
+import { TOOLS, toolHandlers, handleComplianceMatrix, FRAMEWORK_STEMS as STEMS } from '../mcp_server.mjs';
 
-const STEMS = ['soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr'];
+// ⚠️ `STEMS` USED TO BE A LITERAL HERE — a fourth independent transcription of a set EE owns,
+// sitting in the suite whose whole subject is transcription rot. It is now the server's own
+// exported constant, so this file exercises the shipped set rather than a copy that could agree
+// with nothing. The set's AUTHORITY — two-way equality with EE's `utils/framework_ids.mjs` and
+// with the on-disk `data/compliance/*.json` census — lives in tests/framework_stem_parity.test.mjs.
 
 test('the tool is registered and dispatchable', () => {
   const t = TOOLS.find((x) => x.name === 'compliance_matrix');
   assert.ok(t, 'compliance_matrix missing from TOOLS');
   assert.equal(typeof toolHandlers.compliance_matrix, 'function', 'not wired into toolHandlers');
-  assert.deepEqual(t.inputSchema.properties.framework.enum.slice().sort(),
-    [...STEMS, 'all'].sort(), 'the framework enum must name every shipped framework plus "all"');
+  // The enum-vs-STEMS deepEqual that stood here is now UNFALSIFIABLE: the enum is built as
+  // `[...FRAMEWORK_STEMS, 'all']`, so comparing it back to FRAMEWORK_STEMS can never fail while
+  // reading exactly like a check that could. What is still worth asserting is the one part the
+  // derivation does NOT give for free — that "all" is offered alongside the stems. The
+  // discriminating comparison (enum vs the shipped JSON census) is in framework_stem_parity.
+  assert.ok(t.inputSchema.properties.framework.enum.includes('all'),
+    'the "all" shorthand vanished from the enum — the cross-framework view becomes unaskable');
 });
 
 test('every one of the seven frameworks answers, and each triple SUMS to its own universe', async () => {

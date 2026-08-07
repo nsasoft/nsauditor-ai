@@ -211,6 +211,29 @@ function appendCallSentinel(text, callId) {
 // Max findings per page — also referenced in the TOOLS inputSchema description below.
 const GET_FINDINGS_MAX_LIMIT = 20;   // ~500 chars/finding -> ~10KB page (Desktop 60s budget)
 
+// ---------------------------------------------------------------------------
+// FRAMEWORK_STEMS — the ONE CE-side name for the shipped compliance framework set.
+//
+// ⚠️ WHY A CE-SIDE CONSTANT AND NOT AN EE IMPORT. EE owns this set
+// (`@nsasoft/nsauditor-ai-ee/utils/framework_ids.mjs` → FRAMEWORK_STEMS) and that specifier IS
+// exported and resolvable — but EE is not a CE dependency at all: CE must load and serve its
+// tool registry with EE absent. `TOOLS` below is built at MODULE LOAD, so importing EE here
+// would make the tool REGISTRY itself conditional on an optional package, which is a strictly
+// worse failure than a stale list (no tools at all, on the customers who never buy EE).
+// The equality is therefore enforced where a hard EE dependency is allowed — at test time, by
+// tests/framework_stem_parity.test.mjs, which holds this array in TWO-WAY equality with both
+// EE's declaration and the on-disk `data/compliance/*.json` census, and which FAILS (never
+// skips) when EE is unresolvable.
+//
+// It is declared HERE, above TOOLS, because the set had drifted into FOUR transcriptions: the
+// compliance_matrix enum, the handler's validation list, this suite's own copy — and the tool
+// DESCRIPTION, which is the load-bearing one. A schema enum that goes stale REJECTS a token; a
+// description that goes stale silently steers an assistant's tool selection and errors nowhere.
+// Everything below DERIVES from this array. Do not re-type it.
+export const FRAMEWORK_STEMS = Object.freeze([
+  'soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr',
+]);
+
 // Exported for direct testing (the scan_cloud description is a routing surface —
 // tests pin its service-coverage enumeration + contract clauses).
 export const TOOLS = [
@@ -270,15 +293,26 @@ export const TOOLS = [
   },
   {
     name: 'compliance_matrix',
+    // ⚠️ THE FRAMEWORK LIST IN THIS DESCRIPTION IS DERIVED, NOT TYPED. It is the surface a model
+    // reads to CHOOSE a `framework` token, so a stale list here is worse than a stale enum: the
+    // enum rejects a bad token loudly, the description mis-steers tool selection silently. The
+    // GDPR scoping doctrine is kept as its OWN sentence rather than a parenthetical inside the
+    // list, so it survives any reordering of the stems (and so the list stays machine-readable
+    // for tests/framework_stem_parity.test.mjs, which compares it to the shipped JSON census).
     description:
-      'Return the SHIPPED compliance coverage matrix for a framework — how many controls are Covered, Partial and Out of Scope, with the control ids and the per-group out-of-scope reasons. Frameworks: soc2, hipaa, nist-csf, pci-dss, iso-27001, cis-v8, gdpr (GDPR is Article 32 security-of-processing substrate ONLY, never "GDPR compliance"), or "all" for the counts across every framework. ALWAYS call this tool before stating or tabulating any coverage matrix, and quote the numbers it returns verbatim. Do NOT derive a matrix from the plugin inventory, from a scan result, or from documentation — coverage is a property of the shipped framework maps, not of the plugin list, and a derived matrix will disagree with the customer\'s own report. Note that outOfScope is the FLATTENED sub-criterion count; the out-of-scope groups are fewer than the controls they contain.',
+      'Return the SHIPPED compliance coverage matrix for a framework — how many controls are Covered, Partial and Out of Scope, with the control ids and the per-group out-of-scope reasons. ' +
+      `Frameworks: ${FRAMEWORK_STEMS.join(', ')}, or "all" for the counts across every framework. ` +
+      'The gdpr map is GDPR Article 32 security-of-processing substrate ONLY, never "GDPR compliance". ' +
+      'ALWAYS call this tool before stating or tabulating any coverage matrix, and quote the numbers it returns verbatim. Do NOT derive a matrix from the plugin inventory, from a scan result, or from documentation — coverage is a property of the shipped framework maps, not of the plugin list, and a derived matrix will disagree with the customer\'s own report. Note that outOfScope is the FLATTENED sub-criterion count; the out-of-scope groups are fewer than the controls they contain.',
     inputSchema: {
       type: 'object',
       properties: {
         framework: {
           type: 'string',
-          enum: ['soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr', 'all'],
-          description: 'Which framework matrix to return. Omit or pass "all" for the counts across all seven.',
+          enum: [...FRAMEWORK_STEMS, 'all'],
+          // The count is DERIVED too. "across all seven" was a transcribed count standing beside
+          // a transcribed list — two things to forget on the next framework cycle instead of none.
+          description: `Which framework matrix to return. Omit or pass "all" for the counts across all ${FRAMEWORK_STEMS.length} shipped frameworks.`,
         },
       },
       required: [],
@@ -672,7 +706,11 @@ export async function handleListPlugins() {
 //   2. FAIL CLOSED. `plugin_discovery.mjs` swallows an unresolvable EE into `catch {}` so CE
 //      runs standalone, and copying that here would answer "no matrix" — which is precisely
 //      the void an assistant fills with a synthesised one.
-const FRAMEWORK_STEMS = ['soc2', 'hipaa', 'nist-csf', 'pci-dss', 'iso-27001', 'cis-v8', 'gdpr'];
+//
+// The framework set this handler validates against is the module-level FRAMEWORK_STEMS declared
+// above TOOLS — the SAME array the enum and the tool description are built from. It used to be
+// a second copy right here, which is how rule 1 was being obeyed for the NUMBERS and quietly
+// broken for the framework LIST inside the very tool built to stop transcription rot.
 
 function _defaultResolveEE() {
   // `@nsasoft/nsauditor-ai-ee/data/compliance/*.json` is NOT importable — EE's `exports` map
