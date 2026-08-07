@@ -665,7 +665,14 @@ export async function parseArgs(argv) {
   // them. Tri-state like `--env` and NOT the `--compliance-scope` collapse-to-null
   // form: a value-less `--sla-policy` must be an error in main(), because silently
   // nulling it is precisely the quiet skip this feature exists to remove.
-  const complianceHistoryVal = get('compliance-history') || get('compliance_history');
+  // `--history` is the spelling the `compliance attest` subcommand documents and the one
+  // an operator types there; `--compliance-history` is the scan-path spelling. Both
+  // resolve to the same value because they name the same directory. Accepting only one
+  // is how a DOCUMENTED flag becomes a flag that does nothing — and that is exactly what
+  // shipped in the first draft here, caught by RUNNING the command rather than reading
+  // it. The EE guard that catches this class is scoped to /--compliance[A-Za-z-]*/, and
+  // `--history` does not match it.
+  const complianceHistoryVal = get('compliance-history') || get('compliance_history') || get('history');
   args.complianceHistory = complianceHistoryVal === undefined ? undefined : complianceHistoryVal;
   const slaPolicyVal = get('sla-policy') || get('sla_policy');
   args.slaPolicy = slaPolicyVal === undefined ? undefined : slaPolicyVal;
