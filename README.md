@@ -819,6 +819,66 @@ NSAUDITOR_LICENSE_KEY=pro_eyJhbGci...   # Pro or Enterprise license key
 NSAUDITOR_PLUGIN_PATH=                   # Additional plugin directories (colon-separated)
 ```
 
+**Longitudinal compliance evidence (Enterprise CLI, new alongside the variables below):**
+
+A single scan shows configuration at an instant. A SOC 2 Type II auditor — and the ISO
+surveillance cadence, PCI Appendix E sampling, HIPAA §164.312(b) and GDPR Art. 32(1)(d)
+equivalents — asks whether controls operated over a *period*. Every scan has always written
+a per-framework `scan_attestation_<framework>.json`, so a history you already have is
+aggregatable today:
+
+```bash
+# Track remediation SLA / MTTR against a directory of prior scans
+nsauditor-ai scan --host aws --compliance soc2 \
+  --compliance-history ./out --sla-policy ./my-sla.json
+
+# Roll a directory of prior scans up into a multi-period attestation
+nsauditor-ai compliance attest --history ./out --framework soc2 --window 12m
+```
+
+Three things the roll-up states about itself rather than leaving you to discover:
+discovery reads **one** directory level (`<history-root>/<scan-id>/`), scans whose own
+attestation is marked `REPORT INVALID FOR AUDIT` are **counted and named** rather than
+averaged into a clean verdict, and an empty history exits **3** with status `no_evidence` —
+absence of evidence is a finding, not a pass.
+
+**Compliance evidence (`NSAUDITOR_*` — Enterprise, all opt-in):**
+
+Every variable added from Enterprise 0.33.0 onward carries the `NSAUDITOR_` prefix, so a
+deploy can tell at a glance which environment variables belong to this product. The
+unprefixed families above (`AI_*`, `OPENAI_*`, `NVD_API_KEY`, `COMPLIANCE_GRC_*`) keep
+working exactly as they do today — prefixed aliases arrive in a later minor, and a silent
+rename will never happen.
+
+```ini
+NSAUDITOR_OFFLINE_ONLY=1          # Exact match on '1'. Forbids outbound: CVE matching reads a local
+                                  # NVD store and reports an explicit coverage gap rather than a silent
+                                  # clean. Also VETOES the two settings below — configuring an offline
+                                  # posture and an outbound destination together is a startup error,
+                                  # never a quiet downgrade to weaker evidence.
+NSAUDITOR_TSA_URL=                # RFC 3161 Time-Stamp Authority endpoint. NO DEFAULT, EVER — unset
+                                  # means the feature is absent, not "use a vendor default".
+NSAUDITOR_TSA_CERT_CHAIN=         # Path to the TSA certificate chain (PEM), for offline verification
+NSAUDITOR_TSA_POLICY_OID=         # Optional policy OID to request from the TSA
+NSAUDITOR_IDENTITY_REGISTRY=      # Path to the approver identity registry JSON. Binds the humans named
+                                  # in your suppression file to identities an assessor can check.
+                                  # Template ships at data/compliance/identity_registry.json (Enterprise).
+NSAUDITOR_SIGNING_KEY=            # A REFERENCE, never key material: keychain:LABEL | /path/to/key.pem
+                                  # (mode 0600) | awskms:alias/… — see the honesty note below.
+```
+
+Two of these are deliberately **not** capabilities yet, and saying so here is the point:
+
+- **`NSAUDITOR_SIGNING_KEY` is groundwork.** It parses and resolves to a signer, but no
+  shipped entry point signs a suppression, so setting it changes nothing today. It exists
+  now because the signature record's `algorithm` and `backend` fields had to be frozen
+  *before* the first signature reaches a customer archive — retrofitting that later breaks
+  every auditor holding one.
+- **`NSAUDITOR_TSA_URL` is wired but unproven.** The request is built and sent; it has
+  **never been exercised against a real Time-Stamp Authority** — every test to date injects
+  a fake, which proves the plumbing and not the capability. Treat trusted timestamping as
+  roadmap until that live check is published.
+
 **Security overrides:**
 
 ```ini
