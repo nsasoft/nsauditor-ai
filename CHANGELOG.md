@@ -6,6 +6,35 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.37 (2026-08-07) — the Enterprise entry points, and a catch that was deleting the deliverable
+
+**Paired with Enterprise 0.33.0, and REQUIRED by it** — that release's peer floor is
+`>=0.2.37`, because the entry points its docs call reachable live here.
+
+- **`compliance attest`** — Type II recurring-scan attestation over a directory of prior
+  scans. Exit 3 on an empty history: absence of evidence is the finding this command exists
+  to surface, so it must not exit 0.
+- **`--sla-policy <file>` and `--compliance-history <dir>`** — reach the SLA/MTTR engine,
+  which had been wired inside the compliance phase behind options no flag ever set.
+- **Startup posture preflight, exit 2.** `NSAUDITOR_OFFLINE_ONLY=1` together with a
+  configured outbound path is a contradiction the operator cannot have meant. It runs at
+  every tier and every command: a contradiction between two operator settings is a
+  configuration error regardless of what a licence unlocks.
+- **⚠️ The bare `catch {}` around the Enterprise stage is SPLIT.** It wrapped the import AND
+  the call, so "Enterprise is not installed" — legitimate and silent for every Community
+  user — was indistinguishable from "Enterprise ran and threw", which exits 0, writes no
+  compliance report and prints nothing. Absence stays silent; failure names the lost stages
+  and marks the result.
+- **`--help` fix:** the note on plugin 1023 gave `--plugins 023`, which resolves to nothing
+  (ids match exactly). Measured by driving the CLI, `--plugins 1023` does not work either —
+  1023 requires the host confirmed up by a discovery plugin, so selecting it alone removes
+  the plugin that satisfies its own precondition. It runs on a network-host scan.
+- **Frozen-page corrections:** the MCP tool tables advertised seven tools that are not
+  registered and omitted two that are; WORM evidence storage carried a ✅ though its writer
+  has no caller; `compliance_matrix` was listed as available on every tier when it needs the
+  Enterprise pack; and the "28 cloud plugins" gloss counted a network-scan check as a cloud
+  auditor.
+
 ## 0.2.36 (2026-08-05) — Paired with EE 0.32.11: the summary stops hiding its own scope limits, and a new MCP tool removes the reason to invent a matrix
 
 This is a substantive CE release, not a lockstep bump. Every item was driven by the Desktop-MCP Gate-3 battery.
