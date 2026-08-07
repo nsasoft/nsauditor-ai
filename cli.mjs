@@ -660,6 +660,20 @@ export async function parseArgs(argv) {
   // (override-on) for this scan; `--aws-profile <name>` selects a named profile
   // from ~/.aws/credentials. Both are wired into main() via resolveScanEnv().
   // get() returns undefined (absent), true (value-less flag), or the string value.
+  // EE 0.33.0 (N2): longitudinal compliance evidence. Both are forwarded verbatim to
+  // EE, which owns every default and every validation — CE never parses or defaults
+  // them. Tri-state like `--env` and NOT the `--compliance-scope` collapse-to-null
+  // form: a value-less `--sla-policy` must be an error in main(), because silently
+  // nulling it is precisely the quiet skip this feature exists to remove.
+  const complianceHistoryVal = get('compliance-history') || get('compliance_history');
+  args.complianceHistory = complianceHistoryVal === undefined ? undefined : complianceHistoryVal;
+  const slaPolicyVal = get('sla-policy') || get('sla_policy');
+  args.slaPolicy = slaPolicyVal === undefined ? undefined : slaPolicyVal;
+  const attestWindowVal = get('window');
+  args.attestWindow = (attestWindowVal && attestWindowVal !== true) ? attestWindowVal : null;
+  const frameworkVal = get('framework');
+  args.framework = (frameworkVal && frameworkVal !== true) ? frameworkVal : null;
+
   const envVal = get('env');
   args.env = envVal === undefined ? undefined : envVal; // string path, or true if value-less
   const awsProfileVal = get('aws-profile');
@@ -747,6 +761,11 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       outDir,
       compliance:      opts.compliance ?? process.env.COMPLIANCE_FRAMEWORKS ?? null,
       complianceScope: opts.complianceScope ?? null,
+      // EE 0.33.0 (N2). Forwarded verbatim; EE owns the defaults, the validation and
+      // the path-or-object handling for the policy.
+      complianceTrackSla:    opts.complianceTrackSla,
+      complianceHistoryRoot: opts.complianceHistoryRoot,
+      slaPolicy:             opts.slaPolicy,
       results,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
     });
@@ -922,7 +941,7 @@ export async function preflightGrcIfRequested(env, opts = {}) {
 
 export async function main() {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, awsRegion } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -980,6 +999,20 @@ Scan options:
                                of soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr (aliases
                                nist/pci/iso/cis). Unknown tokens fail fast. Enterprise only.
   --compliance-scope <path>    JSON file describing the assessment scope
+  --compliance-history <dir>   Directory of prior scans (one subdirectory per scan). Turns on
+                               SLA/MTTR longitudinal tracking against that history. Enterprise.
+  --sla-policy <path>          JSON file of SLA thresholds per severity; defaults to the
+                               shipped data/compliance/sla.json. Enterprise.
+
+Compliance subcommands:
+  nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
+                                        Aggregate the per-scan attestation records in
+                                        <dir> into a multi-period (Type II) recurring-scan
+                                        attestation. Reads scan_attestation_<fw>.json from
+                                        each subdirectory, so a history you already have is
+                                        aggregatable. Discovery is ONE level deep and the
+                                        report says so. Exits 3 when no evidence is found —
+                                        an empty history is a finding, not a pass.
 
 License subcommands:
   nsauditor-ai license install <KEY>    Verify and persist a license key (Keychain
@@ -1024,7 +1057,9 @@ Environment:
   NSA_ALLOW_ALL_HOSTS=1          Permit RFC1918 / loopback (local-network auditing)
   CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022/023/030)
   AI_PROVIDER=openai|claude|ollama   AI provider for report generation
-  COMPLIANCE_TSA_URL             RFC 3161 timestamp authority for SOC 2 attestation
+  NSAUDITOR_TSA_URL              RFC 3161 timestamp authority for compliance attestation.
+                                 No default, ever — unset means the feature is absent.
+                                 Refused at startup together with NSAUDITOR_OFFLINE_ONLY=1.
 
 Cloud-scan hosts:
   --host aws[,gcp,azure]         One or more cloud sentinel literals, comma-separated
@@ -1996,6 +2031,51 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     process.exit(exitCode);
   }
 
+  // ── `compliance attest` (EE 0.33.0, N2) ───────────────────────────────────
+  // Placed BEFORE the unknown-command guard, or it would be dead code that exits 2.
+  // Deliberately a THIN forward: EE owns framework validation, the offline posture
+  // veto, framework-alias resolution and every default. CE contributes the flag
+  // surface and the exit code — nothing here can drift out of sync with the engine
+  // because nothing here decides anything.
+  if (cmd === 'compliance') {
+    const sub = process.argv[3];
+    if (sub !== 'attest') {
+      console.error('Usage: nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]');
+      process.exit(2);
+    }
+    if (typeof complianceHistory !== 'string' || complianceHistory.length === 0) {
+      console.error('Fatal: compliance attest requires --history <dir>');
+      process.exit(2);
+    }
+    let runAttestCommand;
+    try {
+      ({ runAttestCommand } = await import('@nsasoft/nsauditor-ai-ee'));
+    } catch {
+      console.error('compliance attest requires the Enterprise package (@nsasoft/nsauditor-ai-ee).');
+      process.exit(2);
+    }
+    try {
+      const { report, files, exitCode } = await runAttestCommand({
+        rootDir: complianceHistory,
+        outDir: resolveBaseOutDir(),
+        framework: framework || compliance || 'soc2',
+        window: attestWindow || '6m',
+        onWarn: (msg) => console.warn(`[EE] ${msg}`),
+      });
+      console.log(`Recurring attestation (${report.framework}): ${report.summary.scanCount} scans in window, status ${report.summary.complianceStatus}`);
+      if (report.summary.invalidForAudit > 0) {
+        console.warn(`  ${report.summary.invalidForAudit} of them are marked REPORT INVALID FOR AUDIT by their own attestation — see scansWithWarnings`);
+      }
+      for (const f of files) console.log(`  wrote ${f.path ?? f}`);
+      process.exit(exitCode);
+    } catch (err) {
+      // A posture contradiction or an unknown framework arrives here. It must NOT be
+      // swallowed: the whole point of the veto is that it stops the run loudly.
+      console.error(`Fatal: ${err.message}`);
+      process.exit(2);
+    }
+  }
+
   if (cmd !== 'scan') {
     console.error(`Unknown command: ${cmd}`);
     process.exit(2);
@@ -2024,6 +2104,22 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   if (ports) opts.ports = ports;
   if (compliance) opts.compliance = compliance;
   if (complianceScope) opts.complianceScope = complianceScope;
+  // A value-less flag is a mistake worth stopping for: `--sla-policy` with no path
+  // would otherwise scan on and produce a report indistinguishable from one where the
+  // operator never asked for SLA tracking at all.
+  for (const [flag, val] of [['--compliance-history', complianceHistory], ['--sla-policy', slaPolicy]]) {
+    if (val === true) {
+      console.error(`Fatal: ${flag} requires a value`);
+      process.exit(2);
+    }
+  }
+  if (typeof complianceHistory === 'string' && complianceHistory.length > 0) {
+    opts.complianceHistoryRoot = complianceHistory;
+    // The history root IS the request: asking for a history and not tracking against
+    // it would be a flag that reads as doing something and does nothing.
+    opts.complianceTrackSla = true;
+  }
+  if (typeof slaPolicy === 'string' && slaPolicy.length > 0) opts.slaPolicy = slaPolicy;
   if (awsRegionIntent) opts.awsRegionIntent = awsRegionIntent;
   const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
