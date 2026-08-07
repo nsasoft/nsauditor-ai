@@ -1009,7 +1009,9 @@ Scan options:
   --compliance-history <dir>   Directory of prior scans (one subdirectory per scan). Turns on
                                SLA/MTTR longitudinal tracking against that history. Enterprise.
   --sla-policy <path>          JSON file of SLA thresholds per severity; defaults to the
-                               shipped data/compliance/sla.json. Enterprise.
+                               shipped data/compliance/sla.json. Turns SLA tracking on by
+                               itself. Relative paths resolve against the current
+                               directory. Enterprise.
 
 Compliance subcommands:
   nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
@@ -2063,6 +2065,10 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     }
     try {
       const { report, files, exitCode } = await runAttestCommand({
+        // EE gates on this, exactly as it does for a compliance scan. CE resolves the
+        // tier it already resolved for `--compliance`; presenting it here rather than
+        // letting EE default keeps ONE definition of "Enterprise" across both paths.
+        capabilities: resolveCapabilities(getTierFromEnv()),
         rootDir: complianceHistory,
         outDir: resolveBaseOutDir(),
         framework: framework || compliance || 'soc2',
@@ -2126,7 +2132,15 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     // it would be a flag that reads as doing something and does nothing.
     opts.complianceTrackSla = true;
   }
-  if (typeof slaPolicy === 'string' && slaPolicy.length > 0) opts.slaPolicy = slaPolicy;
+  if (typeof slaPolicy === 'string' && slaPolicy.length > 0) {
+    opts.slaPolicy = slaPolicy;
+    // …and it TURNS TRACKING ON. Setting the policy alone was a byte-identical no-op:
+    // the whole SLA block is gated on complianceTrackSla, so an operator who passed
+    // --sla-policy and nothing else got a report indistinguishable from passing nothing,
+    // with no warning in either channel. A flag that reads as configuring a feature must
+    // not silently require a second flag to have any effect.
+    opts.complianceTrackSla = true;
+  }
   if (awsRegionIntent) opts.awsRegionIntent = awsRegionIntent;
   const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
