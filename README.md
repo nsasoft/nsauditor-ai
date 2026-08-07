@@ -61,7 +61,7 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 
 If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, or GDPR Article 32 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
 
-- ☁️ **28 cloud plugins** across AWS / Azure / GCP — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
+- ☁️ **28 enterprise plugins — 27 cloud auditors across AWS / Azure / GCP, plus one cross-cloud zero-trust posture check** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
 - 📋 **7 compliance frameworks shipped** — generate any combination from a single scan:
   - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
   - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
@@ -104,7 +104,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | Risk scoring + prioritization | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
-| 28 cloud plugins (AWS / Azure / GCP) | — | — | ✅ |
+| 28 enterprise plugins — 27 cloud (AWS / Azure / GCP) + 1 cross-cloud zero-trust check | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
 | **Enterprise — compliance (7 frameworks)** | | | |
 | SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
@@ -265,7 +265,7 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
-**28 enterprise plugins** across AWS, GCP, and Azure substrate audits — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically.
+**28 enterprise plugins: 27 cloud auditors across AWS, GCP and Azure substrate, plus one cross-cloud zero-trust posture check** (`1023`) — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 27 declare, so `1023` is run by explicit selection (`--plugins 1023`) or against a network host.
 
 → **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the signed evidence pack actually looks like.
 

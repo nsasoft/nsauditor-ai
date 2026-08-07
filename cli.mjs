@@ -1091,7 +1091,7 @@ Cloud-scan hosts:
                                  Note: the composite zero-trust checker (1023) has no
                                  single cloud and is therefore skipped under this
                                  auto-scope; to run it, select it explicitly
-                                 (--plugins 023,...) or scan a network host/CIDR.
+                                 (--plugins 1023,...) or scan a network host/CIDR.
                                  INVERSE (cloud scope integrity): a cloud auditor runs
                                  ONLY on its own sentinel host. On a NETWORK host (IP /
                                  CIDR / hostname) the cloud-scanner plugins NEVER run —
