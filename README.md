@@ -118,7 +118,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | **GDPR Article 32 (Security of Processing)** — Art. 32 infrastructure substrate (4 covered + 5 partial + 2 OOS / 11 sub-measure units); **not GDPR compliance** · Art. 83(4) lower fine tier | — | — | ✅ |
 | Multi-framework `--compliance soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr` from one scan | — | — | ✅ |
 | **Enterprise — auditor-grade evidence** | | | |
-| Evidence packs with SHA-256 chain-of-custody (RFC 3161 timestamps opt-in via `NSAUDITOR_TSA_URL`, exercised against a live TSA on the npm path; the `:0.33.0` container carries the capability gate-verified, with the in-container round-trip not yet exercised) | — | — | ✅ |
+| Evidence packs with SHA-256 chain-of-custody (RFC 3161 timestamps opt-in via `NSAUDITOR_TSA_URL`, exercised against a live TSA on both the npm path and the `:0.33.0` container image; retained images `:0.32.11` and earlier carry no `openssl`) | — | — | ✅ |
 | Suppression workflow with approver identity verification (Ed25519 SIGNING is built, not reachable) | — | — | ✅ |
 | Chain-of-custody manifests | — | — | ✅ |
 | SLA / MTTR tracking + compensating controls | — | — | ✅ |
@@ -311,7 +311,7 @@ Results land in `./out/<host>_<timestamp>/`:
 | 1220 | Azure Storage Account Data-Protection (**EE 0.13.2**) | Enterprise | Dedicated Azure Storage Account encryption / transit / authorization auditor — orthogonal to the 1022 scanner's network-exposure dims (no double-emission; mirrors the AWS 1020 + 1120 two-plugin S3 split). HTTPS-only transit (`enableHttpsTrafficOnly`) + minimum TLS version + Shared Key authorization (`allowSharedKeyAccess` — bypasses Azure AD; absent = enabled, never silent-PASS) + infrastructure (double) encryption + encryption key source incl. **customer-managed-key reachability + rotation** (`keyVaultProperties` — a disabled/revoked/version-pinned CMK degrades, not silent-PASS). Conservative classifier: indeterminate field / AccessDenied → evidence-gap; single-subscription scope surfaced explicitly. **CC6.7 / CC6.1 / C1.1** |
 | 1221 | Azure NSG Perimeter (**EE 0.14.0**; UDP lane **EE 0.14.1**) | Enterprise | The Azure analog of AWS 1170 — a CC6.6 network-segmentation perimeter auditor for Azure Network Security Groups. Evaluates each NSG's inbound rules in Azure priority order (first match wins; DenyAllInbound default): all-protocol public Allow + public-source (`*`/`0.0.0.0/0`/`Internet`) to a restricted **TCP** management/data-tier port (SSH/RDP/MSSQL/MySQL/Postgres/Redis/Mongo/SMB/WinRM/etc.) + `::/0` IPv6-wildcard to a restricted port (the dimension 1022's flat lint misses) + **public-source / `::/0` to a restricted UDP service** (SNMP/CLDAP/NTP/rpcbind/IPMI/IKE/Memcached etc. — Dim 2u/3u, EE 0.14.1) + public→non-restricted INFO + PASS substrate. **Attachment-aware** (attached → CRITICAL effective; orphaned → MEDIUM latent) + effective priority/deny-override resolution + `0.0.0.0/1` split-range coverage. Non-overlapping-by-depth with 1022's coarse per-rule NSG lint. Conservative classifier: denied/indeterminate → evidence-gap; one malformed NSG degrades per-resource. **CC6.6** |
 | 1222 | Azure Key Vault Deep Auditor (**EE 0.15.0**) | Enterprise | The third dedicated Azure auditor (after 1220 storage + 1221 NSG) — the KV analog of how 1221 deepens 1022's flat NSG dim. Enumerates each vault's keys, role assignments, and diagnostic settings across 4 dims: (1) key **auto-rotation policy** + (2) key **expiry** (epoch-s/ms/Date/string coerced) + (3) **diagnostic logging → Log Analytics** (`@azure/arm-monitor`) + (4) **privileged-access depth** (RBAC `roleAssignments` admin/data-plane/scope-aware + legacy `accessPolicies` export/wide-crypto breadth). Orthogonal to 1022's vault-property dims (purge/soft-delete/network-ACL/RBAC-mode) — no double-emission. Secret/cert expiry is a deliberate data-plane scope boundary. Conservative classifier: indeterminate field / AccessDenied / arm-monitor absent → evidence-gap; one malformed vault degrades per-resource. **CC6.3 / C1.1 / CC6.1 / CC7.2** |
-| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 mapping (10 covered + 4 partial controls), SHA-256 chain-of-custody, opt-in RFC 3161 timestamps, exercised against a live TSA on the npm path (the in-container round-trip is not yet exercised), and the suppression workflow. (Ed25519 SIGNING of suppressions is built and not reachable — the workflow ships, the signature does not.) |
+| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 mapping (10 covered + 4 partial controls), SHA-256 chain-of-custody, opt-in RFC 3161 timestamps, exercised against a live TSA on both the npm path and the `:0.33.0` container image, and the suppression workflow. (Ed25519 SIGNING of suppressions is built and not reachable — the workflow ships, the signature does not.) |
 | — | **HIPAA Compliance Engine (EE 0.9.0)** | Enterprise | HIPAA Security Rule §164.312 Technical Safeguards mapping (7 covered + 3 partial + 45 OOS within §164.312 + entire §164.308 + entire §164.310). HHS Required/Addressable discipline per control. Same evidence infrastructure as SOC 2 (SHA-256 chain-of-custody; opt-in RFC 3161 timestamps; suppression signing built but not reachable). Use `--compliance hipaa` or `--compliance soc2,hipaa` for dual-framework reports from a single scan. **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. |
 | — | **NIST CSF 2.0 Compliance Engine (EE 0.10.0)** | Enterprise | NIST Cybersecurity Framework 2.0 Core mapping at the auditor-canonical Subcategory level — 13 covered + 10 partial + 83 OOS across 106 of CSF 2.0's 107 Subcategories. Govern function OOS-by-design (GV.SC-04 partial as substrate exception); Respond function OOS-entirely; Implementation Tiers 1-4 OOS as organizational-maturity claims. NIST SP 800-53 Rev. 5 + CIS Critical Security Controls v8 cross-references baked into `informativeReferences`. Use `--compliance nist-csf` or `--compliance soc2,hipaa,nist-csf` for triple-framework reports from a single scan. |
 | — | **PCI DSS v4.0.1 Compliance Engine (EE 0.11.0)** | Enterprise | PCI DSS v4.0.1 (PCI SSC, June 2024 errata; supersedes v4.0 March 2022; v3.2.1 retired March 31, 2024) mapping at the auditor-canonical sub-requirement level for QSA Report on Compliance workflow — **19 covered + 9 partial + 39 OOS across 67 of ~250 sub-requirements (MVP-67 density)** (Req 7.2.2 down-rated covered→partial in EE 0.19.4 — access-by-job-classification is process/HR-gated). Req 12 Information Security Program OOS-by-design entirely. Req 5 anti-malware + Req 9 physical OOS-entirely. **Defined-vs-Customized Approach discipline per Appendix E** — 15 Defined-only sub-requirements enforced at schema layer. **Cardholder Data Environment (CDE) scope operator-attested** via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1. **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC). **4 load-bearing schema enrichments** per control: `controlType` + `approachEligibility` + `cloudProviderAttestation` (AWS / Azure / GCP currently-named AOCs) + `cdeScope`. CAO MVP-deferred to EE 0.11.1. Use `--compliance pci-dss` or `--compliance soc2,hipaa,nist-csf,pci-dss` for quad-framework reports from a single scan. |
@@ -361,7 +361,7 @@ nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region all
 - **Global services** (IAM, account-level S3 enumeration) are audited once regardless of `--aws-region`; the S3 auditors resolve **each bucket's own region** and skip + disclose buckets outside the scoped set (closing latent cross-region false-cleans).
 - **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it to scan the server-configured `AWS_REGION`, or pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) to fan out. Omitting does **not** fan out, so a single tool-call stays within Desktop's timeout.
 
-The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on the npm path; the in-container round-trip is not yet exercised. Ed25519 suppression SIGNING is built and not reachable. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
+The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on both the npm path and the `:0.33.0` container image. Ed25519 suppression SIGNING is built and not reachable. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
 
 ---
 
@@ -858,10 +858,10 @@ NSAUDITOR_OFFLINE_ONLY=1          # Exact match on '1'. Forbids outbound: CVE ma
                                   # clean. Also VETOES the two settings below — configuring an offline
                                   # posture and an outbound destination together is a startup error,
                                   # never a quiet downgrade to weaker evidence.
-NSAUDITOR_TSA_URL=                # RFC 3161 Time-Stamp Authority endpoint, opt-in. Proven on the npm
-                                  # path against a live TSA; the in-container round-trip is not yet
-                                  # exercised. NO DEFAULT, EVER — unset means the feature is absent,
-                                  # not "use a vendor default".
+NSAUDITOR_TSA_URL=                # RFC 3161 Time-Stamp Authority endpoint, opt-in. Proven against a
+                                  # live TSA on the npm path AND from inside the :0.33.0 container
+                                  # image; :0.32.11 and earlier carry no openssl. NO DEFAULT, EVER —
+                                  # unset means the feature is absent, not "use a vendor default".
 NSAUDITOR_TSA_CERT_CHAIN=         # Path to the TSA certificate chain (PEM), for offline verification
 NSAUDITOR_TSA_POLICY_OID=         # Optional policy OID to request from the TSA
 NSAUDITOR_IDENTITY_REGISTRY=      # Path to the approver identity registry JSON. Binds the humans named
@@ -893,9 +893,13 @@ saying which is which is the point:
   the image before the leg is allowed to push. That check is made by RUNNING the image, never
   by reading the Dockerfile — a negative from a broken probe reads exactly like a negative
   from a missing binary, so the gate exits 2 rather than 1 when its own positive control
-  fails. **What remains unexercised there is the live round-trip** — the gate stops at
-  building the request and does not send it to an authority — and retained images at
-  `:0.32.11` and earlier do not carry the binary at all.
+  fails. **And the live round-trip has now been run too** (2026-08-08): the shipped signing
+  function was driven from inside the pushed `:0.33.0` image against a real authority,
+  returning a genuine `.tsr` that the image's own `openssl` verified — with a one-byte-appended
+  copy returning FAILED, so the OK is a statement about those bytes rather than about the
+  command running. Both delivery vehicles are therefore proven end to end. **The one container
+  caveat that survives is version scope:** retained images at `:0.32.11` and earlier do not
+  carry the binary at all, so nothing here speaks for them.
 
 **Security overrides:**
 
