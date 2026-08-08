@@ -6,6 +6,30 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.38 (2026-08-07) — Paired with EE 0.33.1: the opt-in RFC 3161 register stops understating itself
+
+**No behaviour change. Wording only — and it is the wording npm freezes onto the package page.**
+
+Trusted timestamping is opt-in, became operator-configurable at EE 0.33.0, and has since been
+proven end to end against a real Time-Stamp Authority twice over: on the npm path, and separately from inside the
+published `:0.33.0` Marketplace container image. Six places in this README still told a reader the
+container leg was unverified.
+
+They now state what is true: **RFC 3161 timestamping is opt-in via `NSAUDITOR_TSA_URL`** — no
+default ever, an outbound call to the authority you name, and it needs the `openssl` binary. The
+one caveat that survives is **version scope**: retained images at `:0.32.11` and earlier carry no
+`openssl` at all, so nothing in that section speaks for them.
+
+The paragraph explaining WHY the container was a separate question is kept rather than trimmed,
+because the reasoning still holds — a distroless runtime carries no `openssl` unless deliberately
+given one, and the check must be made by RUNNING the image, since a negative from a broken probe
+reads exactly like a negative from a missing binary. What changed is the answer.
+
+**Ed25519 suppression signing is unchanged and still not reachable** — the suppression workflow
+ships, the signature does not, and no shipped entry point signs a suppression.
+
+---
+
 ## 0.2.37 (2026-08-07) — the Enterprise entry points, and a catch that was deleting the deliverable
 
 **Paired with Enterprise 0.33.0, and REQUIRED by it** — that release's peer floor is
@@ -124,7 +148,7 @@ Plugin count UNCHANGED at 28; all seven coverage matrices UNCHANGED.
 
 Paired with **Enterprise 0.32.7**, which does two things: the network-scan analysis agents' findings now route in **all seven compliance frameworks** (they previously reached only SOC 2 off the same scan — a host serving cleartext or exposing SMB failed SOC 2 and read clean in HIPAA / NIST / ISO / CIS / PCI / GDPR), and a **capability-claim honesty pass** withdraws several Pro/Enterprise capabilities that were advertised without a shipping implementation. See the Enterprise package for the full detail.
 
-- **CE code change this cycle** (the honesty pass reaches CE too): the tier-capability map (`utils/capabilities.mjs`) drops six flags — `verificationEngine`, `brandedReports`, `usageMetering`, `dockerIsolation` (no implementation) and `zdePolicyEngine`, `enterpriseCTEM` (real cores ship + are claimed in prose; no distinct engine behind the name) — in lockstep with EE and both licensing repos, so `nsauditor-ai license --capabilities` and every minted license now name only capabilities that ship. `resolveCapabilities(tier)` already derives from tier and ignores the JWT capability array, so **issued licenses are unaffected**. The README drops a "verification status" prompt-injection claim and a "Verification Probes" design-pattern entry (no verification probes ship — findings are emitted `UNVERIFIED`).
+- **CE code change this cycle** (the honesty pass reaches CE too): the tier-capability map (`utils/capabilities.mjs`) drops six flags — `verificationEngine`, `brandedReports`, `usageMetering`, `dockerIsolation` (no implementation) and `zdePolicyEngine`, `enterpriseCTEM` (real cores ship + are claimed in prose; no distinct engine behind the name) — in lockstep with EE and both licensing repos, so `nsauditor-ai license --capabilities` and every minted license now name only capabilities that ship. `resolveCapabilities(tier)` already derives from tier and ignores the JWT capability array, so **issued licenses are unaffected**. The README drops a "verification status" prompt-injection claim and a "Verification Probes" design-pattern entry — the Verification Engine is **WITHDRAWN** as of this cycle (EE 0.32.7), no verification probes ship, and every finding is emitted `UNVERIFIED`.
 - Plugin count UNCHANGED at 28; all seven coverage matrices UNCHANGED (Enterprise 0.32.7 is matrix-neutral — every finding routes to already-covered controls). Paired **EE 0.32.7** + agent-skill 0.2.30 (peer `nsauditor-ai >=0.2.8` unchanged).
 
 ## 0.2.31 (2026-07-19) — Paired bump for EE 0.32.6 (network-scan false-negative closures)
