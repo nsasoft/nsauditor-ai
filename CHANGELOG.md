@@ -6,6 +6,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.39 (2026-08-10) — Paired with EE 0.34.0: exploit intelligence lands in Pro, and the risk-score claim is corrected here
+
+**No CE behaviour change.** Scanning, plugins, concluder and output are unchanged.
+
+Enterprise findings that carry CVEs are now joined by CVE-ID against a local **CISA KEV** catalog
+and a local **FIRST EPSS** scores file, banded, and ordered exploit-first so a KEV-listed MEDIUM
+outranks an unexploited CRITICAL. Both stores are **operator-populated — no feed data ships** —
+and fail closed when stale, so an out-of-date catalog never reports "not exploited".
+
+The CE-side change is a correction this package owed its readers. `README.md` and
+`docs/architecture.md` described *"a composite risk score (severity x exploitability x impact x
+exposure)"*; the engine computes **CVSS weighted by verification status, with an uplift for
+initial-access techniques**, and no exploitability input existed at all until EE 0.34.0. The
+documented `FindingQueue.prioritize()` sorts by **severity rank alone** — the exploit-aware
+ordering is Enterprise-side.
+
+---
+
 ## 0.2.38 (2026-08-07) — Paired with EE 0.33.1: the opt-in RFC 3161 register stops understating itself
 
 **No behaviour change. Wording only — and it is the wording npm freezes onto the package page.**
