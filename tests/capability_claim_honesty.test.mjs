@@ -54,7 +54,7 @@ const MUST_STATE = [
  * someone raises the pin deliberately, and a deleted disclosure fails it too.
  */
 const WITHDRAWAL_MARKERS = ['WITHDRAWN', 'Deliberately not claimed', 'Planned —'];
-const EXEMPT_LINE_COUNT = 1;   // the 0.2.33 "What's New" bullet announcing this withdrawal
+const EXEMPT_LINE_COUNT = 1;   // the ZDE section's withdrawal record (moved from the 0.2.33 "What's New" bullet when release history was trimmed to the CHANGELOG)
 const isDisclosure = (line) => WITHDRAWAL_MARKERS.some((m) => line.includes(m));
 
 describe('capability-claim honesty (CE): the absolute air-gap claim stays withdrawn', () => {
