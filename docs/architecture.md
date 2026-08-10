@@ -199,7 +199,7 @@ NSAuditor AI operates as a phased pipeline with conditional execution. Phases 1�
 │                                                                  │
 │  PHASE 5: SCORING, REPORTING & COMPLIANCE (Pro/Enterprise)       │
 │  ──────────────────────────────────                              │
-│  Risk Scoring Engine: severity × exploitability × impact         │
+│  Risk Scoring Engine: CVSS × verification weight                 │
 │  Pro AI Prompts: intelligence-enriched prompts (any provider)    │
 │  Compliance Mapping: NIST/HIPAA/GDPR/PCI (Enterprise)            │
 │  CTEM Integration: store to DB, delta detection, trends          │
@@ -343,7 +343,7 @@ export class FindingQueue {
   getUnverified()        { /* findings awaiting verification */ }
   markVerified(id, evidence) { /* update status + verification evidence */ }
   markFalsePositive(id, reason) { /* update status, log reason */ }
-  prioritize()           { /* sort by severity × exploitability */ }
+  prioritize()           { /* sorts by SEVERITY RANK ALONE */ }
   toJSON()               { /* serialize for file output */ }
   toSARIF()              { /* convert to SARIF 2.1.0 format */ }
 }

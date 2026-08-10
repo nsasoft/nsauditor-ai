@@ -36,7 +36,7 @@ Scan → Analyze → Prioritize → Track → Act
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
-- **Risk-scored prioritization (Pro)** — findings carry a composite risk score (severity × exploitability × impact × exposure) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
+- **Risk-scored prioritization (Pro)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
 - **Continuous monitoring (CTEM)** — watch mode rescans on a schedule, diffs against previous results, and fires webhook alerts on changes
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
 - **CI/CD ready** — SARIF output with `--fail-on` severity gating for pipeline integration
