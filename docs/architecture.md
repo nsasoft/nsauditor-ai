@@ -3,9 +3,11 @@
 **NSAuditor AI — Architecture**
 **Nsasoft US LLC**
 **Privacy-First Security Intelligence Platform**
-*AI-Assisted • Verified Vulnerabilities • Continuous Threat Exposure Management • Zero Data Exfiltration*
+*AI-Assisted • Offline CVE Matching • Continuous Threat Exposure Management • Zero Data Exfiltration*
 
-**Last updated:** April 2026
+**Last updated:** 2026-08-07 — capability-status sweep. §6, §10 and §11.2 are stamped
+**WITHDRAWN**: they documented designs that were never built, and each stamp carries the
+measurement it rests on rather than an assertion.
 
 ---
 
@@ -13,14 +15,14 @@
 
 NSAuditor AI is a **self-hosted, AI-assisted security intelligence platform** that delivers:
 
-> **Scan → Verify → Prioritize → Track → Act**
+> **Scan → Analyze → Prioritize → Track → Act**
 > **without ever requiring customer data to leave their infrastructure.**
 
 **Core principles:**
 
 - **Zero Data Exfiltration (ZDE)** — no customer data ever touches Nsasoft infrastructure; air-gappable once configured for it (a default run queries the public NVD CVE API — see the egress register in the EE `docs/architecture.md` §14.1.1 for the full enumeration)
 - **Local-First Intelligence** — all analysis runs inside the customer environment
-- **Verified Findings** — vulnerabilities are confirmed through active probing, not just version matching. If it can't be verified, it's flagged as "potential" not "confirmed"
+- **Conservatively Labelled Findings** — every finding is emitted with status `UNVERIFIED` and is labelled from banner-grab and configuration evidence, never from an exploit attempt. The re-probing layer that would promote a finding past `UNVERIFIED` is **WITHDRAWN** (see §6) — nothing in either package runs it, so read a finding as "matched", not as "confirmed"
 - **Explicit Opt-In** — any external call (AI APIs, NVD updates) must be manually enabled
 - **Verifiable Security** — CE source is MIT and fully auditable; every external attempt is logged
 
@@ -182,17 +184,16 @@ NSAuditor AI operates as a phased pipeline with conditional execution. Phases 1�
 │                              │                                    │
 ├──────────────────────────────┼───────────────────────────────────┤
 │                              │                                    │
-│  PHASE 4: VERIFICATION (Pro — conditional, NEW)                  │
+│  PHASE 4: VERIFICATION — WITHDRAWN at EE 0.32.7, never shipped   │
 │  ──────────────────────────────────                              │
-│  For each finding in the queue:                                  │
-│  - Run a SAFE verification probe against the target              │
-│  - Classify as: VERIFIED | POTENTIAL | FALSE_POSITIVE            │
-│  - Only VERIFIED and POTENTIAL findings advance                  │
-│  - FALSE_POSITIVE findings are logged but not reported           │
+│  WITHDRAWN: no code runs a verification probe against a target.  │
+│  The status field and its four values ship and are real; what    │
+│  was withdrawn is the layer that would POPULATE them, so every   │
+│  finding leaves Phase 3 stamped UNVERIFIED and is never          │
+│  re-stamped. Nothing is filtered out here and nothing advances    │
+│  differently. §6 keeps the design as a record.                   │
 │                                                                  │
-│  "If it can't be verified, it's flagged, not confirmed."         │
-│                                                                  │
-│  Output: Verified finding queue + verification evidence          │
+│  Output: the Phase 3 finding queue, unchanged                    │
 │                                                                  │
 ├────────────────────── CAPABILITY GATE ──────────────────────────┤
 │                                                                  │
@@ -434,15 +435,27 @@ Each agent produces an array of findings conforming to the FindingSchema:
 
 ---
 
-## 6. Verification Engine (NEW — Pro/EE)
+## 6. Verification Engine — WITHDRAWN at EE 0.32.7 (design record)
 
-### 6.1 Philosophy: "Verified, Not Just Matched"
+> ⚠️ **WITHDRAWN. Every paragraph below describes a design that was never built**, and it is
+> kept — stamped rather than deleted — because a reader arriving from a search engine lands on
+> a subsection, not on this header, and would otherwise read the design as shipped code. That
+> is exactly how the capability survived four releases in the agent-skill after the flag was
+> removed. Measured 2026-08-07: the EE `verifiers/` modules (`verifier_runner.mjs`,
+> `tls_verifier.mjs`, `ssh_verifier.mjs`, `http_verifier.mjs`, `service_verifier.mjs`,
+> `default_creds_verifier.mjs`) have **zero import statements anywhere in either repo** — the
+> only mention outside the modules themselves is one comment line in `utils/ctem_engine.mjs`.
+> The `verificationEngine` capability flag was deleted from `utils/capabilities.mjs` on
+> 2026-07-21 for the same reason. What ships is the finding-status FIELD: real, and permanently
+> reading `UNVERIFIED`.
 
-Traditional scanners match service versions against CVE databases. This produces false positives when vendors backport patches (e.g., Ubuntu's OpenSSH 8.2p1 may be patched for CVE-2023-38408 even though the version string still says 8.2p1).
+### 6.1 Philosophy: "Verified, Not Just Matched" — the goal, not the state
 
-NSAuditor AI's verification engine sends **safe, non-destructive probes** against findings to confirm they're actually exploitable. Findings that can't be verified are flagged as `POTENTIAL` rather than `VERIFIED`, giving the user honest confidence levels.
+Traditional scanners match service versions against CVE databases. This produces false positives when vendors backport patches (e.g., Ubuntu's OpenSSH 8.2p1 may be patched for CVE-2023-38408 even though the version string still says 8.2p1). **That problem is real and NSAuditor AI does not solve it** — findings are labelled from banner-grab and configuration evidence and stamped `UNVERIFIED`.
 
-### 6.2 Verification Flow
+**WITHDRAWN — the following describes the intended design only.** The verification engine was to send safe non-destructive probes against findings to confirm they are actually exploitable; nothing does. No finding is ever re-classified after Phase 3.
+
+### 6.2 Verification Flow (as designed; never executed)
 
 ```
 Finding Queue (from Phase 3)
@@ -452,7 +465,7 @@ Finding Queue (from Phase 3)
         │
         ├── Select appropriate verifier (by category + service)
         │
-        ├── Execute safe verification probe
+        ├── Execute safe verification probe   ← WITHDRAWN: no code does this
         │     │
         │     ├── Probe succeeds → status = VERIFIED
         │     │     (evidence.verification populated)
@@ -470,11 +483,14 @@ Finding Queue (from Phase 3)
   Verified Finding Queue → Phase 5 (Reporting)
 ```
 
-### 6.3 Verification Probe Examples
+### 6.3 Verification Probe Examples — WITHDRAWN, none of these ever ran
 
-All probes are **safe and non-destructive** — they test for the vulnerability's preconditions without exploiting them:
+**WITHDRAWN.** The table is the design's probe catalogue and no entry in it is implemented or
+called; it is retained so that a future implementation has the safety envelope it was specified
+against. Probes were to be safe and non-destructive — testing for a vulnerability's
+preconditions without exploiting them:
 
-| Finding | Verification Probe | What It Checks |
+| Finding | Probe that was DESIGNED (WITHDRAWN — never ran) | What It Would Have Checked |
 |---|---|---|
 | SSH password auth enabled | Connect, check `SSH-2.0` banner for `password` in auth methods | KEXINIT response contains password auth |
 | TLS 1.0 enabled | Attempt TLSv1.0 handshake with `minVersion=maxVersion` | Handshake succeeds = verified |
@@ -485,10 +501,14 @@ All probes are **safe and non-destructive** — they test for the vulnerability'
 | Missing HSTS header | HTTP GET, check response headers | `Strict-Transport-Security` header absent |
 | CVE with known safe test | Send specific non-destructive probe per CVE advisory | Response matches vulnerable pattern |
 
-### 6.4 Safety Constraints
+### 6.4 Safety Constraints (of the withdrawn design)
+
+**WITHDRAWN.** The path below was `ee/verifiers/verifier_runner.mjs`, which has never existed;
+the module that does exist is `verifiers/verifier_runner.mjs` in the EE package, and it has zero
+importers. Nothing reads `SAFETY_RULES`.
 
 ```javascript
-// ee/verifiers/verifier_runner.mjs
+// verifiers/verifier_runner.mjs (EE package) — module exists, ZERO importers
 
 const SAFETY_RULES = {
   maxProbesPerHost: 50,          // Never exceed 50 probes to one host
@@ -529,7 +549,6 @@ export const CAPABILITIES = {
   advancedCTEM:       { tier: 'pro' },
   enhancedRedaction:  { tier: 'pro' },
   proMCP:             { tier: 'pro' },
-  pdfExport:          { tier: 'pro' },
 
   // Enterprise
   cloudScanners:      { tier: 'enterprise' },
@@ -541,9 +560,16 @@ export const CAPABILITIES = {
   // only capabilities that SHIP. Six were removed 2026-07-21 (capability-claim audit):
   // verificationEngine / brandedReports / usageMetering / dockerIsolation had no
   // implementation; zdePolicyEngine / enterpriseCTEM named no distinct engine or
-  // datastore (their real cores ship and are described in prose). Shipped set is
-  // 8 pro + 5 enterprise (+6 CE = 19 on an Enterprise license). This doc mirrors
-  // utils/capabilities.mjs — keep both in lockstep with the EE + licensing keygens.
+  // datastore (their real cores ship and are described in prose).
+  // A seventh followed at 0.32.11: pdfExport is WITHDRAWN — it was registered and
+  // minted into licences while renderBrandedReport() threw 'Not implemented' and no
+  // code read the flag. Its absence is pinned by tests/capabilities.test.mjs.
+  // Shipped set, DERIVED from utils/capabilities.mjs rather than transcribed:
+  // 7 pro + 5 enterprise (+6 CE = 18 on an Enterprise license). Re-derive with
+  //   node -e "import('./utils/capabilities.mjs').then(m=>{const t={};for(const[k,v]of
+  //   Object.entries(m.CAPABILITIES))(t[v.tier]??=[]).push(k);console.log(t)})"
+  // This doc mirrors utils/capabilities.mjs — keep both in lockstep with the EE +
+  // licensing keygens.
 };
 ```
 
@@ -602,11 +628,23 @@ async function discoverPlugins(baseDir) {
 
 ---
 
-## 10. Docker Isolation (NEW — Enterprise)
+## 10. Docker Isolation — WITHDRAWN (design record)
 
-### 10.1 Per-Scan Container Isolation
+> ⚠️ **WITHDRAWN. Per-scan container isolation was never built.** The `dockerIsolation`
+> capability flag was deleted from `utils/capabilities.mjs` on 2026-07-21 in the same audit that
+> removed `verificationEngine`, for the same reason: no implementation. Measured 2026-08-07: no
+> `docker-compose.scan.yml` exists in either repo, and neither repo contains a container
+> orchestrator (`dockerode`, `docker run` or `createContainer` appear in zero `.mjs` files). A
+> scan runs in the process you started it in. Stamped rather than deleted, because a search
+> engine delivers §10.2 without this header.
+>
+> ONE container image is real, and it is a different thing: the AWS Marketplace image, which
+> bakes CE + EE and is pushed by `deploy/marketplace/build-scan-push.sh` to the
+> Marketplace-provisioned ECR repository, tagged with the EE version.
 
-For Enterprise deployments, each scan runs in an ephemeral Docker container. This provides scan isolation (one target can't affect another's scan), security (container is destroyed after use), and parallelism (concurrent scans without resource contention).
+### 10.1 Per-Scan Container Isolation (as designed; never built)
+
+For Enterprise deployments, each scan was to run in an ephemeral Docker container. This would provide scan isolation (one target can't affect another's scan), security (container is destroyed after use), and parallelism (concurrent scans without resource contention).
 
 ```
 Enterprise CLI or MCP request
@@ -637,13 +675,17 @@ Enterprise CLI or MCP request
 └────────────────────────┘
 ```
 
-### 10.2 Container Spec
+### 10.2 Container Spec — WITHDRAWN, this file does not exist
+
+**WITHDRAWN.** No pipeline produces `nsasoft/nsauditor-ai:enterprise` and no such compose file
+ships; the tag below is illustrative and was never published. The real image tag is
+`${REPO_URI}:${VERSION}` against the Marketplace ECR repository — see the stamp on §10.
 
 ```yaml
-# docker-compose.scan.yml (Enterprise)
+# docker-compose.scan.yml — WITHDRAWN example, not a shipped file
 services:
   scan:
-    image: nsasoft/nsauditor-ai:enterprise
+    image: <marketplace-ecr-repo>:<EE version>   # WITHDRAWN illustration only
     read_only: true
     tmpfs: /tmp
     network_mode: host    # Needs access to target network
@@ -696,21 +738,26 @@ from a tool that does not exist, so an assistant simply routes around it and the
 never learns a licence would have answered their question. A refusal that names the tier
 is the actionable form.
 
-### 11.2 save_finding Tool (NEW)
+### 11.2 save_finding Tool — WITHDRAWN (never registered)
 
-The `save_finding` MCP tool validates findings against the FindingSchema before persisting. This ensures AI assistants using NSAuditor AI via MCP produce consistently structured output:
-
-```javascript
-// Validates finding structure, assigns ID, adds to queue
-tools.register('save_finding', SaveFindingSchema, async (input) => {
-  const errors = validateFinding(input);
-  if (errors.length > 0) return { success: false, errors };
-
-  const finding = { ...input, id: generateFindingId() };
-  queue.add(finding);
-  return { success: true, id: finding.id };
-});
-```
+> ⚠️ **WITHDRAWN.** This section previously showed a `tools.register('save_finding', …)` call
+> as shipped code. It is WITHDRAWN and always was: `save_finding` appears in **zero `.mjs`
+> files in this repo** (measured 2026-08-07), and there is no `tools.register` API — the real
+> registry is the single exported `TOOLS` array in §11.1, whose seven members are the complete
+> set an MCP client can call. WITHDRAWN on the same evidence: `risk_summary` and `scan_compare`
+> are implemented in an EE `registerProTools` that has no caller in either repo and that calls
+> `server.tool()` — a method the `Server` object CE constructs does not have. Implemented and
+> unreachable is still unreachable.
+>
+> The code sample is removed rather than stamped in place, because it was fabricated: it named
+> an API (`tools.register`, `SaveFindingSchema`, `validateFinding`, `generateFindingId`) that
+> has never existed, so there is nothing for a future implementer to inherit. What *is* worth
+> keeping is the requirement it was written for — an MCP write path should validate against the
+> finding schema before persisting — and that is recorded here, not shown as code.
+>
+> To restore: register the tool on the shipped MCP server, validate it from Claude Desktop, and
+> remove its name from `scripts/claim_surface_patterns.mjs`'s `phantom-mcp-tools` pattern in the
+> **same commit** that wires it.
 
 ---
 
