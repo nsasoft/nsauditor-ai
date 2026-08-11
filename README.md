@@ -92,6 +92,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | **Pro features (vulnerability assessment)** | | | |
 | CVE matching + MITRE ATT&CK mapping | — | ✅ | ✅ |
 | Risk scoring + prioritization | — | ✅ | ✅ |
+| Exploit intelligence — **CISA KEV** + **FIRST EPSS** joined onto the CVE matches, exploit-first ordering (a KEV-listed MEDIUM outranks an unexploited CRITICAL); stores are operator-populated — no feed data ships | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
 | 28 enterprise plugins — 27 cloud (AWS / Azure / GCP) + 1 network-scan zero-trust check | — | — | ✅ |
