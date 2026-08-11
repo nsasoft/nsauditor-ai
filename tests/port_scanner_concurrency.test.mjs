@@ -120,3 +120,66 @@ test('the default port list is found relative to the PACKAGE, not the caller\'s 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+/**
+ * ── R-MEDIUM, FOUND BY REVIEW: THE OVERRIDE COMMITTED ON *READ*, NOT ON *YIELD* ──────────
+ *
+ * The first fix tried cwd then the package and `break`s on the first file that READS. But
+ * `config/services.json` is a common filename. If the caller's directory holds a FOREIGN one
+ * — another application's, or an empty/typo'd nsauditor one (`{}`, `{"services":[]}`) —
+ * `JSON.parse` succeeds, neither schema branch populates anything, **the package floor is
+ * never read**, and the loader returns an empty set. Empty → early return → `up:false` →
+ * every `tcp_open`-gated plugin skipped.
+ *
+ * The same false clean as the headline defect, re-gated on a filename collision instead of a
+ * missing file — and the previous comment's promise that "a scan can no longer fall through
+ * to nothing" was FALSE in exactly this case, which is its own small honesty defect.
+ *
+ * Repro measured before the fix: `mkdir -p /tmp/x/config; echo '{"other":"app"}' >
+ * /tmp/x/config/services.json; cd /tmp/x` → 0 rows, up:false.
+ *
+ * The rule is therefore YIELD, not READ: an override counts only if it produces ports.
+ */
+test('a FOREIGN config/services.json in cwd must not shadow the package floor', async () => {
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const cwd0 = process.cwd();
+  const tmp = fs.mkdtempSync(`${os.tmpdir()}/nsa-collide-`);
+  fs.mkdirSync(path.join(tmp, 'config'), { recursive: true });
+  try {
+    for (const [label, body] of [['foreign app', '{"other":"app"}'],
+                                 ['empty object', '{}'],
+                                 ['empty services', '{"services":[]}']]) {
+      fs.writeFileSync(path.join(tmp, 'config', 'services.json'), body);
+      process.chdir(tmp);
+      const r = await plugin.run('192.0.2.1', 0, { timeoutMs: 60 });
+      assert.ok(r.data.length >= 40,
+        `a ${label} config in cwd yielded ${r.data.length} probes — it shadowed the package's ` +
+        'own port set and the scan probed nothing. An override counts only if it YIELDS ports.');
+    }
+  } finally {
+    process.chdir(cwd0);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('a VALID cwd override still wins — the documented behaviour is preserved', async () => {
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const cwd0 = process.cwd();
+  const tmp = fs.mkdtempSync(`${os.tmpdir()}/nsa-override-`);
+  fs.mkdirSync(path.join(tmp, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'config', 'services.json'),
+    JSON.stringify({ services: [{ port: 9999, protocol: 'tcp' }] }));
+  try {
+    process.chdir(tmp);
+    const r = await plugin.run('192.0.2.1', 0, { timeoutMs: 60 });
+    assert.equal(r.data.length, 1, 'a non-empty override must REPLACE the package set, not merge');
+    assert.equal(r.data[0].probe_port, 9999);
+  } finally {
+    process.chdir(cwd0);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

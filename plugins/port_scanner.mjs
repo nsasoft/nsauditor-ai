@@ -77,22 +77,11 @@ export function parsePortsSpec(spec) {
  */
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
-  // Supports the "array schema" used by tests:
-  // { "services": [ { port, protocol }, ... ] }
-  // and a fallback object schema: { tcp: [...], udp: [...] }
+/** Parse ONE services.json into a port set. Never throws; an unusable file yields nothing. */
+async function readPortSet(fp) {
   const out = { tcp: [], udp: [] };
   try {
-    // Caller override first, then the package's own copy. Two candidates, and the
-    // package one cannot go missing for an installed user.
-    let raw = null;
-    for (const fp of [path.join(cwd, "config", "services.json"),
-                      path.join(PKG_ROOT, "config", "services.json")]) {
-      try { raw = await fsp.readFile(fp, "utf8"); break; } catch { /* try the next */ }
-    }
-    if (raw === null) throw new Error("no config/services.json in cwd or package root");
-    const cfg = JSON.parse(raw);
-
+    const cfg = JSON.parse(await fsp.readFile(fp, "utf8"));
     if (Array.isArray(cfg?.services)) {
       for (const s of cfg.services) {
         const p = Number(s?.port);
@@ -105,12 +94,31 @@ async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
       if (Array.isArray(cfg?.tcp)) out.tcp.push(...cfg.tcp);
       if (Array.isArray(cfg?.udp)) out.udp.push(...cfg.udp);
     }
-  } catch {
-    // no config, ignore
-  }
+  } catch { /* unreadable or unparseable — yields nothing, and the caller falls through */ }
   out.tcp = uniqInts(out.tcp);
   out.udp = uniqInts(out.udp);
   return out;
+}
+
+/**
+ * The default port set: the caller's override if it YIELDS PORTS, otherwise the package's own.
+ *
+ * ⚠️ THE RULE IS *YIELD*, NOT *READ*, AND A REVIEW CAUGHT THE DIFFERENCE. An earlier fix tried
+ * cwd then the package and committed to the first file that READ successfully. But
+ * `config/services.json` is a common filename: a FOREIGN one in the caller's directory —
+ * another application's, or an empty/typo'd nsauditor one (`{}`, `{"services":[]}`) — parses
+ * fine, populates nothing, and the package floor was then never consulted. The scan probed
+ * ZERO ports and reported `up:false`: the same false clean as before, re-gated on a filename
+ * collision instead of a missing file. Committing on read also made that fix's own comment
+ * ("a scan can no longer fall through to nothing") untrue.
+ *
+ * A non-empty override REPLACES rather than merges — an operator narrowing the sweep on
+ * purpose must not silently get the full set back.
+ */
+async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
+  const override = await readPortSet(path.join(cwd, "config", "services.json"));
+  if (override.tcp.length || override.udp.length) return override;
+  return readPortSet(path.join(PKG_ROOT, "config", "services.json"));
 }
 
 function classifyTcpError(err) {
