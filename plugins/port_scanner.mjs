@@ -6,6 +6,8 @@ import net from "node:net";
 import dgram from "node:dgram";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { mapLimit } from "../utils/concurrency.mjs";
 
 /* ------------------------------ helpers ------------------------------ */
 
@@ -57,14 +59,38 @@ export function parsePortsSpec(spec) {
   return out;
 }
 
+/**
+ * ⚠️ THE PACKAGE'S OWN DATA IS FOUND RELATIVE TO THE PACKAGE, NOT TO THE CALLER.
+ *
+ * This used to default to `process.cwd()` alone, with the `catch` below swallowing the miss.
+ * A globally installed CLI runs from wherever the OPERATOR happens to be, so unless that
+ * directory contained a `config/services.json`, the default port list came back EMPTY, the
+ * early return in `run()` fired, and the scan reported `up:false` with every bucket empty —
+ * in about a millisecond, having probed nothing. Measured 2026-08-10 on the installed build:
+ * cwd=/private/tmp gave 0 rows, cwd=<package> gave 50 rows and tcpOpen [80,21,53,443,…].
+ *
+ * That is a FALSE CLEAN shipped to every npm customer: an empty sweep is indistinguishable
+ * from a host with nothing listening, and downstream every plugin gated on `tcp_open` is then
+ * skipped silently. cwd is still tried FIRST so an operator can override the port set by
+ * placing their own `config/services.json` beside them — the documented behaviour — but the
+ * package copy is the floor, and a scan can no longer fall through to nothing.
+ */
+const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
   // Supports the "array schema" used by tests:
   // { "services": [ { port, protocol }, ... ] }
   // and a fallback object schema: { tcp: [...], udp: [...] }
   const out = { tcp: [], udp: [] };
   try {
-    const fp = path.join(cwd, "config", "services.json");
-    const raw = await fsp.readFile(fp, "utf8");
+    // Caller override first, then the package's own copy. Two candidates, and the
+    // package one cannot go missing for an installed user.
+    let raw = null;
+    for (const fp of [path.join(cwd, "config", "services.json"),
+                      path.join(PKG_ROOT, "config", "services.json")]) {
+      try { raw = await fsp.readFile(fp, "utf8"); break; } catch { /* try the next */ }
+    }
+    if (raw === null) throw new Error("no config/services.json in cwd or package root");
     const cfg = JSON.parse(raw);
 
     if (Array.isArray(cfg?.services)) {
@@ -261,15 +287,31 @@ export default {
 
     const data = [];
 
+    // ⚠️ BOUNDED CONCURRENCY, NOT A SEQUENTIAL LOOP — and the reason is a measured false clean.
+    // These two loops used to `await` one port at a time. A filtered or silent port costs the
+    // FULL per-port timeout, so the shipped 50-port sweep (43 TCP + 7 UDP) took 40,977 ms
+    // against a real router on 2026-08-10 — past the 30,000 ms `PLUGIN_TIMEOUT_MS` the plugin
+    // manager races every run against. The orchestrator therefore DISCARDED a correct result
+    // (`up:true`, `tcpOpen:[80,21,53,443,...]`) that arrived eleven seconds later, and
+    // substituted an empty one.
+    //
+    // That is not slowness, it is a FALSE CLEAN: with `ctx.tcpOpen` empty, every plugin gated
+    // on `tcp_open` is skipped by `plugin_manager.mjs` with a bare `return false` — no finding,
+    // no evidence gap — so `HTTP Probe` and `Webapp Detector` never ran, and the compliance
+    // layer reported PASS controls off a scan that never probed HTTP.
+    //
+    // `mapLimit` returns results IN INPUT ORDER, so the evidence rows stay deterministic; the
+    // cap is deliberately modest because a port sweep is latency-bound, not CPU-bound, and a
+    // scanner that floods a small target is its own kind of defect.
+    const SWEEP_CONCURRENCY = toInt(process.env.PORT_SCAN_CONCURRENCY, 12);
+
     // TCP scans
-    for (const p of tcpPorts) {
-      data.push(await scanTcpPort(host, p, { timeoutMs, bannerTimeoutMs, maxBannerBytes }));
-    }
+    data.push(...await mapLimit(tcpPorts, SWEEP_CONCURRENCY, (p) =>
+      scanTcpPort(host, p, { timeoutMs, bannerTimeoutMs, maxBannerBytes })));
 
     // UDP scans
-    for (const p of udpPorts) {
-      data.push(await scanUdpPort(host, p, { timeoutMs, udpPayload }));
-    }
+    data.push(...await mapLimit(udpPorts, SWEEP_CONCURRENCY, (p) =>
+      scanUdpPort(host, p, { timeoutMs, udpPayload })));
 
     // Buckets
     const tcpOpen      = data.filter(d => d.probe_protocol === "tcp" && d.status === "open").map(d => d.probe_port);
