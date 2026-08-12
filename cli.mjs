@@ -2238,7 +2238,16 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
             approver: A.approver,
             expiresInDays: A.expiresInDays ? Number(A.expiresInDays) : undefined,
             compensating_control: A.compensatingControl || undefined,
-          }, { signingKeyRaw, attestationLevel: A.attestationLevel || undefined });
+            // ⚠️ PROVENANCE, BECAUSE ONLY THIS LINE KNOWS IT. EE cannot tell an env-sourced
+            // reference from a hand-passed one — it receives an argument either way — so a
+            // malformed key used to tell the operator who set NSAUDITOR_SIGNING_KEY about "the
+            // supplied signing key", naming no setting on the one path where naming it is the
+            // point. The token is what sends them back to the variable they actually typed.
+          }, {
+            signingKeyRaw,
+            signingKeyFrom: 'environment',
+            attestationLevel: A.attestationLevel || undefined,
+          });
           const sig = out.suppression.signature;
           console.log(`wrote ${out.file} — ${out.suppression.id} (${out.suppression.status})`);
           console.log(sig
