@@ -678,6 +678,29 @@ export async function parseArgs(argv) {
   args.slaPolicy = slaPolicyVal === undefined ? undefined : slaPolicyVal;
   const attestWindowVal = get('window');
   args.attestWindow = (attestWindowVal && attestWindowVal !== true) ? attestWindowVal : null;
+
+  // ── the approval surface (EE 0.35.0) ────────────────────────────────────────
+  // Parsed HERE with every other flag rather than read from `process.argv` in the
+  // subcommand, so one parser owns the `--flag value` / `--flag=value` / boolean
+  // shapes. `attest` taught this: a second parser is a second set of edge cases.
+  const str = (name) => { const v = get(name); return (v && v !== true) ? v : null; };
+  args.approvalArgs = {
+    suppressions: str('suppressions'),
+    keyPath: str('key'),
+    source: str('source'),
+    titlePattern: str('title-pattern') ?? str('title_pattern'),
+    status: str('status'),
+    rationale: str('rationale'),
+    approver: str('approver'),
+    email: str('email'),
+    role: str('role'),
+    team: str('team'),
+    suppressionId: str('id'),
+    expiresInDays: str('expires-in-days'),
+    attestationLevel: str('attestation-level'),
+    compensatingControl: str('compensating-control'),
+    force: !!get('force'),
+  };
   const frameworkVal = get('framework');
   args.framework = (frameworkVal && frameworkVal !== true) ? frameworkVal : null;
 
@@ -955,10 +978,20 @@ function maxSeverityInConclusion(conclusion) {
  * EE raises this as an `NsauditorConfigError` from `resolveComplianceEnvOpts`, and exports
  * that function specifically so CE can fail fast at startup with the SAME definition of
  * "offline". Until now nothing called it, and the veto's only route into CE was through
- * `enrichScan` — straight into the bare `catch {}` on the scan path, which does not abort
- * the scan: it silently drops the ENTIRE EE stage (intelligence, agents, the compliance
- * report). A quiet skip wearing a fail-fast's name, one repo over from the test that
- * forbids exactly that.
+ * `enrichScan` — which at the time meant a bare `catch {}` on the scan path that did not
+ * abort the scan: it silently dropped the ENTIRE EE stage (intelligence, agents, the
+ * compliance report). A quiet skip wearing a fail-fast's name, one repo over from the test
+ * that forbids exactly that.
+ *
+ * ⚠️ THAT CATCH IS NO LONGER BARE — the tense above is deliberate and was wrong until now.
+ * The import and the call carry SEPARATE catches (see the scan path below): absence stays
+ * silent, because a Community user legitimately has no EE, while FAILURE is named and
+ * `conclusion.result.eeEnrichmentError` is set. This docblock argued from its own file's
+ * corrected defect, in the present tense, forty lines from the code that fixes it — and it
+ * was the FOURTH site of one dead premise, the other three being EE's §16.1 row, the
+ * `nsauditor_env` docblock and that test's assertion message. The preflight's REASON is
+ * unaffected: a contradiction between two operator settings should stop the run at startup
+ * regardless of how loudly a later failure would report itself.
  *
  * Deliberately NOT gated on the command and NOT gated on a licence tier — a contradiction
  * between two operator settings is a configuration error under every command, and
@@ -1008,7 +1041,7 @@ export async function preflightGrcIfRequested(env, opts = {}) {
 
 export async function main() {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -1075,6 +1108,26 @@ Scan options:
 
 Compliance subcommands:
   nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
+  nsauditor-ai compliance keygen --key <path> [--approver <name>] [--email <e>] [--role <r>]
+                                 [--team <t>] [--force]
+                                 Generate an Ed25519 approval keypair (private 0600) and print
+                                 the identity-registry member to paste. Refuses to overwrite an
+                                 existing key without --force: regenerating makes every
+                                 signature that key ever made unverifiable. Enterprise.
+  nsauditor-ai compliance suppress --suppressions <file> --source <s> --title-pattern <p>
+                                 --status <accepted_risk|false_positive> --rationale <text>
+                                 --approver <name> [--expires-in-days <n>]
+                                 [--attestation-level <approver|deployment>]
+                                 [--compensating-control <text>]
+                                 Records an approval. SIGNS it when NSAUDITOR_SIGNING_KEY names
+                                 a local Ed25519 PEM; records it unsigned otherwise, and the
+                                 report labels which. A malformed key fails HERE, never on a
+                                 scan. Enterprise.
+  nsauditor-ai compliance review --history <dir>
+                                 Expiry review across a scan-history root. Enterprise.
+  nsauditor-ai compliance renew --suppressions <file> --id <id> --rationale <text>
+                                 --approver <name> [--expires-in-days <n>]
+                                 Extends an approval and records the renewal chain. Enterprise.
                                         Aggregate the per-scan attestation records in
                                         <dir> into a multi-period (Type II) recurring-scan
                                         attestation. Reads scan_attestation_<fw>.json from
@@ -2121,8 +2174,100 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // because nothing here decides anything.
   if (cmd === 'compliance') {
     const sub = process.argv[3];
+
+    // ── THE APPROVAL SURFACE (EE 0.35.0) ───────────────────────────────────
+    // `suppress` / `review` / `renew` / `keygen`. Same THIN-FORWARD discipline as
+    // `attest` below: EE owns validation, defaults, the signing decision and every
+    // refusal; CE contributes a flag surface and an exit code and decides nothing.
+    //
+    // ⚠️ CLI-ONLY BY RATIFIED SCOPE (D4 condition 1). These are NOT exposed as MCP
+    // tools — the GRC-push precedent — because an approval surface reachable from a
+    // chat client is its own decision and nobody has made it.
+    //
+    // ⚠️ NOTHING HERE FLIPS A CLAIM. Publishing the surface is not proving it: per D6
+    // the three-part gate runs against the published registry bytes and the hedges
+    // flip at N+1. If you are reading this while editing marketing copy, the answer
+    // is still "not yet".
+    if (sub === 'suppress' || sub === 'review' || sub === 'renew' || sub === 'keygen') {
+      let ee;
+      try {
+        ee = await import('@nsasoft/nsauditor-ai-ee');
+      } catch {
+        console.error(`compliance ${sub} requires the Enterprise package (@nsasoft/nsauditor-ai-ee).`);
+        process.exit(2);
+      }
+      const A = approvalArgs ?? {};
+      const suppressionsPath = A.suppressions;
+      try {
+        if (sub === 'keygen') {
+          const out = await ee.keygenCommand({
+            privateKeyPath: A.keyPath,
+            approver: A.approver || undefined,
+            email: A.email || undefined,
+            role: A.role || undefined,
+            team: A.team || undefined,
+            force: A.force,
+          });
+          console.log(`wrote ${out.privateKeyPath} (0600) and ${out.publicKeyPath} (0644)`);
+          console.log('\nAdd this member to your identity registry:\n');
+          console.log(JSON.stringify(out.registryMember, null, 2));
+          console.log('\nThe private key never leaves this machine. Scanners do not need it — '
+            + 'signing happens here, at approval time.');
+          process.exit(0);
+        }
+        if (sub === 'review') {
+          const { rows, summary } = await ee.reviewCommand({ rootDir: complianceHistory });
+          console.log(`Suppressions: ${summary.total} total · ${summary.active} active · `
+            + `${summary.approaching} approaching expiry · ${summary.expired} expired · `
+            + `${summary.no_expiry} without expiry`);
+          for (const r of rows) {
+            console.log(`  [${r.expiryStatus}] ${r.suppressionId ?? '(no-id)'} — ${r.approver ?? '(no approver)'}`);
+          }
+          process.exit(0);
+        }
+        // `suppress` and `renew` both write, and both may SIGN — EE decides, from the
+        // signing reference this forwards. A malformed reference fails HERE, at the
+        // command, and never on a scan (D4).
+        const signingKeyRaw = process.env.NSAUDITOR_SIGNING_KEY || undefined;
+        if (sub === 'suppress') {
+          const out = await ee.suppressCommand({
+            suppressionsPath,
+            match: { source: A.source, titlePattern: A.titlePattern },
+            status: A.status,
+            rationale: A.rationale,
+            approver: A.approver,
+            expiresInDays: A.expiresInDays ? Number(A.expiresInDays) : undefined,
+            compensating_control: A.compensatingControl || undefined,
+          }, { signingKeyRaw, attestationLevel: A.attestationLevel || undefined });
+          const sig = out.suppression.signature;
+          console.log(`wrote ${out.file} — ${out.suppression.id} (${out.suppression.status})`);
+          console.log(sig
+            ? `  signed: ${sig.algorithm}/${sig.backend}`
+              + `${sig.attestationLevel ? ` at level ${sig.attestationLevel}` : ', identity model not declared'}`
+            : '  unsigned — set NSAUDITOR_SIGNING_KEY to a local Ed25519 PEM to sign approvals');
+          process.exit(0);
+        }
+        const out = await ee.renewCommand({
+          suppressionsPath,
+          suppressionId: A.suppressionId,
+          rationale: A.rationale,
+          approver: A.approver,
+          expiresInDays: A.expiresInDays ? Number(A.expiresInDays) : undefined,
+        });
+        console.log(`renewed ${out.suppression?.id ?? A.suppressionId} in ${out.file ?? suppressionsPath}`);
+        process.exit(0);
+      } catch (err) {
+        // Refusals arrive here and must stay loud: a malformed signing key, an
+        // `awskms:` reference this release does not sign with, an existing key file
+        // keygen will not overwrite. Every one of them is the operator learning
+        // something true before an artifact exists.
+        console.error(`Fatal: ${err.message}`);
+        process.exit(2);
+      }
+    }
+
     if (sub !== 'attest') {
-      console.error('Usage: nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]');
+      console.error('Usage: nsauditor-ai compliance <attest|suppress|review|renew|keygen> …');
       process.exit(2);
     }
     if (typeof complianceHistory !== 'string' || complianceHistory.length === 0) {
