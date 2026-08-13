@@ -6,6 +6,14 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.41 (2026-08-13) — Paired with EE 0.36.0: the report verifies the signatures it renders
+
+**PATCH: no CE behaviour change. Version pairing only — every capability in this cycle is Enterprise-side.**
+
+Enterprise 0.36.0 makes every compliance report cryptographically verify each suppression signature it renders — the Ed25519 suppression-signing capability this exercises stays **not yet proven**, its verification gate not having run against published bytes, and adds `report.signatureVerification` to the machine-JSON report. CE forwards `compliance suppress | review | renew | keygen` exactly as it did at 0.2.40 and needs no change to do so — the EE peer floor stays `>=0.2.40` for that reason rather than being raised out of habit.
+
+Recorded because a paired no-op release is where a README goes stale: npm freezes this file at publish, so a version that ships without its own entry is a page that keeps describing the previous cycle until the next publish.
+
 ## 0.2.40 (2026-08-12) — Paired with EE 0.35.0: the suppression-approval commands reach the CLI
 
 **MINOR: four new `compliance` subcommands; no change to scanning, and no existing flag moves.**
