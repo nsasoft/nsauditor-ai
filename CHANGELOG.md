@@ -6,6 +6,20 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.40 (2026-08-12) — Paired with EE 0.35.0: the suppression-approval commands reach the CLI
+
+**MINOR: four new `compliance` subcommands; no change to scanning, and no existing flag moves.**
+
+`compliance suppress | review | renew | keygen` are thin forwards to the Enterprise package, in the discipline `compliance attest` established — EE owns validation, defaults, the signing decision and every refusal; CE contributes flags and an exit code and decides nothing. CLI-only by design: the MCP surface does not reach them, the same ruling the GRC push carries.
+
+The flags parse in `parseArgs` alongside every other flag rather than from `process.argv` inside the subcommand. The first cut did the latter and broke on its first real invocation — a second parser is a second set of edge cases, which is the drift shape this product has paid for elsewhere.
+
+⚠️ `--flag=value` is NOT supported, here or anywhere else in this CLI: `--host=10.0.0.1` yields `undefined` today and always has. That limitation is now pinned by a test naming it, rather than left as a surprise for the first operator who types the other shape. Widening it would change the parse of every existing flag and belongs in its own change.
+
+`NSAUDITOR_SIGNING_KEY` is CONSUMED from this release: with EE 0.35.0, `compliance suppress` signs the approval it writes when the variable names a local Ed25519 key — a capability that is **not yet proven**, because its verification gate has not run against published bytes.
+
+---
+
 ## 0.2.39 (2026-08-10) — Paired with EE 0.34.0: exploit intelligence lands in Pro, and the risk-score claim is corrected here
 
 **No CE behaviour change.** Scanning, plugins, concluder and output are unchanged.
@@ -43,8 +57,8 @@ because the reasoning still holds — a distroless runtime carries no `openssl` 
 given one, and the check must be made by RUNNING the image, since a negative from a broken probe
 reads exactly like a negative from a missing binary. What changed is the answer.
 
-**Ed25519 suppression signing is unchanged and still not reachable** — the suppression workflow
-ships, the signature does not, and no shipped entry point signs a suppression.
+**Ed25519 suppression signing was unchanged at this release and still not reachable then** — the suppression workflow
+shipped, the signature did not, and no shipped entry point signed a suppression at that release.
 
 ---
 
