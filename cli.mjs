@@ -2221,7 +2221,16 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
             + `${summary.approaching} approaching expiry · ${summary.expired} expired · `
             + `${summary.no_expiry} without expiry`);
           for (const r of rows) {
-            console.log(`  [${r.expiryStatus}] ${r.suppressionId ?? '(no-id)'} — ${r.approver ?? '(no approver)'}`);
+            // ⚠️ READ THE FIELDS EE ACTUALLY EMITS. `reviewCommand` returns rows shaped
+            // { scanId, file, suppression, status, daysRemaining } — the expiry class is `status`
+            // (NOT `expiryStatus`) and the id/approver live INSIDE `suppression`. Reading the wrong
+            // names printed `[undefined] (no-id) — (no approver)` for EVERY row, including records
+            // `compliance suppress` had just written itself. The SUMMARY line above was correct
+            // throughout, and that is what hid it: a correct aggregate over broken rows.
+            const sup = r.suppression ?? {};
+            const who = typeof sup.approver === 'string' ? sup.approver : sup.approver?.name;
+            console.log(`  [${r.status ?? 'unknown'}] ${sup.id ?? '(no-id)'} — ${who ?? '(no approver)'}`
+              + (sup.status ? ` · ${sup.status}` : ''));
           }
           process.exit(0);
         }
