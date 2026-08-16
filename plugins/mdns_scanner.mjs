@@ -152,7 +152,14 @@ function deduplicateAndMergeRows(rows) {
 // --------------------------- node-mdns path ---------------------------
 async function runWithNodeMdns(targetHost, timeoutMs, opts) {
   const mdnsMod = await import('mdns');
-  const mdns = mdnsMod.default || mdns;
+  // ⚠️ `mdnsMod` on the right, NOT `mdns` — this read `mdnsMod.default || mdns`, a TDZ
+  // self-reference that threw `ReferenceError: Cannot access 'mdns' before initialization`
+  // whenever `.default` was falsy. The intended namespace fallback therefore never ran once.
+  // It was invisible because the caller's try/catch degrades to the multicast-dns strategy, so
+  // a namespace-shaped build read as "module not available" rather than as an error. Found
+  // 2026-08-15 while measuring the F1 air-gap closure, where this optional native module cannot
+  // be built at all — which is what makes the guarded path load-bearing rather than incidental.
+  const mdns = mdnsMod.default || mdnsMod;
 
   const sequence = [
     mdns.rst.DNSServiceResolve(),
