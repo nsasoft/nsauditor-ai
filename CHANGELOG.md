@@ -6,6 +6,33 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.42 (2026-08-15) — the `feed` commands: CE is where the air-gap entry points live
+
+**MINOR: two new subcommands, one refusal that used to be a silent wrong answer, one plugin fix.**
+
+**`nsauditor-ai feed bundle | import`** — the hand-carry pipeline for offline CVE data. `bundle`
+merges the NVD feed files you downloaded on a connected host into one portable archive; `import`
+reads one into the offline store on an isolated host. The implementations are Enterprise-side
+(**requires `@nsasoft/nsauditor-ai-ee` >= 0.37.0**); the commands, flags and usage text are here,
+because this is the package with the `bin`.
+
+Optional `--kev` / `--epss` on `bundle` carry **your own** downloads from CISA and FIRST inside the
+archive, and `--extras-dir` on `import` places them and prints the environment lines to set. No
+exploit data ships with either package — these are your files.
+
+`import` now names WHY it skipped records, split by reason. About a quarter of a real NVD year file
+is skipped by design (withdrawn CVEs, entries with no CPE data), and a bare `skipped 9353` reads as
+data loss; malformed records are called out separately because those are **not** expected.
+
+**`--flag=value` is now refused by name.** It was previously parsed as a valueless flag with the
+value discarded, so `--severity=high` ran a scan at the default severity and reported success — a
+wrong answer that looked like a right one. The `--flag value` form is unchanged; full `=` support
+is its own lane rather than something smuggled in beside a feature.
+
+**mDNS discovery: the module-shape fallback was a TDZ self-reference**, so it never once fell back.
+
+---
+
 ## 0.2.41 (2026-08-13) — Paired with EE 0.36.0: the report verifies the signatures it renders
 
 **PATCH: no CE behaviour change. Version pairing only — every capability in this cycle is Enterprise-side.**
