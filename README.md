@@ -122,7 +122,8 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | **Enterprise — integration + deployment** | | | |
 | GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation — built, **not reachable** (no caller) | — | — | 🚧 |
-| Air-gapped **operation** once installed — offline licence validation, offline CVE matching under `NSAUDITOR_OFFLINE_ONLY=1`. (Air-gapped DELIVERY ships as of EE 0.37.0 — an offline installation tarball, an install script and a `feed bundle` pipeline — as a **restricted** distribution, amd64 only. No container image bundle ships, and arm64 images remain WITHDRAWN.) | — | — | ✅ |
+| Air-gapped **operation** once installed — offline licence validation (local ES256, no callback, every tier) and offline CVE matching under `NSAUDITOR_OFFLINE_ONLY=1`, which is the **Pro** intelligence engine. The `feed bundle` / `feed import` hand-carry pipeline (EE 0.37.0) moves the NVD feeds **you downloaded**; it needs the Enterprise **package** installed but is not licence-gated, so a Pro licensee can run it. | — | ✅ | ✅ |
+| Air-gapped **DELIVERY** — the dependency-complete offline installation tarball, install script and checksums (EE 0.37.0), distributed **restricted**, amd64 only. No container image bundle ships and arm64 images remain WITHDRAWN. | — | — | ✅ |
 
 **This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions, no telemetry. Pro and Enterprise features ship via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package and install alongside the CE binary once licensed.
 
@@ -678,7 +679,7 @@ nsauditor-ai license <--status | --capabilities | --plugins>
 nsauditor-ai security <set|delete|list|get> <KEY>
 nsauditor-ai validate
 nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
-nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]
+nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>]   # the feeds you downloaded
 nsauditor-ai compliance <attest|suppress|review|renew|keygen>   (Enterprise)
 nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
