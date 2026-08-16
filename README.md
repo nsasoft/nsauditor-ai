@@ -356,7 +356,7 @@ nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region all
 - **Global services** (IAM, account-level S3 enumeration) are audited once regardless of `--aws-region`; the S3 auditors resolve **each bucket's own region** and skip + disclose buckets outside the scoped set (closing latent cross-region false-cleans).
 - **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it to scan the server-configured `AWS_REGION`, or pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) to fan out. Omitting does **not** fan out, so a single tool-call stays within Desktop's timeout.
 
-The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on both the npm path and the `:0.33.0` container image. Ed25519 suppression SIGNING is built and not reachable. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
+The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on both the npm path and the `:0.33.0` container image. Ed25519 suppression SIGNING is reachable from EE 0.35.0 and PROVEN at EE 0.36.0, verified per approver holding **key material**. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
 
 ---
 
@@ -677,6 +677,10 @@ nsauditor-ai license install <KEY>
 nsauditor-ai license <--status | --capabilities | --plugins>
 nsauditor-ai security <set|delete|list|get> <KEY>
 nsauditor-ai validate
+nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
+nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]
+nsauditor-ai compliance <attest|suppress|review|renew|keygen>   (Enterprise)
+nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
 nsauditor-ai --version     (or -v, or `version`)
 ```
@@ -905,15 +909,15 @@ NSAUDITOR_SIGNING_KEY=            # A REFERENCE, never key material: keychain:LA
                                   # (mode 0600) | awskms:alias/… — see the honesty note below.
 ```
 
-One of these is deliberately **not** a capability yet and the other is proven on one path only —
-saying which is which is the point:
+Both of these are capabilities now, and each was proven later than it was wired — saying exactly
+when, on which delivery vehicle, and for whom is the point:
 
 - **`NSAUDITOR_SIGNING_KEY` is CONSUMED from EE 0.35.0, and the note below used to say otherwise.** EE 0.33.0 stopped parsing it at option-resolution time — a malformed value used to abort the EE stage for a setting nothing read — so it is carried through unparsed; `parseSigningRef` / `resolveSigner` hold the parse and the offline veto at the point a key is used. As of EE 0.35.0 `compliance suppress` signs the approval it writes when this variable names a local Ed25519 key — proven as of EE 0.36.0 and verified per approver holding key material.
   Its verification gate ran against the published bytes and passed, so a produced signature IS
   evidence for those approvers; a fingerprint-only registry entry reads `not checked by this report`. The record's `algorithm` and `backend` fields were frozen *before* the first
   signature could reach a customer archive, because retrofitting that later breaks every
   auditor holding one.
-- **`NSAUDITOR_TSA_URL` is wired, and since 2026-08-07 it is proven — on the npm path only.**
+- **`NSAUDITOR_TSA_URL` is wired, and it is proven on both delivery vehicles — the npm path on 2026-08-07, and from inside the `:0.33.0` container image on 2026-08-08.**
   The live check this note used to say was outstanding has been run: through the installed
   binary, against a real Time-Stamp Authority, the auditor procedure `openssl ts -verify`
   returns OK on the compliance report, the scope attestation and the chain of custody; the
@@ -1132,7 +1136,7 @@ NSAuditor AI is built on a **Zero Data Exfiltration (ZDE)** architecture:
 - **No data processing.** Nsasoft US LLC never sees, stores, or processes your scan results.
 - **AI is opt-in.** External AI calls use your own API keys. Redaction runs locally first.
 - **License validation is offline.** JWT signature verified locally with an embedded public key.
-- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap rather than a silent clean when the store cannot answer. Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, and the timestamping and signing paths on the roadmap — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
+- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap rather than a silent clean when the store cannot answer. Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
 
 Nsasoft US LLC is not a data processor, data controller, or business associate under any data protection regulation. You own and control all data produced by NSAuditor AI.
 
