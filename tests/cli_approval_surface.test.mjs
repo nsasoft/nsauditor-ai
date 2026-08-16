@@ -57,11 +57,15 @@ describe('the approval commands\' flag surface', () => {
     // lane's scope. Recorded on the board as an observation instead. The value of pinning it is
     // that the limitation is now a KNOWN property with a test naming it, rather than a surprise
     // waiting for the first operator who types the other shape.
-    return parse('compliance', 'suppress', '--suppressions=/tmp/s.json').then((a) => {
-      assert.equal(a.suppressions, null,
-        '`--flag=value` now parses — if that was intentional, this CLI just changed the contract '
-        + 'for every flag it has, and the change belongs in its own commit with its own review');
-    });
+    // ⚠️ UPDATED 2026-08-15: the limitation is no longer merely PINNED, it is REFUSED. Silence
+    // was the dangerous half — `--plugins=port_scanner` fell through to the `all` default and ran
+    // every plugin on whatever was being scanned. Full `=` support is still its own lane; what
+    // changed is that the unsupported shape now fails loudly instead of diverging quietly.
+    return assert.rejects(
+      () => parse('compliance', 'suppress', '--suppressions=/tmp/s.json'),
+      (e) => e?.code === 'EFLAGSHAPE' && /--suppressions \/tmp\/s\.json/.test(e.message),
+      'the `=` shape must be REFUSED by name, showing the spaced form that works. If it now '
+      + 'parses instead, `=` support landed — delete this and restore a both-shapes assertion');
   });
 
   test('a valueless flag becomes NULL, never the boolean `true`', async () => {

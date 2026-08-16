@@ -603,6 +603,40 @@ export async function parseArgs(argv) {
   }
   if (a.length && !a[0].startsWith('--')) args.cmd = a[0];
 
+  // ⚠️ REFUSE `--flag=value` LOUDLY RATHER THAN IGNORING IT SILENTLY.
+  //
+  // `get()` below is an exact-token `indexOf('--' + name)`, so `--plugins=port_scanner` is a
+  // DIFFERENT token and returns undefined. The consequences were not uniformly loud, which is
+  // what made this worth a refusal rather than a note: `--host=1.2.3.4` yields undefined and the
+  // CLI refuses because a missing host is checked, but `--plugins=port_scanner` fell through to
+  // the `all` default and ran EVERY plugin against whatever the operator was scanning — a
+  // materially different scan than they asked for, and one they cannot see.
+  //
+  // Measured before adding this: ZERO documented `=` usages anywhere in either repo. The shape
+  // never worked, so nothing can depend on it, and refusing costs no working invocation.
+  //
+  // ⚠️ THIS IS A REFUSAL, NOT SUPPORT. Full `=` parsing touches every flag and every test that
+  // depends on current parsing; it is its own lane. A loud refusal is strictly better than silent
+  // divergence for every operator typing `=` today, and it leaves that lane a clean starting state.
+  {
+    const eqFlag = a.find((t) => typeof t === 'string' && /^--[a-z0-9][a-z0-9-]*=/i.test(t));
+    if (eqFlag) {
+      const [name, ...rest] = eqFlag.slice(2).split('=');
+      // ⚠️ THROW, DO NOT `process.exit()` — and this was learned the hard way ONE HOUR AFTER
+      // finding the same shape elsewhere. The first version called `process.exit(2)` here,
+      // matching the webhook-rejection precedent a few lines below. `parseArgs` is EXPORTED and
+      // called in-process by the test suite, so that exit killed the runner mid-file:
+      // `cli_approval_surface.test.mjs` reported `tests 1 · pass 0` — a count of the FILE, with
+      // every other case in it silently not running. An exported function that can kill its
+      // caller's process is untestable by construction. The entry point below maps this code to
+      // exit 2, so the operator-facing contract is unchanged.
+      const err = new Error(`${eqFlag}: the --flag=value form is not supported. `
+        + `Use a space: --${name} ${rest.join('=') || '<value>'}`);
+      err.code = 'EFLAGSHAPE';
+      throw err;
+    }
+  }
+
   const get = (name) => {
     const i = a.indexOf(`--${name}`);
     if (i === -1) return undefined;
@@ -2239,6 +2273,25 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
             file: F.file, cacheDir: F.cacheDir || undefined, append: F.append === true,
           });
           console.log(`imported ${out.imported} CVE(s), skipped ${out.skipped}, errors ${out.errors}`);
+          // ⚠️ THE SKIP SPLIT PRINTS HERE BECAUSE THE DATA-LOSS TICKET ORIGINATES HERE.
+          // On a real NVD year file ~24% of records are skipped (measured on the 2024 feed:
+          // 39,219 in, 29,866 imported, 9,353 skipped). An operator reading a bare "skipped 9353"
+          // files that as data loss, and a docs-only note is read AFTER the ticket, not before.
+          // So the reasons are named at the terminal, in one line, with what they mean.
+          if (out.skipped > 0) {
+            const parts = [];
+            if (out.skippedRejected) parts.push(`${out.skippedRejected} withdrawn by NVD (Rejected)`);
+            if (out.skippedNoCpe) parts.push(`${out.skippedNoCpe} with no CPE match data`);
+            if (out.skippedMalformed) parts.push(`${out.skippedMalformed} malformed (no CVE id)`);
+            if (parts.length) {
+              console.log(`  skipped breakdown: ${parts.join(', ')}`);
+              console.log('  Skips are expected — NVD publishes withdrawn CVEs and entries with no '
+                + 'CPE data, and neither can ever match a scan. This is not data loss.'
+                + (out.skippedMalformed
+                  ? ' ⚠️ Malformed records are NOT expected: re-download the feed and check its checksum.'
+                  : ''));
+            }
+          }
         }
         process.exit(0);
       } catch (err) {
@@ -2696,6 +2749,12 @@ const _isEntrypoint = (() => {
 })();
 if (_isEntrypoint) {
   main().catch((err) => {
+    // A flag-shape refusal is an operator error, not a crash: name it and exit 2, this CLI's
+    // "could not do what you asked" code. Everything else keeps the stack and exit 1.
+    if (err?.code === 'EFLAGSHAPE') {
+      console.error(`[ERROR] ${err.message}`);
+      process.exit(2);
+    }
     console.error(err?.stack || err);
     process.exit(1);
   });

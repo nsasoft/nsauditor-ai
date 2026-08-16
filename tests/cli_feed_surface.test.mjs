@@ -35,6 +35,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { spawnSync } from 'node:child_process';
+
 import { parseArgs } from '../cli.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,25 +50,47 @@ describe('the feed commands\' flag surface', () => {
     assert.equal(a.feedArgs.out, '/tmp/bundle.json.gz');
   });
 
-  test('PINNED LIMIT: `--flag=value` is NOT supported, CLI-wide, and feed fails LOUDLY for it', async () => {
+  test('PINNED LIMIT: `--flag=value` is REFUSED LOUDLY, CLI-wide', async () => {
     /**
      * ⚠️ THIS TEST ASSERTS A LIMIT, NOT A FEATURE, AND IT WAS WRITTEN AS A FEATURE FIRST.
-     * The approval surface's comment claimed the parser owns the `--flag=value` shape. Measured
-     * while writing this file: it does not and never has — `get()` is an exact-token
-     * `indexOf('--' + name)`, so `--suppressions=/tmp/s.json` returns null while
-     * `--suppressions /tmp/s.json` returns the path. The comment has been corrected in place.
+     * The approval surface's comment claimed the parser owns the `--flag=value` shape. Measured:
+     * it does not and never has — `get()` is an exact-token `indexOf('--' + name)`.
      *
-     * The limit is pinned rather than fixed because adding `=` support touches EVERY flag in the
-     * CLI and belongs in its own measured commit. What matters HERE is the failure DIRECTION: for
-     * `feed`, an unparsed flag means EE receives `undefined` and refuses by name, so the operator
-     * is told. That is not true CLI-wide — `--plugins=port_scanner` silently falls back to `all`
-     * and scans everything — which is why the wider fix is boarded.
+     * FULL `=` SUPPORT IS ITS OWN LANE (it touches every flag and every test that depends on
+     * current parsing). But the SILENT half could not wait for that lane: `--plugins=port_scanner`
+     * fell through to the `all` default and ran EVERY plugin on whatever the operator was
+     * scanning — a wrong scan they cannot see. `--host=1.2.3.4` refused by accident, because a
+     * missing host is checked; nothing checked the others.
+     *
+     * So the parser now REFUSES the shape by name. A loud refusal is strictly better than silent
+     * divergence for every operator using `=` today, and it leaves the future support lane a clean
+     * starting state. Precondition measured before building: ZERO documented `=` usages in either
+     * repo — it never worked, so nothing can depend on it.
+     *
+     * ⚠️ DELETE THIS TEST WHEN `=` SUPPORT LANDS, and restore the both-shapes assertion it
+     * replaced. A refusal test outliving the refusal is a guard that forbids a shipped feature.
+     *
+     * Driven by SPAWNING the published CLI, not by calling parseArgs in-process: the refusal is a
+     * `process.exit(2)`, and this repo's own record is that reachability defects are found by
+     * driving the entry point rather than by reading it.
      */
-    const a = await parse('feed', 'bundle', '--from=/tmp/nvd', '--out=/tmp/b.json.gz');
-    assert.equal(a.feedArgs.from, null,
-      'if this now parses, the CLI-wide `=` support landed — delete this limit test and restore '
-      + 'the both-shapes assertion it replaced');
-    assert.equal(a.feedArgs.out, null);
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'feed', 'bundle',
+      '--from=/tmp/nvd', '--out=/tmp/b.json.gz'], { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(r.status, 2,
+      `the \`=\` shape must be refused with exit 2, got ${r.status}. stderr: ${r.stderr?.slice(0, 300)}`);
+    assert.match(`${r.stderr}`, /--from=/,
+      'the refusal must NAME the offending token, or the operator cannot find it in a long command');
+    assert.match(`${r.stderr}`, /--from \/tmp\/nvd|space|spaced/i,
+      'the refusal must show the SPACED form that works — a refusal that does not say what to do '
+      + 'instead is a worse experience than the silent bug it replaced');
+  });
+
+  test('the spaced form is UNAFFECTED by the refusal (both directions)', async () => {
+    // The other half. A refusal that also broke the working shape would be a strictly worse
+    // outcome than the silent divergence it replaced.
+    const a = await parse('feed', 'bundle', '--from', '/tmp/nvd', '--out', '/tmp/b.json.gz');
+    assert.equal(a.feedArgs.from, '/tmp/nvd');
+    assert.equal(a.feedArgs.out, '/tmp/b.json.gz');
   });
 
   test('`feed import` flags parse, including the boolean --append', async () => {
