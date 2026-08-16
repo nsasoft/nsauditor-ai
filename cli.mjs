@@ -681,9 +681,33 @@ export async function parseArgs(argv) {
 
   // ── the approval surface (EE 0.35.0) ────────────────────────────────────────
   // Parsed HERE with every other flag rather than read from `process.argv` in the
-  // subcommand, so one parser owns the `--flag value` / `--flag=value` / boolean
-  // shapes. `attest` taught this: a second parser is a second set of edge cases.
+  // subcommand, so ONE parser owns the flag shapes. `attest` taught this: a second parser is a
+  // second set of edge cases.
+  //
+  // ⚠️ CORRECTED 2026-08-15 — THIS COMMENT USED TO CLAIM THE PARSER OWNS THE `--flag=value` SHAPE.
+  // It does not, and never has: `get()` is an exact-token `indexOf('--' + name)`, so `--flag=value`
+  // is a DIFFERENT token and returns undefined. Measured: `--suppressions=/tmp/s.json` -> null,
+  // while `--suppressions /tmp/s.json` -> "/tmp/s.json". The documented intent was right and the
+  // code did the other thing, with nothing comparing them.
+  // Consequences differ per flag and are NOT uniformly loud: `--host=1.2.3.4` yields undefined and
+  // the CLI refuses ("Fatal: --host or --host-file is required"), but `--plugins=port_scanner`
+  // falls through to the `all` default and SILENTLY runs every plugin instead of the one asked for.
+  // Adding `=` support is a CLI-wide change touching every flag and belongs in its own measured
+  // commit, not smuggled in beside a feature — boarded rather than done here.
   const str = (name) => { const v = get(name); return (v && v !== true) ? v : null; };
+  // F1 air-gapped delivery: the hand-carry feed pipeline's flags. Parsed HERE for the same
+  // reason `approvalArgs` is — a second parser is a second set of edge cases, and the approval
+  // surface already paid for that with a ReferenceError on its first real invocation.
+  args.feedArgs = {
+    from: str('from'),
+    out: str('out'),
+    file: str('file'),
+    cacheDir: str('cache-dir') ?? str('cache_dir'),
+    // Boolean: present means true. NOT defaulted to true — an accumulating default means a
+    // re-import never REPLACES, so a store the operator believes they refreshed silently keeps
+    // every stale record it ever held.
+    append: get('append') === true || str('append') === 'true',
+  };
   args.approvalArgs = {
     suppressions: str('suppressions'),
     keyPath: str('key'),
@@ -1041,7 +1065,7 @@ export async function preflightGrcIfRequested(env, opts = {}) {
 
 export async function main() {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -1108,6 +1132,8 @@ Scan options:
 
 Compliance subcommands:
   nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
+  nsauditor-ai feed bundle --from <dir-of-downloaded-NVD-feeds> --out <bundle.json.gz>
+  nsauditor-ai feed import --file <feed-or-bundle.json.gz> [--cache-dir <dir>] [--append]
   nsauditor-ai compliance keygen --key <path> [--approver <name>] [--email <e>] [--role <r>]
                                  [--team <t>] [--force]
                                  Generate an Ed25519 approval keypair (private 0600) and print
@@ -2172,6 +2198,62 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // veto, framework-alias resolution and every default. CE contributes the flag
   // surface and the exit code — nothing here can drift out of sync with the engine
   // because nothing here decides anything.
+  if (cmd === 'feed') {
+    const sub = process.argv[3];
+
+    // ── THE AIR-GAP HAND-CARRY PIPELINE (EE F1) ────────────────────────────
+    // `bundle` merges the NVD feeds an operator downloaded on a CONNECTED host into one portable
+    // archive; `import` consumes it on the ISOLATED host through EE's `importFeed()`. Same
+    // THIN-FORWARD discipline as `compliance`: EE owns validation, the refusals and every
+    // decision; CE contributes a flag surface and an exit code.
+    //
+    // ⚠️ `feed bundle` BUNDLES THE FEEDS YOU DOWNLOADED — never "your database". The offline
+    // store is a lossy derivation of an NVD feed (configurations flattened to matches, references
+    // dropped, rejected and zero-CPE CVEs discarded at import), so it cannot be turned back into
+    // one. Bundling the SOURCE keeps `importFeed()` the single ingest path across the air-gap
+    // trust boundary — its gzip-bomb cap covers the bundle for free — and mints no file format
+    // we would then own as a frozen compatibility surface.
+    //
+    // ⚠️ NOTHING HERE FLIPS A CLAIM. `feed-import-cli`, `offline-install-tarball`,
+    // `install-script` and `airgap-deployment` stay withdrawn until the trio publishes AND the
+    // NIC-down gate passes on the BUILT artifacts. Publishing a surface is not proving it.
+    if (sub === 'bundle' || sub === 'import') {
+      let ee;
+      try {
+        ee = await import('@nsasoft/nsauditor-ai-ee');
+      } catch {
+        console.error(`feed ${sub} requires the Enterprise package (@nsasoft/nsauditor-ai-ee).`);
+        process.exit(2);
+      }
+      const F = feedArgs ?? {};
+      try {
+        if (sub === 'bundle') {
+          const out = await ee.bundleFeedCommand({
+            from: F.from, out: F.out,
+          });
+          console.log(`bundled ${out.vulnerabilities} CVE(s) from ${out.sourceFiles} feed file(s)`
+            + `${out.duplicatesDropped ? ` (${out.duplicatesDropped} duplicate(s) dropped)` : ''}`
+            + ` -> ${out.out} (${(out.bytes / 1048576).toFixed(1)} MB)`);
+        } else {
+          const out = await ee.importFeedCommand({
+            file: F.file, cacheDir: F.cacheDir || undefined, append: F.append === true,
+          });
+          console.log(`imported ${out.imported} CVE(s), skipped ${out.skipped}, errors ${out.errors}`);
+        }
+        process.exit(0);
+      } catch (err) {
+        // Refusals stay loud: an empty source set, a file that is not an NVD feed, a gzip over
+        // the bomb cap, a missing path. Every one of them is the operator learning something
+        // true on the host that can still fix it.
+        console.error(`Fatal: ${err.message}`);
+        process.exit(2);
+      }
+    }
+
+    console.error('Usage: nsauditor-ai feed <bundle|import> …');
+    process.exit(2);
+  }
+
   if (cmd === 'compliance') {
     const sub = process.argv[3];
 
