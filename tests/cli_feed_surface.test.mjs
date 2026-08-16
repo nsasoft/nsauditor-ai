@@ -108,6 +108,44 @@ describe('the feed commands\' flag surface', () => {
     assert.notEqual(a.feedArgs.append, true);
   });
 
+  test('D-95.3: --kev / --epss / --extras-dir PARSE — an unparsed flag is an unreachable feature', async () => {
+    /**
+     * ⚠️ THIS IS THE REACHABILITY CLASS AIMED AT THE LANE BUILT TO FIX IT. The EE side of D-95.3
+     * (carry the operator's KEV/EPSS across the air gap, validate before carry, place on import)
+     * was built, hardened, mutation-proven and committed while `feedArgs` parsed none of its
+     * flags and the dispatcher passed only `{from, out}` / `{file, cacheDir, append}`. A capability
+     * with no entry point is unshipped no matter how green its own suite is — which is the exact
+     * sentence the `feed-import-cli` withdrawal was written for, one cycle earlier.
+     */
+    const b = await parse('feed', 'bundle', '--from', '/tmp/feeds', '--out', '/tmp/b.json.gz',
+      '--kev', '/tmp/kev.json', '--epss', '/tmp/epss.csv.gz');
+    assert.equal(b.feedArgs.kev, '/tmp/kev.json',
+      '--kev does not parse, so the operator cannot carry a KEV catalogue at all');
+    assert.equal(b.feedArgs.epss, '/tmp/epss.csv.gz', '--epss does not parse');
+
+    const i = await parse('feed', 'import', '--file', '/tmp/b.json.gz',
+      '--extras-dir', '/tmp/stores');
+    assert.equal(i.feedArgs.extrasDir, '/tmp/stores',
+      '--extras-dir does not parse, so a carried KEV/EPSS can never be PLACED on the isolated host');
+  });
+
+  test('D-95.3: the extras flags are FORWARDED, not merely parsed', () => {
+    // Parsing without forwarding is the same false reachability one layer down: the flags would
+    // read fine and the call would still drop them on the floor.
+    const src = fs.readFileSync(path.join(ROOT, 'cli.mjs'), 'utf8');
+    const branch = src.slice(src.indexOf("cmd === 'feed'"), src.indexOf("cmd === 'feed'") + 6000);
+    assert.match(branch, /kev:\s*F\.kev/,
+      'bundleFeedCommand is called without `kev` — the flag parses into nothing');
+    assert.match(branch, /epss:\s*F\.epss/, 'bundleFeedCommand is called without `epss`');
+    assert.match(branch, /extrasDir:\s*F\.extrasDir/,
+      'importFeedCommand is called without `extrasDir` — nothing is ever placed');
+    // The env lines are the deliverable, not a nicety: the product reads these stores from two
+    // environment variables and ships no data of its own, so a placed file the operator is never
+    // told about leaves every finding reading `kev: null` — indistinguishable from a clean host.
+    assert.match(branch, /envLines/,
+      'the import branch never prints the env lines, so the placed files are unusable');
+  });
+
   test('the CLI ROUTES `feed` — the subcommand is reachable, not merely parsed', () => {
     // A flag surface that parses into nothing is the `importFeed()` situation one level up:
     // hardened code with zero callers. Assert the dispatcher actually has a `feed` branch that

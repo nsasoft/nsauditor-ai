@@ -741,6 +741,12 @@ export async function parseArgs(argv) {
     // re-import never REPLACES, so a store the operator believes they refreshed silently keeps
     // every stale record it ever held.
     append: get('append') === true || str('append') === 'true',
+    // D-95.3: the operator's OWN exploit-intelligence downloads ride the archive. The product
+    // ships no KEV/EPSS data of its own; in an air-gapped enclave there is no other way to get it
+    // across. `--extras-dir` is where import PLACES them, and the env lines are printed after.
+    kev: str('kev'),
+    epss: str('epss'),
+    extrasDir: str('extras-dir') ?? str('extras_dir'),
   };
   args.approvalArgs = {
     suppressions: str('suppressions'),
@@ -1167,7 +1173,15 @@ Scan options:
 Compliance subcommands:
   nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
   nsauditor-ai feed bundle --from <dir-of-downloaded-NVD-feeds> --out <bundle.json.gz>
+                           [--kev <known_exploited_vulnerabilities.json>]
+                           [--epss <epss_scores.csv.gz>]
+        --kev / --epss carry YOUR OWN downloads from CISA and FIRST inside the archive. No
+        exploit data ships with this product; in an air-gapped enclave the archive is the only
+        way across. Both are validated here, on the connected host, where a bad file can still
+        be re-downloaded.
   nsauditor-ai feed import --file <feed-or-bundle.json.gz> [--cache-dir <dir>] [--append]
+                           [--extras-dir <dir>]
+        --extras-dir places any carried KEV/EPSS and prints the env lines to set.
   nsauditor-ai compliance keygen --key <path> [--approver <name>] [--email <e>] [--role <r>]
                                  [--team <t>] [--force]
                                  Generate an Ed25519 approval keypair (private 0600) and print
@@ -2263,14 +2277,19 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       try {
         if (sub === 'bundle') {
           const out = await ee.bundleFeedCommand({
-            from: F.from, out: F.out,
+            from: F.from, out: F.out, kev: F.kev, epss: F.epss,
           });
           console.log(`bundled ${out.vulnerabilities} CVE(s) from ${out.sourceFiles} feed file(s)`
             + `${out.duplicatesDropped ? ` (${out.duplicatesDropped} duplicate(s) dropped)` : ''}`
             + ` -> ${out.out} (${(out.bytes / 1048576).toFixed(1)} MB)`);
+          // ⚠️ ABSENCE IS STATED, NEVER OMITTED. An operator who is not told the bundle carries no
+          // KEV discovers it from empty scan output on the isolated side, where `kev: null` on
+          // every finding is indistinguishable from a host with nothing exploited.
+          if (out.carriedNote) console.log(`  exploit intel: ${out.carriedNote}`);
         } else {
           const out = await ee.importFeedCommand({
             file: F.file, cacheDir: F.cacheDir || undefined, append: F.append === true,
+            extrasDir: F.extrasDir || undefined,
           });
           console.log(`imported ${out.imported} CVE(s), skipped ${out.skipped}, errors ${out.errors}`);
           // ⚠️ THE SKIP SPLIT PRINTS HERE BECAUSE THE DATA-LOSS TICKET ORIGINATES HERE.
@@ -2291,6 +2310,18 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
                   ? ' ⚠️ Malformed records are NOT expected: re-download the feed and check its checksum.'
                   : ''));
             }
+          }
+          // ⚠️ D-95.3: THE ENV LINES ARE THE DELIVERABLE, NOT A NICETY. The product reads these
+          // stores from two environment variables and ships no exploit data of its own. A file
+          // placed on the isolated host that the operator is never told to point at leaves every
+          // finding reading `kev: null` — which is exactly what a host with nothing exploited
+          // reports. Printing the resolved paths is what turns a placed file into a used one.
+          if (out.extrasPlaced?.length) {
+            console.log(`\nplaced ${out.extrasPlaced.map((p) => p.kind).join(' + ')} — set these `
+              + 'before scanning:');
+            console.log(out.envLines);
+          } else if (out.extrasNote) {
+            console.log(`\n${out.extrasNote}`);
           }
         }
         process.exit(0);
