@@ -767,6 +767,7 @@ export async function parseArgs(argv) {
     // being signed — not guessed from a directory that holds seven of them.
     manifest: str('manifest'),
     publicKey: str('public-key') ?? str('public_key'),
+    registry: str('registry'),
     compensatingControl: str('compensating-control'),
     force: !!get('force'),
   };
@@ -2419,7 +2420,11 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
               process.exit(2);
             }
           }
-          const out = await ee.verifyPackCommand({ manifestPath: A.manifest, publicKeyPem });
+          // Two arms, and EE refuses both-at-once rather than applying a silent precedence — an
+          // operator must be able to tell which trust anchor was actually consulted.
+          const out = await ee.verifyPackCommand({
+            manifestPath: A.manifest, publicKeyPem, registryPath: A.registry || undefined,
+          });
           for (const line of out.lines) console.log(line);
           // ⚠️ EE OWNS THE EXIT CODE. 0 verified · 1 a violation · 2 could not measure — and the
           // third is NOT a failure. Collapsing it here would tell an auditor their evidence failed
