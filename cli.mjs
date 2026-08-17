@@ -762,6 +762,11 @@ export async function parseArgs(argv) {
     suppressionId: str('id'),
     expiresInDays: str('expires-in-days'),
     attestationLevel: str('attestation-level'),
+    // Pack signing (EE 0.38.0). `--manifest` names ONE chain-of-custody envelope, because a
+    // signature is scoped to one framework's envelope and the framework is read from the file
+    // being signed — not guessed from a directory that holds seven of them.
+    manifest: str('manifest'),
+    publicKey: str('public-key') ?? str('public_key'),
     compensatingControl: str('compensating-control'),
     force: !!get('force'),
   };
@@ -2354,7 +2359,8 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     // the three-part gate runs against the published registry bytes and the hedges
     // flip at N+1. If you are reading this while editing marketing copy, the answer
     // is still "not yet".
-    if (sub === 'suppress' || sub === 'review' || sub === 'renew' || sub === 'keygen') {
+    if (sub === 'suppress' || sub === 'review' || sub === 'renew' || sub === 'keygen'
+      || sub === 'sign-pack' || sub === 'verify-pack') {
       let ee;
       try {
         ee = await import('@nsasoft/nsauditor-ai-ee');
@@ -2380,6 +2386,45 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
           console.log('\nThe private key never leaves this machine. Scanners do not need it — '
             + 'signing happens here, at approval time.');
           process.exit(0);
+        }
+        if (sub === 'sign-pack' || sub === 'verify-pack') {
+          // ⚠️ THIN FORWARD, LIKE EVERY VERB ABOVE IT. EE decides what a manifest is, whether the
+          // key may be used, what gets written and what every verdict means. This block builds an
+          // options object, prints what EE returns, and exits.
+          if (!A.manifest) {
+            console.error(`compliance ${sub} requires --manifest <scan_chain_of_custody_<framework>.json>`);
+            process.exit(2);
+          }
+          if (sub === 'sign-pack') {
+            const out = await ee.signPackCommand({ manifestPath: A.manifest }, {
+              // Same provenance discipline as `suppress`: only THIS line knows the reference came
+              // from an environment variable, so only this line can make a refusal name it.
+              signingKeyRaw: process.env.NSAUDITOR_SIGNING_KEY || undefined,
+              signingKeyFrom: 'environment',
+              attestationLevel: A.attestationLevel || undefined,
+            });
+            console.log(`signed ${path.basename(A.manifest)} — ${out.record.subject.framework} / ${out.record.subject.scanId}`);
+            console.log(`  wrote ${out.recordPath}`);
+            console.log(`  wrote ${out.payloadPath}  (the exact bytes signed — an auditor verifies THIS file)`);
+            console.log('  this signature covers THIS framework\'s envelope and the four artifacts it '
+              + 'enumerates — not the directory, and not the pack.');
+            process.exit(0);
+          }
+          let publicKeyPem;
+          if (A.publicKey) {
+            try {
+              publicKeyPem = await fsp.readFile(A.publicKey, 'utf8');
+            } catch (e) {
+              console.error(`cannot read --public-key ${A.publicKey}: ${e.code ?? e.message}`);
+              process.exit(2);
+            }
+          }
+          const out = await ee.verifyPackCommand({ manifestPath: A.manifest, publicKeyPem });
+          for (const line of out.lines) console.log(line);
+          // ⚠️ EE OWNS THE EXIT CODE. 0 verified · 1 a violation · 2 could not measure — and the
+          // third is NOT a failure. Collapsing it here would tell an auditor their evidence failed
+          // verification when the truth is that nothing was checked.
+          process.exit(out.exitCode);
         }
         if (sub === 'review') {
           const { rows, summary } = await ee.reviewCommand({ rootDir: complianceHistory });
