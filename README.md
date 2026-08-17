@@ -117,6 +117,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | **Enterprise — auditor-grade evidence** | | | |
 | Evidence packs with SHA-256 chain-of-custody (RFC 3161 timestamps opt-in via `NSAUDITOR_TSA_URL`, exercised against a live TSA on both the npm path and the `:0.33.0` container image; retained images `:0.32.11` and earlier carry no `openssl`) | — | — | ✅ |
 | Suppression workflow with approver identity verification (Ed25519 SIGNING reachable 0.35.0, proven 0.36.0, verified per approver holding **key material**) | — | — | ✅ |
+| **Ed25519 evidence-pack signing** — `compliance sign-pack` signs the chain-of-custody envelope at an approval station with an **operator-held** key, so the scanning fleet stays keyless and authorship is relative to your own key custody, never a vendor attestation. `compliance verify-pack` establishes authorship from that operator-held key and re-hashes every artifact the envelope names, covering one framework envelope and the artifacts it enumerates — not the pack, not the directory. Verifiable offline with `openssl` alone. | — | — | ✅ |
 | Chain-of-custody manifests | — | — | ✅ |
 | SLA / MTTR tracking + compensating controls | — | — | ✅ |
 | Recurring-scan attestation (Type II operating-effectiveness) | — | — | ✅ |
