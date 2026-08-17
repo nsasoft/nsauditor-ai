@@ -6,6 +6,28 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.43 (2026-08-17) — the pack-signing commands are reachable here, not yet proven: CE is where the sign/verify entry points live
+
+**Paired with Enterprise 0.38.0.** Two new `compliance` subcommands, both thin forwards — Enterprise
+owns validation, the signing decision, every refusal and the exit code; CE contributes a flag
+surface and decides nothing.
+
+- `compliance sign-pack --manifest <scan_chain_of_custody_<framework>.json>` — signs one
+  chain-of-custody envelope with an operator-held Ed25519 key — reachable, **not yet** proven by the
+  gate that runs against published bytes. The key comes from `NSAUDITOR_SIGNING_KEY`, forwarded with
+  its provenance, so a refusal names the setting you actually touched.
+- `compliance verify-pack --manifest <envelope>` with **either** `--registry <path>` (resolve the
+  approver through your identity registry; revocation and validity checked as at signing time) **or**
+  `--public-key <pem>` (verify against a key you supply; the run discloses that identity, revocation
+  and validity checks did not run). Supplying both is refused rather than resolved by precedence.
+
+Exit **0** verified · **1** a violation · **2** the run could not measure. The third is not a
+failure — an unsigned pack, an unreadable manifest, an unsupplied key and a registry member with no
+key material all report it, and CE never collapses it into 1.
+
+Requires `@nsasoft/nsauditor-ai-ee` >= 0.38.0 for these two verbs; everything else in CE is
+unchanged.
+
 ## 0.2.42 (2026-08-15) — the `feed` commands: CE is where the air-gap entry points live
 
 **MINOR: two new subcommands, one refusal that used to be a silent wrong answer, one plugin fix.**
