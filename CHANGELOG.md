@@ -36,6 +36,38 @@ left the module unimportable. A wording guard over a code file cannot tell you t
 
 The edition-comparison chart also gains the Ed25519 evidence-pack signing row, for an operator-held key over one framework's envelope and the artifacts it enumerates, never a vendor attestation. That scope is permanent and travels with every mention of it.
 
+### And a third, found by Gate 3 — the invariant shipped and did not arrive
+
+**Claude Desktop truncates the `scan_cloud` tool description at exactly 2,048 characters. It was
+3,024. The 976 characters that never reached the model were the honesty half** — "a static
+capability boundary, NOT an evidence gap and NOT a finding", "AN EMPTY OR SHORT deferredScope IS NOT
+A CLAIM OF FULL COVERAGE", the per-plugin sentence 0.2.44 exists to deliver, and the INFO-tier rule.
+
+Found by an operator running the release's own acceptance prompts and reporting that the text cut
+off mid-word. ⚠️ **The gate passed anyway, and that is the instructive part:** the model applied the
+invariant correctly in every prompt because the agent-skill was ALSO teaching it. Behaviour was
+double-sourced, so testing behaviour could not see the missing half. An agent running this server
+WITHOUT the skill had nothing.
+
+**The fix is ORDER, not length.** MCP specifies no description limit and client bounds are
+heterogeneous — OpenAI-compatible clients cap near 1,024, Claude Desktop at 2,048, Claude Code
+delivers well past both intact. Writing to any one measured bound is writing to one client, and the
+agent-skill README advertises clients in both families. So the description now **leads with its
+hedges**: truncation can cost mechanics, never honesty, under a bound nobody has measured yet. The
+service enumeration that bulked the string is duplicated in `SKILL.md` and both READMEs, so it
+points rather than repeats.
+
+Rewritten 3,024 → **1,012** characters, with all three reading rules inside the first 750.
+
+`tests/mcp_tool_description_budget.test.mjs` guards both properties, because either alone is a trap:
+a BUDGET leg (no description over the tightest advertised client bound, derived across every
+registered tool) and an ORDER leg (the coverage invariant appears within the first 600 chars). Without
+the order leg, a future edit could shrink a description under budget while moving the hedge to the
+tail — staying green while reintroducing exactly this defect. 3 mutants, 3 RED.
+
+⚠️ **The server cannot detect this itself, ever.** `tools/list` is fire-and-forget; MCP gives a server
+no channel by which a client reports what it rendered. Emission is the only place it can be defended.
+
 ### And a second defect, found by a release seat trying to USE the 0.38.0 headline
 
 `compliance sign-pack` and `compliance verify-pack` — the two commands CE 0.2.43 / EE 0.38.0 was
