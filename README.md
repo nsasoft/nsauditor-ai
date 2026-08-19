@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-925%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1305%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -17,7 +17,9 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**The pack-signing commands land in the CLI — reachable, not yet proven (CE 0.2.43 / Enterprise 0.38.0).** `nsauditor-ai compliance sign-pack --manifest <envelope>` signs a chain-of-custody envelope with an operator-held Ed25519 key; `compliance verify-pack` establishes authorship from it — via `--registry` (your identity registry, with revocation and validity checked **as at signing time**) or `--public-key` (which discloses in its own output that those checks did not run). Both are thin forwards: Enterprise owns every decision and refusal, CE contributes the flags and the exit code. **Verify does more than the signature** — it recomputes every `artifacts[].sha256` against disk, so a signed pack whose report was edited returns a failure with the signature still reading VERIFIED. Exit **0** verified · **1** a violation · **2** the run could not measure, and the third is never a failure. Requires the Enterprise package; an auditor can also verify offline with `openssl` and nothing of ours, because the exact signed bytes ship beside the signature. **⚠️ Also a correction affecting 0.2.42/0.37.0:** a **gzipped** KEV/EPSS store — the default shape, since FIRST distributes EPSS only as `.csv.gz` — loaded with ZERO entries, so every finding reported *no store* rather than an exploit band. Misdiagnosis and silent degradation, **not** a false security verdict: findings carried a visible no-store marker throughout. Compression is now decided by file content rather than by filename.
+**`scan_cloud` stops naming a provider roster it cannot derive (CE 0.2.44 / Enterprise 0.39.0).** Paired with Enterprise 0.39.0 — **no CE scanning behaviour change, and the peer floor stays `>=0.2.43`, unraised.** The one thing that moves here is model-facing and npm freezes it, which is why it needs its own publish: the MCP `scan_cloud` tool description used to tell an assistant that *only the AWS plugins declare their capability boundaries; Azure and GCP declare none.* Enterprise 0.39.0 falsifies that — its seven GCP and Azure plugins now declare theirs — and a sentence read on every scan cannot be allowed to go stale on a peer's release. It is rewritten to state the invariant that is true in BOTH states and that CE can actually stand behind: **not every plugin declares its capability boundaries, so `deferredScope` bounds only what the DECLARING plugins state and is never a coverage inventory** — an empty or short list is not a claim of full coverage. CE floats over a peer RANGE and cannot derive Enterprise's plugin roster, so any sentence that counted providers was a claim it had no way to check. Also here: the edition-comparison chart gains the Ed25519 evidence-pack signing row, carrying its permanent scope in-sentence — one framework's envelope and the artifacts it enumerates, an operator-held key, never a vendor attestation. **And a second fix, found by trying to USE the previous release's headline:** `compliance sign-pack` and `compliance verify-pack` dispatched correctly but were **absent from `nsauditor-ai help`** for the whole of 0.2.43 — documented in every README, changelog and design record, and missing from the one surface a user actually reads. Both now carry usage blocks, and a guard derives the dispatched verb set from the dispatch site and asserts help/dispatch equality in both directions, so a reachable-but-undiscoverable command fails the build.
+
+**The pack-signing commands land in the CLI — reachable, and not yet proven at that release (CE 0.2.43 / Enterprise 0.38.0).** ⚠️ **Correcting this entry's own words: that gate has since RUN.** On 2026-08-17 it ran against the published EE 0.38.0 registry bytes and passed, so evidence-pack signing is PROVEN for an operator-held key over one framework's envelope and the artifacts it enumerates, never a vendor attestation. `nsauditor-ai compliance sign-pack --manifest <envelope>` signs a chain-of-custody envelope with an operator-held Ed25519 key; `compliance verify-pack` establishes authorship from it — via `--registry` (your identity registry, with revocation and validity checked **as at signing time**) or `--public-key` (which discloses in its own output that those checks did not run). Both are thin forwards: Enterprise owns every decision and refusal, CE contributes the flags and the exit code. **Verify does more than the signature** — it recomputes every `artifacts[].sha256` against disk, so a signed pack whose report was edited returns a failure with the signature still reading VERIFIED. Exit **0** verified · **1** a violation · **2** the run could not measure, and the third is never a failure. Requires the Enterprise package; an auditor can also verify offline with `openssl` and nothing of ours, because the exact signed bytes ship beside the signature. **⚠️ Also a correction affecting 0.2.42/0.37.0:** a **gzipped** KEV/EPSS store — the default shape, since FIRST distributes EPSS only as `.csv.gz` — loaded with ZERO entries, so every finding reported *no store* rather than an exploit band. Misdiagnosis and silent degradation, **not** a false security verdict: findings carried a visible no-store marker throughout. Compression is now decided by file content rather than by filename.
 
 **The `feed` commands: offline CVE data can be hand-carried (CE 0.2.42 / Enterprise 0.37.0).** `nsauditor-ai feed bundle` merges the NVD feed files you downloaded on a connected host into one portable archive; `feed import` reads one into the offline store on an isolated host — delivered as a **restricted** distribution rather than a public `npm install`, and amd64 only. The implementations are Enterprise-side (**requires `@nsasoft/nsauditor-ai-ee` >= 0.37.0**); the commands, flags and usage text are here, because this is the package with the `bin`. Optional `--kev` / `--epss` carry **your own** downloads from CISA and FIRST inside the archive, and `--extras-dir` places them on import and prints the environment lines to set — **no exploit data ships with either package**. `bundle` bundles the FEEDS YOU DOWNLOADED, never "your database": the offline store is a lossy derivation of an NVD feed and cannot be turned back into one. Import now names **why** it skipped records — about a quarter of a real NVD year file is skipped by design (withdrawn CVEs, entries with no CPE data) and a bare `skipped 9353` reads as data loss; malformed records are called out separately because those are **not** expected. ⚠️ **A bundle is integrity-checked, not authenticated** — the recorded SHA-256 detects alteration in transit but cannot establish authorship, because it travels inside the archive it covers. Also here: **`--flag=value` is now refused by name** instead of being parsed as a valueless flag with the value discarded, which made `--severity=high` run a default-severity scan and report success — a wrong answer that looked like a right one; and the **mDNS module-shape fallback was a TDZ self-reference**, so it never once fell back. **The air-gap delivery claims are earned back at this release**, with two conditions that travel with them: the dependency-complete bundle is a **restricted** distribution rather than a public install, and it is **amd64** only — no arm64 image is published.
 
@@ -73,7 +75,7 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS C
 - 🔗 **GRC connectors — Vanta + Drata + Secureframe (Enterprise)** — map compliance findings to your GRC platform's evidence/test records and push them at **scan time** (opt-in). Suppression-aware outcome mapping (Vanta) / structured records (Drata + Secureframe), idempotent retries, rate-limit handling, token redaction, and Zero-Data-Exfiltration egress redaction. Early-access, single-workspace; live validation against production tenants is in progress. See **[GRC Connectors](#grc-connectors-vanta-drata-secureframe)** below.
 - 🗄️ **WORM posture VALIDATION** — we read your bucket's S3 Object Lock configuration per CloudTrail trail bucket and fail the control when it is absent, in GOVERNANCE mode or under-retained. That is substrate FOR a SEC Rule 17a-4(f) / FINRA 4511 retention claim, not the claim itself: the engine WRITING artifacts into the immutable store is built and **not reachable** (no caller), so the retention guarantee stays yours to make about your own archive
 - 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
-- 🎯 **11 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 8-of-8 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + GRC connector)
+- 🎯 **14 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 8-of-8 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + GRC connector)
 
 → **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
 → **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
@@ -335,8 +337,8 @@ nsauditor-ai scan --host aws --plugins 1030,1040,1070,1130 --compliance soc2
 # Run all EE plugins (auto-discovered via plugin manager)
 nsauditor-ai scan --host aws --plugins all --compliance soc2
 
-# Tune plugin parameters (e.g., raise VPC-endpoint PAGE_CAP for large-fleet customers)
-nsauditor-ai scan --host aws --plugins 1130 --plugin-opts '{"1130":{"vpcEndpointsPageCap":50}}'
+# Run a single Enterprise plugin by id
+nsauditor-ai scan --host aws --plugins 1130 --compliance soc2
 ```
 
 ### Scoping the AWS audit to regions — `--aws-region`
@@ -682,8 +684,8 @@ nsauditor-ai license <--status | --capabilities | --plugins>
 nsauditor-ai security <set|delete|list|get> <KEY>
 nsauditor-ai validate
 nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
-nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>]   # the feeds you downloaded
-nsauditor-ai compliance <attest|suppress|review|renew|keygen>   (Enterprise)
+nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]   # the feeds you downloaded
+nsauditor-ai compliance <attest|suppress|review|renew|keygen|sign-pack|verify-pack>   (Enterprise)
 nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
 nsauditor-ai --version     (or -v, or `version`)
@@ -1060,7 +1062,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 925+ tests:
+Run all 1305 tests:
 
 ```bash
 npm test

@@ -6,6 +6,58 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.44 (2026-08-19) — `scan_cloud` stops naming a provider roster it cannot derive
+
+**Paired with Enterprise 0.39.0. No CE scanning behaviour change; the peer floor stays `>=0.2.43`,
+unraised, because nothing in this cycle needs new CE code.** What moves is one model-facing sentence
+— and it needs its own publish for the reason every README correction here needs one: **npm freezes
+it at publish time**, and this string is read by an assistant on every `scan_cloud` call until CE
+republishes.
+
+### The defect
+
+The `scan_cloud` tool description told the model: *"Today only the AWS plugins declare their
+capability boundaries; Azure and GCP declare none."* Enterprise 0.39.0 falsifies it — its seven GCP
+and Azure plugins now declare theirs. But the deeper problem is that the sentence was **unsound in
+principle, not merely stale**: CE floats over a peer RANGE (`>=0.2.43` in the other direction) and
+cannot derive Enterprise's plugin roster at any version, so a description that counted providers was
+making a claim CE had no way to check, and would go stale again on the next Enterprise release with
+nothing in this repo to notice.
+
+### What ships
+
+The sentence is rewritten to the invariant that is true in **both** states and that CE can stand
+behind: not every plugin declares its capability boundaries, so `deferredScope` bounds only what the
+**declaring** plugins state and is never a coverage inventory — an empty or short list is not a
+claim of full coverage, and the model is told to say so plainly rather than report completeness.
+Pinned two-way by `tests/scan_cloud_deferred_scope_wording.test.mjs`, which also carries a PARSE leg:
+the first version of that guard read `mcp_server.mjs` as TEXT and passed while an editing slip had
+left the module unimportable. A wording guard over a code file cannot tell you the code runs.
+
+The edition-comparison chart also gains the Ed25519 evidence-pack signing row, for an operator-held key over one framework's envelope and the artifacts it enumerates, never a vendor attestation. That scope is permanent and travels with every mention of it.
+
+### And a second defect, found by a release seat trying to USE the 0.38.0 headline
+
+`compliance sign-pack` and `compliance verify-pack` — the two commands CE 0.2.43 / EE 0.38.0 was
+named after — **dispatched correctly and were absent from `nsauditor-ai help` for the entire
+release.** They were documented in both READMEs, both changelogs, the press release, the
+architecture record and the contract; the one surface that omitted them was the tool's own help,
+which is where a user actually looks. Nothing was red, because every reachability guard this repo
+owns asks *can a customer REACH this?* — and the answer was yes. **Nobody asked whether a customer
+could FIND it.**
+
+Both now carry a usage block in the same register as their siblings: `sign-pack` with its permanent
+scope bound, `verify-pack` with its two trust anchors and what the `--public-key` arm discloses it
+skipped. `tests/cli_help_dispatch_parity.test.mjs` derives the dispatched verb set from the dispatch
+site itself — never a hand-written list, which would be a second copy going stale in exactly the
+case it guards — and asserts equality in BOTH directions: a dispatched verb missing from help, and a
+help entry nothing dispatches. The phantom direction is the worse failure and had never occurred, so
+it was written first. Its own first run then reported `attest` as a phantom, because that verb is
+dispatched by a NEGATIVE test (`sub !== 'attest'`) and the parse modelled only equality — *a
+derivation that models one idiom reports on that idiom, not on the code.*
+
+---
+
 ## 0.2.43 (2026-08-17) — the pack-signing commands are reachable here, not yet proven: CE is where the sign/verify entry points live
 
 **Paired with Enterprise 0.38.0.** Two new `compliance` subcommands, both thin forwards — Enterprise

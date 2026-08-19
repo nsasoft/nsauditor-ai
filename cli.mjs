@@ -1178,6 +1178,12 @@ Scan options:
 
 Compliance subcommands:
   nsauditor-ai compliance attest --history <dir> [--framework <fw>] [--window 6m|12m|90d]
+                                 Aggregate the per-scan attestation records in <dir> into a
+                                 multi-period (Type II) recurring-scan attestation. Reads
+                                 scan_attestation_<fw>.json from each subdirectory, so a history
+                                 you already have is aggregatable. Discovery is ONE level deep
+                                 and the report says so. Exits 3 when no evidence is found — an
+                                 empty history is a finding, not a pass. Enterprise.
   nsauditor-ai feed bundle --from <dir-of-downloaded-NVD-feeds> --out <bundle.json.gz>
                            [--kev <known_exploited_vulnerabilities.json>]
                            [--epss <epss_scores.csv.gz>]
@@ -1208,13 +1214,23 @@ Compliance subcommands:
   nsauditor-ai compliance renew --suppressions <file> --id <id> --rationale <text>
                                  --approver <name> [--expires-in-days <n>]
                                  Extends an approval and records the renewal chain. Enterprise.
-                                        Aggregate the per-scan attestation records in
-                                        <dir> into a multi-period (Type II) recurring-scan
-                                        attestation. Reads scan_attestation_<fw>.json from
-                                        each subdirectory, so a history you already have is
-                                        aggregatable. Discovery is ONE level deep and the
-                                        report says so. Exits 3 when no evidence is found —
-                                        an empty history is a finding, not a pass.
+  nsauditor-ai compliance sign-pack --manifest <scan_chain_of_custody_<fw>.json>
+                                 Signs ONE framework's chain-of-custody envelope with the
+                                 operator-held Ed25519 key named by NSAUDITOR_SIGNING_KEY, at an
+                                 approval station (the scan fleet stays keyless). Writes a
+                                 detached signature record plus the exact signed payload bytes.
+                                 Scope: that envelope and the artifacts it enumerates -- not the
+                                 directory, not the pack. Enterprise.
+  nsauditor-ai compliance verify-pack --manifest <scan_chain_of_custody_<fw>.json>
+                                 (--registry <path> | --public-key <pem>)
+                                 Establishes authorship AND recomputes every artifacts[].sha256
+                                 against disk -- a signature-only check would authenticate
+                                 artifact claims nothing had verified. --registry resolves the
+                                 approver and checks revocation/validity AS AT SIGNING TIME;
+                                 --public-key verifies against a key you supply and discloses in
+                                 its own output that those checks did not run. Supplying both is
+                                 refused. Exit 0 verified / 1 a violation / 2 could not measure.
+                                 Enterprise.
 
 License subcommands:
   nsauditor-ai license install <KEY>    Verify and persist a license key (Keychain
@@ -2501,7 +2517,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     }
 
     if (sub !== 'attest') {
-      console.error('Usage: nsauditor-ai compliance <attest|suppress|review|renew|keygen> …');
+      console.error('Usage: nsauditor-ai compliance <attest|suppress|review|renew|keygen|sign-pack|verify-pack> …');
       process.exit(2);
     }
     if (typeof complianceHistory !== 'string' || complianceHistory.length === 0) {
