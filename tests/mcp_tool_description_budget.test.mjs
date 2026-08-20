@@ -77,9 +77,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = readFileSync(join(ROOT, 'mcp_server.mjs'), 'utf8');
 
 /**
- * The budget is the SMALLEST bound observed across clients this product advertises support for,
- * not the one that bit us. 2048 is Claude Desktop's; ~1024 is the OpenAI-compatible bound, and the
- * agent-skill README names Cursor and Windsurf. Guard the tighter one.
+ * ⚠️ READ THIS BEFORE "CORRECTING" THE CONSTANT TO 1024. An earlier draft of this comment ended
+ * "Guard the tighter one", which contradicts the 2048 beside it and reads as an unfinished edit.
+ * It is not. The two requirements — the honesty rules AND the service-name routing enumeration
+ * that the 0.19.2 Desktop gate proved load-bearing — do not both fit under 1024, and cutting to
+ * 1024 is exactly the abandoned first fix that broke six assertions in
+ * `mcp_scan_cloud_tool_description.test.mjs`. The tie is broken by WHICH LOSS IS SILENT, not by
+ * which bound is smaller: ORDER is what makes the description safe under an unmeasured bound, and
+ * BUDGET is only the belt. 2048 is Claude Desktop's measured bound; ~1024 is the
+ * OpenAI-compatible one, and the agent-skill README names Cursor and Windsurf — which is why the
+ * ORDER leg, not this number, is the load-bearing guard.
  */
 const BUDGET = 2048;
 /** Where a load-bearing hedge must appear by, so it survives even an unmeasured bound. */
