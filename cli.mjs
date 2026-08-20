@@ -1165,9 +1165,10 @@ Scan options:
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send delta alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
-  --compliance <framework>     Map findings to controls. 'all' = all 7 frameworks, or a CSV
-                               of soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr (aliases
-                               nist/pci/iso/cis). Unknown tokens fail fast. Enterprise only.
+  --compliance <framework>     Map findings to controls. 'all' = all 8 frameworks, or a CSV of
+                               soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr,nist-800-171
+                               (aliases nist/pci/iso/cis, and 800-171 or cmmc for nist-800-171 --
+                               nist stays NIST CSF). Unknown tokens fail fast. Enterprise only.
   --compliance-scope <path>    JSON file describing the assessment scope
   --compliance-history <dir>   Directory of prior scans (one subdirectory per scan). Turns on
                                SLA/MTTR longitudinal tracking against that history. Enterprise.
@@ -1314,7 +1315,7 @@ Cloud-scan hosts:
 Examples:
   nsauditor-ai scan --host 10.0.0.1 --plugins all
   CLOUD_PROVIDER=aws AWS_PROFILE=default \\
-    nsauditor-ai scan --host aws --plugins all --compliance all   # full AWS audit, all 7 frameworks
+    nsauditor-ai scan --host aws --plugins all --compliance all   # full AWS audit, all 8 frameworks
   nsauditor-ai scan --host aws,gcp,azure --plugins all --compliance all   # all 3 clouds in one run
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
   nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
