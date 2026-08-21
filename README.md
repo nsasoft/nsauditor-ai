@@ -1038,11 +1038,12 @@ export default {
 After purchasing at [nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing), you'll receive an email with your license key and an npm install command. Two steps:
 
 ```bash
-# 1. Install EE package (one-time, token included in email)
+# 1. Install both packages (one-time, token included in email — the base package carries the CLI)
+npm install -g nsauditor-ai
 npm install -g @nsasoft/nsauditor-ai-ee --//registry.npmjs.org/:_authToken=npm_xxxxx
 
-# 2. Set your license key
-export NSAUDITOR_LICENSE_KEY=pro_eyJhbGci...
+# 2. Install your license key — identical on macOS, Linux and Windows, no environment variable needed
+nsauditor-ai license install "pro_eyJhbGci..."
 ```
 
 Verify:
