@@ -6,6 +6,35 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.45 (2026-08-20) — the eighth framework: CE registers the `nist-800-171` stem
+
+**Paired with Enterprise 0.40.0, and this is a REAL peer raise: `>=0.2.45`.** Unlike the last two
+cycles, an older CE does not merely miss a nicety — it **rejects the framework outright**. The
+framework-name validation lives in CE, so `--compliance nist-800-171` against CE 0.2.44 fails at the
+CLI before Enterprise is ever consulted. That is why the floor moved and why EE 0.40.0 declares it.
+
+### What changed here
+
+`FRAMEWORK_STEMS` gains `nist-800-171`, and the alias table resolves `800-171`, `800171`,
+`sp800-171`, `sp-800-171`, `cmmc`, `cmmc-l2` and `cmmc2` onto it. **Bare `nist` still resolves to
+NIST CSF 2.0 and was deliberately NOT re-pointed** — two NIST publications now ship, and silently
+changing what every existing `--compliance nist` invocation produces is a breaking change wearing
+the shape of a convenience. 800-171 is reachable by its number, which is unambiguous.
+
+⚠️ **A `cmmc` token is not a CMMC claim.** It resolves because it is what a defense contractor will
+actually type; the artifact it produces names itself *"evidence substrate for CMMC Level 2
+preparation"* on its own cover page. The engine emits no certification, no MET / NOT MET verdict and
+no SPRS score — those are C3PAO determinations.
+
+⚠️ **Requirement ids collide EXACTLY with PCI DSS sub-requirement ids** — `3.5.1` is real in both
+standards. Both frameworks abstain from bare-id stripping and qualify their citations in prose
+instead, so always write "NIST SP 800-171 3.5.1" or "Req 3.5.1".
+
+### Also in this release
+
+An invalid `--compliance` token still fails fast and writes **no compliance report** — an empty
+report for an unknown framework would be indistinguishable from a clean one.
+
 ## 0.2.44 (2026-08-19) — `scan_cloud` stops naming a provider roster it cannot derive
 
 **Paired with Enterprise 0.39.0. No CE scanning behaviour change; the peer floor stays `>=0.2.43`,
