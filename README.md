@@ -21,11 +21,13 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 code change — this publish exists because npm freezes this README at publish time: it delivers the
 page corrections made since 0.2.45 (the eighth framework was missing from four places on this page;
 the Activation section taught a stale form) and pairs the page with Enterprise 0.40.2. The Enterprise
-half of the pair: an RFC 3161 TSA **rejection** is now refused instead of being written as a signed
-evidence sidecar (five named refusal codes, recorded per artifact in the chain-of-custody envelope),
-the TSA policy-OID option works on OpenSSL ≥ 3.0 hosts for the first time (`-tspolicy` attempted,
-legacy `-policy` fallback), and internal `(Dim N)` dimension codes are out of customer-facing GCP
-finding prose. **Peer floor unchanged: Enterprise requires CE ≥ 0.2.45, which 0.2.46 satisfies.**
+half of the pair is an evidence-integrity fix to the **opt-in** RFC 3161 timestamping path
+(`NSAUDITOR_TSA_URL`, no default authority): a Time-Stamp Authority **rejection** is now refused
+rather than mistaken for a valid timestamp, recorded with one of five named reason codes in the
+chain-of-custody envelope. The TSA policy-OID option also works on OpenSSL ≥ 3.0 hosts for the first
+time (`-tspolicy` attempted, legacy `-policy` fallback), and internal `(Dim N)` dimension codes are
+out of customer-facing GCP finding prose. **Peer floor unchanged: Enterprise requires CE ≥ 0.2.45,
+which 0.2.46 satisfies.**
 
 **The eighth compliance framework: NIST SP 800-171 Rev 2 (CE 0.2.45 / Enterprise 0.40.0).** Enterprise adds `--compliance nist-800-171`, and CE registers the stem so the MCP `scan_cloud` tool and the CLI accept it. ⚠️ **Requires CE ≥ 0.2.45** — CE 0.2.44 does NOT carry the stem, so an Enterprise 0.40.0 paired with an older CE will reject the framework name. What Enterprise produces is **evidence substrate an assessor reads**, scoped as *NIST SP 800-171 evidence substrate for CMMC Level 2 preparation*: it is **not** a CMMC certification, **not** a FedRAMP authorization, and it emits **no** MET/NOT MET determination and **no** SPRS score — those are a C3PAO's to make, and only a C3PAO's. All 110 Rev 2 requirements are enumerated with a written reason each; Rev 2 is pinned deliberately, because CMMC assesses Rev 2 by rule and Rev 3 is a different 97-requirement universe.
 
