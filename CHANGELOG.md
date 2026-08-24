@@ -6,6 +6,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.46 (2026-08-23) — paired no-code bump with Enterprise 0.40.2
+
+**No CE code change.** This release exists for two reasons, both about surfaces npm freezes at
+publish time:
+
+1. **It delivers the README corrections made since 0.2.45** — the eighth framework
+   (NIST SP 800-171 Rev 2) was missing from four places on the npm page, and the Activation section
+   taught the `export` form the CLI Reference had already corrected. A README fixed in git reaches
+   nobody until a publish carries it.
+2. **It pairs the trio with Enterprise 0.40.2**, whose changes are Enterprise-side: an RFC 3161 TSA
+   rejection is refused instead of being written as a signed evidence sidecar (five named refusal
+   codes, per-artifact record in the chain-of-custody envelope); the TSA policy-OID option
+   (`NSAUDITOR_TSA_POLICY_OID`) works on OpenSSL ≥ 3.0 hosts for the first time; internal `(Dim N)`
+   dimension codes are removed from customer-facing GCP finding prose.
+
+**Peer floor unchanged:** Enterprise requires `nsauditor-ai >= 0.2.45`; 0.2.46 satisfies it. No
+scanning behaviour, schema, or MCP surface change.
+
 ## 0.2.45 (2026-08-20) — the eighth framework: CE registers the `nist-800-171` stem
 
 **Paired with Enterprise 0.40.0, and this is a REAL peer raise: `>=0.2.45`.** Unlike the last two
