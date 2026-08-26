@@ -21,10 +21,10 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 behaviour change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new
 Community Edition code. This bump exists because npm freezes a README at publish time, so the page
 you are reading can only be corrected by publishing, and it pairs with Enterprise 0.40.3. What
-Enterprise fixes, in case you run the pair: a granted RFC 3161 timestamp carries the digest it
-attests, and nothing compared it to the digest the request carried — so a replay or a caching proxy
-could return a valid timestamp **for a different artifact** and it was written as evidence. It is now
-refused. And the verification instruction printed on every timestamped compliance report could not be
+Enterprise fixes, in case you run the pair — all on the **opt-in** RFC 3161 path
+(`NSAUDITOR_TSA_URL`; no default authority): a granted timestamp carries the digest it attests, and
+nothing compared it to the digest the request carried — so a replay or a caching proxy could return a
+valid timestamp **for a different artifact** and it was written as evidence. It is now refused. And the verification instruction printed on every timestamped compliance report could not be
 run: it passed `-queryfile` and `-data` together, which openssl rejects outright with no verdict, and
 named a `.tsq` file no pack contains. Timestamping remains **opt-in** (`NSAUDITOR_TSA_URL`; no default
 authority). ⚠️ **If you have timestamped packs produced before Enterprise 0.40.3, the fix is not
