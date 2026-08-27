@@ -42,18 +42,26 @@ export const CANONICAL_REGION_LIST_VERSION = '2026-05';
 // fallback and the live DescribeRegions path — correct in any partition — stays
 // its only source of truth. Incompleteness costs an empty scope and a visible
 // disclosure, never a wrong one. (EE F3 lane, 2026-08-27.)
-const ISO_REGION_PREFIXES = Object.freeze([
+// Region-id prefixes for the partitions that carry NO canonical region list here
+// (see the note above: structural rules, never transcribed region ids).
+// `eusc-` is the European Sovereign Cloud, added after the ISO rule shipped —
+// without it an EUSC region detected as COMMERCIAL and took the 32-region static
+// fallback, re-entering the very defect the ISO rule had just closed, by
+// MISdetection rather than by fallback. Derivable: @aws-sdk/util-endpoints'
+// partitions.json gives aws-eusc the regionRegex ^eusc\-(de)\-\w+\-\d+$.
+const NON_ENUMERATED_REGION_PREFIXES = Object.freeze([
   ['us-iso-', 'aws-iso'],
   ['us-isob-', 'aws-iso-b'],
   ['us-isof-', 'aws-iso-f'],
   ['eu-isoe-', 'aws-iso-e'],
+  ['eusc-', 'aws-eusc'],
 ]);
 
 export function detectPartition(region) {
   if (typeof region !== 'string' || region.length === 0) return 'aws';
   if (region.startsWith('cn-')) return 'aws-cn';
   if (region.startsWith('us-gov-')) return 'aws-us-gov';
-  for (const [prefix, partition] of ISO_REGION_PREFIXES) {
+  for (const [prefix, partition] of NON_ENUMERATED_REGION_PREFIXES) {
     if (region.startsWith(prefix)) return partition;
   }
   return 'aws';

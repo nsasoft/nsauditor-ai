@@ -74,3 +74,21 @@ test('detectPartition: the partitions it DOES know are unchanged', () => {
   assert.equal(detectPartition('us-isolated-1'), 'aws');
   assert.equal(regionsForPartition('aws').length > 0, true);
 });
+
+test('detectPartition: the European Sovereign Cloud is not commercial either', () => {
+  // Third `aws-eusc` recurrence across the F3 lane pair, and the same shape each
+  // time: a partition absent from a vocabulary. Here it re-entered the defect the
+  // ISO fix had just closed — by MISdetection rather than by fallback, which also
+  // bypasses the EE-side repair (plugin 1040 sees partition 'aws', not an unknown
+  // one, so its no-cross-partition-fallback guard never engages).
+  //
+  // Structural like the ISO rule, and derivable: @aws-sdk/util-endpoints'
+  // partitions.json gives aws-eusc the regionRegex ^eusc\-(de)\-\w+\-\d+$.
+  // regionsForPartition('aws-eusc') already returns the frozen empty list, so the
+  // empty-static-fallback discipline is inherited without enumerating a region id.
+  assert.equal(detectPartition('eusc-de-east-1'), 'aws-eusc');
+  assert.equal(regionsForPartition('aws-eusc').length, 0);
+  // Q4: a commercial region that merely starts with "eu" is untouched.
+  assert.equal(detectPartition('eu-west-1'), 'aws');
+  assert.equal(detectPartition('eu-central-1'), 'aws');
+});
