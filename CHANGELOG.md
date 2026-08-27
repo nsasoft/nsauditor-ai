@@ -6,6 +6,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.48 (2026-08-26) — paired with Enterprise 0.41.0: the 29th plugin (Amazon DocumentDB)
+
+**No CE code change; peer floor stays `>=0.2.45`, unraised.** npm freezes a README at publish
+time, so this bump pairs the package page with Enterprise 0.41.0 and refreshes the plugin counts
+it states (28 → 29 Enterprise plugins; 27 → 28 cloud auditors). Enterprise adds plugin
+`1230 AWS DocumentDB Auditor` (docdb-engine ownership on the shared RDS control plane: encryption
++ custody, `tls` parameter, audit logging + CloudWatch export, retention, deletion protection,
+replica/AZ topology, snapshot sharing) and engine-filters DocumentDB and Neptune out of the RDS
+auditor with counted skips and a standing disclosure — a Neptune estate is now explicitly stated
+as unaudited. All eight coverage matrices UNCHANGED.
+
 ## 0.2.46 (2026-08-23) — paired no-code bump with Enterprise 0.40.2
 
 **No CE code change.** This release exists for two reasons, both about surfaces npm freezes at

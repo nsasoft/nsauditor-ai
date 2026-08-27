@@ -17,6 +17,20 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
+**The 29th Enterprise plugin: Amazon DocumentDB (CE 0.2.48 / Enterprise 0.41.0).** No CE behaviour
+change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new Community
+Edition code; this bump pairs the npm-frozen page with Enterprise 0.41.0. What Enterprise adds, in
+case you run the pair: plugin `1230 AWS DocumentDB Auditor` owns the `docdb` engine on the shared
+RDS control plane — storage encryption + KMS custody, TLS enforcement (the `tls` cluster parameter),
+audit logging with the CloudWatch export, backup retention, deletion protection, replica/AZ
+topology under the CLUSTER lens, and manual-snapshot public/cross-account restorability. It exists
+because the seam was measured cutting both ways: DocumentDB clusters were excluded from the RDS
+auditor's cluster-config audit (an unencrypted one read CLEAN) while its instances were audited
+under RDS semantics with a remediation that cannot succeed on DocumentDB. The RDS auditor now
+engine-filters DocumentDB and Neptune off the shared plane, counts the skips, and states in every
+report that DocumentDB is delegated to the new plugin and that **a Neptune estate is unaudited** —
+a disclosure, not a silence. Plugin count 28 → 29; all eight coverage matrices UNCHANGED.
+
 **Paired release with the Enterprise timestamp-integrity patch (CE 0.2.47 / Enterprise 0.40.3).** No CE
 behaviour change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new
 Community Edition code. This bump exists because npm freezes a README at publish time, so the page
@@ -89,7 +103,7 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 
 If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, GDPR Article 32, or NIST SP 800-171 / CMMC Level 2 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
 
-- ☁️ **28 enterprise plugins — 27 cloud auditors across AWS / Azure / GCP, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
+- ☁️ **29 enterprise plugins — 28 cloud auditors across AWS / Azure / GCP, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
 - 📋 **8 compliance frameworks shipped** — generate any combination from a single scan:
   - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
   - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
@@ -134,7 +148,7 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | Exploit intelligence — **CISA KEV** + **FIRST EPSS** joined onto the CVE matches, exploit-first ordering (a KEV-listed MEDIUM outranks an unexploited CRITICAL); stores are operator-populated — no feed data ships | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
-| 28 enterprise plugins — 27 cloud (AWS / Azure / GCP) + 1 network-scan zero-trust check | — | — | ✅ |
+| 29 enterprise plugins — 28 cloud (AWS / Azure / GCP) + 1 network-scan zero-trust check | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
 | **Enterprise — compliance (8 frameworks)** | | | |
 | SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
@@ -298,7 +312,7 @@ Results land in `./out/<host>_<timestamp>/`:
 
 ### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
 
-**28 enterprise plugins: 27 cloud auditors across AWS, GCP and Azure substrate, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 27 declare, so `1023` never runs on a cloud pass. It runs on a network-host scan with the full plugin set — measured on the shipped CLI, selecting it by id on its own does not work, because it requires the host to be confirmed up by a discovery plugin.
+**29 enterprise plugins: 28 cloud auditors across AWS, GCP and Azure substrate, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 28 declare, so `1023` never runs on a cloud pass. It runs on a network-host scan with the full plugin set — measured on the shipped CLI, selecting it by id on its own does not work, because it requires the host to be confirmed up by a discovery plugin.
 
 → **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the evidence pack actually looks like.
 
