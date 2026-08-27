@@ -27,10 +27,35 @@ export const CANONICAL_REGIONS_BY_PARTITION = Object.freeze({
 
 export const CANONICAL_REGION_LIST_VERSION = '2026-05';
 
+// AWS ISO ("air-gapped") partition region-id prefixes. Matching these is a
+// STRUCTURAL rule over the region-id shape, not a transcribed region list — and
+// the distinction is the whole design. Before this, every ISO region fell through
+// to 'aws', so plugin 1040's `CANONICAL_REGIONS_BY_PARTITION[partition] || …aws`
+// handed an ISO account the 32 COMMERCIAL regions as its static fallback and
+// reported that count as `regionsTotal` in the scanScope disclosure — a
+// disclosure asserting the wrong denominator.
+//
+// ⚠️ NO ISO REGION IDS ARE ENUMERATED, DELIBERATELY. They are a datum this repo
+// holds no authority for, and a guessed list would put a wrong scan SCOPE into
+// the fallback, which is the SILENT direction. `regionsForPartition` returns the
+// frozen empty list for these keys, so an ISO account gets an EMPTY static
+// fallback and the live DescribeRegions path — correct in any partition — stays
+// its only source of truth. Incompleteness costs an empty scope and a visible
+// disclosure, never a wrong one. (EE F3 lane, 2026-08-27.)
+const ISO_REGION_PREFIXES = Object.freeze([
+  ['us-iso-', 'aws-iso'],
+  ['us-isob-', 'aws-iso-b'],
+  ['us-isof-', 'aws-iso-f'],
+  ['eu-isoe-', 'aws-iso-e'],
+]);
+
 export function detectPartition(region) {
   if (typeof region !== 'string' || region.length === 0) return 'aws';
   if (region.startsWith('cn-')) return 'aws-cn';
   if (region.startsWith('us-gov-')) return 'aws-us-gov';
+  for (const [prefix, partition] of ISO_REGION_PREFIXES) {
+    if (region.startsWith(prefix)) return partition;
+  }
   return 'aws';
 }
 

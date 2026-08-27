@@ -106,3 +106,52 @@ test('truly-unset NSA_ENV_FILE is still a clean no-op (does not clear ambient cr
   assert.deepEqual(r, { applied: [], ignored: [], cleared: [] });
   assert.equal(env.AWS_ACCESS_KEY_ID, 'AKIA_AMBIENT'); // untouched when feature unused
 });
+
+// ── The Azure CLOUD SELECTORS are credential-adjacent and must be cleared too ──
+// Found while building the EE sovereign-cloud resolver (F3-Azure, EE 2026-08-27).
+// PROVIDER_CRED_KEYS listed AZURE_CLIENT_ID / TENANT_ID / CLIENT_SECRET /
+// SUBSCRIPTION_ID but not the variables that decide WHICH AZURE CLOUD is
+// addressed. Its stated contract is "clear leftover ambient provider creds the
+// file did NOT set", and the anti-false-clean purpose is that the env file IS the
+// scan-target selector — but an ambient AZURE_ENVIRONMENT or AZURE_ARM_ENDPOINT
+// survived, so the file could select one target while the ambient shell silently
+// redirected the scan to another cloud's ARM. A subscription id and the cloud its
+// ARM lives in are one selection, not two.
+//
+// AZURE_AUTHORITY_HOST matters for the same reason and is read by @azure/identity
+// itself, so it can steer authentication with no code of ours involved.
+test('mcp_env_file: ambient Azure CLOUD SELECTORS are cleared when the file does not set them', () => {
+  const env = {
+    AZURE_SUBSCRIPTION_ID: 'ambient-sub',
+    AZURE_ENVIRONMENT: 'AzureUSGovernment',
+    ARM_ENVIRONMENT: 'usgovernment',
+    AZURE_ARM_ENDPOINT: 'https://management.usgovcloudapi.net',
+    AZURE_AUTHORITY_HOST: 'https://login.microsoftonline.us',
+    NSA_ENV_FILE: '/x/commercial.env',
+  };
+  const r = applyScanEnvFile({
+    env,
+    fileExists: () => true,
+    readFile: () => 'AZURE_SUBSCRIPTION_ID=file-sub\n',
+    log: () => {},
+  });
+  assert.equal(env.AZURE_SUBSCRIPTION_ID, 'file-sub', 'the file must win for what it sets');
+  for (const k of ['AZURE_ENVIRONMENT', 'ARM_ENVIRONMENT', 'AZURE_ARM_ENDPOINT', 'AZURE_AUTHORITY_HOST']) {
+    assert.equal(env[k], undefined, `ambient ${k} survived the env-file selection`);
+    assert.ok(r.cleared.includes(k), `${k} was not reported as cleared`);
+  }
+});
+
+test('mcp_env_file: a cloud selector the FILE sets is honoured, not cleared', () => {
+  // The fourth quadrant: the fix must not make sovereign scanning impossible via
+  // the very mechanism operators use to select a target.
+  const env = { NSA_ENV_FILE: '/x/gov.env' };
+  applyScanEnvFile({
+    env,
+    fileExists: () => true,
+    readFile: () => 'AZURE_SUBSCRIPTION_ID=s\nAZURE_ENVIRONMENT=AzureUSGovernment\n',
+    log: () => {},
+  });
+  assert.equal(env.AZURE_ENVIRONMENT, 'AzureUSGovernment');
+  assert.equal(env.AZURE_SUBSCRIPTION_ID, 's');
+});

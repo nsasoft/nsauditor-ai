@@ -26,6 +26,16 @@ const PROVIDER_CRED_KEYS = [
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE',
   'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_PROJECT_ID', 'GCLOUD_PROJECT',
   'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_SUBSCRIPTION_ID',
+  // Azure CLOUD SELECTORS. Credential-adjacent rather than credentials, and they
+  // belong here for the same anti-false-clean reason: the env file IS the
+  // scan-target selector, and a subscription id together with the cloud whose ARM
+  // hosts it are ONE selection, not two. Left ambient, a shell-profile
+  // AZURE_ENVIRONMENT or AZURE_ARM_ENDPOINT could redirect a scan the file
+  // selected to a different Azure cloud entirely, and AZURE_AUTHORITY_HOST is read
+  // by @azure/identity itself, so it can steer authentication with no code of ours
+  // involved. Added 2026-08-27 alongside the EE sovereign-cloud resolver
+  // (utils/azure_cloud.mjs), which is what made these reachable.
+  'AZURE_ENVIRONMENT', 'ARM_ENVIRONMENT', 'AZURE_ARM_ENDPOINT', 'AZURE_AUTHORITY_HOST',
 ];
 
 /**
