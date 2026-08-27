@@ -17,6 +17,22 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
+**Sovereign and air-gapped AWS partitions stop being mistaken for commercial (CE 0.2.49 / Enterprise 0.42.0).**
+This one DOES change CE behaviour, and Enterprise now requires it (`>=0.2.49`). `detectPartition`
+tested only `cn-` and `us-gov-` before falling through to `'aws'`, so every ISO and European
+Sovereign region resolved to the commercial partition — downstream, an ISO account inherited the 32
+commercial regions as its static fallback and the scan-scope disclosure reported that as its
+denominator. No ISO region ids are enumerated to fix it: the new rule is structural over the region-id
+prefix, the static fallback for those partitions is EMPTY, and the live `DescribeRegions` path stays
+the only source of truth. Separately, `NSA_ENV_FILE` now clears ambient Azure cloud selectors
+(`AZURE_ENVIRONMENT`, `ARM_ENVIRONMENT`, `AZURE_ARM_ENDPOINT`, `AZURE_AUTHORITY_HOST`) — the env file
+is the scan-target selector, and a subscription id and the cloud whose ARM hosts it are one selection,
+not two. What Enterprise adds in the pair: GovCloud/partition correctness across 19 executable
+defects, Azure sovereign-cloud addressing that refuses rather than silently scanning commercial, an
+SBOM generated over the package you actually install, and a FIPS posture statement that claims
+approved *algorithms* and explicitly not a validated *module*. Plugin counts unchanged — 27 Community
+scanners, 29 Enterprise plugins, 56 with a licence active; all eight coverage matrices UNCHANGED.
+
 **The 29th Enterprise plugin: Amazon DocumentDB (CE 0.2.48 / Enterprise 0.41.0).** No CE behaviour
 change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new Community
 Edition code; this bump pairs the npm-frozen page with Enterprise 0.41.0. What Enterprise adds, in

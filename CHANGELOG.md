@@ -6,6 +6,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.49 (2026-08-27) — paired with Enterprise 0.42.0: partition detection stops calling sovereign regions "commercial"
+
+**This is NOT a pairing no-op — CE behaviour changes, and Enterprise now requires it (`>=0.2.49`, raised from `>=0.2.45`).**
+
+- **`detectPartition` recognises the ISO and European Sovereign partitions.** It tested only `cn-` and `us-gov-` and then returned `'aws'`, so every `us-iso-*` / `us-isob-*` / `us-isof-*` / `eu-isoe-*` / `eusc-*` region resolved to the COMMERCIAL partition. Downstream in Enterprise that meant an ISO account inherited the 32 commercial regions as its static region fallback and the scan-scope disclosure reported that as its denominator — **a disclosure asserting the wrong denominator is worse than none, because it looks like coverage arithmetic.**
+  ⚠️ **No ISO or EUSC region ids are enumerated, deliberately.** The rule added is STRUCTURAL, over the region-id prefix; `regionsForPartition` returns the existing frozen empty list for these partitions. An ISO account therefore gets an EMPTY static fallback and the live `DescribeRegions` path — correct in any partition — stays its only source of truth. Guessing a region list would have put a wrong scan SCOPE into the fallback, which is the silent direction.
+- **`NSA_ENV_FILE` now clears ambient Azure CLOUD SELECTORS.** `PROVIDER_CRED_KEYS` listed the Azure credentials but not the variables that decide which Azure cloud is addressed. The env file is the scan-target selector, and a subscription id together with the cloud whose ARM hosts it are ONE selection, not two — so an ambient `AZURE_ENVIRONMENT`, `ARM_ENVIRONMENT` or `AZURE_ARM_ENDPOINT` could redirect a scan the file had selected, and `AZURE_AUTHORITY_HOST` is read by `@azure/identity` itself. All four are now cleared when the file does not set them; a selector the file DOES set is honoured, unchanged.
+
+**What Enterprise 0.42.0 adds, if you run the pair:** GovCloud/partition correctness across 19 executable defects (a public S3 access point riding a GovCloud bucket delegation emitted no finding; IAM privesc demoted CRITICAL→HIGH and lost graph edges; the effective-decrypt ladder collapsed to `info`), Azure sovereign-cloud addressing that REFUSES rather than falling back to commercial, an SBOM generated over the package a customer installs, and a FIPS posture statement. Plugin counts unchanged — 27 Community scanners, 29 Enterprise plugins, 56 with a licence active. All eight coverage matrices UNCHANGED.
+
 ## 0.2.48 (2026-08-26) — paired with Enterprise 0.41.0: the 29th plugin (Amazon DocumentDB)
 
 **No CE code change; peer floor stays `>=0.2.45`, unraised.** npm freezes a README at publish
