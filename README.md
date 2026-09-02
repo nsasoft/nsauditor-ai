@@ -17,6 +17,20 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
+**A provider badge you can trust, and an evidence gap that never tells an auditor what to type (CE 0.2.50 / Enterprise 0.43.0).**
+**No Community behaviour changed this cycle** — the version moves so the trio stays in lockstep, and **the Enterprise peer floor stays `>=0.2.49`** rather than being raised reflexively, because the
+one Community behaviour the Enterprise fix depends on already shipped there. What changed is on the
+Enterprise side and shows up in output a Community user also reads: an Enterprise scan whose cloud
+SDK failed to load used to report that provider as **audited**, because a plugin result carrying
+neither an error nor a skip flag falls through to `ran` in this package's plugin manager, and
+`auditedProviders` is derived from `ran`. Eighteen refusals across seventeen AWS and GCP plugins now
+carry their cause, so such a provider appears as `errored` and drops out of `auditedProviders`.
+Second: the compliance engine quotes a plugin's reason into the *"could not run"* sentence of every
+control that plugin evidences, and it used to quote the whole thrown message — so the SDK loaders'
+own `Install: npm install <pkg>@latest` reached the evidence-gap text of 7 SOC 2, 2 GDPR and 12 NIST
+SP 800-171 controls. **The report now states what was not evidenced; the operator channel states how
+to change it** — which matters most for air-gapped installs, where that instruction cannot be run.
+
 **Sovereign and air-gapped AWS partitions stop being mistaken for commercial (CE 0.2.49 / Enterprise 0.42.0).**
 This one DOES change CE behaviour, and Enterprise now requires it (`>=0.2.49`). `detectPartition`
 tested only `cn-` and `us-gov-` before falling through to `'aws'`, so every ISO and European

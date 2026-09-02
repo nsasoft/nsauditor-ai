@@ -6,6 +6,20 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.50 (2026-09-02) — paired with Enterprise 0.43.0: no Community change, and the reason is worth stating
+
+**No Community Edition behaviour changed in this cycle.** The version moves so the trio stays
+in lockstep and so `npm` users can pin a matched set; nothing here requires an upgrade.
+
+**Why the Enterprise release did NOT raise the peer floor.** EE 0.43.0 closes a defect whose
+fix depends on one Community behaviour — the plugin manager classifying a plugin result that
+carries `error` as `error` rather than `ran`, so `auditedProviders` excludes a cloud whose SDK
+never loaded. **That behaviour already shipped in 0.2.49**, so the floor stays `>= 0.2.49`
+rather than being raised reflexively to this version. An operator on 0.2.49 gets the full
+Enterprise fix; raising the floor would have charged them an upgrade that buys nothing.
+
+---
+
 ## 0.2.49 (2026-08-27) — paired with Enterprise 0.42.0: partition detection stops calling sovereign regions "commercial"
 
 **This is NOT a pairing no-op — CE behaviour changes, and Enterprise now requires it (`>=0.2.49`, raised from `>=0.2.45`).**
