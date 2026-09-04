@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { escapeHtml, loadBrand } from '../utils/brand.mjs';
@@ -245,15 +246,20 @@ test('a non-string field (e.g. title as a number) is coerced to a safe string, n
   assert.equal(r.brand.title, '12345');
 });
 
-test('an object-valued field cannot be used to smuggle [object Object] semantics unexpectedly', async () => {
-  const dir = tmp();
-  const f = path.join(dir, 'brand.json');
-  fs.writeFileSync(f, JSON.stringify({ companyName: { toString: 'nope' } }), 'utf8');
-  const r = await loadBrand(f);
-  // Whatever the policy, it must not throw and must yield a string.
-  assert.equal(r.ok, true);
-  assert.equal(typeof r.brand.companyName, 'string');
-});
+// Parameterized across all four safeString()-consuming metadata fields, not just companyName —
+// they share one implementation, so one field's fixture protects the other three only by
+// reading, not by a test. Cheap to close: same fixture, four names.
+for (const field of ['title', 'companyName', 'preparedBy', 'contact']) {
+  test(`a poison-toString object in "${field}" cannot be used to smuggle [object Object] semantics unexpectedly`, async () => {
+    const dir = tmp();
+    const f = path.join(dir, 'brand.json');
+    fs.writeFileSync(f, JSON.stringify({ [field]: { toString: 'nope' } }), 'utf8');
+    const r = await loadBrand(f);
+    // Whatever the policy, it must not throw and must yield a string.
+    assert.equal(r.ok, true);
+    assert.equal(typeof r.brand[field], 'string');
+  });
+}
 
 test('a missing brand file path is REFUSED with a readable message, not thrown', async () => {
   const dir = tmp();
@@ -289,4 +295,112 @@ test('a data: URI logoPath is explicitly refused as a URL, not just coincidental
 test('escapeHtml handles null and undefined without throwing', () => {
   assert.equal(escapeHtml(null), '');
   assert.equal(escapeHtml(undefined), '');
+});
+
+// ── Round 3, coordinator review: logoPath type-checked before the filesystem ────────────────
+//
+// Driven measurement found a non-string logoPath refused by FS ERRNO, not by name — the exact
+// "refused, but for the wrong reason" class the UNC fixture above closed one field over:
+//   {toString:'nope'} -> "...EISDIR..." (poison toString collapsed to '', which then resolved
+//                          to the brand directory itself)
+//   ['a']             -> "...ENOENT..." (Array#toString -> 'a', no such file)
+//   42                -> "...ENOENT..." (coerced to "42", no such file)
+// Each of these five asserts the message names the TYPE problem specifically (or, for the empty
+// string, that the deliberate "treat as absent" reading holds) — not merely `ok === false` —
+// and that it does NOT read ENOENT/EISDIR, for the same reason the URL/UNC fixtures above
+// needed the same tightening: a bare ok:false assertion cannot tell "refused by name" apart
+// from "refused by an accident of how the coerced value happened to resolve."
+
+test('a poison-toString OBJECT logoPath is refused BY NAME, not by EISDIR', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'),
+    JSON.stringify({ logoPath: { toString: 'nope' } }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+  assert.match(r.message, /object/i);
+  assert.doesNotMatch(r.message, /ENOENT|EISDIR/);
+});
+
+test('an ARRAY logoPath is refused BY NAME, not by ENOENT', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'),
+    JSON.stringify({ logoPath: ['a'] }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+  assert.match(r.message, /array/i);
+  assert.doesNotMatch(r.message, /ENOENT|EISDIR/);
+});
+
+test('a NUMBER logoPath is refused BY NAME, not by ENOENT', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'),
+    JSON.stringify({ logoPath: 42 }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+  assert.match(r.message, /number/i);
+  assert.doesNotMatch(r.message, /ENOENT|EISDIR/);
+});
+
+test('a BOOLEAN logoPath is refused BY NAME, not by ENOENT', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'),
+    JSON.stringify({ logoPath: true }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+  assert.match(r.message, /boolean/i);
+  assert.doesNotMatch(r.message, /ENOENT|EISDIR/);
+});
+
+test('an empty-string logoPath is treated as "no logo" — a deliberate, pinned reading', async () => {
+  // The alternative (refuse an explicit "") is equally defensible; this reading was chosen for
+  // consistency with how an absent/null logoPath is already handled. See the comment in
+  // utils/brand.mjs directly above the `cfg.logoPath !== ''` check.
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'), JSON.stringify({ logoPath: '' }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, true);
+  assert.equal(r.brand.logoDataUri, null);
+});
+
+// ── Round 3, coordinator review: containment must resolve symlinks ──────────────────────────
+
+test('a symlink inside the brand directory pointing OUTSIDE it is REFUSED — containment resolves symlinks', async () => {
+  const dir = tmp();
+  const outside = tmp();
+  const target = path.join(outside, 'secret.png');
+  fs.writeFileSync(target, Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'));
+  const link = path.join(dir, 'logo.png');
+  fs.symlinkSync(target, link);
+  fs.writeFileSync(path.join(dir, 'brand.json'), JSON.stringify({ logoPath: 'logo.png' }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  // The LEXICAL containment check alone would pass this (the symlink's own NAME, "logo.png",
+  // never leaves `dir`); only resolving it proves the target does.
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+});
+
+// ── Round 3, coordinator review: the size cap must be a STAT gate, not a read-then-check ────
+
+test('an oversized logo is refused by STAT, before the file is read into memory', async (t) => {
+  const dir = tmp();
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(3 * 1024 * 1024)]);
+  fs.writeFileSync(path.join(dir, 'logo.png'), png);
+  fs.writeFileSync(path.join(dir, 'brand.json'), JSON.stringify({ logoPath: 'logo.png' }), 'utf8');
+
+  const realReadFile = fsp.readFile;
+  let readFileCalledOnLogo = false;
+  t.mock.method(fsp, 'readFile', async (...args) => {
+    if (String(args[0]).endsWith('logo.png')) readFileCalledOnLogo = true;
+    return realReadFile.apply(fsp, args);
+  });
+
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /too large|size/i);
+  assert.equal(readFileCalledOnLogo, false,
+    'the oversized logo must be refused by stat().size and never opened with fsp.readFile()');
 });
