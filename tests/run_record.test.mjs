@@ -5,7 +5,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  RUN_RECORD_SCHEMA, runRecordPath, newRunId, normaliseHost,
+  RUN_RECORD_SCHEMA, UNPARSEABLE, runRecordPath, newRunId, normaliseHost,
   writeRunStart, appendHostWritten, finalizeRunRecord, readRunRecord, listRunRecords,
   pruneRunRecordsForCE,
 } from '../utils/run_record.mjs';
@@ -25,6 +25,14 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-run-'));
 // shared expression proves CONSISTENCY, not correctness. The fixture table's explicit expected
 // column remains the independent statement of truth; this oracle's job is catching a row nobody
 // thought to add, not replacing the table.
+// ⚠️ BLIND A THIRD TIME: a double-encoded `%2540` and a fullwidth U+FF20 `＠` are NEITHER a
+// literal '@' nor a literal `%40`, so this oracle (deliberately left un-updated here) still
+// computes the RAW, unfiltered token for them — exactly what the production rule would have
+// returned before it grew a deny-by-default OUTPUT whitelist. That gap is intentional: see the
+// "no third outcome" assertion below, which checks production's actual output against EITHER
+// this oracle's naive computation OR the safe refusal sentinel, catching a whitelist that fails
+// to refuse (or a whitelist that refuses something it should not) without needing to recognise
+// the input itself.
 function expectedHostToken(raw) {
   const s = String(raw).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/%40/gi, '@');
   const at = s.lastIndexOf('@');
@@ -60,9 +68,14 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
   // the host, since neither has a '/' to cut on; and a percent-encoded '@' (`user:pass%40host`)
   // is not a literal '@', so `lastIndexOf('@')` returned -1, took the "no userinfo" branch, and
   // returned the WHOLE credential-bearing string unstripped — worse than any fragment leak,
-  // because nothing was stripped at all. This table is the accumulated record of every shape
-  // that motivated a change, kept — not trimmed — so the next maintainer can see exactly what
-  // was tried and why each one failed.
+  // because nothing was stripped at all. Two MORE @-lookalikes (a double-encoded `%2540`, a
+  // fullwidth U+FF20 `＠`) proved that chasing lookalikes on the INPUT is unbounded — a whole
+  // Unicode confusables table sits behind them — so the fix stopped being "recognise one more
+  // separator shape" and became a deny-by-default whitelist on the OUTPUT: a host token is a
+  // closed shape (letters, digits, dots, hyphens, underscores, an optional port, or a bracketed
+  // IPv6 literal), and anything else is refused as `UNPARSEABLE` rather than written. This table
+  // is the accumulated record of every shape that motivated a change, kept — not trimmed — so the
+  // next maintainer can see exactly what was tried and why each one failed.
   // Each row is its OWN subtest — a for-loop with one `assert.equal` per row would let the
   // FIRST failing row's thrown assertion mask every later row (a loud defect hiding a silent
   // one on the same condition; measured directly in an earlier round of this same table).
@@ -99,6 +112,16 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
     ['aws',                                      'aws',                 'the sentinel cloud hosts must survive untouched'],
     ['azure',                                    'azure',               'the sentinel cloud hosts must survive untouched'],
     ['gcp',                                      'gcp',                 'the sentinel cloud hosts must survive untouched'],
+    // ⚠️ FOURTH QUADRANT FIRST: the "Unchanged" rows directly above already prove every
+    // legitimate host and the whitelist coexist — written and passing BEFORE the refusal rows
+    // below, because a whitelist that refuses a legitimate host is the failure mode this change
+    // introduces, and it must be guarded before the refusals are.
+    // REFUSED — @-lookalikes with a whole Unicode confusables table behind them. Neither is
+    // fixable by recognising one more separator shape; both are caught by the OUTPUT whitelist
+    // instead, which needs no vocabulary of what a fake '@' might look like.
+    ['user:pass%2540host',                       UNPARSEABLE,           'double-encoded @ (%25 is the encoded "%", so %2540 decodes once to a literal %40, not @)'],
+    ['user:pass＠host',                           UNPARSEABLE,           'U+FF20 FULLWIDTH @ — not the ASCII @ any of this rule\'s decodes look for'],
+    ['admin:s3cret＠10.0.0.7',                    UNPARSEABLE,           'same shape, a different credential'],
     // ⚠️ ACCEPTED COST — FOUR rows, kept with their trade named rather than deleted. With NO
     // userinfo present, or with the LAST @ sitting inside a PATH, the rule reads that @ as a
     // credential separator too and returns the fragment after it — a wrong host, but zero
@@ -113,13 +136,17 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
     await t.test(`${why} — ${input}`, () => {
       const actual = normaliseHost(input);
       assert.equal(actual, expected);
-      // Applied to EVERY row, not only the `@`-bearing ones — the query/fragment shapes have
-      // no `@` at all, which is exactly why the prior (narrower) oracle could not have covered
-      // them. This is the SAME expression as the production rule, so it proves consistency, not
-      // correctness; `expected` above (the table's own explicit column) is the independent
-      // statement of truth.
-      assert.equal(actual, expectedHostToken(input),
-        `output diverged from the maximal delimiter-free prefix: ${input} -> ${actual}`);
+      // ⚠️ NO THIRD OUTCOME. The oracle has been blind three times running — a token list, then
+      // a structural model keyed on a literal '@', then that same model missing a percent- or
+      // fullwidth-encoded '@' — each time inheriting the assumption of the thing it guarded. This
+      // assertion does not depend on recognising an input at all: whatever `normaliseHost`
+      // returns must be EITHER exactly what the oracle's own naive (whitelist-free) computation
+      // would produce, OR the safe refusal sentinel. A whitelist that silently accepts a
+      // malformed value that is neither of those two would be caught here even for an input this
+      // table never imagined.
+      const naive = expectedHostToken(input);
+      assert.ok(actual === naive || actual === UNPARSEABLE,
+        `output was neither the naive parse nor the refusal sentinel: ${input} -> ${actual} (naive: ${naive})`);
     });
   }
 });
@@ -189,7 +216,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
       'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2', 'user/name:pa@10.0.0.3',
       'user:p@ss/wd@10.0.0.4', 'user:p@ssword123/junk@10.0.0.5',
       '10.0.0.6?api_key=SECRET123', 'user:pass@10.0.0.10?token=SECRET123', '10.0.0.11#SECRET123',
-      'user:pass%40host', 'admin:s3cret%4010.0.0.12', 'user:p%40ss@10.0.0.13'],
+      'user:pass%40host', 'admin:s3cret%4010.0.0.12', 'user:p%40ss@10.0.0.13',
+      'user:pass%2540host', 'user:pass＠host', 'admin:s3cret＠10.0.0.14'],
     pluginsRequested: ['port_scanner'], portsRequested: '443', tier: 'ce',
     ceVersion: '0.2.50', eeVersion: null,
     kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
@@ -201,7 +229,12 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   // — it guards the rest of the file (paths, keys, ids), while the structural oracle in the
   // table test above is what actually guards normaliseHost's own output.
   assert.ok(!raw.includes('user'),         'a credential fragment (username) reached the record');
-  assert.ok(!raw.includes('pa'),           'a credential fragment (password prefix) reached the record');
+  assert.ok(!raw.includes('pass'),         'a credential fragment (password) reached the record');
+  // NOT checked as a raw substring: bare "pa" is ALSO a false-positive trap, for the same
+  // reason as "ss" below — the refusal sentinel `<unparseable-host>` (a CORRECT value for the
+  // three refused rows) contains "pa" (`un-pa-rseable`), so `!raw.includes('pa')` would fail on
+  // every record that correctly refused a row. Found by running this exact assertion, not by
+  // inspection. The exact parsed-array equality below covers a leaked `pa`-fragment instead.
   assert.ok(!raw.includes('admin'),        'a credential fragment (admin username) reached the record');
   assert.ok(!raw.includes('1234'),         'a credential fragment (numeric password) reached the record');
   assert.ok(!raw.includes('root'),         'a credential fragment (root username) reached the record');
@@ -210,6 +243,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   assert.ok(!raw.includes('SECRET123'),    'a query-string or fragment credential token reached the record');
   assert.ok(!raw.includes('s3cret'),       'a percent-encoded-separator credential fragment reached the record');
   assert.ok(!raw.includes('pass%40'),      'a percent-encoded separator survived unstripped — the whole credential leaked');
+  assert.ok(!raw.includes('%2540'),        'a double-encoded separator survived unstripped');
+  assert.ok(!raw.includes('＠'),            'a fullwidth @-lookalike survived unstripped');
   // NOT checked as a raw substring: bare "ss" is a false-positive trap here — the field name
   // `epssSnapshot` (always present as a JSON key, regardless of any real leak) already contains
   // it, so `!raw.includes('ss')` would fail on every record. The exact parsed-array equality
@@ -220,7 +255,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   const rec = JSON.parse(raw);
   assert.deepEqual(rec.hostsRequested,
     ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5',
-     '10.0.0.6', '10.0.0.10', '10.0.0.11', 'host', '10.0.0.12', '10.0.0.13']);
+     '10.0.0.6', '10.0.0.10', '10.0.0.11', 'host', '10.0.0.12', '10.0.0.13',
+     UNPARSEABLE, UNPARSEABLE, UNPARSEABLE]);
 });
 
 test('finalizeRunRecord accepts the correct call, and REFUSES the narrowed-away key', async () => {

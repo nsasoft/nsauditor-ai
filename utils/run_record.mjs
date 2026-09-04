@@ -37,6 +37,17 @@ const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 // the fragment after that delimiter instead of the host. A wrong host with no credential is the
 // safe direction; a right host with a credential sometimes is not. None is a `--host` value
 // anyone types.
+//
+// ⚠️ DENY-BY-DEFAULT ON THE OUTPUT, because the input side is unbounded. Five leaks in this
+// function were closed by making the parse smarter, and two remained (`%2540` double-encoded,
+// U+FF20 `＠` fullwidth) with a whole Unicode confusables table behind them. A host token is a
+// CLOSED shape — letters, digits, dots, hyphens, underscores, an optional numeric port, or a
+// bracketed IPv6 literal. Anything else is not a host, so it is not written, whatever produced
+// it. This is the leg that makes the CLASS closed rather than the instance closed: a future
+// input nobody imagined cannot leak, because the guard no longer depends on recognising it.
+const HOST_TOKEN_RE = /^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(?::\d+)?$/;
+export const UNPARSEABLE = '<unparseable-host>';
+
 export function normaliseHost(raw) {
   const s0 = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
   // A legitimate host can never contain `%40`. Only an encoded SEPARATOR or an encoded '@'
@@ -45,7 +56,14 @@ export function normaliseHost(raw) {
   // string is returned unstripped. Decode before deciding.
   const s = s0.replace(/%40/gi, '@');
   const at = s.lastIndexOf('@');
-  return (at === -1 ? s : s.slice(at + 1)).split(/[/?#]/)[0];
+  const token = (at === -1 ? s : s.slice(at + 1)).split(/[/?#]/)[0];
+  if (token !== '' && !HOST_TOKEN_RE.test(token)) {
+    // Name the FIELD, never the value — logging the rejected string would defeat the whole
+    // point of a guard that exists because the input side cannot be enumerated.
+    console.warn('[RunRecord] normaliseHost: refused a non-host-shaped token');
+    return UNPARSEABLE;
+  }
+  return token;
 }
 
 export function runRecordPath(outRoot, runId) {
