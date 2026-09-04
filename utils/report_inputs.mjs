@@ -216,9 +216,19 @@ function shapeQueueEntry(host, q) {
 export function shapeHostFindings(host, raw, queue = []) {
   const out = [];
   const seen = new Set();
-  const push = (f) => {
-    if (f?.id != null && seen.has(f.id)) return;
-    if (f?.id != null) seen.add(f.id);
+  // ⚠️ DE-DUPLICATE ONLY ON A PRODUCER-SUPPLIED ID, NEVER ON A CONTENT HASH.
+  // `shapeFinding` derives its id from [host, port, severity, title] and the title is
+  // TRUNCATED at 160 chars, so distinct findings can share one. Measured on the 0.44.0
+  // cloud run: plugin 1170 emits THREE separate 0.0.0.0/0 ingress findings for
+  // sg-0def2fbb3db67eae5 whose titles truncate identically — a content-keyed dedup
+  // silently dropped two of them and took cloud CRITICAL from 10 to 8. A hash collision is
+  // evidence that the hash is coarse, never evidence that two findings are the same one.
+  // The finding queue DOES carry a stable producer id (`F-…`), which is what this is for.
+  const push = (f, dedupId = null) => {
+    if (dedupId != null) {
+      if (seen.has(dedupId)) return;
+      seen.add(dedupId);
+    }
     out.push(f);
   };
 
@@ -259,7 +269,10 @@ export function shapeHostFindings(host, raw, queue = []) {
       }
     }
   }
-  for (const q of (Array.isArray(queue) ? queue : [])) push(shapeQueueEntry(host, q));
+  for (const q of (Array.isArray(queue) ? queue : [])) {
+    const e = shapeQueueEntry(host, q);
+    push(e, e.id);
+  }
   return out;
 }
 

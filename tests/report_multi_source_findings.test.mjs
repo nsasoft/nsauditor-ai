@@ -155,6 +155,19 @@ describe('the report reads every container a finding can live in', () => {
     assert.equal(f.id, QUEUE_ENTRY.id, 'the queue carries a STABLE id; prefer it over a content hash');
   });
 
+  it('THREE findings whose titles truncate identically all survive — a hash collision is not a duplicate', () => {
+    // Measured regression: plugin 1170 emits three separate 0.0.0.0/0 ingress findings for
+    // one security group, and describeFinding truncates all three titles to the same 160
+    // chars. A content-keyed dedup dropped two and took cloud CRITICAL from 10 to 8.
+    const long = "Security Group 'sg-0def2fbb3db67eae5' (name='nsauditor-exposed-sg', vpc='vpc-0f82f090d58df59e0') allows unrestricted ingress from 0.0.0.0/0 to a restricted port";
+    const env = { id: '1170', result: { findings: [
+      { severity: 'critical', issues: [`${long} 22`] },
+      { severity: 'critical', issues: [`${long} 3389`] },
+      { severity: 'critical', issues: [`${long} 3306`] },
+    ] } };
+    assert.equal(shapeHostFindings('aws', { results: [env] }, []).length, 3);
+  });
+
   // ── MERGE ───────────────────────────────────────────────────────────────────
 
   it('all five sources merge, de-duplicated by identical id ONLY', () => {
