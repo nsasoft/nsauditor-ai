@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-1559%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1576%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -880,6 +880,8 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
 
 `nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run under `--from` into a client-facing deliverable — an HTML report a consultant sends to their customer, or a Jira-importer CSV.
 
+**What it reads.** A scan record keeps findings in more than one place, and the report reads all of them: each plugin's `result.findings` (an array, or a dict of categories as the DNS auditor emits), zero-trust dimension findings, per-port TLS issues, and the **finding queue** (`scan_finding_queue.json`) that carries the CVE/KEV/EPSS-enriched entries. `result.data` is deliberately NOT read — on a network scan it holds probe telemetry, not findings. The container inventory is enforced by a census: a container holding findings that no reader opens fails the build rather than rendering as a clean report.
+
 | Flag | Description | Default |
 |---|---|---|
 | `--from <dir>` | The scan `--out` directory holding the run's record and per-host evidence | *required* |
@@ -1189,7 +1191,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 1559 tests:
+Run all 1576 tests:
 
 ```bash
 npm test

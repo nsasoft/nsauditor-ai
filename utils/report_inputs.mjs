@@ -139,8 +139,15 @@ export function shapeFinding(host, f) {
     ? f.issues.map(issueText).filter((t) => t.trim().length > 0)
     : [];
   const explicitDetail = f?.detail ?? f?.description ?? null;
+  // When a producer carries its content in `detail`/`description` and no `issues[]` at all
+  // (1023's {severity, description}; 040's and 060's {severity, check, detail}), feed that
+  // text in AS an issue rather than widening describeFinding's shared REASON_KEYS — the
+  // MCP surface consumes the same helper, and a constant widened for this caller changes
+  // what every other caller titles. `description` in particular is NOT in REASON_KEYS, so
+  // without this a zero-trust finding titles itself "MEDIUM finding (no description)".
+  const contentIssues = issueTexts.length ? issueTexts : (explicitDetail ? [String(explicitDetail)] : []);
   const title = f?.title
-    ?? (issueTexts.length ? describeFinding({ ...f, issues: issueTexts }) : null);
+    ?? (contentIssues.length ? describeFinding({ ...f, issues: contentIssues }) : null);
   const cves = Array.isArray(f?.cves) ? f.cves.map(String)
     : Array.isArray(f?.cve) ? f.cve.map(String) : [];
   // CE ships no KEV/EPSS store of its own (utils/scan_history.mjs comment at cli.mjs:2780):
@@ -164,14 +171,102 @@ export function shapeFinding(host, f) {
 // `results[]` this way); reachability and findings both live INSIDE `result`, never at the raw's
 // top level. A host counts as up if ANY plugin's envelope observed it up — a host with nothing
 // reporting `up: true` (including a host with zero envelopes) is not reachable.
+/**
+ * The EE finding queue is a SIBLING ARTIFACT with its own vocabulary, and the mismatch is
+ * Class P — not a rename. Measured on a real entry from a 192.168.1.1 run:
+ *   `cves` ABSENT     -> `evidence.cve[]`      (a naive reader renders an empty CVE column)
+ *   `epss` ABSENT     -> `epssScore`           (a naive reader nulls EPSS, and the report's
+ *                                               own cover promises EPSS ordering)
+ *   `remediation`     -> an OBJECT `{summary}` (a naive reader prints "[object Object]")
+ *   `port` ABSENT     -> `target.port`
+ *   `id`              -> a stable `F-…`, better than any content hash we could compute
+ */
+function shapeQueueEntry(host, q) {
+  const ev = (q && typeof q.evidence === 'object' && q.evidence) || {};
+  const rem = q?.remediation;
+  return {
+    host,
+    port: q?.port ?? q?.target?.port ?? null,
+    severity: q?.severity != null ? String(q.severity).toUpperCase() : 'INFO',
+    title: q?.title ?? null,
+    detail: q?.description ?? q?.detail ?? null,
+    remediation: typeof rem === 'string' ? rem : (rem?.summary ?? null),
+    cves: Array.isArray(ev.cve) ? ev.cve.map(String)
+      : Array.isArray(q?.cves) ? q.cves.map(String) : [],
+    kev: q?.kev === true,
+    epss: typeof q?.epssScore === 'number' && Number.isFinite(q.epssScore) ? q.epssScore
+      : (typeof q?.epss === 'number' && Number.isFinite(q.epss) ? q.epss : null),
+    exploitPriority: q?.exploitPriority ?? null,
+    id: q?.id ?? null,
+  };
+}
+
+/**
+ * EVERY container a finding can live in, merged and de-duplicated by IDENTICAL id only.
+ *
+ * ⚠️ NEVER heuristic merging across producers. crypto_agent's TLS queue entries and 040's
+ * per-check issues describe the same port at different granularities and BOTH belong in
+ * the report, each with its own source. Collapsing them on a similarity guess would drop
+ * real findings to make a tidier table — the defect this whole lane exists to remove.
+ *
+ * The container inventory is enforced by `utils/report_finding_census.mjs`: a container
+ * carrying severity-bearing objects that is neither read here nor allowlisted there fails
+ * loudly. Incompleteness costs NOISE, never SILENCE.
+ */
+export function shapeHostFindings(host, raw, queue = []) {
+  const out = [];
+  const seen = new Set();
+  const push = (f) => {
+    if (f?.id != null && seen.has(f.id)) return;
+    if (f?.id != null) seen.add(f.id);
+    out.push(f);
+  };
+
+  for (const e of (Array.isArray(raw?.results) ? raw.results : [])) {
+    const res = e?.result ?? {};
+    // ⚠️ `result.data` IS NOT A FINDINGS CONTAINER AND MUST NOT BE READ HERE. I added a
+    // `findings ?? data` fallback (mirroring cloud_finding_summary's findingsOf) on the
+    // reasoning that a data-only producer should not be invisible — and it was WRONG,
+    // measured on the 192.168.1.1 run: a network host has `findings[] = 0` and
+    // `data[] = 85`, of which 84 are PROBE TELEMETRY ({probe_protocol, probe_port,
+    // probe_info} — "Connect refused (ECONNREFUSED)", "No UDP response"). The fallback put
+    // scan telemetry into a client deliverable, and only an accidental id collision (null
+    // title, null port, INFO) collapsed 85 rows into two, which is what hid it.
+    // findingsOf can use that precedence because the MCP cloud path only ever sees cloud
+    // producers; the report sees BOTH paths.
+    const rf = res.findings;
+    if (Array.isArray(rf)) {
+      for (const f of rf) push(shapeFinding(host, f));
+    } else if (rf && typeof rf === 'object') {
+      // 060 DNS Security Auditor emits a DICT OF CATEGORIES ({spf:[…], dmarc:[…]}), which
+      // an `Array.isArray` guard skips in complete silence.
+      for (const arr of Object.values(rf)) {
+        if (Array.isArray(arr)) for (const f of arr) push(shapeFinding(host, f));
+      }
+    }
+    if (res.zeroTrust && typeof res.zeroTrust === 'object') {
+      for (const dim of Object.values(res.zeroTrust)) {
+        if (Array.isArray(dim?.findings)) for (const f of dim.findings) push(shapeFinding(host, f));
+      }
+    }
+    if (Array.isArray(res.portResults)) {
+      for (const pr of res.portResults) {
+        // The port result's own `severity` is a ROLL-UP of these issues, never a finding —
+        // rendering both would double-count every TLS issue.
+        if (Array.isArray(pr?.issues)) {
+          for (const i of pr.issues) push(shapeFinding(host, { ...i, port: i?.port ?? pr?.port ?? null }));
+        }
+      }
+    }
+  }
+  for (const q of (Array.isArray(queue) ? queue : [])) push(shapeQueueEntry(host, q));
+  return out;
+}
+
 function shapeHost(host, dir, raw) {
   const envelopes = Array.isArray(raw.results) ? raw.results : [];
   const up = envelopes.some((e) => e?.result?.up === true);
-  const findings = [];
-  for (const e of envelopes) {
-    const rawFindings = e?.result?.findings;
-    if (Array.isArray(rawFindings)) for (const f of rawFindings) findings.push(shapeFinding(host, f));
-  }
+  const findings = shapeHostFindings(host, raw, raw?.__findingQueue ?? []);
   return {
     host, dir, up, findings,
     pluginStatus: Array.isArray(raw.pluginStatus) ? raw.pluginStatus : [],
@@ -253,7 +348,21 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
         `\`${rec.runId}\`. Refusing: a directory from another engagement cannot be reported as ` +
         'this one.');
     }
-    hosts.push(shapeHost(host, dir, raw));
+    // ⚠️ THE FINDING QUEUE IS A SIBLING FILE, WHICH IS EXACTLY WHY IT WAS MISSED — nothing
+    // in scan_conclusion_raw.json points at it. `scan_finding_queue.json` is the documented
+    // artifact (EE writes it; `report` is Pro-gated so EE is present); the eeEnrichment
+    // fallback covers a record written before the file existed. A queue that cannot be read
+    // yields [] and the host simply renders its plugin findings — never an exception, and
+    // never a silent substitution of one source for another.
+    let findingQueue = [];
+    try {
+      const qRaw = JSON.parse(fs.readFileSync(path.join(outRoot, dir, 'scan_finding_queue.json'), 'utf8'));
+      findingQueue = Array.isArray(qRaw) ? qRaw : (qRaw?.queue ?? qRaw?.findings ?? []);
+    } catch {
+      const q = raw?.conclusion?.result?.eeEnrichment?.queue;
+      if (Array.isArray(q)) findingQueue = q;
+    }
+    hosts.push(shapeHost(host, dir, { ...raw, __findingQueue: findingQueue }));
   }
 
   const requested = (rec.hostsRequested ?? []).length;
