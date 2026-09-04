@@ -15,34 +15,27 @@ import { CE_RETENTION_MS } from './scan_history.mjs';
 export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 
-// ⚠️ NEITHER "path-then-userinfo" NOR "userinfo-then-path" is correct on its own — each order
-// gets a real shape wrong, and the fix is authority-first with a credential-shaped fallback,
-// not a third ordering of the same two steps.
-//   - Splitting on `/` BEFORE stripping userinfo cuts a password containing `/` (routine in
-//     base64) at that slash, discards the remainder — the host included — and leaves
-//     `username:half-password` with no `@` in it: a credential fragment, and the host is GONE.
-//   - Stripping on the LAST `@` in the WHOLE string before splitting on `/` (the first fix)
-//     over-corrects: `https://user:pass@host/path@x` has a second `@` inside the PATH, so
-//     `lastIndexOf('@')` finds that one instead and returns `x` — the host is gone the other way.
-// The authority (everything before the first `/`) is where URL semantics put userinfo, so look
-// for `@` THERE first. Only when the authority contains no `@` but the full string does — the
-// `user:pa/ss@host` shape, where a `/` inside the password terminated the authority early — is
-// the fallback needed, and even then it must not fire over a real `host:port` or a bare host
-// name (a colon whose suffix is BOTH present and all-digits is a port, not a password separator).
+// ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES".
+// When a host-shaped reading and a credential-shaped reading of the same bytes both exist, the
+// CREDENTIAL reading wins. The safe direction is wrong-host-with-no-credential; never
+// right-host-with-a-credential-sometimes. An earlier authority-first rule optimised for keeping
+// the host and leaked `admin:1234` out of `admin:1234/56@10.0.0.7`, because a numeric password
+// with a slash in it reads exactly like `host:port`.
+// Accepted cost, stated rather than hidden: with NO userinfo present at all, `10.0.0.7/path@x`
+// and `db01.internal:8443/path@x` (an `@` that lives only in a PATH, never typed as `--host`)
+// now return `x` — a wrong host carrying zero credential. That is the trade this rule makes on
+// purpose; the fixture table records it rather than silently dropping the rows.
 export function normaliseHost(raw) {
-  const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');   // scheme
-  const auth = s.split('/')[0];
-  const at = auth.lastIndexOf('@');
-  if (at !== -1) return auth.slice(at + 1);        // userinfo lived inside the authority: done
-  if (s.includes('@')) {
-    const col = auth.lastIndexOf(':');
-    const isHostPort = col !== -1 && /^\d+$/.test(auth.slice(col + 1));
-    const isBareHost = col === -1;
-    if (!isHostPort && !isBareHost) {
-      return s.slice(s.lastIndexOf('@') + 1).split('/')[0];
-    }
+  let s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');  // scheme
+  const first = s.indexOf('@');
+  if (first !== -1) {
+    // Everything up to the FIRST '@' is userinfo, whatever it looks like.
+    const auth = s.slice(first + 1).split('/')[0];
+    // A password may itself contain '@'; the LAST '@' in what remains ends the userinfo.
+    const more = auth.lastIndexOf('@');
+    return more !== -1 ? auth.slice(more + 1) : auth;
   }
-  return auth;
+  return s.split('/')[0];
 }
 
 export function runRecordPath(outRoot, runId) {
@@ -124,6 +117,11 @@ const runLocks = new Map();
 
 function withRunLock(runId, fn) {
   const key = String(runId);
+  // `prior` is always either `Promise.resolve()` (a fresh key) or the tail wrapper stored
+  // below (which itself always resolves via its own `(() => {}, () => {})`) — it never
+  // rejects, so `fn` as the SECOND argument here is unreachable by construction. Kept
+  // rather than dropped: it costs nothing and stops a future edit to the tail wrapper from
+  // silently making `prior` capable of rejecting without this call site being revisited.
   const prior = runLocks.get(key) ?? Promise.resolve();
   const settled = prior.then(fn, fn);
   runLocks.set(key, settled.then(() => {}, () => {}));

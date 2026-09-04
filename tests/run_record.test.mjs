@@ -30,26 +30,45 @@ test('normaliseHost strips userinfo and scheme — a credential must never reach
   }
 });
 
-test('normaliseHost: authority-first with a credential-shaped fallback — no single ordering satisfies all nine', async (t) => {
-  // Neither "split-on-/-then-strip-@" nor "strip-on-@-then-split-on-/" is correct alone: each
-  // row below falsifies at least one of the two orderings tried before this rule existed.
+test('normaliseHost: credential-first — the credential reading wins whenever it competes with the host reading', async (t) => {
+  // ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". An earlier
+  // authority-first rule optimised for keeping the host, and leaked `admin:1234` out of
+  // `admin:1234/56@10.0.0.7` — a numeric password with a slash in it reads exactly like
+  // `host:port`, so a rule that trusted a host:port-shaped authority kept the credential.
   // Each row is its OWN subtest — a for-loop with one `assert.equal` per row would let the
   // FIRST failing row's thrown assertion mask every later row (a loud defect hiding a silent
   // one on the same condition; this is exactly how a mutant that breaks TWO rows was first
-  // seen to break only one).
+  // seen to break only one, in an earlier round of this same fixture table).
   const cases = [
-    ['user:pa/ss@10.0.0.7',                     '10.0.0.7',            'the original leak: a / inside the password'],
+    ['user:pa/ss@10.0.0.7',                     '10.0.0.7',            'a / inside the password'],
     ['https://user:pa/ss@db01.internal:8443/x', 'db01.internal:8443',  'leak + scheme + port'],
-    ['https://user:pass@host/path@x',           'host',                'the regression: a second @ inside the PATH'],
+    ['https://user:pass@host/path@x',           'host',                'a second @ inside the PATH'],
     ['user:pass@10.0.0.7',                      '10.0.0.7',            'plain userinfo'],
-    ['10.0.0.7/path@x',                         '10.0.0.7',            'bare-host leg of the fallback guard'],
+    // ⚠️ ACCEPTED COST, recorded rather than deleted: with NO userinfo present at all, an '@'
+    // that lives only in a PATH (nobody types this as `--host`) now reads as a credential
+    // separator too, so the host is LOST — but zero credential rides with it. That is the
+    // trade this rule makes on purpose: wrong-host-with-no-credential over
+    // right-host-with-a-credential-sometimes.
+    ['10.0.0.7/path@x',                         'x',                   'accepted cost: no userinfo, @ only in a path'],
     ['10.0.0.7',                                '10.0.0.7',            'plain host'],
-    ['db01.internal:8443',                      'db01.internal:8443',  'host:port must not be mistaken for user:pass'],
-    // A bare 'db01.internal:8443' (no '@' anywhere) never reaches the fallback guard at all —
-    // `s.includes('@')` is false, so isHostPort/isBareHost is never even evaluated. This row
-    // puts an '@' in the PATH so the guard's isHostPort leg is actually exercised.
-    ['db01.internal:8443/path@x',                'db01.internal:8443', 'host:port leg of the fallback guard'],
+    ['db01.internal:8443',                      'db01.internal:8443', 'host:port must not be mistaken for user:pass'],
+    ['db01.internal:8443/path@x',                'x',                  'accepted cost: same trade, host:port shaped'],
+    // The three shapes that leaked a credential under the PRIOR (authority-first) rule.
+    ['admin:1234/56@10.0.0.7',                   '10.0.0.7',           'a numeric password + slash reads as host:port'],
+    ['root:0000/abc@db01.internal',              'db01.internal',      'same shape, a different credential'],
+    ['user/name:pa@10.0.0.7',                    '10.0.0.7',           'a slash in the USERNAME reads as a bare host'],
+    // A password may itself contain '@'.
+    ['user:p@ss@10.0.0.7',                       '10.0.0.7',           'password containing @'],
+    ['user:p@ss@host/p@x',                       'host',               'password containing @, plus a second @ in the path'],
+    // A password containing TWO '@' — the fixture that actually discriminates a mutant
+    // swapping the inner `lastIndexOf('@')` for `indexOf('@')` (measured: the single-@
+    // password rows above are unaffected by that swap, since only one '@' remains after the
+    // outer split; two are needed to make first-vs-last differ).
+    ['user:p@ss@more@10.0.0.7',                  '10.0.0.7',           'password containing TWO @'],
+    ['[::1]:443',                                '[::1]:443',          'IPv6 must survive untouched'],
     ['aws',                                      'aws',                'the sentinel cloud hosts must survive untouched'],
+    ['azure',                                    'azure',              'the sentinel cloud hosts must survive untouched'],
+    ['gcp',                                      'gcp',                'the sentinel cloud hosts must survive untouched'],
   ];
   for (const [input, expected, why] of cases) {
     await t.test(`${why} — ${input}`, () => {
@@ -94,7 +113,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   await writeRunStart(outRoot, {
     runId, startedAt: new Date().toISOString(),
     hostsRequested: ['user:pass@10.0.0.7', 'https://db01.internal:8443/x', 'user:pa/ss@10.0.0.9',
-      'https://user:pass@host/path@x'],
+      'https://user:pass@host/path@x', 'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2',
+      'user/name:pa@10.0.0.3'],
     pluginsRequested: ['port_scanner'], portsRequested: '443', tier: 'ce',
     ceVersion: '0.2.50', eeVersion: null,
     kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
@@ -106,6 +126,10 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   // not merely the separator.
   assert.ok(!raw.includes('user'),         'a credential fragment (username) reached the record');
   assert.ok(!raw.includes('pa'),           'a credential fragment (password prefix) reached the record');
+  assert.ok(!raw.includes('admin'),        'a credential fragment (admin username) reached the record');
+  assert.ok(!raw.includes('1234'),         'a credential fragment (numeric password) reached the record');
+  assert.ok(!raw.includes('root'),         'a credential fragment (root username) reached the record');
+  assert.ok(!raw.includes('0000'),         'a credential fragment (numeric password) reached the record');
   assert.ok(!/"\/(?:Users|home|var|etc|tmp|opt|root|Volumes)\//.test(raw), 'an absolute path reached the record');
   assert.ok(!/\bAKIA[0-9A-Z]{16}\b/.test(raw), 'an access key reached the record');
   assert.ok(!/\b\d{12}\b/.test(raw),       'a 12-digit account id reached the record');
@@ -116,7 +140,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   // this checks the parsed VALUE instead.
   assert.ok(rec.hostsRequested.includes('host'),
     'the host itself was lost, not just the credential — https://user:pass@host/path@x');
-  assert.deepEqual(rec.hostsRequested, ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', 'host']);
+  assert.deepEqual(rec.hostsRequested,
+    ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', 'host', '10.0.0.1', '10.0.0.2', '10.0.0.3']);
 });
 
 test('finalizeRunRecord accepts the correct call, and REFUSES the narrowed-away key', async () => {
@@ -341,6 +366,25 @@ test('a failed write leaves the previously-valid record untouched — the proper
   const after = await readRunRecord(outRoot, runId);
   assert.ok(after, 'a failed write corrupted the existing record into something unparseable');
   assert.deepEqual(after, before, 'a failed write must leave the previously-valid record untouched');
+});
+
+test('a failed rename leaves no stray .tmp behind, and writeRunStart reports null', async () => {
+  // The existing `.tmp`-litter test only proves cleanup after a NORMAL write; it never
+  // exercises the FAILURE path, which is the only path the `await fsp.unlink(tmpFile)` line
+  // in writeJsonSafe's catch block exists for. Force `rename` itself to fail by making the
+  // TARGET path a non-empty directory — `writeFile` to the `.tmp` sibling succeeds, then
+  // `rename(tmpFile, target)` fails (EISDIR/ENOTEMPTY), landing in the catch.
+  const outRoot = tmp();
+  const runId = newRunId();
+  const target = runRecordPath(outRoot, runId);
+  await fsp.mkdir(target, { recursive: true });
+  await fsp.writeFile(path.join(target, 'occupied.txt'), 'x');
+
+  const result = await writeRunStart(outRoot, { runId, startedAt: new Date().toISOString(), hostsRequested: ['10.0.0.1'],
+    pluginsRequested: [], portsRequested: null, tier: 'ce', ceVersion: '0.2.50', eeVersion: null,
+    kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null });
+  assert.equal(result, null, 'a failed rename must report failure, not silently succeed');
+  assert.ok(!fs.existsSync(`${target}.tmp`), 'a stray .tmp survived a failed rename');
 });
 
 test('CE retention keeps a run inside the window and removes one outside it', async () => {
