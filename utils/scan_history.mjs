@@ -170,7 +170,7 @@ export function computeDiff(current, previous) {
   };
 }
 
-const CE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const CE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
  * Remove JSONL entries older than 7 days from the given history file.
