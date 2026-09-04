@@ -7,6 +7,7 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { describeFinding } from './cloud_finding_summary.mjs';
 import {
   RUN_RECORD_SCHEMA, UNPARSEABLE, runRecordPath, listRunRecords, readRunRecord,
 } from './run_record.mjs';
@@ -104,10 +105,42 @@ function describeMissing(missingNamed, missingUnparseable) {
   return parts.join('; ');
 }
 
-function shapeFinding(host, f) {
+// An `issues[]` entry is a STRING in almost every producer, and an OBJECT
+// `{severity, detail}` in 1030's five error paths. The object form carries `.detail`
+// and NOT `.title` — `String(obj)` yields "[object Object]", which is what a naive
+// reuse of `describeFinding` renders for that shape. Normalise before describing.
+function issueText(i) {
+  if (i == null) return '';
+  if (typeof i === 'string') return i;
+  if (typeof i === 'object') return String(i.detail ?? i.title ?? i.message ?? i.reason ?? '');
+  return String(i);
+}
+
+export function shapeFinding(host, f) {
   const severity = f?.severity != null ? String(f.severity).toUpperCase() : 'INFO';
   const port = f?.port ?? null;
-  const title = f?.title ?? null;
+  // ⚠️ THE REPORT USED TO READ `f.title` ALONE, AND NO SHIPPED PLUGIN EMITS IT.
+  // Measured at Gate 3-B on the installed 0.44.0 trio: 27 of 29 EE plugins carry no
+  // `title:` field, no CE plugin carries one, and exactly three `findings.push` sites
+  // product-wide set one — so a real 21-plugin run rendered 208 "(untitled finding)"
+  // and a Jira CSV with an empty Summary on every row. Cloud findings carry their
+  // content in `issues[]`.
+  //
+  // `describeFinding` is the SAME normaliser the MCP surface uses, so the two consumers
+  // cannot drift apart on what a finding is called.
+  //
+  // ⚠️ IT IS CALLED ONLY WHEN CONTENT EXISTS, and that gate is load-bearing:
+  // `describeFinding` never returns empty — with nothing to say it emits
+  // "INFO finding (no description)". Calling it unconditionally would hand a title to a
+  // finding that has none, which is fabrication, and is the one thing worse than the
+  // defect being fixed. A finding with neither a title nor any issue text stays null
+  // and renders "(untitled finding)".
+  const issueTexts = Array.isArray(f?.issues)
+    ? f.issues.map(issueText).filter((t) => t.trim().length > 0)
+    : [];
+  const explicitDetail = f?.detail ?? f?.description ?? null;
+  const title = f?.title
+    ?? (issueTexts.length ? describeFinding({ ...f, issues: issueTexts }) : null);
   const cves = Array.isArray(f?.cves) ? f.cves.map(String)
     : Array.isArray(f?.cve) ? f.cve.map(String) : [];
   // CE ships no KEV/EPSS store of its own (utils/scan_history.mjs comment at cli.mjs:2780):
@@ -119,8 +152,10 @@ function shapeFinding(host, f) {
     .digest('hex').slice(0, 16);
   return {
     host, port, severity, title,
-    detail: f?.detail ?? f?.description ?? null,
-    remediation: f?.remediation ?? null,
+    // ALL issues, not just the lead clause the title took: a report that shows one of a
+    // finding's four issues silently drops three the scan actually recorded.
+    detail: explicitDetail ?? (issueTexts.length ? issueTexts.join(' · ') : null),
+    remediation: f?.remediation ?? f?.details?.remediation ?? null,
     cves, kev, epss, id,
   };
 }
