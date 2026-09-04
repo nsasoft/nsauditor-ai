@@ -923,8 +923,22 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // must sit inside an existing try/catch or a malformed argument could fail an otherwise
     // fine scan. `opts.runId` is unset under CTEM watch mode (no single run record there);
     // skipping in that case is a scope decision, not an error.
+    //
+    // ⚠️ DELIBERATELY NOT `outRoot` ABOVE. The record NAMES this host's directory
+    // (`dir: path.basename(outDir)`), so it must resolve the SAME root `outDir` was created
+    // under — resolveBaseOutDir(), the resolver `baseOutDir` above (and maybeSendToOpenAI's
+    // own fallback) already use. `outRoot` above is the OLDER inline expression
+    // (`toCleanPath(...).replace(/\.[^/.]+$/, '')`), kept as-is here because it also locates
+    // `scan_history.jsonl` — a different artifact with no directory references, so moving it
+    // would relocate an existing file and is out of scope. The two resolvers agree only when
+    // `--out` has no dot in it; resolveBaseOutDir()'s own header comment documents the
+    // divergence as a fixed silent evidence-misplacement bug (`--out .../ee-0.32.8` read as a
+    // file extension under the inline regex and scattered artifacts into the parent directory,
+    // EE 0.32.8 pre-publish smoke gate). Do NOT "tidy" this back to match `outRoot` above —
+    // that reintroduces the same bug for the run record.
+    const runRecordRoot = resolveBaseOutDir();
     if (opts?.runId) {
-      await appendHostWritten(outRoot, opts.runId, { host, dir: path.basename(outDir) });
+      await appendHostWritten(runRecordRoot, opts.runId, { host, dir: path.basename(outDir) });
     }
 
     const services = conclusion?.result?.services ?? [];
@@ -2725,7 +2739,19 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // Wrapped: utils/run_record.mjs documents that a caller-side throw building the record
   // (never an fs fault, which writeRunStart already wraps) rejects to ITS caller — this
   // must not be able to fail an otherwise-fine scan.
-  const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
+  //
+  // ⚠️ resolveBaseOutDir(), NOT the inline `toCleanPath(...).replace(/\.[^/.]+$/, '')`
+  // expression scan-history uses elsewhere in this file. The record NAMES every host
+  // directory it references (`hostsWritten[].dir`), and those directories are created under
+  // resolveBaseOutDir() (scanSingleHost's `baseOutDir`) — the two resolvers diverge for a
+  // dotted `--out` (resolveBaseOutDir()'s own header comment documents this exact shape as a
+  // fixed silent evidence-misplacement bug: `--out .../ee-0.32.8` read as a file extension
+  // under the inline regex). Using the inline expression here would write the record to one
+  // directory while every directory it names lives in another — a coverage lie. Do NOT
+  // "tidy" this back to match the neighbouring inline calls (scan-history intentionally keeps
+  // using the inline expression; it locates `scan_history.jsonl`, a different artifact with
+  // no directory references, so moving IT is out of scope).
+  const outRoot = resolveBaseOutDir();
   const runId = newRunId();
   try {
     // AFTER `all` expansion: the word `all` alone says nothing about what actually ran.
