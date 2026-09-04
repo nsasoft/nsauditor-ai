@@ -12,6 +12,17 @@ import {
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-run-'));
 
+// ⚠️ STRUCTURAL, NOT A TOKEN LIST. A list of forbidden substrings only catches the credentials
+// someone thought to plant: when a rejected rule leaked `ssword123`, a token list built from the
+// OTHER fixtures missed it entirely. This asks the only question that matters — did the output
+// draw any bytes from BEFORE the last '@'? — and it needs no vocabulary at all.
+function drawsFromCredentialSide(raw, out) {
+  const s = String(raw).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const at = s.lastIndexOf('@');
+  if (at === -1) return false;              // no userinfo is possible in this input
+  return !s.slice(at + 1).startsWith(out);  // anything else came from the credential side
+}
+
 test('normaliseHost leaves an ordinary host untouched', () => {
   assert.equal(normaliseHost('10.0.0.7'), '10.0.0.7');
   assert.equal(normaliseHost('db01.internal'), 'db01.internal');
@@ -30,54 +41,88 @@ test('normaliseHost strips userinfo and scheme — a credential must never reach
   }
 });
 
-test('normaliseHost: credential-first — the credential reading wins whenever it competes with the host reading', async (t) => {
-  // ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". An earlier
-  // authority-first rule optimised for keeping the host, and leaked `admin:1234` out of
-  // `admin:1234/56@10.0.0.7` — a numeric password with a slash in it reads exactly like
-  // `host:port`, so a rule that trusted a host:port-shaped authority kept the credential.
+test('normaliseHost: the simplest rule that holds "no credential, ever" — last @, then cut the path', async (t) => {
+  // ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". Every heuristic tried
+  // on this function bought a leak of its own: authority-first leaked `admin:1234` out of
+  // `admin:1234/56@10.0.0.7` (a numeric password with a slash reads exactly like host:port);
+  // credential-first leaked `ss` out of `user:p@ss/wd@host` (a '/' inside the password
+  // truncates the authority before the SECOND '@' is ever seen). This table is the accumulated
+  // record of every shape that motivated a rule change, kept — not trimmed — so the next
+  // maintainer can see exactly what was tried and why each one failed.
   // Each row is its OWN subtest — a for-loop with one `assert.equal` per row would let the
   // FIRST failing row's thrown assertion mask every later row (a loud defect hiding a silent
-  // one on the same condition; this is exactly how a mutant that breaks TWO rows was first
-  // seen to break only one, in an earlier round of this same fixture table).
+  // one on the same condition; measured directly in an earlier round of this same table).
   const cases = [
+    // Leaks under one or another PRIOR rule — all closed by "last @, then cut the path".
     ['user:pa/ss@10.0.0.7',                     '10.0.0.7',            'a / inside the password'],
     ['https://user:pa/ss@db01.internal:8443/x', 'db01.internal:8443',  'leak + scheme + port'],
-    ['https://user:pass@host/path@x',           'host',                'a second @ inside the PATH'],
+    ['admin:1234/56@10.0.0.7',                  '10.0.0.7',            'numeric password + slash read as host:port (authority-first leak)'],
+    ['root:0000/abc@db01.internal',             'db01.internal',       'same shape, a different credential'],
+    ['user/name:pa@10.0.0.7',                   '10.0.0.7',            'a slash in the USERNAME read as a bare host (authority-first leak)'],
+    ['user:p@ss/wd@host',                       'host',                'a / between two @s truncated the authority before the 2nd @ (credential-first leak)'],
+    ['user:p@ssword123/junk@host',              'host',                'same shape, a longer credential fragment'],
+    ['user:p@ss@10.0.0.7',                      '10.0.0.7',            'password containing @'],
     ['user:pass@10.0.0.7',                      '10.0.0.7',            'plain userinfo'],
-    // ⚠️ ACCEPTED COST, recorded rather than deleted: with NO userinfo present at all, an '@'
-    // that lives only in a PATH (nobody types this as `--host`) now reads as a credential
-    // separator too, so the host is LOST — but zero credential rides with it. That is the
-    // trade this rule makes on purpose: wrong-host-with-no-credential over
-    // right-host-with-a-credential-sometimes.
-    ['10.0.0.7/path@x',                         'x',                   'accepted cost: no userinfo, @ only in a path'],
+    // Edge shapes.
+    [':pass@host',                              'host',                'empty username'],
+    ['user:http://x@host',                      'host',                'a scheme-shaped password'],
+    ['user@',                                   '',                    'userinfo with no host at all'],
+    // Unchanged.
     ['10.0.0.7',                                '10.0.0.7',            'plain host'],
-    ['db01.internal:8443',                      'db01.internal:8443', 'host:port must not be mistaken for user:pass'],
-    ['db01.internal:8443/path@x',                'x',                  'accepted cost: same trade, host:port shaped'],
-    // The three shapes that leaked a credential under the PRIOR (authority-first) rule.
-    ['admin:1234/56@10.0.0.7',                   '10.0.0.7',           'a numeric password + slash reads as host:port'],
-    ['root:0000/abc@db01.internal',              'db01.internal',      'same shape, a different credential'],
-    ['user/name:pa@10.0.0.7',                    '10.0.0.7',           'a slash in the USERNAME reads as a bare host'],
-    // A password may itself contain '@'.
-    ['user:p@ss@10.0.0.7',                       '10.0.0.7',           'password containing @'],
-    ['user:p@ss@host/p@x',                       'host',               'password containing @, plus a second @ in the path'],
-    // A password containing TWO '@' — the fixture that actually discriminates a mutant
-    // swapping the inner `lastIndexOf('@')` for `indexOf('@')` (measured: the single-@
-    // password rows above are unaffected by that swap, since only one '@' remains after the
-    // outer split; two are needed to make first-vs-last differ).
-    ['user:p@ss@more@10.0.0.7',                  '10.0.0.7',           'password containing TWO @'],
-    ['[::1]:443',                                '[::1]:443',          'IPv6 must survive untouched'],
-    ['aws',                                      'aws',                'the sentinel cloud hosts must survive untouched'],
-    ['azure',                                    'azure',              'the sentinel cloud hosts must survive untouched'],
-    ['gcp',                                      'gcp',                'the sentinel cloud hosts must survive untouched'],
+    ['db01.internal:8443',                      'db01.internal:8443',  'host:port, no userinfo at all'],
+    ['[::1]:443',                                '[::1]:443',           'IPv6 must survive untouched'],
+    ['aws',                                      'aws',                 'the sentinel cloud hosts must survive untouched'],
+    ['azure',                                    'azure',               'the sentinel cloud hosts must survive untouched'],
+    ['gcp',                                      'gcp',                 'the sentinel cloud hosts must survive untouched'],
+    // ⚠️ ACCEPTED COST — FOUR rows, kept with their trade named rather than deleted. With NO
+    // userinfo present, or with the LAST @ sitting inside a PATH, the rule reads that @ as a
+    // credential separator too and returns the fragment after it — a wrong host, but zero
+    // credential. Nobody types an '@'-in-a-path as a `--host` value; wrong-host-no-credential
+    // is the safe direction this module's whole invariant is written around.
+    ['https://user:pass@host/path@x',           'x',                   'accepted cost: 2nd @ lives in the path'],
+    ['user:p@ss@host/p@x',                      'x',                   'accepted cost: password @ plus a 2nd @ in the path'],
+    ['10.0.0.7/path@x',                         'x',                   'accepted cost: no userinfo, @ only in a path'],
+    ['db01.internal:8443/path@x',               'x',                   'accepted cost: same trade, host:port shaped'],
   ];
   for (const [input, expected, why] of cases) {
     await t.test(`${why} — ${input}`, () => {
       const actual = normaliseHost(input);
       assert.equal(actual, expected);
       if (input.includes('@')) {
-        assert.ok(!actual.includes('@'), `userinfo survived: ${input}`);
+        assert.ok(!drawsFromCredentialSide(input, actual),
+          `output drew bytes from the credential side: ${input} -> ${actual}`);
       }
     });
+  }
+});
+
+test('drawsFromCredentialSide is a STRUCTURAL oracle, not a stub — it flags the rules we rejected', () => {
+  // Fourth quadrant: the oracle must actually DISCRIMINATE, not just always return `false` — an
+  // oracle that never flags anything would pass every row in the table above for the wrong
+  // reason. Drive it against a deliberately-broken normaliser: the round-3 "authority-first"
+  // rule, reduced to its leaking essence (trust an authority that itself contains no '@', even
+  // when that authority is really a username:password) — three lines, and it leaked three of
+  // this table's rows for real.
+  function r3AuthorityFirst(raw) {
+    const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+    const auth = s.split('/')[0];
+    return auth.includes('@') ? auth.slice(auth.lastIndexOf('@') + 1) : auth;
+  }
+  const knownLeaks = [
+    'admin:1234/56@10.0.0.7',
+    'root:0000/abc@db01.internal',
+    'user/name:pa@10.0.0.7',
+  ];
+  for (const raw of knownLeaks) {
+    const broken = r3AuthorityFirst(raw);
+    assert.ok(drawsFromCredentialSide(raw, broken),
+      `the oracle failed to flag a KNOWN leak: ${raw} -> ${broken}`);
+  }
+  // And it must NOT false-flag the LANDED rule's own output on the same inputs.
+  for (const raw of knownLeaks) {
+    const correct = normaliseHost(raw);
+    assert.ok(!drawsFromCredentialSide(raw, correct),
+      `the oracle false-flagged the correct rule's own output: ${raw} -> ${correct}`);
   }
 });
 
@@ -113,35 +158,35 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   await writeRunStart(outRoot, {
     runId, startedAt: new Date().toISOString(),
     hostsRequested: ['user:pass@10.0.0.7', 'https://db01.internal:8443/x', 'user:pa/ss@10.0.0.9',
-      'https://user:pass@host/path@x', 'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2',
-      'user/name:pa@10.0.0.3'],
+      'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2', 'user/name:pa@10.0.0.3',
+      'user:p@ss/wd@10.0.0.4', 'user:p@ssword123/junk@10.0.0.5'],
     pluginsRequested: ['port_scanner'], portsRequested: '443', tier: 'ce',
     ceVersion: '0.2.50', eeVersion: null,
     kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
   });
   const raw = fs.readFileSync(runRecordPath(outRoot, runId), 'utf8');
   assert.ok(!raw.includes('@'),            'userinfo or an email reached the record');
-  // `!includes('@')` alone is satisfied by a leak that removes `@` along with the PATH while
-  // leaving `username:password-fragment` behind (the order bug) — check the fragments by name,
-  // not merely the separator.
+  // A token list only catches the credentials someone thought to plant (measured: a token list
+  // built from other fixtures missed `ssword123` entirely). Kept as a SECOND, independent check
+  // — it guards the rest of the file (paths, keys, ids), while the structural oracle in the
+  // table test above is what actually guards normaliseHost's own output.
   assert.ok(!raw.includes('user'),         'a credential fragment (username) reached the record');
   assert.ok(!raw.includes('pa'),           'a credential fragment (password prefix) reached the record');
   assert.ok(!raw.includes('admin'),        'a credential fragment (admin username) reached the record');
   assert.ok(!raw.includes('1234'),         'a credential fragment (numeric password) reached the record');
   assert.ok(!raw.includes('root'),         'a credential fragment (root username) reached the record');
   assert.ok(!raw.includes('0000'),         'a credential fragment (numeric password) reached the record');
+  assert.ok(!raw.includes('ssword'),       'a credential fragment (password) reached the record');
+  // NOT checked as a raw substring: bare "ss" is a false-positive trap here — the field name
+  // `epssSnapshot` (always present as a JSON key, regardless of any real leak) already contains
+  // it, so `!raw.includes('ss')` would fail on every record. The exact parsed-array equality
+  // below proves no `ss`-shaped fragment survived in a HOST value instead.
   assert.ok(!/"\/(?:Users|home|var|etc|tmp|opt|root|Volumes)\//.test(raw), 'an absolute path reached the record');
   assert.ok(!/\bAKIA[0-9A-Z]{16}\b/.test(raw), 'an access key reached the record');
   assert.ok(!/\b\d{12}\b/.test(raw),       'a 12-digit account id reached the record');
   const rec = JSON.parse(raw);
-  // The credential being GONE is only half the property; losing the HOST to the same fix is
-  // the other failure this round is about. A raw substring check for "host" would be vacuous
-  // here — the field names `hostsRequested`/`hostsWritten` already contain that substring — so
-  // this checks the parsed VALUE instead.
-  assert.ok(rec.hostsRequested.includes('host'),
-    'the host itself was lost, not just the credential — https://user:pass@host/path@x');
   assert.deepEqual(rec.hostsRequested,
-    ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', 'host', '10.0.0.1', '10.0.0.2', '10.0.0.3']);
+    ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5']);
 });
 
 test('finalizeRunRecord accepts the correct call, and REFUSES the narrowed-away key', async () => {

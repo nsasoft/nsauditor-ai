@@ -15,27 +15,21 @@ import { CE_RETENTION_MS } from './scan_history.mjs';
 export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 
-// ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES".
-// When a host-shaped reading and a credential-shaped reading of the same bytes both exist, the
-// CREDENTIAL reading wins. The safe direction is wrong-host-with-no-credential; never
-// right-host-with-a-credential-sometimes. An earlier authority-first rule optimised for keeping
-// the host and leaked `admin:1234` out of `admin:1234/56@10.0.0.7`, because a numeric password
-// with a slash in it reads exactly like `host:port`.
-// Accepted cost, stated rather than hidden: with NO userinfo present at all, `10.0.0.7/path@x`
-// and `db01.internal:8443/path@x` (an `@` that lives only in a PATH, never typed as `--host`)
-// now return `x` — a wrong host carrying zero credential. That is the trade this rule makes on
-// purpose; the fixture table records it rather than silently dropping the rows.
+// ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". Deliberately the
+// simplest rule that can hold it: after the LAST '@', then cut the path. No heuristics, because
+// every heuristic tried here bought a leak. Three did:
+//   authority-first  leaked `admin:1234` from `admin:1234/56@10.0.0.7` (a numeric password with
+//                    a slash reads exactly like host:port)
+//   credential-first leaked `ss` from `user:p@ss/wd@host` (a '/' inside the password truncates
+//                    the authority before the second '@' is seen)
+// ACCEPTED COST, stated rather than hidden: four shapes carrying an '@' inside a PATH — e.g.
+// `https://user:pass@host/path@x` and `10.0.0.7/path@x` — resolve to the path fragment instead
+// of the host. A wrong host with no credential is the safe direction; a right host with a
+// credential sometimes is not. None is a `--host` value anyone types.
 export function normaliseHost(raw) {
-  let s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');  // scheme
-  const first = s.indexOf('@');
-  if (first !== -1) {
-    // Everything up to the FIRST '@' is userinfo, whatever it looks like.
-    const auth = s.slice(first + 1).split('/')[0];
-    // A password may itself contain '@'; the LAST '@' in what remains ends the userinfo.
-    const more = auth.lastIndexOf('@');
-    return more !== -1 ? auth.slice(more + 1) : auth;
-  }
-  return s.split('/')[0];
+  const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const at = s.lastIndexOf('@');
+  return (at === -1 ? s : s.slice(at + 1)).split('/')[0];
 }
 
 export function runRecordPath(outRoot, runId) {
