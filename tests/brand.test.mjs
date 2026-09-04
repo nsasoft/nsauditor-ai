@@ -378,9 +378,16 @@ test('a symlink inside the brand directory pointing OUTSIDE it is REFUSED — co
   fs.writeFileSync(path.join(dir, 'brand.json'), JSON.stringify({ logoPath: 'logo.png' }), 'utf8');
   const r = await loadBrand(path.join(dir, 'brand.json'));
   // The LEXICAL containment check alone would pass this (the symlink's own NAME, "logo.png",
-  // never leaves `dir`); only resolving it proves the target does.
+  // never leaves `dir`); only resolving it proves the target does. Assert the specific
+  // symlink-escape wording (not merely "logoPath" in the message, which nearly every refusal
+  // this module emits contains, including the generic ENOENT/EISDIR fallback) and the absence
+  // of an errno-flavored fallback — the same bar the type-shape fixtures above already set, and
+  // this one had been missing: without it, a future regression that turned this into an
+  // accidental errno refusal (still ok:false) would pass unnoticed.
   assert.equal(r.ok, false);
   assert.match(r.message, /logoPath/);
+  assert.match(r.message, /resolves.*through a symlink.*outside/i);
+  assert.doesNotMatch(r.message, /ENOENT|EISDIR/);
 });
 
 // ── Round 3, coordinator review: the size cap must be a STAT gate, not a read-then-check ────
