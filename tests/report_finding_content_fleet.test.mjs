@@ -31,6 +31,7 @@ import assert from 'node:assert/strict';
 
 import { shapeFinding } from '../utils/report_inputs.mjs';
 import { renderJiraCsv, JIRA_COLUMNS } from '../utils/jira_export.mjs';
+import { renderExecutiveReport } from '../utils/executive_report.mjs';
 
 // ── The shipped fleet, one member per shape ────────────────────────────────────
 
@@ -180,5 +181,103 @@ describe('the Jira External ID is content-derived, so it survives a changed find
     assert.match(csv, /"/, 'a field carrying a comma/quote/newline must be quoted');
     const parsed = csv.slice(csv.indexOf('\n') + 1);
     assert.ok(parsed.includes('Policy allows'), 'the finding text must survive into the CSV');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASS-TIER RECORDS ARE NOT WORK ITEMS AND ARE NOT "OTHER".
+//
+// Ruled by the architect seat after the content fix landed, from reading BOTH
+// renderers rather than the one record that surfaced it:
+//
+//  · `renderJiraCsv` had no severity filter, so all 18 PASS records in a real AWS run
+//    became Jira issues — 17 of them carrying substrate prose that a consultant would
+//    have to close by hand. A Jira issue is a work item; a passing check is not work.
+//  · `chartSev()` collapses any severity with no `SEV_COLORS` entry to the literal
+//    'OTHER', and PASS had none — so a client-facing report labelled 18 passing checks
+//    "OTHER".
+//
+// ⚠️ ONE ADDITION OF MY OWN, ATTRIBUTED RATHER THAN FOLDED IN SILENTLY: Top Risks had
+// no filter either (`findings.sort(compareRisk).slice(0, TOP_RISKS_LIMIT)`). PASS only
+// stayed out of it because 105 non-pass findings outranked it — on a CLEAN scan the
+// section titled "Top Risks" would list passing checks. That is the same defect the
+// ruling names, so it is fixed on the same reasoning.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// `renderExecutiveReport` dereferences `brand.title` unguarded, so brand is required —
+// the CLI always supplies a default, which is why the live runs render without `--brand`.
+const BRAND = { title: null, companyName: null, preparedBy: null, contact: null, logoDataUri: null };
+
+const passFinding = (issues) => shapeFinding('aws', { userName: 'clean-user', severity: 'pass', issues });
+const lowFinding = (txt) => shapeFinding('aws', { bucket: 'b-low', severity: 'low', issues: [txt] });
+
+const EXEC_MODEL = (findings) => ({
+  runId: 'run_test', startedAt: '2026-09-04T00:00:00Z', finishedAt: '2026-09-04T01:00:00Z',
+  tier: 'enterprise', ceVersion: '0.2.51', eeVersion: '0.44.0',
+  coverage: { requested: 1, written: 1, reachable: 1, missing: [], partial: false, incomplete: false },
+  plugins: { ran: 1, skipped: 0, errored: 0, timedOut: 0, byHost: [{ host: 'aws', dir: 'aws_1', status: [] }] },
+  kev: { loaded: false, snapshot: null }, epss: { loaded: false, snapshot: null },
+  hosts: [{ host: 'aws', dir: 'aws_1', up: true, findings }],
+  findings,
+});
+
+describe('a passing check is not a work item and not "OTHER"', () => {
+  // ── FOURTH QUADRANT FIRST — these must hold BEFORE the fix, so they are not decoration
+  it('a NON-pass finding is still emitted to the Jira CSV — the filter must not over-reach', () => {
+    const csv = renderJiraCsv({ runId: 'r', startedAt: 'x', findings: [lowFinding('Object Lock is not configured')] });
+    assert.equal(csv.trim().split('\n').length, 2, 'header + exactly one data row');
+    assert.match(csv, /Object Lock is not configured/);
+  });
+
+  it('a NON-pass contentless record still renders untitled — the PASS fix must not swallow it', () => {
+    // "(untitled finding)" stays the ALARM for a non-pass finding whose producer emitted
+    // nothing. If the PASS work also silenced this, the fleet test's Summary leg would
+    // stop being able to fail, and a real producer defect would render as normal output.
+    const s = shapeFinding('aws', { bucket: 'b-empty', severity: 'low', issues: [] });
+    assert.equal(s.title, null);
+  });
+
+  // ── THE RULING'S LEGS ───────────────────────────────────────────────────────
+  it('PASS records are EXCLUDED from the Jira CSV', () => {
+    const csv = renderJiraCsv({ runId: 'r', startedAt: 'x',
+      findings: [passFinding(['IAM user has no wildcard permissions']), lowFinding('Object Lock is not configured')] });
+    const lines = csv.trim().split('\n');
+    assert.equal(lines[0], JIRA_COLUMNS.join(','));
+    assert.equal(lines.length, 2, 'only the non-pass finding may become an issue');
+    assert.equal(/no wildcard permissions/.test(csv), false, 'a passing check must not become a Jira issue');
+  });
+
+  it('a contentless PASS record leaves the CSV entirely, so no row has an empty Summary', () => {
+    const csv = renderJiraCsv({ runId: 'r', startedAt: 'x',
+      findings: [passFinding([]), lowFinding('Object Lock is not configured')] });
+    for (const row of csv.trim().split('\n').slice(1)) {
+      assert.ok(!row.startsWith(','), `empty Summary survived: ${row.slice(0, 50)}`);
+    }
+  });
+
+  it('the executive tier table counts PASS as its own tier, never as OTHER', () => {
+    const html = renderExecutiveReport(EXEC_MODEL([passFinding(['IAM user has no wildcard permissions'])]), BRAND,
+      { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    assert.match(html, /PASS/, 'PASS must be a labelled tier');
+    assert.equal(/>OTHER</.test(html) && !/PASS/.test(html), false);
+    assert.match(html, /data-row-severity="PASS"/,
+      'a PASS record must carry its own row severity, not be collapsed to OTHER');
+  });
+
+  it('a contentless PASS record reads as clean, not as "(untitled finding)"', () => {
+    const html = renderExecutiveReport(EXEC_MODEL([passFinding([])]), BRAND,
+      { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    assert.match(html, /clean — no issues recorded/);
+    assert.equal(/\(untitled finding\)/.test(html), false,
+      '"(untitled finding)" is the alarm for a NON-pass producer defect, never a display state for a clean check');
+  });
+
+  it('PASS records never appear under "Top Risks"', () => {
+    // MY ADDITION to the ruling, on its own reasoning: a passing check is not a risk.
+    const html = renderExecutiveReport(EXEC_MODEL([passFinding(['IAM user has no wildcard permissions'])]), BRAND,
+      { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    const top = html.slice(html.indexOf('Top Risks'), html.indexOf('Severity Distribution'));
+    assert.equal(/no wildcard permissions/.test(top), false,
+      'a clean scan must not list its passing checks as Top Risks');
   });
 });

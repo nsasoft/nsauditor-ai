@@ -152,7 +152,16 @@ function priorityFor(severity) {
  * @returns {string}
  */
 export function renderJiraCsv(model) {
-  const findings = Array.isArray(model?.findings) ? model.findings : [];
+  // A Jira issue is a WORK ITEM, and a passing check is not work. Before this filter a
+  // real AWS run emitted all 18 PASS records as issues — 17 of them carrying substrate
+  // prose a consultant would have had to close by hand, and one contentless clean-user
+  // record that imported as an issue with no Summary at all.
+  //
+  // ⚠️ THE FILTER IS DELIBERATELY NARROW — `pass` ONLY. Every other tier, INFO included,
+  // stays: INFO carries the evidence gaps and the scope boundaries, which are exactly the
+  // material a reader needs to tell an incomplete scan from a clean one.
+  const all = Array.isArray(model?.findings) ? model.findings : [];
+  const findings = all.filter((f) => String(f?.severity ?? '').toUpperCase() !== 'PASS');
   const ids = externalIds(findings);
   const rows = findings.map((f, i) => csvRow([
     f.title ?? '',

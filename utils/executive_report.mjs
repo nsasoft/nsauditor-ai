@@ -120,16 +120,20 @@ export function egressViolations(html) {
  * Rendering helpers
  * ------------------------------------------------------------------------------------------ */
 
-const SEV_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+// PASS is LAST and is its own tier. Without an entry here (and in SEV_COLORS) `chartSev`
+// collapses it to the literal 'OTHER', so a client-facing report labelled every passing
+// check "OTHER" — measured at 18 records on a real AWS run.
+const SEV_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'PASS'];
 const SEV_COLORS = {
   CRITICAL: '#7a1220',
   HIGH: '#b3261e',
   MEDIUM: '#b3690a',
   LOW: '#8a7500',
   INFO: '#3b5568',
+  PASS: '#2f6f4f',
   OTHER: '#5a5a5a',
 };
-const SEV_RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
+const SEV_RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4, PASS: 5 };
 const TOP_RISKS_LIMIT = 10;
 const CVE_RE = /^CVE-\d{4}-\d{4,7}$/i;
 
@@ -162,6 +166,13 @@ function compareRisk(a, b) {
   const be = typeof b.epss === 'number' ? b.epss : -1;
   if (ae !== be) return be - ae;
   return sevRank(a.severity) - sevRank(b.severity);
+}
+
+// "(untitled finding)" is the ALARM for a non-pass finding whose producer emitted no
+// content — it must stay reserved for that, or a real producer defect reads as normal
+// output. A PASS record legitimately has nothing to report.
+function untitledLabel(f) {
+  return chartSev(f?.severity) === 'PASS' ? 'clean — no issues recorded' : '(untitled finding)';
 }
 
 function comparePresentation(a, b) {
@@ -349,7 +360,11 @@ ${renderKevEpss(model)}
 }
 
 function renderTopRisks(findings) {
-  const sorted = findings.slice().sort(compareRisk).slice(0, TOP_RISKS_LIMIT);
+  // A passing check is not a risk. PASS only stayed out of this section by ranking below
+  // 105 real findings; on a CLEAN scan the section titled "Top Risks" would have listed
+  // the passing checks themselves.
+  const sorted = findings.filter((f) => chartSev(f.severity) !== 'PASS')
+    .slice().sort(compareRisk).slice(0, TOP_RISKS_LIMIT);
   const rule = 'Findings below are ordered by known-exploited first, then EPSS probability, '
     + 'then severity.';
   if (!sorted.length) {
@@ -366,7 +381,7 @@ function renderTopRisks(findings) {
   const rows = sorted.map((f) => `<tr>
 <td class="${sevClass(f.severity)}">${escapeHtml(f.severity)}</td>
 <td>${escapeHtml(f.host)}${f.port != null ? `:${escapeHtml(String(f.port))}` : ''}</td>
-<td>${escapeHtml(f.title ?? '(untitled finding)')}</td>
+<td>${escapeHtml(f.title ?? untitledLabel(f))}</td>
 <td>${f.kev ? 'Yes' : 'No'}</td>
 <td>${escapeHtml(fmtPct(f.epss))}</td>
 </tr>`).join('\n');
@@ -429,7 +444,7 @@ function renderFindingsTable(findings) {
   const rows = findings.slice().sort(comparePresentation).map((f) => `<tr data-row-severity="${chartSev(f.severity)}">
 <td class="${sevClass(f.severity)}">${escapeHtml(f.severity)}</td>
 <td>${f.port != null ? escapeHtml(String(f.port)) : '—'}</td>
-<td>${escapeHtml(f.title ?? '(untitled finding)')}</td>
+<td>${escapeHtml(f.title ?? untitledLabel(f))}</td>
 <td>${renderCves(f.cves)}</td>
 <td>${f.kev ? 'Yes' : 'No'}</td>
 <td>${escapeHtml(fmtPct(f.epss))}</td>

@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-1543%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1559%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -884,7 +884,7 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
 |---|---|---|
 | `--from <dir>` | The scan `--out` directory holding the run's record and per-host evidence | *required* |
 | `--format executive` | Self-contained, print-ready HTML report; no external network reference other than an `http(s)`/`mailto` `<a href>` | — |
-| `--format jira` | Jira-importer CSV (`Summary`/`Description`/`Priority`/`Labels`/`External ID`); the import mapping is done in Jira and has not been verified against a live Jira instance | — |
+| `--format jira` | Jira-importer CSV (`Summary`/`Description`/`Priority`/`Labels`/`External ID`); the import mapping is done in Jira and has not been verified against a live Jira instance. **`pass`-tier records are EXCLUDED** — a Jira issue is a work item and a passing check is not work; every other tier is kept, INFO included, because INFO carries the evidence gaps and scope boundaries. Passing checks appear in the `executive` report under their own **PASS** tier. | — |
 | `--run <id>` | Report a specific run id instead of the newest one under `--from` | newest run |
 | `--brand <brand.json>` | Cover-page branding (company name, prepared-by, contact, logo) — `--format executive` only | unbranded |
 | `--out <path>` | Write to this path instead of `report_<runId>.<ext>` beside the run record | `report_<runId>.<ext>` |
@@ -1189,7 +1189,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 1543 tests:
+Run all 1559 tests:
 
 ```bash
 npm test
