@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-1308%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1534%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -30,6 +30,12 @@ and a value-less `--from`/`--brand`/`--run`/`--out` is a **fatal error, not a si
 Enterprise side the same cycle stops reporting an S3 audit-trail gap on a bucket whose object-level
 reads and writes a CloudTrail data-event trail already records. See the
 [`report` command section](#report-command-pro) and the [CHANGELOG](./CHANGELOG.md).
+⚠️ **The Enterprise peer floor stays `>=0.2.49` — it is NOT raised to 0.2.51.** Raising it would charge
+every Enterprise operator an upgrade for a Community feature they may not want. The consequence is
+worth stating rather than discovering: an Enterprise 0.44.0 install resolves cleanly against Community
+0.2.49 or 0.2.50 and simply has **no `report` command**. Install Community 0.2.51 to get it.
+Every scan now also writes `scan_run_<runId>.json` at the root of `--out` — the record the report is
+built from. On the free tier these are pruned after a retention window; on Pro they are kept.
 
 **A provider badge you can trust, and an evidence gap that never tells an auditor what to type (CE 0.2.50 / Enterprise 0.43.0).**
 **No Community behaviour changed this cycle** — the version moves so the trio stays in lockstep, and **the Enterprise peer floor stays `>=0.2.49`** rather than being raised reflexively, because the
@@ -186,11 +192,12 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 | AI analysis (OpenAI, Claude, Ollama — your keys) | ✅ basic | ✅ enriched | ✅ enriched |
 | Structured findings + SARIF + CSV export | ✅ | ✅ | ✅ |
 | CTEM watch mode | ✅ basic | ✅ advanced | ✅ advanced |
-| **Pro features (vulnerability assessment)** | | | |
+| **Pro features** | | | |
 | CVE matching + MITRE ATT&CK mapping | — | ✅ | ✅ |
 | Risk scoring + prioritization | — | ✅ | ✅ |
 | Exploit intelligence — **CISA KEV** + **FIRST EPSS** joined onto the CVE matches, exploit-first ordering (a KEV-listed MEDIUM outranks an unexploited CRITICAL); stores are operator-populated — no feed data ships | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
+| **Client reporting** — `report --format executive` renders a completed run as a self-contained, print-ready HTML report with optional cover-page branding (`--brand`); `--format jira` writes a Jira-importer CSV. ⚠️ The Jira import mapping is done in Jira and has **not been verified against a live Jira instance**. | — | ✅ | ✅ |
 | **Enterprise — cloud scanning** | | | |
 | 29 enterprise plugins — 28 cloud (AWS / Azure / GCP) + 1 network-scan zero-trust check | — | — | ✅ |
 | Zero Trust assessment | — | — | ✅ |
@@ -885,6 +892,14 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
 
 A value-less `--from`/`--brand`/`--run`/`--out` (nothing after the flag, or a shell glob that swallowed the argument) is a fatal error, not a silent default.
 
+**Exit contract** — `0` a report was rendered · `1` fix the RUN (no run record under `--from`, or an
+incomplete run without `--allow-partial`) · `2` fix the REQUEST or its environment (an unknown or
+missing flag value, an unwritable `--out`, a `--brand` file that is refused).
+
+⚠️ `--brand` with `--format jira` is **refused**, not ignored: a Jira CSV has nowhere to put branding,
+and silently dropping a flag the caller passed is how a report goes out unbranded without anyone
+noticing.
+
 ```bash
 nsauditor-ai report --from out/2026-08-26 --format executive --brand brand.json --out report.html
 nsauditor-ai report --from out/2026-08-26 --format jira
@@ -1174,7 +1189,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 1308 tests:
+Run all 1534 tests:
 
 ```bash
 npm test

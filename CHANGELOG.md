@@ -23,9 +23,10 @@ renders it anyway with the caveat stated, never hidden.
 **Two honesty properties are enforced rather than asserted.** The executive HTML has a **no-egress
 invariant**: the rendered file references no external network resource other than an `http(s)`/`mailto`
 `<a href>`, proven by a shared predicate both the renderer and its tests drive. And the Jira CSV's
-import mapping **has not been verified against a live Jira instance** — that sentence is in the CSV's
-own header comment, in the module header and in the README, because a mapping nobody has driven is a
-claim, not a feature.
+import mapping **has not been verified against a live Jira instance** — that sentence is in the
+module's own header and in the README, because a mapping nobody has driven is a claim, not a feature.
+⚠️ It is NOT in the emitted CSV, which carries the column row and the data rows only: a reader who
+receives the file alone does not receive the caveat with it.
 
 **Branding is loaded defensively, not trustingly:** escaped fields, a magic-byte logo check, a
 stat-gated size cap, realpath containment, and explicit refusal of SVG, URLs, network paths and
