@@ -1,0 +1,382 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { renderExecutiveReport, egressViolations } from '../utils/executive_report.mjs';
+
+// A literal, not a fixture builder — a shape change in Task 4's model must be visible here,
+// not absorbed by a helper that quietly adapts to whatever report_inputs.mjs now emits.
+const MODEL = {
+  runId: 'run_20260826T091400Z_ab12cd',
+  startedAt: '2026-08-26T09:14:00Z',
+  finishedAt: '2026-08-26T10:02:11Z',
+  tier: 'pro',
+  ceVersion: '0.2.50',
+  eeVersion: null,
+  coverage: {
+    requested: 14,
+    written: 14,
+    reachable: 12,
+    missing: [],
+    partial: false,
+    incomplete: false,
+  },
+  plugins: {
+    ran: 26,
+    skipped: 3,
+    errored: 1,
+    timedOut: 0,
+    byHost: [
+      { host: '10.0.0.1', status: [
+        { id: '003', name: 'Port Scanner', status: 'ran', reason: null },
+        { id: '010', name: 'TLS Auditor', status: 'ran', reason: null },
+      ] },
+      { host: '10.0.0.2', status: [
+        { id: '003', name: 'Port Scanner', status: 'ran', reason: null },
+        { id: '020', name: 'HTTP Auditor', status: 'skipped', reason: 'no HTTP service detected' },
+      ] },
+      { host: '10.0.0.3', status: [
+        { id: '003', name: 'Port Scanner', status: 'error', reason: 'connection refused' },
+      ] },
+    ],
+  },
+  kev: { loaded: true, snapshot: '2026-08-20' },
+  epss: { loaded: true, snapshot: '2026-08-20' },
+  hosts: [
+    {
+      host: '10.0.0.1',
+      dir: '10.0.0.1_20260826T091400Z',
+      up: true,
+      findings: [
+        {
+          host: '10.0.0.1', port: 443, severity: 'CRITICAL',
+          title: 'OpenSSL Heartbleed exposure',
+          detail: 'The TLS service responds to a malformed heartbeat request with out-of-bounds memory.',
+          remediation: 'Patch OpenSSL to a version that includes the Heartbleed fix.',
+          cves: ['CVE-2014-0160'], kev: true, epss: 0.94, id: 'f1',
+        },
+        {
+          host: '10.0.0.1', port: 22, severity: 'HIGH',
+          title: 'Weak SSH key exchange algorithms enabled',
+          detail: 'diffie-hellman-group1-sha1 is offered by the SSH server.',
+          remediation: 'Disable weak KEX algorithms in sshd_config.',
+          cves: [], kev: false, epss: 0.12, id: 'f2',
+        },
+      ],
+    },
+    {
+      host: '10.0.0.2',
+      dir: '10.0.0.2_20260826T091405Z',
+      up: true,
+      findings: [
+        {
+          host: '10.0.0.2', port: 80, severity: 'MEDIUM',
+          title: 'Directory listing enabled',
+          detail: 'The web server returns a directory index for /uploads/.',
+          remediation: 'Disable autoindex on the web server.',
+          cves: [], kev: false, epss: null, id: 'f3',
+        },
+        {
+          host: '10.0.0.2', port: 8080, severity: 'LOW',
+          title: 'Server banner discloses software version',
+          detail: 'The HTTP response includes a Server header with a version string.',
+          remediation: 'Suppress or generalise the Server header.',
+          cves: [], kev: false, epss: null, id: 'f4',
+        },
+        {
+          host: '10.0.0.2', port: 443, severity: 'INFO',
+          title: 'TLS 1.2 supported alongside TLS 1.3',
+          detail: 'Both protocol versions are negotiable.',
+          remediation: null,
+          cves: [], kev: false, epss: null, id: 'f5',
+        },
+      ],
+    },
+    {
+      host: '10.0.0.3',
+      dir: '10.0.0.3_20260826T091410Z',
+      up: false,
+      findings: [],
+    },
+  ],
+  findings: [
+    {
+      host: '10.0.0.1', port: 443, severity: 'CRITICAL',
+      title: 'OpenSSL Heartbleed exposure',
+      detail: 'The TLS service responds to a malformed heartbeat request with out-of-bounds memory.',
+      remediation: 'Patch OpenSSL to a version that includes the Heartbleed fix.',
+      cves: ['CVE-2014-0160'], kev: true, epss: 0.94, id: 'f1',
+    },
+    {
+      host: '10.0.0.1', port: 22, severity: 'HIGH',
+      title: 'Weak SSH key exchange algorithms enabled',
+      detail: 'diffie-hellman-group1-sha1 is offered by the SSH server.',
+      remediation: 'Disable weak KEX algorithms in sshd_config.',
+      cves: [], kev: false, epss: 0.12, id: 'f2',
+    },
+    {
+      host: '10.0.0.2', port: 80, severity: 'MEDIUM',
+      title: 'Directory listing enabled',
+      detail: 'The web server returns a directory index for /uploads/.',
+      remediation: 'Disable autoindex on the web server.',
+      cves: [], kev: false, epss: null, id: 'f3',
+    },
+    {
+      host: '10.0.0.2', port: 8080, severity: 'LOW',
+      title: 'Server banner discloses software version',
+      detail: 'The HTTP response includes a Server header with a version string.',
+      remediation: 'Suppress or generalise the Server header.',
+      cves: [], kev: false, epss: null, id: 'f4',
+    },
+    {
+      host: '10.0.0.2', port: 443, severity: 'INFO',
+      title: 'TLS 1.2 supported alongside TLS 1.3',
+      detail: 'Both protocol versions are negotiable.',
+      remediation: null,
+      cves: [], kev: false, epss: null, id: 'f5',
+    },
+  ],
+};
+
+const BRAND = {
+  title: 'Q3 External Perimeter Review',
+  companyName: 'Acme Manufacturing GmbH',
+  preparedBy: 'J. Rivera, Security Consulting LLC',
+  contact: 'security@example.test',
+  logoDataUri: null,
+};
+
+// ── Step 1: the GREEN legs of the invariant, first ───────────────────────────────────────────
+
+test('a legitimate CVE anchor and a mailto are NOT violations', () => {
+  const html = '<a href="https://nvd.nist.gov/vuln/detail/CVE-2026-1" rel="noopener noreferrer">CVE-2026-1</a>' +
+               '<a href="mailto:security@example.test">contact</a><a href="#findings">jump</a>';
+  assert.deepEqual(egressViolations(html), [],
+    'the rule must not be satisfiable by forbidding everything');
+});
+
+// ── Step 3: the EIGHT planted classes, each RED alone ───────────────────────────────────────
+
+test('every planted egress class is a violation on its own', () => {
+  const planted = {
+    'remote img':      '<img src="https://tracker.example.test/p.gif">',
+    'stylesheet link': '<link rel="stylesheet" href="https://cdn.example.test/a.css">',
+    'css url()':       '<style>body{background:url(https://cdn.example.test/b.png)}</style>',
+    'script element':  '<script>fetch("https://x.example.test")</script>',
+    'svg image href':  '<svg><image href="https://tracker.example.test/p.png"/></svg>',
+    'on* handler':     '<img src="data:image/png;base64,iVBORw0KGgo=" onerror="fetch(\'https://x.example.test\')">',
+    'javascript: anchor': '<a href="javascript:fetch(\'https://x.example.test\')">click</a>',
+    'meta refresh':    '<meta http-equiv="refresh" content="0;url=https://x.example.test">',
+  };
+  for (const [name, frag] of Object.entries(planted)) {
+    const v = egressViolations(`<html><body>${frag}</body></html>`);
+    assert.ok(v.length > 0, `planted class went undetected: ${name}`);
+  }
+});
+
+// ── Step 4b: the twelve EVASION classes (the predicate's fourth quadrant) ───────────────────
+
+test('every evasion class is a violation on its own', () => {
+  const evasions = {
+    'protocol-relative': '<img src="//tracker.example.test/p.gif">',
+    'unquoted src':      '<img src=https://tracker.example.test/p.gif>',
+    'entity-encoded js': '<a href="java&#115;cript:fetch(1)">c</a>',
+    'colon entity':      '<a href="javascript&colon;fetch(1)">c</a>',
+    'tab in scheme':     '<a href="java\tscript:fetch(1)">c</a>',
+    'srcdoc document':   '<iframe srcdoc="&lt;script&gt;x&lt;/script&gt;"></iframe>',
+    'css @import':       '<style>@import "//cdn.example.test/a.css";</style>',
+    'srcset':            '<img srcset="https://tracker.example.test/2x.png 2x">',
+    'base href':         '<base href="https://tracker.example.test/">',
+    'form action':       '<form action="https://tracker.example.test/x"></form>',
+    'object data':       '<object data="https://tracker.example.test/x"></object>',
+    'inline style url':  '<div style="background:url(https://tracker.example.test/b.png)"></div>',
+    'space after javascript:': '<a href="javascript: alert(1)">c</a>',
+    'entity space':            '<a href="javascript:&#32;fetch(1)">c</a>',
+    'mixed case and space':    '<a href="JavaScript: alert(1)">c</a>',
+    'vbscript with space':     '<a href="vbscript: msgbox">c</a>',
+    'data:text/html document': '<a href="data:text/html,<b>x</b>">c</a>',
+    // ── two more, found in this implementer's own adversarial pass (not in the brief's list):
+    // xlink:href is the pre-HTML5 SVG namespaced attribute, still emitted by some authoring
+    // tools and still executable/loadable in every real renderer; a check keyed on the bare
+    // attribute name "href" would miss it.
+    'svg xlink:href':          '<svg><image xlink:href="https://tracker.example.test/p.png"/></svg>',
+    // <a ping> fires a background beacon POST on click, independent of the navigation the
+    // href performs — a hidden second egress channel on an otherwise-honest hyperlink.
+    'anchor ping beacon':      '<a href="#findings" ping="https://tracker.example.test/beacon">jump</a>',
+  };
+  for (const [name, frag] of Object.entries(evasions)) {
+    assert.ok(egressViolations(`<html><body>${frag}</body></html>`).length > 0,
+      `evasion went undetected: ${name}`);
+  }
+});
+
+test('honest constructs stay GREEN — the rule must not forbid everything', () => {
+  const honest = [
+    '<a href="https://nvd.nist.gov/vuln/detail/CVE-2026-1" rel="noopener noreferrer">CVE-2026-1</a>',
+    '<a href="mailto:security@example.test">contact</a>',
+    '<a href="#findings">jump</a>',
+    '<img src="data:image/png;base64,iVBORw0KGgo=" alt="logo">',
+    '<div style="color:#333;border:1px solid #ccc"></div>',
+    '<style>.l{background:url(data:image/png;base64,iVBORw0KGgo=)}</style>',
+    '<style>.x::after{content:"a:b"}</style>',
+    '<meta charset="utf-8">',
+    '<p>See https://nvd.nist.gov for detail.</p>',
+    '<time datetime="2026-09-03T11:02:00Z">Sep 3</time>',
+    '<rect data-severity="HIGH" data-count="3" fill="#c00"></rect>',
+    "<a href='https://x.example.test' title='x'>c</a>",
+    '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Note: the logo">',
+    '<td title="SSL: weak cipher suite">SSL: weak cipher suite</td>',
+    '<img src="data:image/jpeg;base64,/9j/4AAQ" alt="logo">',
+    '<td title="Ratio 3:1">3:1</td>',
+    '<td title="TLS 1.0: deprecated">TLS 1.0</td>',
+  ];
+  for (const frag of honest) {
+    assert.deepEqual(egressViolations(`<html><body>${frag}</body></html>`), [],
+      `an honest construct was called a violation: ${frag}`);
+  }
+});
+
+// ── Step 6: cover-vocabulary and render tests ────────────────────────────────────────────────
+
+test('the cover carries both dates, coverage, and the ordering rule for TOP RISKS', () => {
+  const html = renderExecutiveReport(MODEL, BRAND, { renderedAt: new Date('2026-09-03T11:02:00Z') });
+  assert.match(html, /Scan of \d+ hosts started/);
+  assert.match(html, /Report rendered/);
+  assert.match(html, /hosts requested/);
+  assert.match(html, /ordered by known-exploited first, then EPSS probability, then severity/);
+});
+
+test('the COVER never uses the forbidden vocabulary', () => {
+  const html = renderExecutiveReport(MODEL, BRAND, {});
+  const cover = html.match(/<section id="cover"[\s\S]*?<\/section>/)?.[0];
+  assert.ok(cover, 'the renderer must emit <section id="cover"> for this assertion to bind');
+  for (const word of [/\bPDF\b/i, /\bassessment\b/i, /\baudit\b/i, /\bcertification\b/i,
+                      /\battestation\b/i, /\bcompliance\b/i, /\bclean\b/i, /\bsecure\b/i,
+                      /\bpassed\b/i, /\bverified\b/i, /\bair-?gapped\b/i, /zero.?exfiltration/i]) {
+    assert.ok(!word.test(cover), `forbidden vocabulary reached the cover: ${word}`);
+  }
+  assert.match(html, /Generated by NSAuditor AI (ce|pro|enterprise) \d+\.\d+\.\d+/,
+    'the footer is the ONLY product sentence the report carries');
+});
+
+test('a company name containing markup renders literally in the finished report', () => {
+  const html = renderExecutiveReport(MODEL, { ...BRAND, companyName: '<img src=x onerror=alert(1)>' }, {});
+  assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.deepEqual(egressViolations(html), [], 'operator input defeated the invariant');
+});
+
+test('zero findings is a RENDER, and never says clean/secure/passed', () => {
+  const model = { ...MODEL, findings: [] };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /No findings were recorded for the \d+ hosts scanned in this run\./);
+});
+
+test('an unloaded KEV feed says so rather than showing a silent zero', () => {
+  const model = { ...MODEL, kev: { loaded: false, snapshot: null } };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /Known-exploited status NOT evaluated — no CISA KEV feed was loaded for this scan\./);
+});
+
+test('--allow-partial moves the disclosure to the cover; it never removes it', () => {
+  const model = { ...MODEL, coverage: { ...MODEL.coverage, partial: true, requested: 14,
+    written: 12, missing: ['10.0.0.7', '10.0.0.9'] } };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /2 of 14 requested hosts were not scanned: 10\.0\.0\.7, 10\.0\.0\.9\./);
+});
+
+test('--allow-partial over an INCOMPLETE run renders its own caveat, not the partial-hosts one', () => {
+  const model = { ...MODEL, coverage: { ...MODEL.coverage, incomplete: true, partial: false,
+    missing: [] } };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /This run did not record completion; it may be missing results the scan had not yet written\./);
+});
+
+test('brand.contact renders as TEXT, never as an href', () => {
+  const html = renderExecutiveReport(MODEL, { ...BRAND, contact: 'javascript:fetch(1)' }, {});
+  assert.deepEqual(egressViolations(html), [],
+    'brand.contact reached an href and became an execution vector');
+  assert.ok(html.includes('javascript:fetch(1)'), 'the contact must still be SHOWN, as text');
+});
+
+test('the plain default render (no malicious input at all) carries zero egress violations', () => {
+  // The other egressViolations([]) checks below all exercise a HOSTILE override (markup in
+  // companyName, javascript: in contact). This is the ordinary path — a real CVE citation, a
+  // real brand block, real coverage/plugin prose — and it must be just as clean; a renderer
+  // that only passes under adversarial fixtures because they happen to short-circuit earlier
+  // rendering logic would be a false clean of its own.
+  const html = renderExecutiveReport(MODEL, BRAND, { renderedAt: new Date('2026-09-03T11:02:00Z') });
+  assert.deepEqual(egressViolations(html), []);
+  assert.match(html, /href="https:\/\/nvd\.nist\.gov\/vuln\/detail\/CVE-2014-0160"/,
+    'a well-formed CVE must still become a real citation link');
+});
+
+test('the severity chart agrees with its own table', () => {
+  const html = renderExecutiveReport(MODEL, BRAND, {});
+  const rects = [...html.matchAll(/<rect[^>]*data-severity="([A-Z]+)"[^>]*data-count="(\d+)"/g)]
+    .map(([, sev, n]) => [sev, Number(n)]);
+  const rows  = [...html.matchAll(/<tr[^>]*data-row-severity="([A-Z]+)"/g)].map((m) => m[1]);
+  for (const [sev, n] of rects) {
+    assert.equal(rows.filter((r) => r === sev).length, n,
+      `chart and table disagree for ${sev} — both must derive from the same model`);
+  }
+});
+
+// ── Adversarial pass: what the brief's planted-violation list does not name ────────────────
+//
+// The model's own data — finding titles, host names, plugin names, remediation text — reaches
+// this page, and none of it is trustworthy just because report_inputs.mjs is expected to
+// constrain its shape. These prove the renderer, not just the predicate, holds the invariant
+// under hostile model data, and that a severity value outside the five-member vocabulary is
+// never silently dropped from the visual summary.
+
+test('malicious finding/host/plugin data cannot defeat the invariant, and renders literally', () => {
+  const maliciousHost = '10.0.0.1"><script>alert(1)</script>';
+  const model = {
+    ...MODEL,
+    hosts: [{
+      host: maliciousHost,
+      dir: '10.0.0.1_ts"><script>alert(2)</script>',
+      up: true,
+      findings: [],
+    }],
+    findings: [{
+      host: maliciousHost,
+      port: 443,
+      severity: 'CRITICAL"><script>alert(3)</script>',
+      title: '<img src=x onerror=alert(4)>',
+      detail: '"><svg onload=alert(5)>',
+      remediation: 'javascript:alert(6)',
+      cves: ['CVE-2026-9999"><script>alert(7)</script>'],
+      kev: true,
+      epss: 0.5,
+      id: 'malicious1',
+    }],
+    plugins: {
+      ran: 1, skipped: 0, errored: 0, timedOut: 0,
+      byHost: [{
+        host: maliciousHost,
+        status: [{ id: '999', name: '<script>alert(8)</script>', status: 'error', reason: '"><script>alert(9)</script>' }],
+      }],
+    },
+  };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.deepEqual(egressViolations(html), [], 'malicious model data defeated the no-egress invariant');
+  assert.ok(!/<script[\s>]/i.test(html), 'a literal <script> tag reached the rendered output');
+  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'the malicious host must render literally escaped');
+  assert.ok(html.includes('&lt;img src=x onerror=alert(4)&gt;'), 'the malicious title must render literally escaped');
+  assert.ok(html.includes('&lt;script&gt;alert(8)&lt;/script&gt;'), 'the malicious plugin name must render literally escaped');
+  // the malformed "CVE" must never become a link — it fails the strict CVE shape check
+  assert.ok(!html.includes('href="https://nvd.nist.gov/vuln/detail/CVE-2026-9999'),
+    'a CVE-shaped-but-hostile string became a live link');
+});
+
+test('an out-of-vocabulary severity is normalised into a visible OTHER bucket, never silently dropped', () => {
+  const model = { ...MODEL, findings: [...MODEL.findings, {
+    host: '10.0.0.1', port: 1, severity: 'WEIRD', title: 'an oddity', detail: null,
+    remediation: null, cves: [], kev: false, epss: null, id: 'weird1',
+  }] };
+  const html = renderExecutiveReport(model, BRAND, {});
+  const rects = [...html.matchAll(/<rect[^>]*data-severity="([A-Z]+)"[^>]*data-count="(\d+)"/g)]
+    .map(([, , n]) => Number(n));
+  const totalCharted = rects.reduce((sum, n) => sum + n, 0);
+  assert.equal(totalCharted, model.findings.length,
+    'a finding vanished from the chart because its severity was outside the fixed vocabulary');
+});
