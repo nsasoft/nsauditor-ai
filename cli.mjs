@@ -872,8 +872,19 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // is marked, because an operator who asked for `--compliance` and got no report must not
   // have to diff directories to discover it.
   let ee = null;
+  // The KEV/EPSS store's OWN `dataAsOf`, read from the same enrichment result CE already
+  // receives — set (or left null) inside the try below, and hoisted here so it survives
+  // past that block's scope. `null` means "not loaded for this host" — either EE is absent,
+  // enrichment threw before reaching exploit intel, or the tier/store genuinely has none;
+  // all three collapse to the same honest "not evaluated" reading for THIS host, and the
+  // top-level scan loop aggregates across hosts (utils/run_record.mjs's `kevLoaded` is a
+  // claim about the whole run, not a single host).
+  let kevDataAsOf = null;
+  let epssDataAsOf = null;
   try {
-    ee = await import('@nsasoft/nsauditor-ai-ee');
+    // `opts.importEE`: test-only injection seam, mirroring `preflightNsauditorPosture`'s
+    // `importEE` option elsewhere in this file — absent in every real invocation.
+    ee = opts?.importEE ? await opts.importEE() : await import('@nsasoft/nsauditor-ai-ee');
   } catch { /* EE not installed — CE proceeds unchanged. The ONLY silent case. */ }
   try {
     const eeEnrichment = ee ? await ee.enrichScan(conclusion, {
@@ -889,6 +900,17 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       results,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
     }) : null;
+    // ⚠️ Read from `exploitIntel.stores`, NOT a top-level `exploit` key — measured against
+    // EE's actual `enrichScan` return shape (`index.mjs`'s final `return { ... exploitIntel:
+    // ctx.exploitIntel, ... }`), which nests the per-store `dataAsOf` at
+    // `exploitIntel.stores.{kev,epss}.dataAsOf`. EE's own comment there says this object is
+    // "ALWAYS PRESENT on a Pro scan, including when no store is configured" — so `null` here
+    // means the store genuinely was not loaded, not that we asked the wrong field and got
+    // `undefined` by accident. Independent of `enrichedPrompt` below: that governs whether the
+    // AI prompt gets the enrichment envelope, not whether a store was loaded for this host.
+    const stores = eeEnrichment?.exploitIntel?.stores;
+    kevDataAsOf = stores?.kev?.dataAsOf ?? null;
+    epssDataAsOf = stores?.epss?.dataAsOf ?? null;
     if (eeEnrichment?.enrichedPrompt) {
       conclusion.result = conclusion.result || {};
       conclusion.result.eeEnrichment = eeEnrichment;
@@ -913,6 +935,13 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
+  // Whether THIS host actually landed in the run record's `hostsWritten` — distinct from
+  // whether the scan itself succeeded. `appendHostWritten` can fail independently (a
+  // malformed argument, a disk fault) while the rest of the scan completes cleanly, and the
+  // top-level KEV/EPSS aggregation must count only hosts the record actually NAMES — a host
+  // whose directory the record never mentions cannot be claimed to have been "evaluated"
+  // through it, whatever its own enrichment found.
+  let hostAppended = false;
   try {
     const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
 
@@ -938,7 +967,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // that reintroduces the same bug for the run record.
     const runRecordRoot = resolveBaseOutDir();
     if (opts?.runId) {
-      await appendHostWritten(runRecordRoot, opts.runId, { host, dir: path.basename(outDir) });
+      hostAppended = await appendHostWritten(runRecordRoot, opts.runId, { host, dir: path.basename(outDir) });
     }
 
     const services = conclusion?.result?.services ?? [];
@@ -995,7 +1024,44 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     console.warn('[ScanHistory] Failed to record/compare scan:', err?.message || err);
   }
 
-  return { host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff };
+  return {
+    host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff,
+    // Additive, consumed only by main()'s top-level KEV/EPSS aggregation for the run record.
+    hostAppended, kevDataAsOf, epssDataAsOf,
+  };
+}
+
+// The run record's `kevLoaded`/`kevSnapshot` (and the same pair for epss) are a claim about
+// the WHOLE run, read by Task 4's consumer as one sentence covering every finding on the
+// page ("Known-exploited status evaluated against the CISA KEV snapshot dated <date>") — so
+// the aggregate across hosts must be ALL-OR-NOTHING, never "first non-null" and never "last
+// host wins":
+//   - loaded:true  only if EVERY WRITTEN host reported a non-null `dataAsOf` for this store.
+//   - any written host lacking one -> loaded:false (a warning names how many DID have it) —
+//     a run where the store was present for host 1 and absent for host 2 must not print
+//     "evaluated" over host 2's findings; that is the same false clean this whole fix exists
+//     to remove, with the sign flipped.
+//   - all loaded but disagreeing on the date -> loaded:true, snapshot:null, plus a warning —
+//     a snapshot date true for some hosts and wrong for others is worse than no date at all.
+// Scoped to hosts with `hostAppended === true` — a host the record does not NAME in
+// `hostsWritten` cannot be the subject of a claim the record makes, whatever its own
+// enrichment found (see `hostAppended`'s own comment in scanSingleHost).
+function aggregateStoreLoad(writtenOutputs, field, label) {
+  if (writtenOutputs.length === 0) return { loaded: false, snapshot: null };
+  const values = writtenOutputs.map((o) => o[field] ?? null);
+  const present = values.filter((v) => v != null);
+  if (present.length < values.length) {
+    console.warn(`[RunRecord] ${label} store was loaded for only ${present.length} of `
+      + `${values.length} written host(s) — recording ${label} as NOT loaded for this run.`);
+    return { loaded: false, snapshot: null };
+  }
+  const unique = [...new Set(present)];
+  if (unique.length > 1) {
+    console.warn(`[RunRecord] ${label} store dataAsOf disagreed across written hosts `
+      + `(${unique.join(', ')}) — recording loaded with no snapshot date.`);
+    return { loaded: true, snapshot: null };
+  }
+  return { loaded: true, snapshot: unique[0] };
 }
 
 /* -------------------- CI/CD severity threshold helpers ------------------- */
@@ -1145,7 +1211,15 @@ export async function preflightGrcIfRequested(env, opts = {}) {
   return { ran: true };
 }
 
-export async function main() {
+// `testHooks` is additive and test-only — every real invocation (the auto-run at the bottom
+// of this file, and the published `bin`) calls `main()` with no argument, so `testHooks`
+// defaults to `{}` and changes nothing about production behaviour. `testHooks.importEE`
+// mirrors `preflightNsauditorPosture`'s `importEE` option elsewhere in this file: it lets a
+// test drive the real scan pipeline (including this function's own run-record wiring) against
+// a controlled, injected EE module — e.g. one whose `enrichScan` reports a specific KEV/EPSS
+// `dataAsOf` — without depending on the real `@nsasoft/nsauditor-ai-ee` package, a real store
+// file, or the machine's own license/tier state being any particular thing.
+export async function main(testHooks = {}) {
   const args = await parseArgs(process.argv);
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
 
@@ -2619,6 +2693,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   }
 
   const opts = { insecureHttps };
+  if (testHooks.importEE) opts.importEE = testHooks.importEE;
   if (ports) opts.ports = ports;
   if (compliance) opts.compliance = compliance;
   if (complianceScope) opts.complianceScope = complianceScope;
@@ -2777,10 +2852,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       portsRequested: ports ?? null,
       tier: getTierFromEnv(),
       ceVersion: TOOL_VERSION, eeVersion: eeVersionForRecord,
-      // CE's scan path loads no KEV/EPSS store of its own today — --kev/--epss (feedArgs
-      // above) only carry an operator's OWN downloaded catalogues across an air gap via the
-      // separate `feed` subcommand. Honest false/null: there is no live store here to report.
-      kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
+      // kevLoaded/kevSnapshot/epssLoaded/epssSnapshot are DELIBERATELY omitted here.
+      // writeRunStart's own defaults (false/null) are the correct STARTING state — before any
+      // host has run, nothing has been evaluated yet — and an interrupted scan that never
+      // reaches finalizeRunRecord() below is honestly left at that pessimistic default. The
+      // REAL values, aggregated across every host this run actually wrote, are set at
+      // finalize time (see below): this code path serves EE too (`ee.enrichScan` above), and
+      // EE, when a KEV/EPSS store is configured, reports the store's own `dataAsOf`.
     });
   } catch (err) {
     console.warn('[RunRecord] Failed to write run start:', err?.message || err);
@@ -2839,7 +2917,14 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // Wrapped for the same reason the START block is: a malformed argument here must
   // never fail a scan that otherwise completed successfully.
   try {
-    await finalizeRunRecord(outRoot, runId, { finishedAt: new Date().toISOString() });
+    const writtenOutputs = scanOutputs.filter((o) => o && o.hostAppended === true);
+    const kevAgg = aggregateStoreLoad(writtenOutputs, 'kevDataAsOf', 'KEV');
+    const epssAgg = aggregateStoreLoad(writtenOutputs, 'epssDataAsOf', 'EPSS');
+    await finalizeRunRecord(outRoot, runId, {
+      finishedAt: new Date().toISOString(),
+      kevLoaded: kevAgg.loaded, kevSnapshot: kevAgg.snapshot,
+      epssLoaded: epssAgg.loaded, epssSnapshot: epssAgg.snapshot,
+    });
     if (getTierFromEnv() === 'ce') await pruneRunRecordsForCE(outRoot);
   } catch (err) {
     console.warn('[RunRecord] Failed to finalize/prune run record:', err?.message || err);

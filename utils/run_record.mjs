@@ -197,6 +197,16 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     const existing = await readRunRecord(outRoot, runId);
     if (!existing) return false;
     existing.finishedAt = finishedAt ?? new Date().toISOString();
+    // ⚠️ ADDITIVE AND OPTIONAL, checked by PRESENCE (`in`), never by truthiness. A caller
+    // that only passes `finishedAt` (every caller before this one existed) must keep
+    // TODAY's behaviour — the false/null `writeRunStart` already set stands. `kevLoaded:
+    // false` is itself a meaningful value a caller must be able to assert ("checked, and it
+    // was NOT loaded for every host") — silently dropping it for being falsy would be the
+    // same "truthiness ate an explicit false" class of bug this repo has hit before.
+    if ('kevLoaded' in opts) existing.kevLoaded = Boolean(opts.kevLoaded);
+    if ('kevSnapshot' in opts) existing.kevSnapshot = opts.kevSnapshot ?? null;
+    if ('epssLoaded' in opts) existing.epssLoaded = Boolean(opts.epssLoaded);
+    if ('epssSnapshot' in opts) existing.epssSnapshot = opts.epssSnapshot ?? null;
     return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
   });
 }
