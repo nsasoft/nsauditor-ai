@@ -6,6 +6,40 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.51 (2026-09-04) — the Pro `report` subcommand, over a run record that states its own coverage
+
+**The headline: `nsauditor-ai report --from <dir> --format executive|jira`** (Pro capability
+`clientReporting`) turns a completed scan run into a client-facing deliverable — a self-contained,
+print-ready, branded HTML report, or a Jira-importer CSV. Exit contract: **0** rendered · **1** fix the
+RUN · **2** fix the REQUEST. Full flag table in the [README](./README.md#report-command-pro).
+
+**Beneath it, and the reason the report can be trusted: a per-run scan record.** `scan_run_<runId>.json`
+is written at run start, appended per host under a per-run lock, and finalized at the end, so the
+report's cover **states** coverage — hosts requested, hosts written, hosts reachable, KEV/EPSS
+as-of dates read from the Enterprise store's own metadata, and the all-hosts aggregate — instead of
+implying it. A run that never completed, or that lost a host, says so on the cover; `--allow-partial`
+renders it anyway with the caveat stated, never hidden.
+
+**Two honesty properties are enforced rather than asserted.** The executive HTML has a **no-egress
+invariant**: the rendered file references no external network resource other than an `http(s)`/`mailto`
+`<a href>`, proven by a shared predicate both the renderer and its tests drive. And the Jira CSV's
+import mapping **has not been verified against a live Jira instance** — that sentence is in the CSV's
+own header comment, in the module header and in the README, because a mapping nobody has driven is a
+claim, not a feature.
+
+**Branding is loaded defensively, not trustingly:** escaped fields, a magic-byte logo check, a
+stat-gated size cap, realpath containment, and explicit refusal of SVG, URLs, network paths and
+traversal — each closed with its own mutant.
+
+Also in this release: `normaliseHost` reduced to the simplest rule that survives review (last `@`,
+then cut the path) after four attempts at cleverer ones each bought a way to emit a credential; a
+deny-by-default output whitelist closing `@`-lookalikes; and the run record's failure paths made
+atomic (no stray `.tmp`, no host-write race).
+
+⚠️ A value-less `--from` / `--brand` / `--run` / `--out` is a **fatal error, not a silent default**.
+
+---
+
 ## 0.2.50 (2026-09-02) — paired with Enterprise 0.43.0: no Community change, and the reason is worth stating
 
 **No Community Edition behaviour changed in this cycle.** The version moves so the trio stays

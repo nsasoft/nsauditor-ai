@@ -17,6 +17,20 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
+**The Pro `report` subcommand, over a run record that states its own coverage (CE 0.2.51 / Enterprise 0.44.0).**
+`nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run into a
+client-facing deliverable — a self-contained, print-ready HTML report a consultant sends to their
+customer, or a Jira-importer CSV. Beneath it is a **per-run scan record**: written at run start,
+appended per host, finalized at the end, so the report's cover **states** what was covered — hosts
+requested, written and reachable, and the exploit-intelligence as-of dates read from the store's own
+metadata — instead of implying completeness. An incomplete run says so on the cover; `--allow-partial`
+renders it anyway with the caveat visible, never hidden. Two limits are shipped as text rather than
+left to be discovered: the **Jira import mapping has not been verified against a live Jira instance**,
+and a value-less `--from`/`--brand`/`--run`/`--out` is a **fatal error, not a silent default**. On the
+Enterprise side the same cycle stops reporting an S3 audit-trail gap on a bucket whose object-level
+reads and writes a CloudTrail data-event trail already records. See the
+[`report` command section](#report-command-pro) and the [CHANGELOG](./CHANGELOG.md).
+
 **A provider badge you can trust, and an evidence gap that never tells an auditor what to type (CE 0.2.50 / Enterprise 0.43.0).**
 **No Community behaviour changed this cycle** — the version moves so the trio stays in lockstep, and **the Enterprise peer floor stays `>=0.2.49`** rather than being raised reflexively, because the
 one Community behaviour the Enterprise fix depends on already shipped there. What changed is on the
