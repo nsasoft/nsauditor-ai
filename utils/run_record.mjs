@@ -45,7 +45,16 @@ const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 // bracketed IPv6 literal. Anything else is not a host, so it is not written, whatever produced
 // it. This is the leg that makes the CLASS closed rather than the instance closed: a future
 // input nobody imagined cannot leak, because the guard no longer depends on recognising it.
-const HOST_TOKEN_RE = /^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(?::\d+)?$/;
+//
+// ⚠️ THE ACCEPTED SHAPE NEEDS AS MUCH CARE AS THE REFUSED ONE. The first version of this took
+// IPv6 only in brackets and ASCII-only labels, so `::1` and `fe80::1` — which this product scans,
+// see utils/net_validation.mjs — were recorded as unparseable. That is the coverage lie: a record
+// that cannot name a host that WAS scanned, which is the same class of dishonesty as a leak,
+// pointed the other way. Unicode letters and digits are allowed because the confusables this guard
+// exists for are PUNCTUATION look-alikes (U+FF20 '＠', U+2044 '⁄'), which \p{L}\p{N} excludes —
+// a Cyrillic or German label is a host, not a credential.
+const HOST_TOKEN_RE =
+  /^(?:[\p{L}\p{N}._-]+|(?=[0-9A-Fa-f]*:)[0-9A-Fa-f:.]{2,}|\[[0-9A-Fa-f:.]+(?:%[A-Za-z0-9]+)?\])(?::\d+)?$/u;
 export const UNPARSEABLE = '<unparseable-host>';
 
 export function normaliseHost(raw) {

@@ -73,8 +73,16 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
   // Unicode confusables table sits behind them — so the fix stopped being "recognise one more
   // separator shape" and became a deny-by-default whitelist on the OUTPUT: a host token is a
   // closed shape (letters, digits, dots, hyphens, underscores, an optional port, or a bracketed
-  // IPv6 literal), and anything else is refused as `UNPARSEABLE` rather than written. This table
-  // is the accumulated record of every shape that motivated a change, kept — not trimmed — so the
+  // IPv6 literal), and anything else is refused as `UNPARSEABLE` rather than written.
+  // ⚠️ THE WHITELIST'S FIRST DRAFT THEN BROKE THE RECORD'S OTHER INVARIANT: bracketed-only IPv6
+  // and ASCII-only labels refused `::1`, `fe80::1` and IDN hostnames — all real scan targets
+  // (see `utils/net_validation.mjs`) — turning them into `<unparseable-host>`. A record that
+  // cannot NAME a host that WAS scanned is the same class of dishonesty as a credential leak,
+  // pointed the other way; closing the credential direction is not progress if it opens the
+  // coverage direction. The accept shape was widened to bare IPv6 and `\p{L}\p{N}` (Unicode
+  // letters/digits — a Cyrillic or German label is a host, not a credential; the confusables this
+  // guard exists for are PUNCTUATION look-alikes, which `\p{L}\p{N}` excludes). This table is the
+  // accumulated record of every shape that motivated a change, kept — not trimmed — so the
   // next maintainer can see exactly what was tried and why each one failed.
   // Each row is its OWN subtest — a for-loop with one `assert.equal` per row would let the
   // FIRST failing row's thrown assertion mask every later row (a loud defect hiding a silent
@@ -112,10 +120,29 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
     ['aws',                                      'aws',                 'the sentinel cloud hosts must survive untouched'],
     ['azure',                                    'azure',               'the sentinel cloud hosts must survive untouched'],
     ['gcp',                                      'gcp',                 'the sentinel cloud hosts must survive untouched'],
-    // ⚠️ FOURTH QUADRANT FIRST: the "Unchanged" rows directly above already prove every
-    // legitimate host and the whitelist coexist — written and passing BEFORE the refusal rows
-    // below, because a whitelist that refuses a legitimate host is the failure mode this change
-    // introduces, and it must be guarded before the refusals are.
+    // ⚠️ THE FIRST FOURTH-QUADRANT LEG WAS TOO NARROW. Four rows (aws/azure/gcp/[::1]:443,
+    // directly above) were drawn from the SAME mental model that produced the first accept
+    // regex, so that leg could not see the regex's own blind spot: bare IPv6 (no brackets — the
+    // shape this product actually scans, see utils/net_validation.mjs) and non-ASCII hostname
+    // labels were refused as `<unparseable-host>`, a real scan target unable to be NAMED in its
+    // own record — the same class of dishonesty as a leak, pointed the other way. A closed
+    // accept-shape needs a legitimate-host list as long as its leak list; these 15 rows are that
+    // list, given the SAME weight as the refused rows below, and written BEFORE them.
+    ['::1',                                       '::1',                   'accepted shape: bare IPv6 loopback — net_validation.mjs tests this exact address'],
+    ['2001:db8::1',                               '2001:db8::1',           'accepted shape: bare IPv6 global'],
+    ['fe80::1',                                   'fe80::1',               'accepted shape: bare IPv6 link-local'],
+    ['::ffff:1.2.3.4',                            '::ffff:1.2.3.4',        'accepted shape: bare IPv6 v4-mapped'],
+    ['[::1]:443',                                 '[::1]:443',             'accepted shape: bracketed IPv6 with port'],
+    ['[fe80::1%en0]',                             '[fe80::1%en0]',         'accepted shape: bracketed IPv6 with a zone id'],
+    ['bücher.example',                            'bücher.example',        'accepted shape: a Unicode LETTER in a hostname label (IDN) — not a confusable, a language'],
+    ['xn--bcher-kva.example',                     'xn--bcher-kva.example', 'accepted shape: the same IDN, punycode-encoded'],
+    ['10.0.0.7',                                  '10.0.0.7',              'accepted shape: plain IPv4'],
+    ['db01.internal:8443',                        'db01.internal:8443',    'accepted shape: host:port'],
+    ['aws',                                       'aws',                   'accepted shape: cloud sentinel'],
+    ['azure',                                     'azure',                 'accepted shape: cloud sentinel'],
+    ['gcp',                                       'gcp',                   'accepted shape: cloud sentinel'],
+    ['host',                                      'host',                  'accepted shape: bare lowercase label'],
+    ['HOST',                                      'HOST',                  'accepted shape: bare uppercase label'],
     // REFUSED — @-lookalikes with a whole Unicode confusables table behind them. Neither is
     // fixable by recognising one more separator shape; both are caught by the OUTPUT whitelist
     // instead, which needs no vocabulary of what a fake '@' might look like.
@@ -178,6 +205,31 @@ test('expectedHostToken is a STRUCTURAL oracle, not a stub — it flags the rule
     const correct = normaliseHost(raw);
     assert.equal(correct, expectedHostToken(raw),
       `the oracle false-flagged the correct rule's own output: ${raw} -> ${correct}`);
+  }
+});
+
+test('normaliseHost refuses a non-host-shaped token WITHOUT ever logging the value', () => {
+  // ⚠️ SURVIVOR N7: making the refusal warning log the VALUE instead of only naming the field
+  // leaves the suite green — the "never the value" property had no fixture at all before this
+  // test. Mock `console.warn`, refuse an input carrying a distinctive sentinel, and assert the
+  // sentinel appears nowhere in anything logged.
+  // Sentinel chosen to avoid the two collisions already found this task (`epssSnapshot`/`ss`,
+  // `<unparseable-host>`/`pa`): `ZQXJ9SECRETMARKER7531` is not a substring of the warning's own
+  // message text ("[RunRecord] normaliseHost: refused a non-host-shaped token") and not a
+  // substring of `UNPARSEABLE` ("<unparseable-host>").
+  const sentinel = 'ZQXJ9SECRETMARKER7531';
+  const input = `${sentinel}＠host`; // fullwidth @ forces refusal; no literal '@' to strip away
+  const calls = [];
+  mock.method(console, 'warn', (...args) => { calls.push(args.join(' ')); });
+  try {
+    const result = normaliseHost(input);
+    assert.equal(result, UNPARSEABLE, 'the sentinel-carrying input must actually be refused');
+  } finally {
+    mock.restoreAll();
+  }
+  assert.ok(calls.length > 0, 'refusing a token must warn at least once');
+  for (const line of calls) {
+    assert.ok(!line.includes(sentinel), `the refused VALUE was logged: ${line}`);
   }
 });
 
