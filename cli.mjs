@@ -794,14 +794,26 @@ export async function parseArgs(argv) {
   args.awsRegion = awsRegionVal === undefined ? undefined : awsRegionVal;
 
   // ── the Pro `report` subcommand (Task 8) ────────────────────────────────────────────────────
-  // Reuses `str()` (defined above, same tri-state discipline as every flag parsed with it):
-  // undefined/absent stays out, a bare value-less flag collapses to `null` rather than `true` —
-  // `--from` with nothing after it must not read as "provided" just because it is truthy.
-  args.from = str('from');
+  // ⚠️ CC-4: `--brand`/`--run`/`--out`/`--from` do NOT go through `str()` — `str()` collapses a
+  // value-less flag to the SAME `null` an absent flag produces, and for these four that erases a
+  // real distinction. `--brand` absent is a legitimate default (unbranded); `--brand` typed with
+  // its value swallowed by a shell glob is an operator MISTAKE that must not silently produce the
+  // exact same unbranded report while exiting 0 — "a flag that quietly does nothing is how an
+  // operator concludes a subject was resolved" (runReport's own header). Same reasoning as the
+  // existing `--sla-policy`/`--compliance-history` tri-state below: keep `get()`'s raw tri-state
+  // (undefined absent / `true` value-less / string present) and let `runReport` refuse the `true`
+  // case by name. `--format` is deliberately NOT included here — it has no valid "absent" default
+  // (both absent and value-less already fail its enum check with a clear message), so collapsing
+  // it via `str()` costs nothing.
+  const fromVal = get('from');
+  args.from = fromVal === undefined ? undefined : fromVal;
   args.format = str('format');
-  args.run = str('run');
-  args.brand = str('brand');
-  args.out = str('out');
+  const runVal = get('run');
+  args.run = runVal === undefined ? undefined : runVal;
+  const brandVal = get('brand');
+  args.brand = brandVal === undefined ? undefined : brandVal;
+  const reportOutVal = get('out');
+  args.out = reportOutVal === undefined ? undefined : reportOutVal;
   args.allowPartial = a.includes('--allow-partial');
 
   return args;
@@ -1286,6 +1298,24 @@ export async function runReport(args, caps) {
 
   // ⚠️ FLAGS VALIDATE BEFORE THE CAPABILITY GATE (constraint 4). Otherwise every flag error on
   // CE is reported as a tier problem and no flag validation is testable from the CLI at all.
+  //
+  // CC-4: a value-less `--brand`/`--run`/`--out`/`--from` must be FATAL, not silently absorbed
+  // into the same behaviour as the flag never having been typed. `parseArgs` preserves the raw
+  // tri-state for these four (see its own comment) precisely so this check can tell "the operator
+  // never asked" (undefined — fine, defaults apply) apart from "the operator asked and the shell
+  // ate the value" (`true` — a shell glob that matched nothing, a trailing flag with nothing
+  // after it). `--brand` is the sharpest case: an absent brand and a swallowed brand path both
+  // produce the identical unbranded default report at exit 0, so nothing downstream can ever
+  // catch this after the fact — it must be caught here or never. Same precedent already applied
+  // to `--sla-policy`/`--compliance-history` in the scan path, below.
+  for (const [flag, val] of [['--from', args.from], ['--brand', args.brand],
+    ['--run', args.run], ['--out', args.out]]) {
+    if (val === true) {
+      logErr(`\`report\` needs a value for ${flag}. A flag that quietly does nothing is how an `
+        + 'operator concludes a subject was resolved.');
+      return finish(2);
+    }
+  }
   if (!args.from || typeof args.from !== 'string') {
     logErr('`report` needs `--from <out-dir>`.');
     return finish(2);
@@ -1412,6 +1442,7 @@ export async function main(testHooks = {}) {
 Usage:
   nsauditor-ai [scan] --host <ip|cidr|hostname> [options]
   nsauditor-ai [scan] --host-file <path> [options]
+  nsauditor-ai report --from <dir> --format executive|jira [options]   (Pro)
   nsauditor-ai license <subcommand>
   nsauditor-ai security <subcommand>
   nsauditor-ai validate
@@ -1602,6 +1633,30 @@ Examples:
   nsauditor-ai scan --host 10.0.0.0/24 --plugins all --compliance soc2
   nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
   nsauditor-ai license --status
+
+Report subcommand (Pro):
+  nsauditor-ai report --from <dir> --format executive|jira [--run <id>]
+                       [--brand <brand.json>] [--out <path>] [--allow-partial]
+        Renders a client-facing deliverable from a completed scan run under --from.
+        --from <dir>          The scan --out directory that holds the run's record
+                               and per-host evidence. Required.
+        --format executive    A self-contained, print-ready HTML report with a no-egress
+                               invariant (no live network reference other than an
+                               http(s)/mailto <a href>).
+        --format jira         A Jira-importer CSV (Summary/Description/Priority/Labels/
+                               External ID); the import mapping is done in Jira and has
+                               not been verified against a live Jira instance.
+        --run <id>             Report a specific run id instead of the newest one under
+                               --from.
+        --brand <brand.json>  Cover-page branding (company name, prepared-by, contact,
+                               logo) for --format executive only.
+        --out <path>           Write to this path instead of the default
+                               report_<runId>.<ext> beside the run record.
+        --allow-partial        Render even if some requested hosts were never written, or
+                               the run never recorded completion. The report states this
+                               on its cover; it never hides it.
+        A value-less --from/--brand/--run/--out (nothing after the flag, or a shell glob
+        that swallowed the argument) is a fatal error, not a silent default.
 
 Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/pricing/`);
     process.exit(0);

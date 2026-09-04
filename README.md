@@ -761,6 +761,7 @@ nsauditor-ai validate
 nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
 nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]   # the feeds you downloaded
 nsauditor-ai compliance <attest|suppress|review|renew|keygen|sign-pack|verify-pack>   (Enterprise)
+nsauditor-ai report --from <dir> --format executive|jira [--run <id>] [--brand <brand.json>] [--out <path>] [--allow-partial]   (Pro)
 nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
 nsauditor-ai --version     (or -v, or `version`)
@@ -852,6 +853,27 @@ Docker HEALTHCHECK example:
 ```dockerfile
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
   CMD nsauditor-ai validate --json | grep -q '"overall": "ok"' || exit 1
+```
+
+### `report` command (Pro)
+
+`nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run under `--from` into a client-facing deliverable — an HTML report a consultant sends to their customer, or a Jira-importer CSV.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--from <dir>` | The scan `--out` directory holding the run's record and per-host evidence | *required* |
+| `--format executive` | Self-contained, print-ready HTML report; no external network reference other than an `http(s)`/`mailto` `<a href>` | — |
+| `--format jira` | Jira-importer CSV (`Summary`/`Description`/`Priority`/`Labels`/`External ID`); the import mapping is done in Jira and has not been verified against a live Jira instance | — |
+| `--run <id>` | Report a specific run id instead of the newest one under `--from` | newest run |
+| `--brand <brand.json>` | Cover-page branding (company name, prepared-by, contact, logo) — `--format executive` only | unbranded |
+| `--out <path>` | Write to this path instead of `report_<runId>.<ext>` beside the run record | `report_<runId>.<ext>` |
+| `--allow-partial` | Render even if some requested hosts were never written, or the run never recorded completion — the caveat is stated on the cover, never hidden | `false` |
+
+A value-less `--from`/`--brand`/`--run`/`--out` (nothing after the flag, or a shell glob that swallowed the argument) is a fatal error, not a silent default.
+
+```bash
+nsauditor-ai report --from out/2026-08-26 --format executive --brand brand.json --out report.html
+nsauditor-ai report --from out/2026-08-26 --format jira
 ```
 
 ---

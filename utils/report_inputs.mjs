@@ -150,7 +150,13 @@ function buildModel(rec, hosts, counts) {
 
   const plugins = { ran: 0, skipped: 0, errored: 0, timedOut: 0, byHost: [] };
   for (const h of hosts) {
-    plugins.byHost.push({ host: h.host, status: h.pluginStatus });
+    // CC-2: `dir` rides alongside `host` here so the renderer can key its per-host plugin
+    // status table by DIRECTORY, never by host name — `hosts` (and therefore `model.hosts`) is
+    // one entry per scan directory, and two directories can legitimately share a host name
+    // (`--host 10.0.0.7,10.0.0.7`, a repeated --host-file line, an overlapping range — none of
+    // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
+    // silently drops every same-named host's own plugin table but the final one's.
+    plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;
@@ -316,19 +322,35 @@ export async function loadRun(outRoot, { runId = null, allowPartial = false } = 
     }
     const insideWindow = Date.now() - probe.newestMtime < CE_RETENTION_MS;
     const id = probe.anyRunId;
-    if (insideWindow) {
-      return refuse('record-absent-inside-window',
-        `The run record for \`${id}\` is not present, and this scan is inside the retention ` +
-        'window — the record was deleted or moved.');
+    // ⚠️ CC-5: "the record was deleted or moved" used to be asserted as THE cause, but the
+    // evidence on disk here (a raw host directory naming this runId, no run-record file) cannot
+    // tell that apart from "the record was never successfully written in the first place" —
+    // `writeRunStart`'s own failure is warned and swallowed (cli.mjs), and the scan proceeds
+    // with `opts.runId` set regardless, so a disk fault at scan START leaves exactly this shape:
+    // real host evidence, no run record, ever. Name both real causes rather than the one that
+    // sounds most confident — same discipline `older-format` above already applies.
+    const eitherCause = 'This can mean the record was deleted or moved after being written, or ' +
+      'that it was never successfully written when the scan started (for example, a disk fault ' +
+      'at scan time). Both are real; what is on disk now cannot tell them apart.';
+    // ⚠️ CC-6: the CE_RETENTION_MS-based age check is a REAL policy only for the CE tier —
+    // `pruneRunRecordsForCE` is the only place anything ever prunes on it. Gating an "older than
+    // the retention window" sentence on it for a non-CE tier is what produced the prior
+    // self-contradiction ("this scan is older than the retention window... retention is
+    // unlimited on this tier" — both cannot be true). So the age axis is CONSULTED only when the
+    // tier is actually CE; every other tier gets the same honest, age-independent disjunction a
+    // CE run gets while still inside its own window.
+    if (env.tier === 'ce') {
+      if (insideWindow) {
+        return refuse('record-absent-inside-window',
+          `The run record for \`${id}\` is not present, though this scan is inside the ` +
+          `retention window. ${eitherCause}`);
+      }
+      return refuse('record-absent-outside-window',
+        `The run record for \`${id}\` is not present. Community Edition keeps run records for ` +
+        '7 days; this scan is older than that window.');
     }
-    // ⚠️ THE RETENTION EXPLANATION IS CE-ONLY. Telling a Pro/Enterprise customer "Community
-    // Edition keeps run records for 7 days" would explain their missing file with a policy that
-    // does not apply to them — a confident, wrong cause.
-    return refuse('record-absent-outside-window', env.tier === 'ce'
-      ? `The run record for \`${id}\` is not present. Community Edition keeps run records for ` +
-        '7 days; this scan is older than that window.'
-      : `The run record for \`${id}\` is not present, and this scan is older than the retention ` +
-        'window. Retention is unlimited on this tier, so the record was deleted or moved.');
+    return refuse('record-absent-inside-window',
+      `The run record for \`${id}\` is not present. ${eitherCause}`);
   }
 
   const newest = records[0].startedAt;

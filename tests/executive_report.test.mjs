@@ -24,16 +24,19 @@ const MODEL = {
     skipped: 3,
     errored: 1,
     timedOut: 0,
+    // `dir` mirrors the matching entry in `hosts:` below (report_inputs.mjs threads them
+    // through together — see CC-2) — the renderer keys its per-host plugin table by `dir`,
+    // never by `host` name, precisely because two directories can share a host name.
     byHost: [
-      { host: '10.0.0.1', status: [
+      { host: '10.0.0.1', dir: '10.0.0.1_20260826T091400Z', status: [
         { id: '003', name: 'Port Scanner', status: 'ran', reason: null },
         { id: '010', name: 'TLS Auditor', status: 'ran', reason: null },
       ] },
-      { host: '10.0.0.2', status: [
+      { host: '10.0.0.2', dir: '10.0.0.2_20260826T091405Z', status: [
         { id: '003', name: 'Port Scanner', status: 'ran', reason: null },
         { id: '020', name: 'HTTP Auditor', status: 'skipped', reason: 'no HTTP service detected' },
       ] },
-      { host: '10.0.0.3', status: [
+      { host: '10.0.0.3', dir: '10.0.0.3_20260826T091410Z', status: [
         { id: '003', name: 'Port Scanner', status: 'error', reason: 'connection refused' },
       ] },
     ],
@@ -244,6 +247,22 @@ test('the cover carries both dates, coverage, and the ordering rule for TOP RISK
   assert.match(html, /ordered by known-exploited first, then EPSS probability, then severity/);
 });
 
+// TEST-QUALITY FIX 1: no test previously asserted the KEV/EPSS *loaded* sentence — only the
+// loaded:false branch was pinned. A mutant dropping the snapshot date, or always printing
+// "unknown", would pass the whole suite for the one sentence `aggregateStoreLoad` and the
+// `dataAsOf` plumbing exist to produce.
+test('a loaded KEV/EPSS feed states its OWN snapshot date, not a placeholder', () => {
+  const html = renderExecutiveReport(MODEL, BRAND, {});
+  assert.match(html,
+    /Known-exploited status evaluated against the CISA KEV snapshot dated 2026-08-20\./,
+    'the KEV loaded sentence must carry the real snapshot date from the model');
+  assert.match(html,
+    /Exploitation probability from the FIRST EPSS snapshot dated 2026-08-20\./,
+    'the EPSS loaded sentence must carry the real snapshot date from the model');
+  assert.ok(!html.includes('snapshot dated unknown'),
+    'a real snapshot date must never be replaced by the "unknown" fallback');
+});
+
 test('the COVER never uses the forbidden vocabulary', () => {
   const html = renderExecutiveReport(MODEL, BRAND, {});
   const cover = html.match(/<section id="cover"[\s\S]*?<\/section>/)?.[0];
@@ -290,9 +309,54 @@ test('zero findings is a RENDER, and never says clean/secure/passed', () => {
 });
 
 test('an unloaded KEV feed says so rather than showing a silent zero', () => {
-  const model = { ...MODEL, kev: { loaded: false, snapshot: null } };
+  // Genuinely nothing evaluated: kev.loaded is false AND no finding on the page carries a real
+  // KEV result — the flat denial is TRUE here, unlike the CC-1 fixtures below.
+  const model = {
+    ...MODEL,
+    kev: { loaded: false, snapshot: null },
+    findings: MODEL.findings.map((f) => ({ ...f, kev: false })),
+  };
   const html = renderExecutiveReport(model, BRAND, {});
   assert.match(html, /Known-exploited status NOT evaluated — no CISA KEV feed was loaded for this scan\./);
+});
+
+// ── CC-1: the cover's KEV/EPSS sentence must never deny a check whose results are on the page ──
+
+test('CC-1: a real "Yes" finding survives an unfinalized (kevLoaded:false) run — the cover no longer flatly denies it', () => {
+  // Reachable shape: an interrupted run reported with --allow-partial. Finalize never ran, so
+  // kevLoaded stands at writeRunStart's pessimistic `false` default, while findings still carry
+  // real KEV marks from before the interruption (MODEL.findings already has f1.kev === true).
+  const model = { ...MODEL, kev: { loaded: false, snapshot: null } };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.ok(!/Known-exploited status NOT evaluated/.test(html),
+    'the cover flatly denied KEV evaluation while a finding on the same page is marked "Yes"');
+  assert.match(html, /evaluated for some but not all hosts/,
+    'the cover must state the partial truth instead of a flat denial');
+  // The per-finding "Yes" must still be present and must not have been reconciled by SUPPRESSING
+  // the true positive — the safe direction is never to deny a check whose results are on the page.
+  const topRisksSection = html.match(/<section id="top-risks"[\s\S]*?<\/section>/)?.[0];
+  assert.match(topRisksSection, /<td>Yes<\/td>/, 'the real KEV "Yes" must still render');
+});
+
+test('CC-1: the cover and the per-finding column can never both appear on the page in direct contradiction', () => {
+  const model = { ...MODEL, kev: { loaded: false, snapshot: null } };
+  const html = renderExecutiveReport(model, BRAND, {});
+  const cover = html.match(/<section id="cover"[\s\S]*?<\/section>/)?.[0];
+  const deniesEvaluation = /Known-exploited status NOT evaluated/.test(cover);
+  const hasAYes = /<td>Yes<\/td>/.test(html);
+  assert.ok(!(deniesEvaluation && hasAYes),
+    'the document contained both an outright KEV denial and a finding marked Yes');
+});
+
+test('CC-1: with no KEV signal anywhere, an unfinalized run still gets the flat, honest denial', () => {
+  const model = {
+    ...MODEL,
+    kev: { loaded: false, snapshot: null },
+    findings: MODEL.findings.map((f) => ({ ...f, kev: false })),
+  };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /Known-exploited status NOT evaluated — no CISA KEV feed was loaded for this scan\./,
+    'a genuinely-nothing-evaluated run must still say so plainly — the fix must not overclaim either');
 });
 
 test('--allow-partial moves the disclosure to the cover; it never removes it', () => {
@@ -300,6 +364,33 @@ test('--allow-partial moves the disclosure to the cover; it never removes it', (
     written: 12, missing: ['10.0.0.7', '10.0.0.9'] } };
   const html = renderExecutiveReport(model, BRAND, {});
   assert.match(html, /2 of 14 requested hosts were not scanned: 10\.0\.0\.7, 10\.0\.0\.9\./);
+});
+
+// CC-3: reproduced exactly as the review found it — 5 requested / 2 written / 2 reachable. The
+// three hosts that were never even WRITTEN must not ALSO be reported as an affirmative
+// "not reachable" (a probe that ran and failed) — those are two incompatible statuses for the
+// same three hosts on the same page.
+test('CC-3: "N not reachable" counts only hosts that were WRITTEN, never merely REQUESTED', () => {
+  const dirs = ['10.0.0.1_ts1', '10.0.0.2_ts2'];
+  const model = {
+    ...MODEL,
+    coverage: { requested: 5, written: 2, reachable: 2,
+      missing: ['10.0.0.4', '10.0.0.5', '10.0.0.6'], partial: true, incomplete: false },
+    hosts: [
+      { host: '10.0.0.1', dir: dirs[0], up: true, findings: [] },
+      { host: '10.0.0.2', dir: dirs[1], up: true, findings: [] },
+    ],
+    findings: [],
+    plugins: { ran: 0, skipped: 0, errored: 0, timedOut: 0, byHost: [
+      { host: '10.0.0.1', dir: dirs[0], status: [] },
+      { host: '10.0.0.2', dir: dirs[1], status: [] },
+    ] },
+  };
+  const html = renderExecutiveReport(model, BRAND, {});
+  assert.match(html, /5 hosts requested · 2 reachable · 0 not reachable\./,
+    'a host that was never written cannot be reported as an affirmative "not reachable" result');
+  assert.match(html, /3 of 5 requested hosts were not scanned: 10\.0\.0\.4, 10\.0\.0\.5, 10\.0\.0\.6\./,
+    'the genuine gap is still disclosed — just not double-counted as "not reachable" too');
 });
 
 test('--allow-partial over an INCOMPLETE run renders its own caveat, not the partial-hosts one', () => {
@@ -339,6 +430,61 @@ test('the severity chart agrees with its own table', () => {
   }
 });
 
+// CC-2: colliding host NAMES (`--host 10.0.0.7,10.0.0.7`, a repeated --host-file line, an
+// overlapping range — utils/host_iterator.mjs de-duplicates none of these) must not double a
+// finding across two same-named host sections, and must not let a Map's last-write-wins silently
+// drop one directory's own plugin-status table. Deliberately uses DISTINCT host names nowhere —
+// this is the exact fixture the existing 'severity chart agrees with its own table' test above
+// cannot catch, because every one of its fixtures uses distinct host names.
+test('CC-2: colliding host names do not double findings or delete a plugin-status table', () => {
+  const dirA = 'dup.example.test_20260826T091400Z';
+  const dirB = 'dup.example.test_20260826T091405Z';
+  const findingA = { host: 'dup.example.test', port: 22, severity: 'HIGH',
+    title: 'First directory finding', detail: null, remediation: null,
+    cves: [], kev: false, epss: null, id: 'dupA1' };
+  const findingB = { host: 'dup.example.test', port: 80, severity: 'MEDIUM',
+    title: 'Second directory finding', detail: null, remediation: null,
+    cves: [], kev: false, epss: null, id: 'dupB1' };
+  const collidingModel = {
+    ...MODEL,
+    coverage: { requested: 2, written: 2, reachable: 2, missing: [], partial: false, incomplete: false },
+    plugins: {
+      ran: 2, skipped: 0, errored: 0, timedOut: 0,
+      byHost: [
+        { host: 'dup.example.test', dir: dirA,
+          status: [{ id: '900', name: 'Plugin One', status: 'ran', reason: null }] },
+        { host: 'dup.example.test', dir: dirB,
+          status: [{ id: '901', name: 'Plugin Two', status: 'ran', reason: null }] },
+      ],
+    },
+    hosts: [
+      { host: 'dup.example.test', dir: dirA, up: true, findings: [findingA] },
+      { host: 'dup.example.test', dir: dirB, up: true, findings: [findingB] },
+    ],
+    findings: [findingA, findingB],
+  };
+  const html = renderExecutiveReport(collidingModel, BRAND, {});
+  const chartTotal = [...html.matchAll(/<rect[^>]*data-count="(\d+)"/g)]
+    .reduce((sum, [, n]) => sum + Number(n), 0);
+  assert.equal(chartTotal, 2, 'the chart must count each finding exactly once');
+  // NOT a non-greedy `[\s\S]*?<\/section>` — the appendix section NESTS a `<section class="host">`
+  // per host, so a non-greedy match stops at the FIRST nested closing tag and silently truncates
+  // to just the first host, which is exactly the kind of false clean this test exists to avoid.
+  // The appendix is the last section before the footer, so slicing to end of string is exact.
+  const appendixStart = html.indexOf('<section id="appendix">');
+  assert.ok(appendixStart !== -1, 'the rendered document has no appendix section');
+  const appendix = html.slice(appendixStart);
+  const appendixRows = [...appendix.matchAll(/<tr data-row-severity="[A-Z]+">/g)].length;
+  assert.equal(appendixRows, 2,
+    'the appendix must not double a finding across two same-named host sections');
+  assert.ok(appendix.includes('Plugin One'),
+    'the FIRST directory\'s plugin-status table must survive a same-named sibling');
+  assert.ok(appendix.includes('Plugin Two'),
+    'the SECOND directory\'s plugin-status table must also render, not be Map-overwritten');
+  const hostSections = [...appendix.matchAll(/<section class="host">/g)];
+  assert.equal(hostSections.length, 2, 'both directories must render their own section');
+});
+
 // ── Adversarial pass: what the brief's planted-violation list does not name ────────────────
 //
 // The model's own data — finding titles, host names, plugin names, remediation text — reaches
@@ -373,6 +519,8 @@ test('malicious finding/host/plugin data cannot defeat the invariant, and render
       ran: 1, skipped: 0, errored: 0, timedOut: 0,
       byHost: [{
         host: maliciousHost,
+        // Must match hosts[0].dir above — the renderer keys the plugin-status lookup by dir.
+        dir: '10.0.0.1_ts"><script>alert(2)</script>',
         status: [{ id: '999', name: '<script>alert(8)</script>', status: 'error', reason: '"><script>alert(9)</script>' }],
       }],
     },

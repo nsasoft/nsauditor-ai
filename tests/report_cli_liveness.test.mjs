@@ -43,7 +43,14 @@ function writeHostDir(outRoot, dir, runId, { up = true, findings = [], pluginSta
   }), 'utf8');
 }
 
-async function completeRunFixture({ findings = [{ severity: 'HIGH', title: 'Weak TLS', port: 443 }] } = {}) {
+// TEST-QUALITY FIX 2: `cves` must be present here — a finding with no CVE never exercises the
+// <a href="https://nvd.nist.gov/…"> exemption, the ONE place egressViolations' own invariant
+// deliberately permits an external URL, over bytes the renderer actually wrote (as opposed to a
+// hand-built fixture string in tests/executive_report.test.mjs). Without it, both tests below
+// that assert `egressViolations(html) === []` would pass identically whether that exemption leg
+// works or is silently broken.
+async function completeRunFixture({ findings = [{ severity: 'HIGH', title: 'Weak TLS', port: 443,
+  cves: ['CVE-2023-38408'] }] } = {}) {
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-live-'));
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt: '2026-08-26T09:14:00.000Z',
@@ -104,6 +111,10 @@ test('PRO RENDERS through the published bin, and the REAL output satisfies the i
   const f = fs.readdirSync(outRoot).find((x) => x.endsWith('.html'));
   assert.ok(f, 'the published bin must have written an .html file under --from');
   const html = fs.readFileSync(path.join(outRoot, f), 'utf8');
+  // Proves the CVE exemption leg was actually EXERCISED here, not merely that egressViolations
+  // returned [] (which would also be true if the CVE never reached the document at all).
+  assert.match(html, /href="https:\/\/nvd\.nist\.gov\/vuln\/detail\/CVE-2023-38408"/,
+    'the CVE citation link must reach the real rendered output, not just a hand-built fixture');
   assert.deepEqual(egressViolations(html), [], 'a REAL rendered report violated the invariant');
 });
 
@@ -118,5 +129,7 @@ test('a report rendered by the REAL renderer satisfies the invariant', async () 
   const f = fs.readdirSync(outRoot).find((x) => x.endsWith('.html'));
   assert.ok(f, 'the handler must have written an .html file under --from');
   const html = fs.readFileSync(path.join(outRoot, f), 'utf8');
+  assert.match(html, /href="https:\/\/nvd\.nist\.gov\/vuln\/detail\/CVE-2023-38408"/,
+    'the CVE citation link must reach the real rendered output, not just a hand-built fixture');
   assert.deepEqual(egressViolations(html), [], 'a REAL rendered report violated the invariant');
 });

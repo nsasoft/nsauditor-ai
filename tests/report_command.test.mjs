@@ -326,6 +326,59 @@ test('ADVERSARIAL: --run naming a run that genuinely does not exist is refused a
   assert.equal(r.code, 2);
 });
 
+// ── CC-4: a value-less --brand/--run/--out/--from must be FATAL, never a silent default. ────────
+// `parseArgs` preserves the raw tri-state (undefined absent / `true` value-less / string
+// present) for these four flags specifically so this is reachable; `str()` used to collapse
+// value-less to the SAME `null` an absent flag produces, and for --brand that meant a shell glob
+// that swallowed the path produced the IDENTICAL unbranded default report, at exit 0, as never
+// asking for a brand at all — silently. These pass `true` directly (the handler-level shape of a
+// value-less flag) rather than spawning a shell, since the shell-glob mechanics themselves are
+// parseArgs's job, covered separately below.
+
+test('CC-4: a value-less --brand is FATAL, not a silent unbranded default', async () => {
+  const outRoot = await completeRunFixture();
+  const r = await runReport({ from: outRoot, format: 'executive', brand: true }, PRO);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--brand/);
+  assert.equal(fs.readdirSync(outRoot).some((f) => f.endsWith('.html')), false,
+    'a refused request must not still write a degraded report');
+});
+
+test('CC-4: a value-less --run is FATAL, not a silent "pick the newest run"', async () => {
+  const outRoot = await completeRunFixture();
+  const r = await runReport({ from: outRoot, format: 'executive', run: true }, PRO);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--run/);
+});
+
+test('CC-4: a value-less --out is FATAL, not a silent default output path', async () => {
+  const outRoot = await completeRunFixture();
+  const r = await runReport({ from: outRoot, format: 'executive', out: true }, PRO);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--out/);
+  assert.equal(fs.readdirSync(outRoot).filter((f) => /^report_.*\.html$/.test(f)).length, 0,
+    'a refused request must not still write the default-named report');
+});
+
+test('CC-4: a value-less --from is FATAL, distinctly from a genuinely absent one', async () => {
+  const r = await runReport({ from: true, format: 'executive' }, PRO);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--from/);
+});
+
+test('CC-4: through the REAL bin, a shell glob that swallows --brand\'s argument is refused, not silently unbranded', async () => {
+  // Reproduces the review's exact example: `--brand` as the LAST token, as a shell glob
+  // matching nothing would leave it (bash leaves the literal glob pattern; a glob matching
+  // nothing under nullglob removes the argument entirely — either way `--brand` ends up with no
+  // following value). Drives the REAL parseArgs() tri-state, not a hand-built args object.
+  const outRoot = await completeRunFixture();
+  const r = await runCli(['report', '--from', outRoot, '--format', 'executive', '--brand'], PRO_KEY);
+  assert.equal(r.code, 2, 'a swallowed --brand value must refuse, not silently render unbranded');
+  assert.match(r.stderr, /--brand/);
+  assert.equal(fs.readdirSync(outRoot).some((f) => f.endsWith('.html')), false,
+    'a refused request must not still write a degraded, unbranded report');
+});
+
 // ── Exhaustive-switch coverage. Constraint 5 requires the ten `loadRun` reasons to be mapped by
 // an EXHAUSTIVE switch, not an if/else — the six tests above and below exercise `partial-hosts`,
 // `incomplete-run` and `no-run` already; these fill in the remaining reasons so a mutant that
@@ -477,4 +530,29 @@ test('ADVERSARIAL: a nonexistent --brand path is refused (2), not silently rende
   const r = await runReport({ from: outRoot, format: 'executive', brand: '/nonexistent/dir/brand.json' }, PRO);
   assert.equal(r.code, 2);
   assert.match(r.stderr, /Could not read the brand file/);
+});
+
+// ── CC-8: `report` must be discoverable from `nsauditor-ai help`, and its flags must appear in
+// SOME usage text. Before this fix, `help` listed scan/license/security/validate/version/help
+// and named none of `report`'s flags — and npm freezes the README at publish time, so a missing
+// row there is permanent until the next release. ─────────────────────────────────────────────
+
+test('CC-8: `nsauditor-ai help` advertises the report subcommand and its flags', () => {
+  const bin = new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [bin, 'help'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, `help must exit 0: ${r.stderr}`);
+  const out = r.stdout;
+  assert.ok(out.length > 2000, 'help output is implausibly short — the CLI did not print its help');
+  assert.match(out, /nsauditor-ai report\b/, '`report` is absent from the help usage summary');
+  for (const flag of ['--from', '--format', '--run', '--brand', '--out', '--allow-partial']) {
+    assert.ok(out.includes(flag), `\`report\`'s ${flag} flag never appears in any help text`);
+  }
+});
+
+test('CC-8: the README documents `report`, keeping the Jira honesty limit verbatim', () => {
+  const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /nsauditor-ai report\b/, '`report` is absent from the README CLI reference');
+  assert.match(readme,
+    /the import mapping is done in Jira and has not been verified against a live Jira instance/,
+    'the Jira honesty limit must be carried verbatim, not paraphrased into a stronger claim');
 });

@@ -233,15 +233,53 @@ function partialCaveat(coverage) {
   return `${gap} of ${coverage.requested} requested hosts were not scanned.`;
 }
 
+// CC-1: `model.kev.loaded`/`model.epss.loaded` are WHOLE-RUN, all-or-nothing aggregates
+// (aggregateStoreLoad in cli.mjs: true only if EVERY written host reported a snapshot date).
+// A per-finding `f.kev`/`f.epss` is set independently, per host, by EE's enrichment — and the
+// two can disagree for two real reasons, neither exotic: (1) an interrupted run reported with
+// `--allow-partial`, where finalize never ran so `kevLoaded` still holds `writeRunStart`'s
+// pessimistic `false` default while individual findings carry real enrichment from before the
+// interruption; (2) a completed multi-host run where the aggregate is honestly `false` because
+// ONE host's enrichment failed to report a snapshot date, while every OTHER host's findings were
+// genuinely evaluated. Denying the check outright ("NOT evaluated") on this page is FALSE the
+// moment any finding below it shows a real result — and Top Risks' own ordering rule ("ordered
+// by known-exploited first…") would then be citing a signal this same cover just denied.
+//
+// The safe direction is never to deny a check whose results are ON THE PAGE. So the cover looks
+// at the model's own findings before it is allowed to say NOT evaluated: if the aggregate says
+// no but at least one finding carries a real result anyway, the cover states the truth — partial,
+// uncertain coverage — rather than a flat denial that the page immediately contradicts. Only
+// `kev === true` is a legible per-finding SIGNAL here — `shapeFinding()` collapses "evaluated
+// clear" and "never evaluated" to the same `false`, so a false/null value proves nothing and is
+// not used to override the aggregate; only an unambiguous `true` (or a real EPSS number) can.
+function kevEvaluatedSomewhere(findings) {
+  return findings.some((f) => f.kev === true);
+}
+function epssEvaluatedSomewhere(findings) {
+  return findings.some((f) => typeof f.epss === 'number' && Number.isFinite(f.epss));
+}
+
 function renderKevEpss(model) {
+  const findings = model.findings ?? [];
+  const kevSeen = kevEvaluatedSomewhere(findings);
+  const epssSeen = epssEvaluatedSomewhere(findings);
   const kevLine = model.kev?.loaded
     ? `Known-exploited status evaluated against the CISA KEV snapshot dated `
       + `${escapeHtml(String(model.kev.snapshot ?? 'unknown'))}.`
-    : 'Known-exploited status NOT evaluated — no CISA KEV feed was loaded for this scan.';
+    : kevSeen
+      ? 'Known-exploited status evaluated for some but not all hosts in this scan — the CISA '
+        + 'KEV feed was not confirmed loaded for the whole run. A finding marked "Yes" below was '
+        + 'matched against KEV; one not marked "Yes" may be genuinely clear, or simply '
+        + 'unconfirmed.'
+      : 'Known-exploited status NOT evaluated — no CISA KEV feed was loaded for this scan.';
   const epssLine = model.epss?.loaded
     ? `Exploitation probability from the FIRST EPSS snapshot dated `
       + `${escapeHtml(String(model.epss.snapshot ?? 'unknown'))}.`
-    : 'Exploitation probability NOT evaluated — no FIRST EPSS feed was loaded for this scan.';
+    : epssSeen
+      ? 'Exploitation probability available for some but not all hosts in this scan — the FIRST '
+        + 'EPSS feed was not confirmed loaded for the whole run. A percentage shown below is a '
+        + 'real score; a missing one may be genuinely absent, or simply unconfirmed.'
+      : 'Exploitation probability NOT evaluated — no FIRST EPSS feed was loaded for this scan.';
   return `<p>${kevLine}</p>\n<p>${epssLine}</p>`;
 }
 
@@ -265,7 +303,15 @@ function renderBrandBlock(brand) {
 
 function renderCoverageSummary(model) {
   const c = model.coverage;
-  const notReachable = Math.max(0, c.requested - c.reachable);
+  // CC-3: derived from WRITTEN, never REQUESTED. "Not reachable" is an AFFIRMATIVE negative
+  // result — it tells the client a probe actually ran against that host and failed. A host that
+  // was requested but never even WRITTEN (report_inputs.mjs deliberately keeps `requested` /
+  // `written` / `reachable` apart — see its own "coverage separates unreachable from
+  // not-written" test) was never probed at all; the data does not support calling it "not
+  // reachable". That gap is already disclosed, honestly, by partialCaveat() below ("N of M
+  // requested hosts were not scanned") — collapsing it into this line as well double-counts the
+  // SAME hosts under two incompatible statuses on the same page.
+  const notReachable = Math.max(0, c.written - c.reachable);
   const lines = [];
   // c.requested/c.reachable/notReachable are computed integers (report_inputs.mjs's own
   // coverage arithmetic), not scanner- or operator-supplied strings — deliberately unescaped,
@@ -399,21 +445,26 @@ ${rows}
 </table>`;
 }
 
+// CC-2: `model.hosts` is one entry per scan DIRECTORY (each carrying its own already-scoped
+// `findings` array — see report_inputs.mjs's buildModel), and two directories can share a host
+// NAME (`--host 10.0.0.7,10.0.0.7`, a repeated --host-file line, an overlapping range — none of
+// which utils/host_iterator.mjs de-duplicates). The previous version rebuilt a `byHost` map
+// keyed by NAME from the flattened `model.findings`, so every same-named directory's section
+// rendered ALL of that name's findings (doubling them across sections), and `pluginByHost`
+// — also name-keyed — was last-write-wins, silently dropping every same-named host's plugin
+// table but the final one's. The fix uses `h.findings` directly (already correctly scoped per
+// directory, never re-derived) and keys the plugin-status lookup by `dir`, which is unique per
+// scan attempt by construction (`path.basename(outDir)`, timestamped — cli.mjs).
 function renderAppendix(model) {
-  const byHost = new Map();
-  for (const f of model.findings) {
-    if (!byHost.has(f.host)) byHost.set(f.host, []);
-    byHost.get(f.host).push(f);
-  }
-  const pluginByHost = new Map((model.plugins?.byHost ?? []).map((h) => [h.host, h.status]));
+  const pluginByDir = new Map((model.plugins?.byHost ?? []).map((h) => [h.dir, h.status]));
 
   const sections = (model.hosts ?? []).map((h) => {
-    const findings = byHost.get(h.host) ?? [];
+    const findings = h.findings ?? [];
     const reach = h.up ? 'reachable' : 'not reachable';
     return `<section class="host">
 <h3>${escapeHtml(h.host)} — ${reach}</h3>
 <p class="dir">Evidence directory: ${escapeHtml(h.dir ?? '')}</p>
-${renderPluginStatus(pluginByHost.get(h.host))}
+${renderPluginStatus(pluginByDir.get(h.dir))}
 ${renderFindingsTable(findings)}
 </section>`;
   }).join('\n');

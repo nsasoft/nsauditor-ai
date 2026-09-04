@@ -103,6 +103,41 @@ test('REFUSAL: record absent, raw OUTSIDE the window on CE — the retention exp
   assert.match(r.message, /Community\s*\n?\s*Edition keeps run records for 7 days|Community Edition keeps run records for 7 days/);
 });
 
+// CC-5: a `writeRunStart` failure (warned and swallowed in cli.mjs, opts.runId still set) can
+// leave EXACTLY this shape — real host evidence, no run record, ever — and that is
+// indistinguishable on disk from a record that WAS written and later deleted or moved. Neither
+// cause may be asserted alone.
+test('CC-5: record absent, raw INSIDE the window on a NON-CE tier — both real causes are named, not one asserted as fact', async () => {
+  const outRoot = tmp();
+  writeHostDir(outRoot, 'd7', 'run-abc');
+  const r = await loadRun(outRoot, {}, { tier: 'pro' });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'record-absent-inside-window');
+  assert.match(r.message, /never successfully written when the scan started/,
+    'a write failure at scan start must be named as a real possibility, not silently excluded');
+  assert.match(r.message, /deleted or moved/,
+    'deletion/move must still be named as a real possibility');
+});
+
+// CC-6: the CE_RETENTION_MS age check is a real POLICY only on CE (pruneRunRecordsForCE is the
+// only thing that ever prunes on it) — so a non-CE tier must never be told the scan is "older
+// than the retention window" while ALSO being told retention is unlimited on its tier. Both
+// halves cannot be true at once; the fix removes the age-based framing entirely for non-CE.
+test('CC-6: a non-CE tier, however OLD the scan, never gets the self-contradicting retention sentence', async () => {
+  const outRoot = tmp();
+  writeHostDir(outRoot, 'd7', 'run-abc');
+  const old = new Date(Date.now() - 40 * 86_400_000); // well outside CE's 7-day window
+  fs.utimesSync(path.join(outRoot, 'd7', 'scan_conclusion_raw.json'), old, old);
+  const r = await loadRun(outRoot, {}, { tier: 'pro' });
+  assert.equal(r.ok, false);
+  assert.notEqual(r.reason, 'record-absent-outside-window',
+    'a non-CE tier has no age-based retention policy to attribute the absence to');
+  assert.ok(!/older than the retention window/.test(r.message),
+    'a non-CE tier must never be told its scan is older than a retention window it does not have');
+  assert.ok(!/retention is unlimited/i.test(r.message) || !/older than/.test(r.message),
+    'retention-is-unlimited and older-than-the-window must never both appear — that is the CC-6 contradiction');
+});
+
 test('REFUSAL: two-way binding mismatch — a directory copied in from another engagement', async () => {
   const outRoot = tmp(), runId = newRunId();
   await writeRunStart(outRoot, { ...BASE, runId, startedAt: '2026-08-26T09:14:00.000Z',
@@ -302,6 +337,37 @@ test('plugin status counts sum across hosts, and byHost carries the per-host man
   const d7 = r.model.plugins.byHost.find((h) => h.host === '10.0.0.7');
   assert.ok(Array.isArray(d7.status));
   assert.equal(d7.status.length, 2);
+});
+
+// CC-2 (producer side): two DIRECTORIES sharing one host name (`--host 10.0.0.7,10.0.0.7`, a
+// repeated --host-file line — utils/host_iterator.mjs de-duplicates neither) must still be
+// distinguishable downstream. `dir` is what the renderer keys on (executive_report.mjs's
+// renderAppendix) precisely because `host` alone cannot tell the two apart here.
+test('CC-2: plugins.byHost carries `dir` alongside `host`, distinguishing two same-named directories', async () => {
+  const outRoot = tmp(), runId = newRunId();
+  await writeRunStart(outRoot, { ...BASE, runId, startedAt: '2026-08-26T09:14:00.000Z',
+    hostsRequested: ['10.0.0.7', '10.0.0.7'] });
+  writeHostDir(outRoot, 'dupA', runId, { pluginStatus: [
+    { id: '900', name: 'Plugin One', status: 'ran', reason: null },
+  ] });
+  writeHostDir(outRoot, 'dupB', runId, { pluginStatus: [
+    { id: '901', name: 'Plugin Two', status: 'ran', reason: null },
+  ] });
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'dupA' });
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'dupB' });
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-08-26T09:31:00.000Z' });
+  const r = await loadRun(outRoot, {});
+  assert.equal(r.ok, true);
+  assert.equal(r.model.plugins.byHost.length, 2, 'both same-named directories must produce their own entry');
+  const dirs = r.model.plugins.byHost.map((h) => h.dir).sort();
+  assert.deepEqual(dirs, ['dupA', 'dupB'], 'each entry must carry its OWN directory, not just the shared host name');
+  const byDir = new Map(r.model.plugins.byHost.map((h) => [h.dir, h.status[0]?.name]));
+  assert.equal(byDir.get('dupA'), 'Plugin One');
+  assert.equal(byDir.get('dupB'), 'Plugin Two');
+  // model.hosts must ALSO stay per-directory — this is what lets the renderer use each host
+  // entry's own `findings` directly instead of re-deriving them by (collision-prone) name.
+  assert.equal(r.model.hosts.length, 2);
+  assert.deepEqual(r.model.hosts.map((h) => h.dir).sort(), ['dupA', 'dupB']);
 });
 
 test('kev/epss flags pass through honestly; CE carries kevLoaded:false with no synthesised snapshot', async () => {
