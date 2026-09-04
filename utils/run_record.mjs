@@ -15,18 +15,34 @@ import { CE_RETENTION_MS } from './scan_history.mjs';
 export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 
+// ⚠️ NEITHER "path-then-userinfo" NOR "userinfo-then-path" is correct on its own — each order
+// gets a real shape wrong, and the fix is authority-first with a credential-shaped fallback,
+// not a third ordering of the same two steps.
+//   - Splitting on `/` BEFORE stripping userinfo cuts a password containing `/` (routine in
+//     base64) at that slash, discards the remainder — the host included — and leaves
+//     `username:half-password` with no `@` in it: a credential fragment, and the host is GONE.
+//   - Stripping on the LAST `@` in the WHOLE string before splitting on `/` (the first fix)
+//     over-corrects: `https://user:pass@host/path@x` has a second `@` inside the PATH, so
+//     `lastIndexOf('@')` finds that one instead and returns `x` — the host is gone the other way.
+// The authority (everything before the first `/`) is where URL semantics put userinfo, so look
+// for `@` THERE first. Only when the authority contains no `@` but the full string does — the
+// `user:pa/ss@host` shape, where a `/` inside the password terminated the authority early — is
+// the fallback needed, and even then it must not fire over a real `host:port` or a bare host
+// name (a colon whose suffix is BOTH present and all-digits is a port, not a password separator).
 export function normaliseHost(raw) {
-  let s = String(raw ?? '').trim();
-  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');   // scheme
-  // Userinfo BEFORE the path split. A password routinely contains `/` (base64), and
-  // splitting on `/` first cuts the password at that slash, discards the remainder
-  // (host included) with it, and leaves `username:half-password` looking like a bare
-  // host with no `@` in it — a credential fragment, and the host is GONE. Order fixes
-  // both: the host survives, and no credential fragment can ride past this point.
-  const at = s.lastIndexOf('@');
-  if (at !== -1) s = s.slice(at + 1);               // userinfo
-  s = s.split('/')[0];                              // path
-  return s;
+  const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');   // scheme
+  const auth = s.split('/')[0];
+  const at = auth.lastIndexOf('@');
+  if (at !== -1) return auth.slice(at + 1);        // userinfo lived inside the authority: done
+  if (s.includes('@')) {
+    const col = auth.lastIndexOf(':');
+    const isHostPort = col !== -1 && /^\d+$/.test(auth.slice(col + 1));
+    const isBareHost = col === -1;
+    if (!isHostPort && !isBareHost) {
+      return s.slice(s.lastIndexOf('@') + 1).split('/')[0];
+    }
+  }
+  return auth;
 }
 
 export function runRecordPath(outRoot, runId) {
@@ -50,13 +66,18 @@ export function newRunId() {
 // `readRunRecord` then reports as ABSENT, and every later append or finalize call silently
 // returns false against a record that never actually disappeared.
 async function writeJsonSafe(file, obj, what) {
+  const tmpFile = `${file}.tmp`;
   try {
     await fsp.mkdir(path.dirname(file), { recursive: true });
-    const tmpFile = `${file}.tmp`;
     await fsp.writeFile(tmpFile, JSON.stringify(obj, null, 2), 'utf8');
     await fsp.rename(tmpFile, file);
     return file;
   } catch (e) {
+    // `writeFile` can succeed and the following `rename` can still fail, leaving the `.tmp`
+    // behind — a stray file in the out root that a compliance evidence-pack walk will meet.
+    // Best-effort cleanup; if it was never created (mkdir/writeFile itself failed), this is a
+    // harmless ENOENT.
+    await fsp.unlink(tmpFile).catch(() => {});
     console.warn(`[RunRecord] could not write ${what}: ${e?.message || e}`);
     return null;
   }
