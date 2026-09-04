@@ -16,20 +16,36 @@ export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 
 // ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". Deliberately the
-// simplest rule that can hold it: after the LAST '@', then cut the path. No heuristics, because
-// every heuristic tried here bought a leak. Three did:
+// simplest rule that can hold it: decode an encoded separator, then after the LAST '@', then cut
+// at the first URL delimiter. No heuristics, because every heuristic tried here bought a leak:
 //   authority-first  leaked `admin:1234` from `admin:1234/56@10.0.0.7` (a numeric password with
 //                    a slash reads exactly like host:port)
 //   credential-first leaked `ss` from `user:p@ss/wd@host` (a '/' inside the password truncates
 //                    the authority before the second '@' is seen)
-// ACCEPTED COST, stated rather than hidden: four shapes carrying an '@' inside a PATH — e.g.
-// `https://user:pass@host/path@x` and `10.0.0.7/path@x` — resolve to the path fragment instead
-// of the host. A wrong host with no credential is the safe direction; a right host with a
-// credential sometimes is not. None is a `--host` value anyone types.
+// Two more findings were second CREDENTIAL SHAPES, not further heuristics:
+//   query/fragment   cutting on '/' alone left `10.0.0.7?api_key=SECRET123` and
+//                    `10.0.0.7#SECRET123` attached to the host, since neither has a '/' to cut
+//                    on — closed by cutting on '/', '?' AND '#'.
+//   percent-encoded  `user:pass%40host` has NO literal '@', so `lastIndexOf('@')` returned -1,
+//   separator        took the "no userinfo" branch, and returned the WHOLE credential-bearing
+//                    string unstripped — worse than any fragment leak, because nothing was
+//                    stripped at all. Reachable: the record is written at scan START from
+//                    `hostsRequested`, before DNS resolution, so a host that can never resolve
+//                    still lands in the file. Closed by decoding `%40` to `@` before deciding.
+// ACCEPTED COST, stated rather than hidden: shapes carrying a URL delimiter inside a PATH with no
+// preceding userinfo — e.g. `https://user:pass@host/path@x` and `10.0.0.7/path@x` — resolve to
+// the fragment after that delimiter instead of the host. A wrong host with no credential is the
+// safe direction; a right host with a credential sometimes is not. None is a `--host` value
+// anyone types.
 export function normaliseHost(raw) {
-  const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const s0 = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  // A legitimate host can never contain `%40`. Only an encoded SEPARATOR or an encoded '@'
+  // inside a password can, and both must be readable by the same rule — otherwise a
+  // percent-encoded separator takes the "no userinfo" branch below and the entire credential
+  // string is returned unstripped. Decode before deciding.
+  const s = s0.replace(/%40/gi, '@');
   const at = s.lastIndexOf('@');
-  return (at === -1 ? s : s.slice(at + 1)).split('/')[0];
+  return (at === -1 ? s : s.slice(at + 1)).split(/[/?#]/)[0];
 }
 
 export function runRecordPath(outRoot, runId) {

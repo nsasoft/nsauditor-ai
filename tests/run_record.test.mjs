@@ -12,15 +12,23 @@ import {
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-run-'));
 
-// ⚠️ STRUCTURAL, NOT A TOKEN LIST. A list of forbidden substrings only catches the credentials
-// someone thought to plant: when a rejected rule leaked `ssword123`, a token list built from the
-// OTHER fixtures missed it entirely. This asks the only question that matters — did the output
-// draw any bytes from BEFORE the last '@'? — and it needs no vocabulary at all.
-function drawsFromCredentialSide(raw, out) {
-  const s = String(raw).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+// ⚠️ AN ORACLE HAS A MODEL, AND A MODEL HAS A BOUNDARY. The first version of this asked only
+// "did the output draw bytes from before the last '@'?" — which is blind to a SECOND credential
+// shape, a token in a query string or fragment, because those bytes are AFTER the '@'
+// (`10.0.0.7?api_key=SECRET123` drew nothing from before any '@' — there is none — and passed
+// clean). Asserting the output is the maximal DELIMITER-FREE prefix of the post-'@' segment
+// covers both: nothing from the credential side, and nothing from the query/fragment side either.
+// A THIRD shape — `user:pass%40host`, a PERCENT-ENCODED '@' — showed the oracle shares the
+// production rule's blind spot for the same reason: both key off a LITERAL '@'. Decoding `%40`
+// here mirrors the production decode; without it, this oracle would call that row clean too.
+// ⚠️ THIS IS NOW THE SAME EXPRESSION AS THE PRODUCTION RULE, so it cannot be the only guard — a
+// shared expression proves CONSISTENCY, not correctness. The fixture table's explicit expected
+// column remains the independent statement of truth; this oracle's job is catching a row nobody
+// thought to add, not replacing the table.
+function expectedHostToken(raw) {
+  const s = String(raw).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/%40/gi, '@');
   const at = s.lastIndexOf('@');
-  if (at === -1) return false;              // no userinfo is possible in this input
-  return !s.slice(at + 1).startsWith(out);  // anything else came from the credential side
+  return (at === -1 ? s : s.slice(at + 1)).split(/[/?#]/)[0];
 }
 
 test('normaliseHost leaves an ordinary host untouched', () => {
@@ -41,19 +49,26 @@ test('normaliseHost strips userinfo and scheme — a credential must never reach
   }
 });
 
-test('normaliseHost: the simplest rule that holds "no credential, ever" — last @, then cut the path', async (t) => {
+test('normaliseHost: the simplest rule that holds "no credential, ever" — last @, then cut at the first URL delimiter', async (t) => {
   // ⚠️ THE INVARIANT IS "NO CREDENTIAL, EVER" — NOT "THE HOST SURVIVES". Every heuristic tried
   // on this function bought a leak of its own: authority-first leaked `admin:1234` out of
   // `admin:1234/56@10.0.0.7` (a numeric password with a slash reads exactly like host:port);
   // credential-first leaked `ss` out of `user:p@ss/wd@host` (a '/' inside the password
-  // truncates the authority before the SECOND '@' is ever seen). This table is the accumulated
-  // record of every shape that motivated a rule change, kept — not trimmed — so the next
-  // maintainer can see exactly what was tried and why each one failed.
+  // truncates the authority before the SECOND '@' is ever seen). Two further finds were SECOND
+  // and THIRD credential shapes rather than further heuristics: cutting on '/' alone left a
+  // query string or fragment (`10.0.0.7?api_key=SECRET123`, `10.0.0.7#SECRET123`) attached to
+  // the host, since neither has a '/' to cut on; and a percent-encoded '@' (`user:pass%40host`)
+  // is not a literal '@', so `lastIndexOf('@')` returned -1, took the "no userinfo" branch, and
+  // returned the WHOLE credential-bearing string unstripped — worse than any fragment leak,
+  // because nothing was stripped at all. This table is the accumulated record of every shape
+  // that motivated a change, kept — not trimmed — so the next maintainer can see exactly what
+  // was tried and why each one failed.
   // Each row is its OWN subtest — a for-loop with one `assert.equal` per row would let the
   // FIRST failing row's thrown assertion mask every later row (a loud defect hiding a silent
   // one on the same condition; measured directly in an earlier round of this same table).
   const cases = [
-    // Leaks under one or another PRIOR rule — all closed by "last @, then cut the path".
+    // Leaks under one or another PRIOR rule — all closed by "last @, then cut at the first
+    // URL delimiter".
     ['user:pa/ss@10.0.0.7',                     '10.0.0.7',            'a / inside the password'],
     ['https://user:pa/ss@db01.internal:8443/x', 'db01.internal:8443',  'leak + scheme + port'],
     ['admin:1234/56@10.0.0.7',                  '10.0.0.7',            'numeric password + slash read as host:port (authority-first leak)'],
@@ -63,6 +78,16 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
     ['user:p@ssword123/junk@host',              'host',                'same shape, a longer credential fragment'],
     ['user:p@ss@10.0.0.7',                      '10.0.0.7',            'password containing @'],
     ['user:pass@10.0.0.7',                      '10.0.0.7',            'plain userinfo'],
+    // A SECOND credential shape: a query string or fragment, no '/' anywhere in the string.
+    ['10.0.0.7?api_key=SECRET123',              '10.0.0.7',            'query string, no userinfo — the 4th leak'],
+    ['user:pass@10.0.0.7?token=SECRET123',      '10.0.0.7',            'query string AFTER userinfo — both cuts must fire'],
+    ['10.0.0.7#SECRET123',                      '10.0.0.7',            'fragment, no userinfo'],
+    // A THIRD credential shape: a percent-encoded separator. Reachable — the run record is
+    // written at scan START from `hostsRequested`, before DNS resolution, so a host string that
+    // can never resolve still lands in the file with its credential intact.
+    ['user:pass%40host',                        'host',                'percent-encoded @ separator — the whole credential leaked, unstripped'],
+    ['admin:s3cret%4010.0.0.7',                  '10.0.0.7',            'same shape, a different credential'],
+    ['user:p%40ss@host',                         'host',                'an encoded @ INSIDE the password must still work'],
     // Edge shapes.
     [':pass@host',                              'host',                'empty username'],
     ['user:http://x@host',                      'host',                'a scheme-shaped password'],
@@ -88,21 +113,24 @@ test('normaliseHost: the simplest rule that holds "no credential, ever" — last
     await t.test(`${why} — ${input}`, () => {
       const actual = normaliseHost(input);
       assert.equal(actual, expected);
-      if (input.includes('@')) {
-        assert.ok(!drawsFromCredentialSide(input, actual),
-          `output drew bytes from the credential side: ${input} -> ${actual}`);
-      }
+      // Applied to EVERY row, not only the `@`-bearing ones — the query/fragment shapes have
+      // no `@` at all, which is exactly why the prior (narrower) oracle could not have covered
+      // them. This is the SAME expression as the production rule, so it proves consistency, not
+      // correctness; `expected` above (the table's own explicit column) is the independent
+      // statement of truth.
+      assert.equal(actual, expectedHostToken(input),
+        `output diverged from the maximal delimiter-free prefix: ${input} -> ${actual}`);
     });
   }
 });
 
-test('drawsFromCredentialSide is a STRUCTURAL oracle, not a stub — it flags the rules we rejected', () => {
-  // Fourth quadrant: the oracle must actually DISCRIMINATE, not just always return `false` — an
-  // oracle that never flags anything would pass every row in the table above for the wrong
-  // reason. Drive it against a deliberately-broken normaliser: the round-3 "authority-first"
-  // rule, reduced to its leaking essence (trust an authority that itself contains no '@', even
-  // when that authority is really a username:password) — three lines, and it leaked three of
-  // this table's rows for real.
+test('expectedHostToken is a STRUCTURAL oracle, not a stub — it flags the rules we rejected', () => {
+  // Fourth quadrant: the oracle must actually DISCRIMINATE, not just agree with everything — an
+  // oracle that never disagrees would pass every row in the table above for the wrong reason.
+  // Drive it against a deliberately-broken normaliser: the round-3 "authority-first" rule,
+  // reduced to its leaking essence (trust an authority that itself contains no '@', even when
+  // that authority is really a username:password) — three lines, and it leaked three of this
+  // table's rows for real.
   function r3AuthorityFirst(raw) {
     const s = String(raw ?? '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
     const auth = s.split('/')[0];
@@ -115,13 +143,13 @@ test('drawsFromCredentialSide is a STRUCTURAL oracle, not a stub — it flags th
   ];
   for (const raw of knownLeaks) {
     const broken = r3AuthorityFirst(raw);
-    assert.ok(drawsFromCredentialSide(raw, broken),
+    assert.notEqual(broken, expectedHostToken(raw),
       `the oracle failed to flag a KNOWN leak: ${raw} -> ${broken}`);
   }
   // And it must NOT false-flag the LANDED rule's own output on the same inputs.
   for (const raw of knownLeaks) {
     const correct = normaliseHost(raw);
-    assert.ok(!drawsFromCredentialSide(raw, correct),
+    assert.equal(correct, expectedHostToken(raw),
       `the oracle false-flagged the correct rule's own output: ${raw} -> ${correct}`);
   }
 });
@@ -159,7 +187,9 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
     runId, startedAt: new Date().toISOString(),
     hostsRequested: ['user:pass@10.0.0.7', 'https://db01.internal:8443/x', 'user:pa/ss@10.0.0.9',
       'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2', 'user/name:pa@10.0.0.3',
-      'user:p@ss/wd@10.0.0.4', 'user:p@ssword123/junk@10.0.0.5'],
+      'user:p@ss/wd@10.0.0.4', 'user:p@ssword123/junk@10.0.0.5',
+      '10.0.0.6?api_key=SECRET123', 'user:pass@10.0.0.10?token=SECRET123', '10.0.0.11#SECRET123',
+      'user:pass%40host', 'admin:s3cret%4010.0.0.12', 'user:p%40ss@10.0.0.13'],
     pluginsRequested: ['port_scanner'], portsRequested: '443', tier: 'ce',
     ceVersion: '0.2.50', eeVersion: null,
     kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
@@ -177,6 +207,9 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   assert.ok(!raw.includes('root'),         'a credential fragment (root username) reached the record');
   assert.ok(!raw.includes('0000'),         'a credential fragment (numeric password) reached the record');
   assert.ok(!raw.includes('ssword'),       'a credential fragment (password) reached the record');
+  assert.ok(!raw.includes('SECRET123'),    'a query-string or fragment credential token reached the record');
+  assert.ok(!raw.includes('s3cret'),       'a percent-encoded-separator credential fragment reached the record');
+  assert.ok(!raw.includes('pass%40'),      'a percent-encoded separator survived unstripped — the whole credential leaked');
   // NOT checked as a raw substring: bare "ss" is a false-positive trap here — the field name
   // `epssSnapshot` (always present as a JSON key, regardless of any real leak) already contains
   // it, so `!raw.includes('ss')` would fail on every record. The exact parsed-array equality
@@ -186,7 +219,8 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
   assert.ok(!/\b\d{12}\b/.test(raw),       'a 12-digit account id reached the record');
   const rec = JSON.parse(raw);
   assert.deepEqual(rec.hostsRequested,
-    ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5']);
+    ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5',
+     '10.0.0.6', '10.0.0.10', '10.0.0.11', 'host', '10.0.0.12', '10.0.0.13']);
 });
 
 test('finalizeRunRecord accepts the correct call, and REFUSES the narrowed-away key', async () => {
