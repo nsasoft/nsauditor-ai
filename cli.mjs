@@ -30,6 +30,7 @@ import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
+import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE } from './utils/run_record.mjs';
 
 /* ------------------------- helpers & utilities ------------------------- */
 
@@ -95,7 +96,7 @@ function redactSensitiveForAI(input, targetHost) {
 
 /* ------------------------- OpenAI & reporting -------------------------- */
 
-async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic', outDir: presetOutDir = null }) {
+async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic', outDir: presetOutDir = null, runId = null, pluginStatus = [] }) {
   // --- env & opts -----------------------------------------------------------
   const sendEnabled   = parseBool(process.env.AI_ENABLED);
   const redactEnabled = parseBool(process.env.OPENAI_REDACT, true);
@@ -200,7 +201,11 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
   // --- Admin RAW (unsanitized) JSON + Admin HTML ----------------------------
   try {
-    const adminRaw = { host, summary: summaryWithFullSerial, results, conclusion };
+    // `runId` ties this per-host raw to the run record written at scan start
+    // (utils/run_record.mjs); `pluginStatus` is the manifest classifying every selected
+    // plugin as ran|skipped|timeout|error — both additive, no existing consumer reads
+    // either name (verified with `grep -rn "adminRaw\." cli.mjs`).
+    const adminRaw = { host, summary: summaryWithFullSerial, results, conclusion, runId, pluginStatus };
     await fsp.writeFile(adminRawPath, JSON.stringify(adminRaw, null, 2), 'utf8');
     console.log('[OpenAI] Wrote admin RAW:', adminRawPath);
 
@@ -822,7 +827,10 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     }
   }
 
-  const { results, conclusion } = await pm.run(host, plugins || 'all', opts);
+  // `manifest` classifies every selected plugin as ran|skipped|timeout|error with a reason.
+  // Discarding it is what makes "no findings" ambiguous between a clean estate and one whose
+  // plugins never loaded — see utils/run_record.mjs.
+  const { results, conclusion, manifest: pluginStatus = [] } = await pm.run(host, plugins || 'all', opts);
 
   // Enrich conclusion with MITRE ATT&CK technique mapping
   const techniques = getAllTechniques(conclusion);
@@ -896,7 +904,9 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     conclusion.result.eeEnrichmentError = String(err?.message ?? err);
   }
 
-  const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error } = await maybeSendToOpenAI({ host, results, conclusion, promptMode, outDir });
+  const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error } = await maybeSendToOpenAI({
+    host, results, conclusion, promptMode, outDir, runId: opts?.runId ?? null, pluginStatus,
+  });
   // BUG1 (fail-VISIBLE): a one-line end-of-scan AI status so a failed/aborted AI
   // conclusion is not silently swallowed under the per-stage logs.
   console.log(aiSummaryLine({ host, ai_status, ai_error }));
@@ -905,6 +915,18 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   let scanDiff = null;
   try {
     const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
+
+    // Append this host to the run record now that its directory has landed — inside the
+    // SAME try/catch as the rest of scan-history recording. utils/run_record.mjs documents
+    // that a caller-side throw (e.g. a `dir`/`host` that fails to coerce) rejects straight to
+    // its caller, unlike an fs fault, which `appendHostWritten` always wraps — so this call
+    // must sit inside an existing try/catch or a malformed argument could fail an otherwise
+    // fine scan. `opts.runId` is unset under CTEM watch mode (no single run record there);
+    // skipping in that case is a scope decision, not an error.
+    if (opts?.runId) {
+      await appendHostWritten(outRoot, opts.runId, { host, dir: path.basename(outDir) });
+    }
+
     const services = conclusion?.result?.services ?? [];
     const serviceFindingsCount = services.reduce((n, svc) => {
       if (svc.anonymousLogin === true) n++;
@@ -2694,6 +2716,51 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     return; // keep process alive via setInterval
   }
 
+  // ── Run record: START, before any host runs ────────────────────────────────
+  // Scoped to this (non-watch) path: CTEM watch mode returns above and has its own
+  // indefinite-cycle lifecycle with no single "end" to finalize against — opts.runId
+  // stays unset there, which scanSingleHost's per-host append guard reads.
+  // Written at START so an interrupted scan leaves a record with NO finishedAt — the case
+  // `requested − written` arithmetic cannot see when the crash preceded any host directory.
+  // Wrapped: utils/run_record.mjs documents that a caller-side throw building the record
+  // (never an fs fault, which writeRunStart already wraps) rejects to ITS caller — this
+  // must not be able to fail an otherwise-fine scan.
+  const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
+  const runId = newRunId();
+  try {
+    // AFTER `all` expansion: the word `all` alone says nothing about what actually ran.
+    // Mirrors PluginManager._resolveSelection()'s own logic using only its public surface
+    // (pm.plugins / pm.findPlugin), rather than reaching into a private method.
+    const pluginSpecForRecord = plugins || 'all';
+    const pluginNamesForRecord = (!pluginSpecForRecord || pluginSpecForRecord === 'all')
+      ? null
+      : (Array.isArray(pluginSpecForRecord) ? pluginSpecForRecord
+          : String(pluginSpecForRecord).split(',').map((s) => s.trim()).filter(Boolean));
+    const pluginsRequested = pluginNamesForRecord
+      ? pluginNamesForRecord.map((n) => pm.findPlugin(n)).filter(Boolean).map((p) => String(p.id ?? ''))
+      : pm.plugins.map((p) => String(p.id ?? ''));
+    let eeVersionForRecord = null;
+    try {
+      const eeManifest = _require('@nsasoft/nsauditor-ai-ee/package.json');
+      eeVersionForRecord = eeManifest?.version ?? null;
+    } catch { /* CE-only install — fine, the record just says so */ }
+    await writeRunStart(outRoot, {
+      runId, startedAt: new Date().toISOString(),
+      hostsRequested: hosts,               // the RESOLVED host list, never the --host-file path
+      pluginsRequested,
+      portsRequested: ports ?? null,
+      tier: getTierFromEnv(),
+      ceVersion: TOOL_VERSION, eeVersion: eeVersionForRecord,
+      // CE's scan path loads no KEV/EPSS store of its own today — --kev/--epss (feedArgs
+      // above) only carry an operator's OWN downloaded catalogues across an air gap via the
+      // separate `feed` subcommand. Honest false/null: there is no live store here to report.
+      kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
+    });
+  } catch (err) {
+    console.warn('[RunRecord] Failed to write run start:', err?.message || err);
+  }
+  opts.runId = runId;
+
   // Collect all scan outputs for post-processing
   const scanOutputs = [];
 
@@ -2740,6 +2807,16 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       results: allResults
     };
     console.log(JSON.stringify(out, null, 2));
+  }
+
+  // ── Run record: FINALIZE, after every host has completed (or failed) ───────
+  // Wrapped for the same reason the START block is: a malformed argument here must
+  // never fail a scan that otherwise completed successfully.
+  try {
+    await finalizeRunRecord(outRoot, runId, { finishedAt: new Date().toISOString() });
+    if (getTierFromEnv() === 'ce') await pruneRunRecordsForCE(outRoot);
+  } catch (err) {
+    console.warn('[RunRecord] Failed to finalize/prune run record:', err?.message || err);
   }
 
   // --- SARIF output ---
