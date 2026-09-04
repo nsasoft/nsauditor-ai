@@ -18,9 +18,14 @@ const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 export function normaliseHost(raw) {
   let s = String(raw ?? '').trim();
   s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');   // scheme
-  s = s.split('/')[0];                              // path
+  // Userinfo BEFORE the path split. A password routinely contains `/` (base64), and
+  // splitting on `/` first cuts the password at that slash, discards the remainder
+  // (host included) with it, and leaves `username:half-password` looking like a bare
+  // host with no `@` in it — a credential fragment, and the host is GONE. Order fixes
+  // both: the host survives, and no credential fragment can ride past this point.
   const at = s.lastIndexOf('@');
   if (at !== -1) s = s.slice(at + 1);               // userinfo
+  s = s.split('/')[0];                              // path
   return s;
 }
 
@@ -38,10 +43,18 @@ export function newRunId() {
 // ⚠️ EVERY WRITE IS WRAPPED. A report-side fault must never fail a scan: that is the whole
 // promise of reading a run directory instead of rendering inline. A failure becomes the scan's
 // own warning and returns null.
+//
+// Write to a sibling `.tmp` and rename over the target — `rename` is atomic within a
+// filesystem. This record is rewritten N+2 times per run (start, one append per host,
+// finalize); a direct `writeFile` that crashes mid-write leaves truncated JSON, which
+// `readRunRecord` then reports as ABSENT, and every later append or finalize call silently
+// returns false against a record that never actually disappeared.
 async function writeJsonSafe(file, obj, what) {
   try {
     await fsp.mkdir(path.dirname(file), { recursive: true });
-    await fsp.writeFile(file, JSON.stringify(obj, null, 2), 'utf8');
+    const tmpFile = `${file}.tmp`;
+    await fsp.writeFile(tmpFile, JSON.stringify(obj, null, 2), 'utf8');
+    await fsp.rename(tmpFile, file);
     return file;
   } catch (e) {
     console.warn(`[RunRecord] could not write ${what}: ${e?.message || e}`);
@@ -50,24 +63,50 @@ async function writeJsonSafe(file, obj, what) {
 }
 
 export async function writeRunStart(outRoot, rec) {
-  const record = {
-    schema: RUN_RECORD_SCHEMA,
-    runId: String(rec.runId),
-    startedAt: rec.startedAt,
-    finishedAt: null,
-    hostsRequested: (rec.hostsRequested ?? []).map(normaliseHost),
-    hostsWritten: [],
-    pluginsRequested: rec.pluginsRequested ?? [],
-    portsRequested: rec.portsRequested ?? null,
-    tier: rec.tier ?? null,
-    ceVersion: rec.ceVersion ?? null,
-    eeVersion: rec.eeVersion ?? null,
-    kevLoaded: Boolean(rec.kevLoaded),
-    kevSnapshot: rec.kevSnapshot ?? null,
-    epssLoaded: Boolean(rec.epssLoaded),
-    epssSnapshot: rec.epssSnapshot ?? null,
-  };
-  return writeJsonSafe(runRecordPath(outRoot, record.runId), record, 'run start');
+  // The whole body is wrapped, not just the fs call — `writeJsonSafe` already never throws,
+  // but building `record` from caller input can: `(rec.hostsRequested ?? []).map(...)` throws
+  // synchronously if a caller passes a non-array. "returns the path, or null on a wrapped
+  // failure" (the interface contract) means EVERY failure, not only an fs failure.
+  try {
+    const record = {
+      schema: RUN_RECORD_SCHEMA,
+      runId: String(rec.runId),
+      startedAt: rec.startedAt,
+      finishedAt: null,
+      hostsRequested: (rec.hostsRequested ?? []).map(normaliseHost),
+      hostsWritten: [],
+      pluginsRequested: rec.pluginsRequested ?? [],
+      portsRequested: rec.portsRequested ?? null,
+      tier: rec.tier ?? null,
+      ceVersion: rec.ceVersion ?? null,
+      eeVersion: rec.eeVersion ?? null,
+      kevLoaded: Boolean(rec.kevLoaded),
+      kevSnapshot: rec.kevSnapshot ?? null,
+      epssLoaded: Boolean(rec.epssLoaded),
+      epssSnapshot: rec.epssSnapshot ?? null,
+    };
+    return await writeJsonSafe(runRecordPath(outRoot, record.runId), record, 'run start');
+  } catch (e) {
+    console.warn(`[RunRecord] could not write run start: ${e?.message || e}`);
+    return null;
+  }
+}
+
+// ⚠️ IN-PROCESS PER-RUN LOCK. `appendHostWritten` and `finalizeRunRecord` are both a
+// read-modify-write over the SAME file, and CE ships `--parallel <n>` (cli.mjs) — real runs
+// finish multiple hosts at once, in one process. Without serialization, N concurrent callers
+// each read the same stale `hostsWritten`, each write back their own single addition, and the
+// last write wins: N appends land as 1. A run is one process, so an in-memory promise chain
+// keyed by runId is sufficient — no file lock, no new dependency. A caller's own failure does
+// not wedge the queue: the chain recovers from a rejection before letting the next entry run.
+const runLocks = new Map();
+
+function withRunLock(runId, fn) {
+  const key = String(runId);
+  const prior = runLocks.get(key) ?? Promise.resolve();
+  const settled = prior.then(fn, fn);
+  runLocks.set(key, settled.then(() => {}, () => {}));
+  return settled;
 }
 
 // ⚠️ APPEND PER HOST, and this is not a style choice — it is what makes the interrupted-run
@@ -79,11 +118,13 @@ export async function writeRunStart(outRoot, rec) {
 // finalized. A false "not scanned" over scanned hosts is the exact false clean this record exists
 // to prevent, inverted.
 export async function appendHostWritten(outRoot, runId, { host, dir }) {
-  const existing = await readRunRecord(outRoot, runId);
-  if (!existing) return false;
-  existing.hostsWritten = [...(existing.hostsWritten ?? []),
-    { host: normaliseHost(host), dir: path.basename(String(dir ?? '')) }];
-  return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'host append'));
+  return withRunLock(runId, async () => {
+    const existing = await readRunRecord(outRoot, runId);
+    if (!existing) return false;
+    existing.hostsWritten = [...(existing.hostsWritten ?? []),
+      { host: normaliseHost(host), dir: path.basename(String(dir ?? '')) }];
+    return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'host append'));
+  });
 }
 
 export async function finalizeRunRecord(outRoot, runId, opts = {}) {
@@ -96,10 +137,12 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     throw new TypeError('finalizeRunRecord no longer takes hostsWritten; call appendHostWritten per host');
   }
   const { finishedAt } = opts;
-  const existing = await readRunRecord(outRoot, runId);
-  if (!existing) return false;
-  existing.finishedAt = finishedAt ?? new Date().toISOString();
-  return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
+  return withRunLock(runId, async () => {
+    const existing = await readRunRecord(outRoot, runId);
+    if (!existing) return false;
+    existing.finishedAt = finishedAt ?? new Date().toISOString();
+    return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
+  });
 }
 
 export async function readRunRecord(outRoot, runId) {
