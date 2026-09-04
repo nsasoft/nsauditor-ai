@@ -31,6 +31,10 @@ import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE } from './utils/run_record.mjs';
+import { loadRun } from './utils/report_inputs.mjs';
+import { loadBrand } from './utils/brand.mjs';
+import { renderExecutiveReport } from './utils/executive_report.mjs';
+import { renderJiraCsv } from './utils/jira_export.mjs';
 
 /* ------------------------- helpers & utilities ------------------------- */
 
@@ -789,6 +793,17 @@ export async function parseArgs(argv) {
   const awsRegionVal = get('aws-region');
   args.awsRegion = awsRegionVal === undefined ? undefined : awsRegionVal;
 
+  // ── the Pro `report` subcommand (Task 8) ────────────────────────────────────────────────────
+  // Reuses `str()` (defined above, same tri-state discipline as every flag parsed with it):
+  // undefined/absent stays out, a bare value-less flag collapses to `null` rather than `true` —
+  // `--from` with nothing after it must not read as "provided" just because it is truthy.
+  args.from = str('from');
+  args.format = str('format');
+  args.run = str('run');
+  args.brand = str('brand');
+  args.out = str('out');
+  args.allowPartial = a.includes('--allow-partial');
+
   return args;
 }
 
@@ -1219,6 +1234,163 @@ export async function preflightGrcIfRequested(env, opts = {}) {
 // a controlled, injected EE module — e.g. one whose `enrichScan` reports a specific KEV/EPSS
 // `dataAsOf` — without depending on the real `@nsasoft/nsauditor-ai-ee` package, a real store
 // file, or the machine's own license/tier state being any particular thing.
+// Reconstructs a single tier word ('ce' | 'pro' | 'enterprise') from the resolved capability
+// map — never from getTierFromEnv()'s own global cache. `runReport` below deliberately never
+// reads that cache: `caps` is passed in as an argument specifically so Pro is reachable from the
+// test suite via `resolveCapabilities('pro')` with no env override (see runReport's header), and
+// a refusal message built from a DIFFERENT source than the one that gated the request would be
+// able to name a tier inconsistent with the caps that were actually checked. resolveCapabilities()
+// is monotonic (ce ⊆ pro ⊆ enterprise), so checking one sentinel capability per tier, from the
+// top down, exactly recovers the tier it was resolved from.
+function tierLabelFromCaps(caps) {
+  if (hasCapability(caps, 'cloudScanners')) return 'enterprise';
+  if (hasCapability(caps, 'intelligenceEngine')) return 'pro';
+  return 'ce';
+}
+
+/**
+ * `report` subcommand handler.
+ *
+ * Consumes Tasks 4-7: `loadRun` (utils/report_inputs.mjs), `loadBrand` (utils/brand.mjs),
+ * `renderExecutiveReport` (utils/executive_report.mjs), `renderJiraCsv` (utils/jira_export.mjs).
+ *
+ * `caps` is an ARGUMENT, never resolved inside this function — that is what makes the Pro path
+ * testable via `resolveCapabilities('pro')` with no env override; an env override here would be
+ * a licence bypass in product code. The real CLI dispatch (in `main()`, below) is the only
+ * caller that resolves it from the environment, via `resolveCapabilities(getTierFromEnv())`.
+ *
+ * Never calls `console.log`/`console.error` directly: every line is accumulated into `stdout`/
+ * `stderr` strings and returned, so the CLI dispatch can write them to the real streams and a
+ * handler-level test can assert on exactly what would have been printed without spawning a
+ * process.
+ *
+ * Exit codes (constraint 5 — an EXHAUSTIVE switch below, not an if/else, so an eleventh
+ * `loadRun` reason can never fall through unclassified): **2** = the request itself is malformed
+ * or refused (bad/missing flags, a flag mismatch, a tier refusal, `no-run`, `record-unreadable`,
+ * a write failure) — fix the request or the environment. **1** = `loadRun` refused for any other
+ * reason — fix the run by re-scanning. **0** = rendered (a caveated or zero-finding render is
+ * still 0 — the exit code must never encode whether findings exist).
+ *
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+export async function runReport(args, caps) {
+  const outLines = [];
+  const errLines = [];
+  const log = (s) => outLines.push(s);
+  const logErr = (s) => errLines.push(s);
+  const finish = (code) => ({
+    code,
+    stdout: outLines.length ? `${outLines.join('\n')}\n` : '',
+    stderr: errLines.length ? `${errLines.join('\n')}\n` : '',
+  });
+
+  // ⚠️ FLAGS VALIDATE BEFORE THE CAPABILITY GATE (constraint 4). Otherwise every flag error on
+  // CE is reported as a tier problem and no flag validation is testable from the CLI at all.
+  if (!args.from || typeof args.from !== 'string') {
+    logErr('`report` needs `--from <out-dir>`.');
+    return finish(2);
+  }
+  const format = String(args.format ?? '');
+  if (!['executive', 'jira'].includes(format)) {
+    logErr('`report` needs `--format executive` or `--format jira`.');
+    return finish(2);
+  }
+  if (args.brand && format === 'jira') {
+    logErr('`--brand` applies to `--format executive` only; the jira format is a CSV with no '
+      + 'branded surface. Refusing rather than ignoring the flag.');
+    return finish(2);
+  }
+
+  if (!hasCapability(caps, 'clientReporting')) {
+    logErr('`report` is a Pro capability. Your licence resolves to tier '
+      + `"${tierLabelFromCaps(caps)}". No file has been written.`);
+    return finish(2);
+  }
+
+  const loaded = await loadRun(args.from, { runId: args.run ?? null, allowPartial: !!args.allowPartial },
+    { tier: tierLabelFromCaps(caps) });
+  if (!loaded.ok) {
+    logErr(loaded.message);
+    // MAP BY REASON, not by "loadRun said no" — an EXHAUSTIVE switch over the ten documented
+    // reasons, with a loud default. `no-run` and `record-unreadable` are COMMAND/environment
+    // problems (fix the invocation or the filesystem); every other reason is a RUN problem the
+    // operator fixes by re-scanning.
+    switch (loaded.reason) {
+      case 'no-run':
+      case 'record-unreadable':
+        return finish(2);
+      case 'ambiguous-run':
+      case 'binding-mismatch':
+      case 'incomplete-run':
+      case 'older-format':
+      case 'partial-hosts':
+      case 'record-absent-inside-window':
+      case 'record-absent-outside-window':
+      case 'unknown-schema':
+        return finish(1);
+      default:
+        logErr(`report: internal error — loadRun returned an unrecognised refusal reason `
+          + `"${loaded.reason}". Refusing rather than guessing whether this is a command or a `
+          + 'run problem.');
+        return finish(2);
+    }
+  }
+
+  const { model } = loaded;
+  log(`[report] runId ${model.runId} · started ${model.startedAt}`);
+  // Both caveats are independent facts about the SAME run and either can hold without the
+  // other — a run can be missing hosts AND never have recorded completion at once. Two separate
+  // `if`s, deliberately, not `if`/`else if`: the latter would silently drop whichever caveat it
+  // checked second, which is exactly the "operator concludes the wrong thing from what they see"
+  // failure this feature exists to prevent.
+  if (model.coverage.partial) {
+    // ⚠️ `model.coverage.missing` names only the NAMED-missing hosts — an unparseable `--host`
+    // input is counted but can never be named (report_inputs.mjs's own computeMissing split), so
+    // `missing.length` alone would read a run with only an unparseable deficit as "0 missing"
+    // while `coverage.partial` is true. `requested - written` is the authoritative count
+    // regardless of whether the deficit can be named.
+    const gap = Math.max(0, model.coverage.requested - model.coverage.written);
+    log(`[report] coverage: partial — ${gap} of ${model.coverage.requested} not scanned`);
+  }
+  if (model.coverage.incomplete) {
+    log('[report] coverage: incomplete — the run did not record completion');
+  }
+
+  let body;
+  let ext;
+  if (format === 'executive') {
+    const brandResult = await loadBrand(args.brand ?? null);
+    if (!brandResult.ok) {
+      logErr(brandResult.message);
+      return finish(2);
+    }
+    body = renderExecutiveReport(model, brandResult.brand, { renderedAt: new Date() });
+    ext = 'html';
+  } else {
+    body = renderJiraCsv(model);
+    ext = 'csv';
+  }
+
+  // Beside the run record, named for the run — deterministic across re-renders (a re-render of
+  // the SAME run overwrites the same file rather than accumulating one file per render, which
+  // would leave no way to tell which copy is current).
+  const outPath = (args.out && typeof args.out === 'string')
+    ? args.out
+    : path.join(args.from, `report_${model.runId}.${ext}`);
+
+  try {
+    await fsp.writeFile(outPath, body, 'utf8');
+  } catch (e) {
+    // A WRITE FAILURE (an unwritable --out, a directory in its place, a missing parent, a full
+    // disk) is an ENVIRONMENT problem, not a run problem: name the path and refuse loudly rather
+    // than falling through as a silent 0.
+    logErr(`report: could not write ${outPath}: ${e?.message || e}`);
+    return finish(2);
+  }
+  log(`[report] wrote ${outPath}`);
+  return finish(0);
+}
+
 export async function main(testHooks = {}) {
   const args = await parseArgs(process.argv);
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
@@ -2666,6 +2838,17 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.error(`Fatal: ${err.message}`);
       process.exit(2);
     }
+  }
+
+  if (cmd === 'report') {
+    // The CLI resolves capabilities from the verified licence and hands them to the handler;
+    // the handler never resolves them itself (see runReport()'s own header for why — an env
+    // override there would be a licence bypass in product code, and it is what makes the Pro
+    // path testable via resolveCapabilities('pro') with no env override at all).
+    const { code, stdout, stderr } = await runReport(args, resolveCapabilities(getTierFromEnv()));
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    process.exit(code);
   }
 
   if (cmd !== 'scan') {

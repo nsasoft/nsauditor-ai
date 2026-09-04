@@ -35,6 +35,7 @@ export const CAPABILITIES = {
   proAI:              { tier: 'pro', desc: 'Pro analysis prompts (deeper context than the CE prompt set).' },
   analysisAgents:     { tier: 'pro', desc: 'Auth, crypto, config and service analysis agents over scan evidence. Analysis of collected evidence — NOT active exploitation probes.' },
   advancedCTEM:       { tier: 'pro', desc: 'Extended scan-history retention beyond the CE window.' },
+  clientReporting:    { tier: 'pro', desc: 'The `report` subcommand: a print-ready branded HTML report over a completed scan run, and a findings CSV using the column names of Jira\'s CSV importer. Reads a run directory; adds no network path.' },
   enhancedRedaction:  { tier: 'pro', desc: 'Additional redaction patterns over the CE set for AI prompt payloads.' },
   proMCP:             { tier: 'pro', desc: 'MCP tools probe_service and get_vulnerabilities.' },
 
