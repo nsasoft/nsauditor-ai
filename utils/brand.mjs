@@ -20,9 +20,18 @@ const JPEG = Buffer.from('ffd8ff', 'hex');
 // collide with it — that case is instead caught by the directory-containment check below, with
 // the correct message for what it actually is (a path, not a URL).
 const SCHEME_RE = /^[a-zA-Z]{2,}[a-zA-Z0-9+.-]*:/;
-// A protocol-relative URL ("//host/path") — no scheme, but still a remote reference in HTML/CSS
-// and still not a local path on any platform.
-const PROTOCOL_RELATIVE_RE = /^\/\//;
+
+// A leading pair of path-separator characters, in ANY combination of "/" and "\" — a
+// protocol-relative URL ("//host/path") on every platform, and a UNC network-share reference
+// ("\\host\share\path") on Windows. This check is deliberately INDEPENDENT of the directory-
+// containment check and of the eventual fs.readFile: on a host where such a path happens not to
+// resolve, containment (or a plain ENOENT) would refuse it too, but that is a refusal for the
+// wrong reason — a security property that holds only because a path happened not to resolve is
+// not a property. Opening a UNC path is a live SMB connection (and, historically, an
+// NTLM-credential-leak vector) the instant the share exists and is reachable, which not every
+// host in this product's install base can be assumed not to be. This check fires on the string
+// alone, before any path resolution or filesystem call, on every platform.
+const NETWORK_PATH_RE = /^[\\/]{2}/;
 
 export function escapeHtml(s) {
   return String(s ?? '')
@@ -82,12 +91,21 @@ export async function loadBrand(brandPath) {
   if (cfg.logoPath) {
     const rawLogo = safeString(cfg.logoPath);
 
-    if (SCHEME_RE.test(rawLogo) || PROTOCOL_RELATIVE_RE.test(rawLogo)) {
+    if (SCHEME_RE.test(rawLogo)) {
       return {
         ok: false,
         message: '`logoPath` names a URL, which is refused and never fetched. A remote logo is '
           + 'egress at render time and a tracking pixel every time the client opens the file. '
           + 'Point `logoPath` at a local PNG or JPEG next to the brand file.',
+      };
+    }
+    if (NETWORK_PATH_RE.test(rawLogo)) {
+      return {
+        ok: false,
+        message: '`logoPath` names a network path — a UNC share reference (\\\\host\\share\\..., '
+          + 'read on Windows as a live SMB connection) or a protocol-relative URL (//host/...) — '
+          + 'which is refused and never opened. A network logo is egress at load time, not just at '
+          + 'render time. Point `logoPath` at a local PNG or JPEG next to the brand file.',
       };
     }
     if (/\.svgz?$/i.test(rawLogo)) {
@@ -99,14 +117,20 @@ export async function loadBrand(brandPath) {
       };
     }
 
+    // Containment below is a WORKFLOW-SCOPING rule (keep a brand file's assets confined to its
+    // own directory), not the product's egress defense — that is NETWORK_PATH_RE above, which
+    // fires on the string alone and does not depend on this check or on how it resolves. If this
+    // containment boundary is ever relaxed (e.g. to support a logo shared across sibling client
+    // directories), the NETWORK_PATH_RE / SCHEME_RE checks above must not be relaxed with it.
     const dir = path.dirname(brandPath);
     const file = path.resolve(dir, rawLogo);
     const rel = path.relative(dir, file);
     if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
       return {
         ok: false,
-        message: '`logoPath` must resolve to a file inside the brand file\'s own directory; it '
-          + 'does not. Keep the logo next to `brand.json` and reference it by a plain relative name.',
+        message: `\`logoPath\` must resolve to a file inside ${dir} — the directory containing `
+          + 'this brand file — and it does not. Keep the logo next to `brand.json` and reference '
+          + 'it by a plain relative name.',
       };
     }
 

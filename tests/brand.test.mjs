@@ -102,13 +102,18 @@ test('a JPEG logo with a misleading .png extension still loads as JPEG', async (
   assert.match(r.brand.logoDataUri, /^data:image\/jpeg;base64,/);
 });
 
-// These four all assert the message names the URL specifically (and is not the generic
-// "could not read"/ENOENT fallback) — because a URL-shaped `logoPath` with no leading "/" is a
-// RELATIVE path as far as the containment check is concerned, so it also passes containment and
-// then fails to open (ENOENT) even with NO dedicated scheme detection at all. A bare `ok:false`
-// + "logoPath" assertion cannot tell "we recognised the URL" apart from "we tried to open a file
-// literally named `https:/tracker.example.test/logo.png` and it wasn't there" — measured by
-// mutating the scheme check away entirely and watching these four stay green regardless.
+// These assert the message names the URL/network-path reason specifically (and is not the
+// generic "could not read"/ENOENT fallback) — because a URL-shaped `logoPath` with no leading
+// "/" is a RELATIVE path as far as the containment check is concerned, so it also passes
+// containment and then fails to open (ENOENT) even with NO dedicated scheme detection at all. A
+// bare `ok:false` + "logoPath" assertion cannot tell "we recognised the URL" apart from "we
+// tried to open a file literally named `https:/tracker.example.test/logo.png` and it wasn't
+// there" — measured by mutating the scheme check away entirely and watching these stay green
+// regardless. Two dedicated checks share this discipline: SCHEME_RE (`http:`/`https:`/`data:`/
+// `file:`/…) and NETWORK_PATH_RE (a leading "//" or "\\" — protocol-relative and Windows UNC).
+// Each fires on the string alone, before any path resolution or filesystem call, so neither
+// one's refusal depends on containment or on whether the path happens to resolve on the machine
+// running the test.
 
 test('a logo URL is REFUSED, naming the field — never fetched', async () => {
   const dir = tmp();
@@ -153,6 +158,27 @@ test('a file:// logo URL is REFUSED, not treated as a local path', async () => {
   assert.equal(r.ok, false);
   assert.match(r.message, /logoPath/);
   assert.match(r.message, /URL/);
+  assert.doesNotMatch(r.message, /ENOENT/);
+});
+
+// A leading "\\" is a Windows UNC network-share reference — opening it is a live SMB connection
+// (and historically an NTLM-credential-leak vector) the instant the share exists and is
+// reachable. On THIS machine such a path simply fails to resolve, so a containment check (or a
+// bare ENOENT from fs.readFile) would ALSO refuse it — but that is a refusal for the wrong
+// reason: a property that holds only because the path happened not to resolve is not a
+// property, and it would stop holding the moment this ran on a host — or with a share mounted —
+// where the path DOES resolve. The assertion below is deliberately the same shape as the four
+// above and for the same reason: it must name the network/UNC reason specifically, or this test
+// cannot tell "refused by its own dedicated, containment-independent check" apart from "refused
+// by accident because this machine could not resolve it."
+test('a UNC-style (\\\\host\\share) logoPath is REFUSED as a network path, independent of containment or ENOENT', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'brand.json'),
+    JSON.stringify({ logoPath: '\\\\attacker.example.com\\share\\logo.png' }), 'utf8');
+  const r = await loadBrand(path.join(dir, 'brand.json'));
+  assert.equal(r.ok, false);
+  assert.match(r.message, /logoPath/);
+  assert.match(r.message, /network|UNC/i);
   assert.doesNotMatch(r.message, /ENOENT/);
 });
 
