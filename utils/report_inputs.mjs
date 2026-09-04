@@ -199,8 +199,12 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
     let raw;
     try { raw = JSON.parse(await fsp.readFile(rawPath, 'utf8')); }
     catch {
+      // Loose-but-honest wording matters here: this same catch fires for a MISSING file
+      // (ENOENT), an UNREADABLE one (EACCES/EISDIR), and a perfectly readable file that is not
+      // valid JSON — "has no readable scan_conclusion_raw.json" is false in that third case.
       return refuse('binding-mismatch',
-        `The run record lists \`${dir}\`, which has no readable scan_conclusion_raw.json.`);
+        `The run record lists \`${dir}\`, whose scan_conclusion_raw.json could not be read or ` +
+        'parsed as valid JSON.');
     }
     if (raw.runId !== rec.runId) {
       return refuse('binding-mismatch',
@@ -263,18 +267,38 @@ export async function loadRun(outRoot, { runId = null, allowPartial = false } = 
   }
 
   const records = await listRunRecords(outRoot);
-  if (records.length === 0) {
-    // Same present-but-unreadable check as above, for the "pick the latest run" path: if a
-    // scan_run_*.json name exists on disk yet listRunRecords() parsed none, that name is a
-    // record that could not be read — never silently folded into "no record was ever written".
-    const runRecordLike = await findRunRecordFilenames(outRoot);
-    if (runRecordLike.length > 0) {
-      return refuse('record-unreadable',
-        `A run record file is present (${runRecordLike.join(', ')}) under this output directory, ` +
-        'but it could not be read or parsed. Refusing rather than reporting this scan as if no ' +
-        'record ever existed.');
-    }
 
+  // ⚠️ UNCONDITIONAL cross-check — NOT gated on `records.length === 0`. The single-record
+  // topology (nothing parsed at all) is not the dangerous one; a MULTI-record out-root with one
+  // corrupt file is. `records.length > 0` would otherwise short-circuit past this check,
+  // listRunRecords()'s own `catch { /* unreadable: not a run */ }` silently drops the bad file,
+  // and a DIFFERENT run — the one that happened to parse — would render under a subject line
+  // naming a run the operator may not have wanted at all. That is the same "unreadable read as
+  // absent" defect this module exists to close, surviving one topology over. Comparing "every
+  // scan_run_*.json name on disk" against "the filename each PARSED record implies" (writeRunStart
+  // always names a record after its own runId, via runRecordPath) finds a corrupt sibling
+  // regardless of how many other records parsed fine — and does not try to guess which run was
+  // WANTED, because it cannot know: refusing beats guessing.
+  //
+  // This does not apply to the explicit `--run <id>` path above: that path only ever inspects the
+  // ONE filename it was asked for, so a different, unrelated corrupt file is invisible to it by
+  // construction — a deliberate ruling, not an oversight (see the "explicit --run ignores an
+  // unrelated corrupt sibling" fixture in the test file for the pinned behaviour).
+  const onDiskRunFiles = await findRunRecordFilenames(outRoot);
+  const parsedFilenames = new Set(records.map((r) => `scan_run_${r.runId}.json`));
+  const unparsedRunFiles = onDiskRunFiles.filter((n) => !parsedFilenames.has(n));
+  if (unparsedRunFiles.length > 0) {
+    return refuse('record-unreadable',
+      `${unparsedRunFiles.length} run record file(s) are present under this output directory but ` +
+      `could not be read or parsed (${unparsedRunFiles.join(', ')})` +
+      (records.length > 0
+        ? `, though ${records.length} other run record(s) parsed successfully. Refusing rather ` +
+          'than silently rendering a different run under this subject line — the intended run ' +
+          'cannot be told apart from the one that happened to parse.'
+        : '. Refusing rather than reporting this scan as if no record ever existed.'));
+  }
+
+  if (records.length === 0) {
     const probe = await probeRawDirs(outRoot);
     if (probe.dirs.length === 0) {
       return refuse('no-run', `No scan run was found under ${path.basename(outRoot)}.`);

@@ -230,6 +230,53 @@ test('MEASURED CONSTRAINT: an unreadable-but-present record is caught for an exp
   assert.equal(r.reason, 'record-unreadable');
 });
 
+// ── Review round 1, item 1: the EACCES/EISDIR fix was HALF-CLOSED — it only fired when
+//    listRunRecords() parsed ZERO records. With one good + one corrupt record present,
+//    `records.length > 0` short-circuited past the check entirely, and listRunRecords()'s own
+//    `catch { /* unreadable: not a run */ }` silently dropped the corrupt one — so the GOOD run
+//    would render under its own (correct) subject line while a DIFFERENT run's record sat
+//    corrupted and unreported. That is worse than the single-record case: an operator asking
+//    "what happened in this out-root" gets an answer that looks complete and is missing a run. ──
+
+test('REVIEW: a multi-record out-root with ONE corrupt record refuses, not renders the other', async () => {
+  const outRoot = tmp(), good = newRunId(), corrupt = newRunId();
+  await writeRunStart(outRoot, { ...BASE, runId: good, startedAt: '2026-08-26T09:14:00.000Z',
+    hostsRequested: ['10.0.0.7'] });
+  writeHostDir(outRoot, 'd-good', good);
+  await appendHostWritten(outRoot, good, { host: '10.0.0.7', dir: 'd-good' });
+  await finalizeRunRecord(outRoot, good, { finishedAt: '2026-08-26T09:31:00.000Z' });
+  // A DIRECTORY where the second run's record FILE belongs: EISDIR on read, portable even as
+  // root (unlike chmod 000) — the same simulation the single-record test above uses.
+  fs.mkdirSync(runRecordPath(outRoot, corrupt), { recursive: true });
+
+  const r = await loadRun(outRoot, {});
+  assert.equal(r.ok, false,
+    'the GOOD run must not silently render while a SIBLING record is corrupt and unreported');
+  assert.equal(r.reason, 'record-unreadable');
+  assert.match(r.message, /1 run record file/);
+  assert.match(r.message, /other run record\(s\) parsed successfully/,
+    'the message must say a DIFFERENT run parsed fine, not imply nothing exists');
+});
+
+test('REVIEW ruling: an explicit --run ignores an UNRELATED corrupt sibling record', async () => {
+  // Deliberate ruling (stated in the module, pinned here): the explicit `--run <id>` path only
+  // ever inspects the ONE filename it was asked for. A different run's corrupt record is
+  // irrelevant to answering "render THIS named run" — refusing over a file nobody asked about
+  // would be its own false alarm. This pins TODAY's behaviour so a future change to this
+  // function is forced to make the ruling explicit rather than drift into it either way.
+  const outRoot = tmp(), wanted = newRunId(), corrupt = newRunId();
+  await writeRunStart(outRoot, { ...BASE, runId: wanted, startedAt: '2026-08-26T09:14:00.000Z',
+    hostsRequested: ['10.0.0.7'] });
+  writeHostDir(outRoot, 'd-wanted', wanted);
+  await appendHostWritten(outRoot, wanted, { host: '10.0.0.7', dir: 'd-wanted' });
+  await finalizeRunRecord(outRoot, wanted, { finishedAt: '2026-08-26T09:31:00.000Z' });
+  fs.mkdirSync(runRecordPath(outRoot, corrupt), { recursive: true });
+
+  const r = await loadRun(outRoot, { runId: wanted });
+  assert.equal(r.ok, true, 'a NAMED run that itself parses fine must render regardless of an unrelated sibling');
+  assert.equal(r.model.runId, wanted);
+});
+
 test('plugin status counts sum across hosts, and byHost carries the per-host manifest', async () => {
   const outRoot = tmp(), runId = newRunId();
   await writeRunStart(outRoot, { ...BASE, runId, startedAt: '2026-08-26T09:14:00.000Z',
@@ -311,4 +358,61 @@ test('an out-root with nothing scanned in it at all is refused without crashing'
   const r = await loadRun(outRoot, {});
   assert.equal(r.ok, false);
   assert.equal(typeof r.message, 'string');
+});
+
+// ── Review round 1, item 2: the REVERSE two-way binding direction has no fixture. The forward
+//    direction (record lists a dir whose raw names a DIFFERENT run) is the required test above.
+//    The reverse — a raw on disk claiming THIS run, that the record's hostsWritten does NOT list
+//    — was traced by the reviewer as failing SAFE: the arithmetic only reads what hostsWritten
+//    declares, so a stray directory is invisible rather than credited. This pins that CURRENT
+//    behaviour (safety, not detection) so a future change to the host-loop arithmetic is forced
+//    to notice it is removing a safety property, not just refactoring dead code. ──
+
+test('REVIEW: a stray directory claiming THIS run but unlisted in hostsWritten is never credited', async () => {
+  const outRoot = tmp(), runId = newRunId();
+  await writeRunStart(outRoot, { ...BASE, runId, startedAt: '2026-08-26T09:14:00.000Z',
+    hostsRequested: ['10.0.0.7'] });
+  writeHostDir(outRoot, 'd7', runId);
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'd7' });
+  // A SECOND directory whose raw claims the SAME runId, but which nothing ever appended to the
+  // record via appendHostWritten — e.g. a directory copied in from a re-run of the same target,
+  // or written by a process that crashed before recording it. Built with fs directly because
+  // there is no writer API for scan_conclusion_raw.json (only run_record.mjs's own file has one).
+  fs.mkdirSync(path.join(outRoot, 'd-stray'), { recursive: true });
+  fs.writeFileSync(path.join(outRoot, 'd-stray', 'scan_conclusion_raw.json'), JSON.stringify({
+    runId, pluginStatus: [{ id: '010', name: 'port_scanner', status: 'ran', reason: null }],
+    results: [{ id: '010', name: 'port_scanner', result: { up: true,
+      findings: [{ severity: 'CRITICAL', title: 'should never be counted', port: 1 }] } }],
+  }), 'utf8');
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-08-26T09:31:00.000Z' });
+
+  const r = await loadRun(outRoot, {});
+  assert.equal(r.ok, true);
+  assert.equal(r.model.coverage.requested, 1);
+  assert.equal(r.model.coverage.written, 1, 'the stray directory must not inflate written count');
+  assert.equal(r.model.hosts.length, 1, 'the stray directory must not appear in hosts');
+  assert.ok(!r.model.hosts.some((h) => h.dir === 'd-stray'), 'the stray dir must not be present at all');
+  assert.equal(r.model.findings.length, 0,
+    'the stray directory\'s finding must never reach the model — pinning fail-SAFE, not detection');
+});
+
+// ── Review round 1, item 3: the binding-mismatch catch's wording ("has no readable
+//    scan_conclusion_raw.json") is loose rather than false — it also fires on a JSON syntax
+//    error in a perfectly READABLE file, which "no readable X" does not honestly describe. ──
+
+test('REVIEW: binding-mismatch wording covers malformed JSON honestly, not just a missing file', async () => {
+  const outRoot = tmp(), runId = newRunId();
+  await writeRunStart(outRoot, { ...BASE, runId, startedAt: '2026-08-26T09:14:00.000Z',
+    hostsRequested: ['10.0.0.7'] });
+  fs.mkdirSync(path.join(outRoot, 'd7'), { recursive: true });
+  // Readable bytes, invalid JSON — NOT a missing/unreadable file.
+  fs.writeFileSync(path.join(outRoot, 'd7', 'scan_conclusion_raw.json'), '{not valid json', 'utf8');
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'd7' });
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-08-26T09:31:00.000Z' });
+
+  const r = await loadRun(outRoot, {});
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'binding-mismatch');
+  assert.match(r.message, /could not be read or parsed as valid JSON/);
+  assert.ok(!/has no readable/i.test(r.message), 'the file WAS readable — only its JSON was invalid');
 });
