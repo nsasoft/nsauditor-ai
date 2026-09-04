@@ -59,6 +59,25 @@ export function lockRootMismatches(pkgJson, lockJson) {
   return out;
 }
 
+/**
+ * The lock must also agree with ITSELF: npm writes the top-level `name`/`version` and the
+ * `packages[""]` entry together, so they diverge only when a lock is edited by hand — which is
+ * how this repo's was corrected at the 0.44.0 staging. Nothing else reads the top-level pair,
+ * which is precisely why nothing else would notice.
+ * @returns {string[]} mismatches, empty when the lock agrees with itself.
+ */
+export function lockSelfMismatches(lockJson) {
+  const root = lockJson?.packages?.[''] ?? null;
+  if (root === null) return ['package-lock.json has no `packages[""]` root entry'];
+  const out = [];
+  for (const f of ['name', 'version']) {
+    if (lockJson?.[f] !== undefined && root[f] !== undefined && lockJson[f] !== root[f]) {
+      out.push(`top-level ${f} ${JSON.stringify(lockJson[f])} vs root entry ${JSON.stringify(root[f])}`);
+    }
+  }
+  return out;
+}
+
 describe('the lockfile root agrees with package.json', () => {
   it("this repo's own pair agrees — the state a release must be in", () => {
     assert.deepEqual(lockRootMismatches(read('package.json'), read('package-lock.json')), []);
@@ -99,5 +118,26 @@ describe('the lockfile root agrees with package.json', () => {
     const pkg = { name: 'x', version: '1.0.0', dependencies: { a: '^2' } };
     const lock = { packages: { '': { name: 'x', version: '1.0.0', dependencies: { a: '^1' } } } };
     assert.equal(lockRootMismatches(pkg, lock).length, 1);
+  });
+
+  it('the lock\'s TOP-LEVEL name/version must agree with its own root entry', () => {
+    // ⚠️ FOUND BY THE REVIEWING SEAT MUTATING THE TOP-LEVEL FIELD AND WATCHING THIS GUARD PASS.
+    // Neither reader looks at it: `lockRootMismatches` compares against `packages[""]`, and so do
+    // `npm ci` and build_airgap_package.mjs. npm writes the two together, so they agree by
+    // construction — EXCEPT when a lock is fixed BY HAND, which is exactly how this cycle's was
+    // fixed. A lock that disagrees with ITSELF is the same class one layer down.
+    assert.deepEqual(lockSelfMismatches(read('package-lock.json')), []);
+  });
+
+  it('catches a lock whose top-level version disagrees with its root entry', () => {
+    const lock = { name: 'x', version: '1.0.0', packages: { '': { name: 'x', version: '0.9.0' } } };
+    const m = lockSelfMismatches(lock);
+    assert.equal(m.length, 1);
+    assert.match(m[0], /top-level version/);
+  });
+
+  it('a lock with matching top-level and root fields passes', () => {
+    // Fourth quadrant: the leg must not fire on the healthy shape it will see every day.
+    assert.deepEqual(lockSelfMismatches({ name: 'x', version: '1.0.0', packages: { '': { name: 'x', version: '1.0.0' } } }), []);
   });
 });
