@@ -179,6 +179,44 @@ test('a field containing ONLY a comma (no quote, no newline) is still quoted', (
     'a comma-only field must be wrapped in quotes even without an accompanying quote character');
 });
 
+// Reviewer finding on Task 7: the comma-isolation reasoning above was not extended to the other
+// two RFC4180 triggers. A mutant dropping `"` from csvField's trigger set is a SECOND no-op of
+// the same shape against the brief's bundled comma+quote fixture (comma alone still forces the
+// wrap). And `\n` had no isolating fixture at all, despite being the one with real consequence:
+// a raw, unquoted newline reaching the CSV body splits one logical row across two physical
+// lines, and a downstream importer reading line-by-line would read the second half as a new,
+// column-shifted issue. Both fixtures below hold every OTHER field at MODEL.findings[0]'s
+// defaults, which — verified above in the comma-isolation test's own comment and again here —
+// carry zero commas/quotes/newlines of their own (a single CVE needs no ', ' join separator, and
+// none of detail/remediation/host contain any of the three characters), so each fixture's title
+// is the ONLY place the trigger character appears anywhere in the row.
+
+test('a field containing ONLY a double quote (no comma, no newline) is still quoted, with the quote doubled', () => {
+  const model = { ...MODEL, findings: [{ ...MODEL.findings[0], title: 'Weak "legacy" cipher' }] };
+  const csv = renderJiraCsv(model);
+  const rows = csv.split('\n').slice(1).filter(Boolean);
+  assert.equal(rows.length, 1, 'the row must not fragment');
+  assert.ok(rows[0].startsWith('"Weak ""legacy"" cipher"'),
+    'a quote-only field must be wrapped in quotes (with the internal quote doubled) even ' +
+    'without an accompanying comma');
+});
+
+test('a field containing ONLY a raw newline (no comma, no quote) is still quoted', () => {
+  const model = { ...MODEL, findings: [{ ...MODEL.findings[0], title: 'Weak\ncipher' }] };
+  const csv = renderJiraCsv(model);
+  // A correctly RFC4180-quoted embedded newline still contains a real newline byte, so it still
+  // splits a NAIVE line-by-line read into two physical lines — that half is unavoidable and is
+  // not the property under test (it is why a real parser respects quoting rather than splitting
+  // on '\n' blindly). What this asserts is the thing a dropped trigger would actually break: the
+  // newline must be wrapped in a real leading/trailing '"' pair, which is what tells a compliant
+  // reader the embedded newline belongs to ONE field/row rather than starting a new one. Without
+  // the wrap, the newline reaches the CSV unquoted and a naive importer reads the second half as
+  // a new, column-shifted row.
+  assert.ok(csv.includes('"Weak\ncipher"'),
+    'a newline-only field must be wrapped in quotes — dropped, the newline would reach the CSV ' +
+    'unquoted and fragment one row into two for any line-by-line reader');
+});
+
 test('a KEV finding is labelled, and every CVE becomes its own label', () => {
   const model = { ...MODEL, findings: [{ ...MODEL.findings[0], kev: true,
     cves: ['CVE-2026-1', 'CVE-2026-2'] }] };

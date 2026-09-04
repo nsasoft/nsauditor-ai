@@ -9,6 +9,11 @@
 // statement of intent, unverified against Jira. Earn-back is a Gate-3-shaped operator check:
 // import the sample CSV into a free Jira Cloud project once and record PASS with evidence.
 //
+// ⚠️ The formula-injection apostrophe below is visible in the RAW file, not only in a
+// spreadsheet: a title/detail/remediation beginning with `=`, `+`, `-` or `@` carries a
+// prefixed `'` so the cell is inert when opened as a spreadsheet, and that same literal leading
+// apostrophe is exactly what a consultant sees reading the CSV directly, e.g. in a text editor.
+//
 // Consumes Task 4's normalised model (utils/report_inputs.mjs's `loadRun()` — the same object
 // the executive HTML report renders), specifically `model.startedAt` (never a render-time
 // timestamp — the row is a record of what the SCAN found, not of when this file was produced)
