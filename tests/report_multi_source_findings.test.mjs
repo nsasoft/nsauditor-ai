@@ -32,11 +32,16 @@
 // promise — and print an object where remediation text belongs.
 
 import { describe, it } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 
 import { shapeHostFindings } from '../utils/report_inputs.mjs';
 import { censusFindingContainers, READ_CONTAINERS, ALLOWLISTED_CONTAINERS } from '../utils/report_finding_census.mjs';
 import { renderExecutiveReport } from '../utils/executive_report.mjs';
+import { loadRun } from '../utils/report_inputs.mjs';
+import { writeRunStart, appendHostWritten, finalizeRunRecord, newRunId } from '../utils/run_record.mjs';
 
 // ── Sanitised fixtures: REAL shapes, neutral values (CE is a public package) ──────
 
@@ -279,5 +284,65 @@ describe('the report states what it could not read', () => {
         { host: 'b', unread: { 'UNCLASSIFIED:.y[]': 3, 'UNCLASSIFIED:.z[]': 4 } },
       ] }), BRAND2, { renderedAt: new Date('2026-09-04T02:00:00Z') });
     assert.match(html, /9 recorded finding-like object\(s\)/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE CENSUS → MODEL SEAM, DRIVEN END TO END.
+//
+// ⚠️ WRITTEN AFTER A SURVIVING MUTANT, FOUND BY THE REVIEWING SEAT. The three legs above
+// build the model BY HAND with `unreadContainers` already populated and call the renderer
+// directly, so they pin the RENDERER and say nothing about the WIRING. Mutating
+// loadRun's own seam — `if (unreadByHost.length) model.unreadContainers = unreadByHost;`
+// → `if (false) …` — left the whole file GREEN, exit 0, zero fails. The mechanism the fold
+// exists to guarantee could be silenced with every test passing.
+//
+// This leg drives the real loadRun over a real on-disk record. It is the only thing here
+// that can tell a wired census from a decorative one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RR_BASE = {
+  pluginsRequested: ['port_scanner'], portsRequested: '443', tier: 'pro',
+  ceVersion: '0.2.51', eeVersion: '0.44.0',
+  kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
+};
+
+async function buildRun(results) {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-census-'));
+  const runId = newRunId();
+  await writeRunStart(outRoot, { ...RR_BASE, runId, startedAt: '2026-09-04T09:00:00.000Z', hostsRequested: ['10.0.0.7'] });
+  fs.mkdirSync(path.join(outRoot, 'd7'), { recursive: true });
+  fs.writeFileSync(path.join(outRoot, 'd7', 'scan_conclusion_raw.json'), JSON.stringify({
+    runId, pluginStatus: [{ id: '010', name: 'port_scanner', status: 'ran', reason: null }], results,
+  }), 'utf8');
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'd7' });
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-09-04T09:30:00.000Z' });
+  return loadRun(outRoot, {});
+}
+
+describe('the census is WIRED, not decorative', () => {
+  it('FOURTH QUADRANT — a record with nothing unread leaves unreadContainers unset', async () => {
+    const r = await buildRun([{ id: '010', result: { up: true, findings: [
+      { severity: 'low', issues: ['Access logging not enabled – audit trail gap'] },
+    ] } }]);
+    assert.equal(r.ok, true);
+    assert.equal(r.model.unreadContainers, undefined,
+      'a clean census must not attach an empty disclosure — that is what keeps the render byte-identical');
+  });
+
+  it('loadRun POPULATES unreadContainers from a real record, and the report says so', async () => {
+    // The sixth door, on disk: a producer invents a container nobody reads.
+    const r = await buildRun([{ id: '010', result: { up: true, findings: [],
+      auditResults: [{ severity: 'high', detail: 'invented container, real finding' }] } }]);
+    assert.equal(r.ok, true);
+    assert.ok(Array.isArray(r.model.unreadContainers), 'the census→model seam must actually fire');
+    assert.equal(r.model.unreadContainers[0].host, '10.0.0.7');
+    assert.equal(r.model.unreadContainers[0].unread['UNCLASSIFIED:.auditResults[]'], 1);
+
+    const html = renderExecutiveReport(r.model,
+      { title: null, companyName: null, preparedBy: null, contact: null, logoDataUri: null },
+      { renderedAt: new Date('2026-09-04T10:00:00Z') });
+    assert.match(html, /1 recorded finding-like object\(s\) live in containers this report does not read/);
+    assert.match(html, /UNCLASSIFIED:\.auditResults\[\] \(1\)/);
   });
 });
