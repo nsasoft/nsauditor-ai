@@ -907,6 +907,51 @@ nsauditor-ai report --from out/2026-08-26 --format executive --brand brand.json 
 nsauditor-ai report --from out/2026-08-26 --format jira
 ```
 
+#### The `brand.json` file
+
+`--brand` takes a small JSON object. Every field is optional; omit the file entirely and the report
+renders unbranded with the default title.
+
+```json
+{
+  "title": "Q3 External Perimeter Review",
+  "companyName": "Acme Manufacturing GmbH",
+  "preparedBy": "J. Rivera, Security Consulting LLC",
+  "contact": "security@example.com",
+  "logoPath": "acme-logo.png"
+}
+```
+
+| field | type | default | notes |
+|---|---|---|---|
+| `title` | string | `Network Scan Report` | Replaces the report's headline. |
+| `companyName` | string | *(empty)* | The client the report is prepared **for**. |
+| `preparedBy` | string | *(empty)* | The consultant or firm preparing it. |
+| `contact` | string | *(empty)* | Free text — an address, an email, a phone number. |
+| `logoPath` | string | *(none)* | A **local** PNG or JPEG, resolved relative to the brand file's own directory. Embedded into the HTML as a data URI. |
+
+**`logoPath` is deliberately restrictive, and each refusal protects the report's core promise —
+that it opens with no external network reference of any kind:**
+
+- **A URL is refused and never fetched.** A remote logo is egress at render time and a tracking
+  pixel every time your client opens the file.
+- **A UNC share (`\\host\share\...`) is refused** for the same reason: it is a network reference.
+- **SVG is refused.** SVG is markup and can carry a script, which would break the report's
+  no-script guarantee from inside the image. Use PNG or JPEG.
+- **The path must stay inside the brand file's own directory** — `../` escapes are refused, checked
+  both as typed and again after symlinks are resolved.
+- **2 MB maximum**, and the format is detected by **magic bytes, not by file extension** — renaming
+  `logo.svg` to `logo.png` does not get it past the check.
+- **An empty string is read as "no logo"**, the same as omitting the key, so a generated
+  `brand.json` that emits `""` is not an error.
+
+A brand file that cannot be read, is not valid JSON, is not a JSON object, or whose `logoPath` is
+refused is a **fatal error** — the report is not written. A flag you passed is never silently
+dropped, because that is how a report goes out unbranded without anyone noticing.
+
+⚠️ `--brand` applies to `--format executive` only. Passing it with `--format jira` is **refused**,
+not ignored: a CSV has nowhere to put a cover page.
+
 ---
 
 ## Configuration
