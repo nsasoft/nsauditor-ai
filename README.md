@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-1577%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1580%20passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -1191,7 +1191,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ## Tests
 
-Run all 1577 tests:
+Run all 1580 tests:
 
 ```bash
 npm test

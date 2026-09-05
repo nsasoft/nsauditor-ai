@@ -8,6 +8,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { describeFinding } from './cloud_finding_summary.mjs';
+import { censusFindingContainers } from './report_finding_census.mjs';
 import {
   RUN_RECORD_SCHEMA, UNPARSEABLE, runRecordPath, listRunRecords, readRunRecord,
 } from './run_record.mjs';
@@ -343,6 +344,7 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
   }
 
   const hosts = [];
+  const unreadByHost = [];
   for (const { host, dir } of rec.hostsWritten ?? []) {
     const rawPath = path.join(outRoot, dir, 'scan_conclusion_raw.json');
     let raw;
@@ -375,6 +377,14 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
       const q = raw?.conclusion?.result?.eeEnrichment?.queue;
       if (Array.isArray(q)) findingQueue = q;
     }
+    // ⚠️ THE CENSUS RUNS ON EVERY REAL RUN, NOT ONLY IN TESTS — this is what makes it a
+    // guard rather than a fixture. Its reconcile leg's corpus is synthetic, and the two real
+    // runs were reconciled BY HAND; a new plugin inventing a new container would be silent
+    // again until somebody wrote its fixture. Running it here means the next unread
+    // container announces itself on the first render, which is how all three of the doors
+    // found tonight SHOULD have been found.
+    const census = censusFindingContainers(raw, findingQueue);
+    if (Object.keys(census.unread).length) unreadByHost.push({ host, unread: census.unread });
     hosts.push(shapeHost(host, dir, { ...raw, __findingQueue: findingQueue }));
   }
 
@@ -405,7 +415,12 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
       '`--allow-partial` to report on what was recorded.');
   }
 
-  return { ok: true, model: buildModel(rec, hosts, { requested, written, missingNamed, missingUnparseable, incomplete }) };
+  const model = buildModel(rec, hosts, { requested, written, missingNamed, missingUnparseable, incomplete });
+  // Carried on the model so the RENDERER can disclose it to the reader. A warning on stderr
+  // is seen by whoever ran the command; the report is what reaches the customer, and the
+  // artifact is the surface that has to state its own blind spot.
+  if (unreadByHost.length) model.unreadContainers = unreadByHost;
+  return { ok: true, model };
 }
 
 /**

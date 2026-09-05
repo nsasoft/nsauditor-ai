@@ -36,6 +36,7 @@ import assert from 'node:assert/strict';
 
 import { shapeHostFindings } from '../utils/report_inputs.mjs';
 import { censusFindingContainers, READ_CONTAINERS, ALLOWLISTED_CONTAINERS } from '../utils/report_finding_census.mjs';
+import { renderExecutiveReport } from '../utils/executive_report.mjs';
 
 // ── Sanitised fixtures: REAL shapes, neutral values (CE is a public package) ──────
 
@@ -230,5 +231,53 @@ describe('the container census fails loudly on a door nobody opened', () => {
       assert.equal(Object.prototype.hasOwnProperty.call(ALLOWLISTED_CONTAINERS, k), false,
         `"${k}" is both read and allowlisted — the allowlist would mask a deleted reader`);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE REPORT DISCLOSES ITS OWN BLIND SPOT.
+//
+// The census is only a guard if it runs on REAL runs. Its reconcile leg's corpus is
+// synthetic fixtures, and the two real runs were reconciled BY HAND — so a new plugin
+// inventing a new container would be silent again until somebody wrote its fixture. It now
+// runs inside loadRun on every run: the operator gets a stderr WARNING, and the reader gets
+// a sentence in the report, because a warning nobody reads is not a guard and the report is
+// what reaches the customer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BRAND2 = { title: null, companyName: null, preparedBy: null, contact: null, logoDataUri: null };
+const MODEL2 = (extra = {}) => ({
+  runId: 'r', startedAt: '2026-09-04T00:00:00Z', finishedAt: '2026-09-04T01:00:00Z',
+  tier: 'enterprise', ceVersion: '0.2.51', eeVersion: '0.44.0',
+  coverage: { requested: 1, written: 1, reachable: 1, missing: [], partial: false, incomplete: false },
+  plugins: { ran: 1, skipped: 0, errored: 0, timedOut: 0, byHost: [{ host: 'h', dir: 'd', status: [] }] },
+  kev: { loaded: false, snapshot: null }, epss: { loaded: false, snapshot: null },
+  hosts: [{ host: 'h', dir: 'd', up: true, findings: [] }], findings: [], ...extra,
+});
+
+describe('the report states what it could not read', () => {
+  it('FOURTH QUADRANT — nothing unread emits NO sentence at all', () => {
+    // Proven on the real corpus too: all three live renders are byte-identical to their
+    // pre-fold baselines once the render timestamp is normalised.
+    const html = renderExecutiveReport(MODEL2(), BRAND2, { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    assert.equal(/does not read/.test(html), false);
+  });
+
+  it('an unread container is DISCLOSED to the reader, named and counted', () => {
+    const html = renderExecutiveReport(
+      MODEL2({ unreadContainers: [{ host: '10.0.0.1', unread: { 'UNCLASSIFIED:.auditResults[]': 5 } }] }),
+      BRAND2, { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    assert.match(html, /5 recorded finding-like object\(s\) live in containers this report does not read/);
+    assert.match(html, /UNCLASSIFIED:\.auditResults\[\] \(5\)/, 'the container must be NAMED, not summarised away');
+    assert.match(html, /10\.0\.0\.1/, 'and attributed to its host');
+  });
+
+  it('the disclosure counts across hosts and containers, never just the first', () => {
+    const html = renderExecutiveReport(
+      MODEL2({ unreadContainers: [
+        { host: 'a', unread: { 'UNCLASSIFIED:.x[]': 2 } },
+        { host: 'b', unread: { 'UNCLASSIFIED:.y[]': 3, 'UNCLASSIFIED:.z[]': 4 } },
+      ] }), BRAND2, { renderedAt: new Date('2026-09-04T02:00:00Z') });
+    assert.match(html, /9 recorded finding-like object\(s\)/);
   });
 });

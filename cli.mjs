@@ -1368,6 +1368,16 @@ export async function runReport(args, caps) {
 
   const { model } = loaded;
   log(`[report] runId ${model.runId} · started ${model.startedAt}`);
+  // The container census ran inside loadRun. A container holding finding-like objects that
+  // no reader opens is announced to the OPERATOR here and disclosed to the READER in the
+  // report itself — two audiences, two surfaces, because a warning nobody reads is not a
+  // guard, and the artifact is what reaches the customer.
+  for (const u of (model.unreadContainers ?? [])) {
+    for (const [container, n] of Object.entries(u.unread)) {
+      logErr(`[report] WARNING: ${n} finding-like object(s) on host ${u.host} live in `
+        + `\`${container}\`, which this report does not read. They are NOT in the output.`);
+    }
+  }
   // Both caveats are independent facts about the SAME run and either can hold without the
   // other — a run can be missing hosts AND never have recorded completion at once. Two separate
   // `if`s, deliberately, not `if`/`else if`: the latter would silently drop whichever caveat it

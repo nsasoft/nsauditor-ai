@@ -338,6 +338,22 @@ function renderCoverageSummary(model) {
     lines.push('<p class="caveat">This run did not record completion; it may be missing '
       + 'results the scan had not yet written.</p>');
   }
+  // ⚠️ THE REPORT DISCLOSES ITS OWN BLIND SPOT. If the container census found finding-like
+  // objects in a place no reader opens, the reader is told so HERE rather than receiving a
+  // report that silently omits them — which is exactly what a client received before this
+  // existed: "No findings were recorded in this run" over sixteen CVEs.
+  // When there is nothing unread this emits NOTHING, and the document is byte-identical.
+  const unread = Array.isArray(model.unreadContainers) ? model.unreadContainers : [];
+  if (unread.length) {
+    const parts = unread.map((u) => {
+      const names = Object.entries(u.unread).map(([k, n]) => `${escapeHtml(k)} (${n})`).join(', ');
+      return `${escapeHtml(String(u.host))}: ${names}`;
+    });
+    const total = unread.reduce((a, u) => a + Object.values(u.unread).reduce((x, y) => x + y, 0), 0);
+    lines.push(`<p class="caveat">⚠️ ${total} recorded finding-like object(s) live in containers `
+      + `this report does not read, and are NOT included above — ${parts.join(' · ')}. `
+      + 'Treat this report as incomplete for those surfaces.</p>');
+  }
   if (!model.findings.length) {
     lines.push(`<p>No findings were recorded for the ${c.written} hosts scanned in this run.</p>`);
   }
