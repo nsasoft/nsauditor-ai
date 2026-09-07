@@ -6,6 +6,30 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.52 (2026-09-07) — the withdrawn-claim guard learns the words the product actually published
+
+**Paired with Enterprise 0.45.0: the NTP clock attestation is WITHDRAWN there.**
+Nothing in the Community scanner changes behaviourally this cycle; what changes is the guard that reads
+Community's own customer-facing capability text.
+
+`tests/capabilities.test.mjs` holds a hand-written twin of the Enterprise withdrawn-claim register, and
+it guards the descriptions printed by `nsauditor-ai license --capabilities` — the only guard that reads
+them. Its own comment carries the rule: *when a family is withdrawn THERE, port it HERE.*
+The WITHDRAWN entry was three words nobody writes; measured against the two published SOC 2 pages it
+would have seen **three of ten** live positions. It now reads every WITHDRAWN spelling the product
+actually published — the status, synced, drift-status, staleness and attestation forms, plus the option
+names.
+
+**`NTP servers?` is deliberately absent, and that is the interesting half.** NTP is also a network
+service this scanner audits — plugin 1221's UDP lane names NTP/123 among restricted ports — so a
+capability description mentioning it can be ordinary honest copy. A guard that flagged that sense would
+be a guard someone switches off. Proven both ways: planting a WITHDRAWN cover-page clock line into a
+real capability description fails the build, and the network-service sense does not.
+
+**Nothing else changed.** No scanner, no plugin, no CLI surface, no exit contract.
+
+---
+
 ## 0.2.51 (2026-09-04) — the Pro `report` subcommand, over a run record that states its own coverage
 
 **The headline: `nsauditor-ai report --from <dir> --format executive|jira`** (Pro capability

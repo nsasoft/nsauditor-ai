@@ -130,7 +130,17 @@ test('no capability description re-asserts a withdrawn claim', () => {
     { id: 'ed25519', re: /\bed25519\b/i, probe: 'Ed25519 attestation of every artifact' },
     { id: 'suppression-signing', re: /suppression[ -](?:signing|signature)|signed suppressions?\b/i,
       probe: 'cryptographically signed suppressions' },
-    { id: 'clock-attestation', re: /(?:NTP )?clock attestation/i, probe: 'NTP clock attestation on every report' },
+    // ⚠️ WIDENED WITH THE EE WITHDRAWAL (EE 0.45.0), WHICH IS THE PORT THIS BLOCK'S OWN COMMENT
+    // ASKS FOR. The NTP clock-attestation probe was deleted in EE; its words are patterned in the
+    // same commit that removed the code. The narrow `(?:NTP )?clock attestation` this line used to
+    // carry was measured against the two live SOC 2 pages and saw THREE of TEN positions — it is
+    // three words nobody writes, while the product published `NTP status`, `NTP-synced`, `NTP drift
+    // status + probe staleness` and `NTP attestation`. `NTP servers?` is deliberately ABSENT: NTP
+    // is also a network service this scanner audits (plugin 1221's UDP lane names NTP/123), and a
+    // capability description saying so is honest copy this guard must not flag.
+    { id: 'clock-attestation',
+      re: /NTP[- ]?(?:drift[- ]?)?(?:probe|status|attestation)|NTP[- ]synced|probe[- ]stalen|clock[- ]drift probe|clock attestation|configurable NTP|complianceNtp[A-Za-z]*|COMPLIANCE_NTP_STRICT|NSAUDITOR_NTP_[A-Z_]+/i,
+      probe: 'NTP clock attestation on every report' },
     { id: 'verification-engine', re: /verification engine|verification probe|active (?:safe )?probe|probe[- ]confirmed/i,
       probe: 'runs a safe verification probe per finding' },
     { id: 'branded-reports', re: /branded report|\bpdf export\b|white[- ]?label/i,

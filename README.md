@@ -17,6 +17,16 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
+**Latest: CE 0.2.52 + Enterprise 0.45.0 — the Enterprise NTP clock attestation is WITHDRAWN.** The probe
+is deleted: it validated any reply of at least 48 bytes with a non-null transmit timestamp and nothing
+else — no mode byte, no stratum, no originate echo — so over unauthenticated UDP a datagram of the right
+shape produced a false clean reading, and it measured the SCANNER's own clock rather than your estate.
+It had never been reachable from any shipped entry point.
+RFC 3161 trusted timestamping is untouched, opt-in, and is the capability that answers the question —
+off unless you configure a Time-Stamp Authority, and an outbound call to a third party when you do. On the Community side this cycle changes no behaviour: the
+withdrawn-claim guard over `license --capabilities` descriptions learns the wording the product actually
+published, so the class cannot recur silently here. See [CHANGELOG.md](./CHANGELOG.md).
+
 **The Pro `report` subcommand, over a run record that states its own coverage (CE 0.2.51 / Enterprise 0.44.0).**
 `nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run into a
 client-facing deliverable — a self-contained, print-ready HTML report a consultant sends to their
