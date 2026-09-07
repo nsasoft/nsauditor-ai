@@ -223,8 +223,16 @@ describe('the container census fails loudly on a door nobody opened', () => {
   });
 
   it('every allowlist entry carries a written reason — an empty one closes a door by accident', () => {
-    for (const [k, why] of Object.entries(ALLOWLISTED_CONTAINERS)) {
-      assert.ok(typeof why === 'string' && why.trim().length > 40,
+    // ⚠️ THE ENTRY IS `{reason, verify}` SINCE THE PREMISE FOLD. The shape is asserted
+    // SEPARATELY and first: `entry.reason` is `undefined` on a bare string, so a
+    // reason-only leg would still go red — but it would report "needs a real reason" over
+    // an entry whose reason is right there, and a guard that names the wrong defect costs
+    // the next reader the same hour twice. Whether an entry also RE-DERIVES its reason is a
+    // different question, asked in tests/report_census_allowlist_premises.test.mjs.
+    for (const [k, entry] of Object.entries(ALLOWLISTED_CONTAINERS)) {
+      assert.equal(typeof entry, 'object',
+        `allowlist entry "${k}" must be an object — a bare string reason is the pre-premise shape`);
+      assert.ok(typeof entry.reason === 'string' && entry.reason.trim().length > 40,
         `allowlist entry "${k}" needs a real reason, not a placeholder`);
     }
   });

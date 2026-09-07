@@ -140,7 +140,7 @@ Scan → Analyze → Prioritize → Track → Act
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
-- **Risk-scored prioritization (Pro)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
+- **Risk-scored prioritization (Pro/Enterprise)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
 - **Continuous monitoring (CTEM)** — watch mode rescans on a schedule, diffs against previous results, and fires webhook alerts on changes
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
 - **CI/CD ready** — SARIF output with `--fail-on` severity gating for pipeline integration
@@ -782,7 +782,7 @@ nsauditor-ai validate
 nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
 nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]   # the feeds you downloaded
 nsauditor-ai compliance <attest|suppress|review|renew|keygen|sign-pack|verify-pack>   (Enterprise)
-nsauditor-ai report --from <dir> --format executive|jira [--run <id>] [--brand <brand.json>] [--out <path>] [--allow-partial]   (Pro)
+nsauditor-ai report --from <dir> --format executive|jira [--run <id>] [--brand <brand.json>] [--out <path>] [--allow-partial]   (Pro/Enterprise)
 nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
 nsauditor-ai --version     (or -v, or `version`)
@@ -876,7 +876,7 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
   CMD nsauditor-ai validate --json | grep -q '"overall": "ok"' || exit 1
 ```
 
-### `report` command (Pro)
+### `report` command (Pro/Enterprise)
 
 `nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run under `--from` into a client-facing deliverable — an HTML report a consultant sends to their customer, or a Jira-importer CSV.
 

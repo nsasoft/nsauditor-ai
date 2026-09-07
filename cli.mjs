@@ -1452,7 +1452,7 @@ export async function main(testHooks = {}) {
 Usage:
   nsauditor-ai [scan] --host <ip|cidr|hostname> [options]
   nsauditor-ai [scan] --host-file <path> [options]
-  nsauditor-ai report --from <dir> --format executive|jira [options]   (Pro)
+  nsauditor-ai report --from <dir> --format executive|jira [options]   (Pro/Enterprise)
   nsauditor-ai license <subcommand>
   nsauditor-ai security <subcommand>
   nsauditor-ai validate
@@ -1644,7 +1644,7 @@ Examples:
   nsauditor-ai license install enterprise_eyJhbGciOiJFUzI1NiIs...
   nsauditor-ai license --status
 
-Report subcommand (Pro):
+Report subcommand (Pro/Enterprise):
   nsauditor-ai report --from <dir> --format executive|jira [--run <id>]
                        [--brand <brand.json>] [--out <path>] [--allow-partial]
         Renders a client-facing deliverable from a completed scan run under --from.

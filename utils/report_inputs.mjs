@@ -384,7 +384,14 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
     // container announces itself on the first render, which is how all three of the doors
     // found tonight SHOULD have been found.
     const census = censusFindingContainers(raw, findingQueue);
-    if (Object.keys(census.unread).length) unreadByHost.push({ host, unread: census.unread });
+    // ⚠️ `premiseFailures` TRAVELS WITH THE COUNTS, because the two reasons a container is
+    // unread need DIFFERENT sentences. A container nobody wrote a reader for is genuinely NOT
+    // IN the report; a carve-out whose premise BROKE has most of its objects rendered and only
+    // the break unread. Handing the consumer one number and no reason is what let the report
+    // tell a client that 17 objects were missing from a document containing 16 of them.
+    if (Object.keys(census.unread).length) {
+      unreadByHost.push({ host, unread: census.unread, premiseFailures: census.premiseFailures });
+    }
     hosts.push(shapeHost(host, dir, { ...raw, __findingQueue: findingQueue }));
   }
 
