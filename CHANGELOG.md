@@ -6,6 +6,37 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.53 (2026-09-09) — a documentation release: the PCI DSS claims in this README were wrong
+
+Paired with **Enterprise 0.46.0 / agent-skill 0.2.51**. **NOT a floor bump: Enterprise still
+requires Community `>= 0.2.49`.** No scanner change, no plugin change — Community stays at 27
+plugins and nothing in `bin` or `plugins/` moved.
+
+**This release exists because npm freezes a README at publish time.** The corrections below
+landed in git on 2026-09-09; without a publish the npm package page keeps serving the wrong text
+indefinitely, which is why a doc-only cycle gets a version.
+
+### What was wrong, all of it in README.md
+
+- **`:171` was a CURRENT-state claim and carried two defects at once.** The PCI DSS triple read
+  *"19 covered + 9 partial + 39 OOS sub-requirements across 67 of ~250 (MVP-67)"*; it is
+  **19 / 9 / 44 across 72**, and `MVP-67` is a retired label naming a density programme the
+  product no longer runs. The same sentence asserted *"Defined-vs-Customized Approach discipline
+  per Appendix E (15 Defined-only sub-requirements enforced at schema layer)"* — wrong twice:
+  PCI DSS v4.0.1 states ineligibility in **each requirement's own Customized Approach Objective
+  cell**, never in an appendix (Appendix E is sample templates), and that enumeration was correct
+  about three of its sixteen entries. **No sub-requirement the engine maps is ineligible.**
+- **`:218`** capability row carried the retired label.
+- **`:1015`** cited *"PCI Appendix E sampling"*. Sampling is **Section 6**, and the standard
+  prescribes no sample size and no population threshold.
+- **`:424`** is a dated EE 0.11.0 record: its **doctrine clause is corrected in place** and its
+  dated figures are left as the record, with a note saying which is which — a wrong doctrine
+  inside a history block still teaches the wrong thing.
+
+The Enterprise CHANGELOG for 0.46.0 carries the full derivation and the guards that now hold it.
+
+---
+
 ## 0.2.52 (2026-09-07) — the withdrawn-claim guard learns the words the product actually published
 
 **Paired with Enterprise 0.45.0: the NTP clock attestation is WITHDRAWN there.**

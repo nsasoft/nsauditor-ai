@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.52 + Enterprise 0.45.0 — the Enterprise NTP clock attestation is WITHDRAWN.** The probe
+**Latest: CE 0.2.53 + Enterprise 0.46.0 — a documentation release: the PCI DSS claims in this README were wrong.** The Enterprise cycle derived the PCI Customized-Approach eligibility set from PCI DSS v4.0.1 itself rather than from a transcribed list, and this README carried the transcribed one: a stale triple (now **19 covered / 9 partial / 44 OOS across 72**), a retired `MVP-67` density label, an "Appendix E" attribution that names the wrong appendix, and a sampling citation that belongs to Section 6. No scanner change and no plugin change — Community stays at 27 plugins. **npm freezes a README at publish time, which is why a doc-only correction gets a version.**
 is deleted: it validated any reply of at least 48 bytes with a non-null transmit timestamp and nothing
 else — no mode byte, no stratum, no originate echo — so over unauthenticated UDP a datagram of the right
 shape produced a false clean reading, and it measured the SCANNER's own clock rather than your estate.
