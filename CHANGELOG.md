@@ -6,6 +6,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.54 (⏳ PRE-PUBLISH — opened 2026-09-15, NOT YET ON npm) — a README-only release, paired with Enterprise 1.0.0
+
+Paired with **Enterprise 1.0.0 / agent-skill 0.2.52**. **NOT a floor bump: Enterprise still requires
+Community `>= 0.2.49`.** No scanner change, no plugin change — Community stays at 27 plugins and nothing in
+`bin` or `plugins/` moved.
+
+**This release exists because npm freezes a README at publish time.** The 0.2.53 package page carried, in
+its CURRENT Plugin Catalog row, the superseded PCI DSS matrix — `19 covered + 9 partial + 39 OOS across 67`
+under the retired `MVP-67` label — beside the correct `19/9/44 across 72` elsewhere on the same page: two
+statuses for one framework, on the package every Enterprise install depends on. The row now states the
+derived triple and names the withdrawn "per Appendix E / 15 Defined-only" doctrine as withdrawn. The
+What's New section leads with the Enterprise 1.0.0 pairing: the evidence contract in Enterprise's
+`docs/contract-v1.md` is binding from that release, and its cargo is corrective (`Findings analyzed`
+counts findings rather than issues; an Azure RBAC assignment at the root scope is named as such; PCI DSS
+`11.5.2` is critical-file change detection). Nothing here changes what this package does.
+
+---
+
 ## 0.2.53 (2026-09-09) — a documentation release: the PCI DSS claims in this README were wrong
 
 Paired with **Enterprise 0.46.0 / agent-skill 0.2.51**. **NOT a floor bump: Enterprise still
