@@ -28,130 +28,9 @@ DSS `11.5.2` is critical-file change detection. Community ships no code this cyc
 `>= 0.2.49`, the plugin count stays 27 Community + 29 Enterprise, and every coverage matrix is unchanged.
 This version exists because npm freezes a README at publish time: the 0.2.53 package page still carried
 the superseded PCI DSS matrix in its Plugin Catalog row, and a corrected README reaches the page only with a
-version. See [CHANGELOG.md](./CHANGELOG.md).
+version.
 
-**CE 0.2.53 + Enterprise 0.46.0 — a documentation release: the PCI DSS claims in this README were wrong.** The Enterprise cycle derived the PCI Customized-Approach eligibility set from PCI DSS v4.0.1 itself rather than from a transcribed list, and this README carried the transcribed one: a stale triple (now **19 covered / 9 partial / 44 OOS across 72**), a retired `MVP-67` density label, an "Appendix E" attribution that names the wrong appendix, and a sampling citation that belongs to Section 6. No scanner change and no plugin change — Community stays at 27 plugins. **npm freezes a README at publish time, which is why a doc-only correction gets a version.**
-is deleted: it validated any reply of at least 48 bytes with a non-null transmit timestamp and nothing
-else — no mode byte, no stratum, no originate echo — so over unauthenticated UDP a datagram of the right
-shape produced a false clean reading, and it measured the SCANNER's own clock rather than your estate.
-It had never been reachable from any shipped entry point.
-RFC 3161 trusted timestamping is untouched, opt-in, and is the capability that answers the question —
-off unless you configure a Time-Stamp Authority, and an outbound call to a third party when you do. On the Community side this cycle changes no behaviour: the
-withdrawn-claim guard over `license --capabilities` descriptions learns the wording the product actually
-published, so the class cannot recur silently here. See [CHANGELOG.md](./CHANGELOG.md).
-
-**The Pro `report` subcommand, over a run record that states its own coverage (CE 0.2.51 / Enterprise 0.44.0).**
-`nsauditor-ai report --from <dir> --format executive|jira` turns a completed scan run into a
-client-facing deliverable — a self-contained, print-ready HTML report a consultant sends to their
-customer, or a Jira-importer CSV. Beneath it is a **per-run scan record**: written at run start,
-appended per host, finalized at the end, so the report's cover **states** what was covered — hosts
-requested, written and reachable, and the exploit-intelligence as-of dates read from the store's own
-metadata — instead of implying completeness. An incomplete run says so on the cover; `--allow-partial`
-renders it anyway with the caveat visible, never hidden. Two limits are shipped as text rather than
-left to be discovered: the **Jira import mapping has not been verified against a live Jira instance**,
-and a value-less `--from`/`--brand`/`--run`/`--out` is a **fatal error, not a silent default**. On the
-Enterprise side the same cycle stops reporting an S3 audit-trail gap on a bucket whose object-level
-reads and writes a CloudTrail data-event trail already records. See the
-[`report` command section](#report-command-pro) and the [CHANGELOG](./CHANGELOG.md).
-⚠️ **The Enterprise peer floor stays `>=0.2.49` — it is NOT raised to 0.2.51.** Raising it would charge
-every Enterprise operator an upgrade for a Community feature they may not want. The consequence is
-worth stating rather than discovering: an Enterprise 0.44.0 install resolves cleanly against Community
-0.2.49 or 0.2.50 and simply has **no `report` command**. Install Community 0.2.51 to get it.
-Every scan now also writes `scan_run_<runId>.json` at the root of `--out` — the record the report is
-built from. On the free tier these are pruned after a retention window; on Pro they are kept.
-
-**A provider badge you can trust, and an evidence gap that never tells an auditor what to type (CE 0.2.50 / Enterprise 0.43.0).**
-**No Community behaviour changed this cycle** — the version moves so the trio stays in lockstep, and **the Enterprise peer floor stays `>=0.2.49`** rather than being raised reflexively, because the
-one Community behaviour the Enterprise fix depends on already shipped there. What changed is on the
-Enterprise side and shows up in output a Community user also reads: an Enterprise scan whose cloud
-SDK failed to load used to report that provider as **audited**, because a plugin result carrying
-neither an error nor a skip flag falls through to `ran` in this package's plugin manager, and
-`auditedProviders` is derived from `ran`. Eighteen refusals across seventeen AWS and GCP plugins now
-carry their cause, so such a provider appears as `errored` and drops out of `auditedProviders`.
-Second: the compliance engine quotes a plugin's reason into the *"could not run"* sentence of every
-control that plugin evidences, and it used to quote the whole thrown message — so the SDK loaders'
-own `Install: npm install <pkg>@latest` reached the evidence-gap text of 7 SOC 2, 2 GDPR and 12 NIST
-SP 800-171 controls. **The report now states what was not evidenced; the operator channel states how
-to change it** — which matters most for air-gapped installs, where that instruction cannot be run.
-
-**Sovereign and air-gapped AWS partitions stop being mistaken for commercial (CE 0.2.49 / Enterprise 0.42.0).**
-This one DOES change CE behaviour, and Enterprise now requires it (`>=0.2.49`). `detectPartition`
-tested only `cn-` and `us-gov-` before falling through to `'aws'`, so every ISO and European
-Sovereign region resolved to the commercial partition — downstream, an ISO account inherited the 32
-commercial regions as its static fallback and the scan-scope disclosure reported that as its
-denominator. No ISO region ids are enumerated to fix it: the new rule is structural over the region-id
-prefix, the static fallback for those partitions is EMPTY, and the live `DescribeRegions` path stays
-the only source of truth. Separately, `NSA_ENV_FILE` now clears ambient Azure cloud selectors
-(`AZURE_ENVIRONMENT`, `ARM_ENVIRONMENT`, `AZURE_ARM_ENDPOINT`, `AZURE_AUTHORITY_HOST`) — the env file
-is the scan-target selector, and a subscription id and the cloud whose ARM hosts it are one selection,
-not two. What Enterprise adds in the pair: GovCloud/partition correctness across 19 executable
-defects, Azure sovereign-cloud addressing that refuses rather than silently scanning commercial, an
-SBOM generated over the package you actually install, and a FIPS posture statement that claims
-approved *algorithms* and explicitly not a validated *module*. Plugin counts unchanged — 27 Community
-scanners, 29 Enterprise plugins, 56 with a licence active; all eight coverage matrices UNCHANGED.
-
-**The 29th Enterprise plugin: Amazon DocumentDB (CE 0.2.48 / Enterprise 0.41.0).** No CE behaviour
-change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new Community
-Edition code; this bump pairs the npm-frozen page with Enterprise 0.41.0. What Enterprise adds, in
-case you run the pair: plugin `1230 AWS DocumentDB Auditor` owns the `docdb` engine on the shared
-RDS control plane — storage encryption + KMS custody, TLS enforcement (the `tls` cluster parameter),
-audit logging with the CloudWatch export, backup retention, deletion protection, replica/AZ
-topology under the CLUSTER lens, and manual-snapshot public/cross-account restorability. It exists
-because the seam was measured cutting both ways: DocumentDB clusters were excluded from the RDS
-auditor's cluster-config audit (an unencrypted one read CLEAN) while its instances were audited
-under RDS semantics with a remediation that cannot succeed on DocumentDB. The RDS auditor now
-engine-filters DocumentDB and Neptune off the shared plane, counts the skips, and states in every
-report that DocumentDB is delegated to the new plugin and that **a Neptune estate is unaudited** —
-a disclosure, not a silence. Plugin count 28 → 29; all eight coverage matrices UNCHANGED.
-
-**Paired release with the Enterprise timestamp-integrity patch (CE 0.2.47 / Enterprise 0.40.3).** No CE
-behaviour change and **the peer floor stays `>=0.2.45`, unraised** — nothing in this cycle needs new
-Community Edition code. This bump exists because npm freezes a README at publish time, so the page
-you are reading can only be corrected by publishing, and it pairs with Enterprise 0.40.3. What
-Enterprise fixes, in case you run the pair — all on the **opt-in** RFC 3161 path
-(`NSAUDITOR_TSA_URL`; no default authority): a granted timestamp carries the digest it attests, and
-nothing compared it to the digest the request carried — so a replay or a caching proxy could return a
-valid timestamp **for a different artifact** and it was written as evidence. It is now refused. And the verification instruction printed on every timestamped compliance report could not be
-run: it passed `-queryfile` and `-data` together, which openssl rejects outright with no verdict, and
-named a `.tsq` file no pack contains. Timestamping remains **opt-in** (`NSAUDITOR_TSA_URL`; no default
-authority). ⚠️ **If you have timestamped packs produced before Enterprise 0.40.3, the fix is not
-retroactive** — re-verify them with `openssl ts -verify -in <file>.tsr -data <file> -CAfile <bundle>`,
-and note that a `.tsr` which fails there was never a valid timestamp for that artifact.
-
-**Paired release with the Enterprise evidence-integrity patch (CE 0.2.46 / Enterprise 0.40.2).** No CE
-code change — this publish exists because npm freezes this README at publish time: it delivers the
-page corrections made since 0.2.45 (the eighth framework was missing from four places on this page;
-the Activation section taught a stale form) and pairs the page with Enterprise 0.40.2. The Enterprise
-half of the pair is an evidence-integrity fix to the **opt-in** RFC 3161 timestamping path
-(`NSAUDITOR_TSA_URL`, no default authority): a Time-Stamp Authority **rejection** is now refused
-rather than mistaken for a valid timestamp, recorded with one of five named reason codes in the
-chain-of-custody envelope. The TSA policy-OID option also works on OpenSSL ≥ 3.0 hosts for the first
-time (`-tspolicy` attempted, legacy `-policy` fallback), and internal `(Dim N)` dimension codes are
-out of customer-facing GCP finding prose. **Peer floor unchanged: Enterprise requires CE ≥ 0.2.45,
-which 0.2.46 satisfies.**
-
-**The eighth compliance framework: NIST SP 800-171 Rev 2 (CE 0.2.45 / Enterprise 0.40.0).** Enterprise adds `--compliance nist-800-171`, and CE registers the stem so the MCP `scan_cloud` tool and the CLI accept it. ⚠️ **Requires CE ≥ 0.2.45** — CE 0.2.44 does NOT carry the stem, so an Enterprise 0.40.0 paired with an older CE will reject the framework name. What Enterprise produces is **evidence substrate an assessor reads**, scoped as *NIST SP 800-171 evidence substrate for CMMC Level 2 preparation*: it is **not** a CMMC certification, **not** a FedRAMP authorization, and it emits **no** MET/NOT MET determination and **no** SPRS score — those are a C3PAO's to make, and only a C3PAO's. All 110 Rev 2 requirements are enumerated with a written reason each; Rev 2 is pinned deliberately, because CMMC assesses Rev 2 by rule and Rev 3 is a different 97-requirement universe.
-
-**`scan_cloud` stops naming a provider roster it cannot derive (CE 0.2.44 / Enterprise 0.39.0).** Paired with Enterprise 0.39.0 — **no CE scanning behaviour change, and the peer floor stays `>=0.2.43`, unraised.** The one thing that moves here is model-facing and npm freezes it, which is why it needs its own publish: the MCP `scan_cloud` tool description used to tell an assistant that *only the AWS plugins declare their capability boundaries; Azure and GCP declare none.* Enterprise 0.39.0 falsifies that — its seven GCP and Azure plugins now declare theirs — and a sentence read on every scan cannot be allowed to go stale on a peer's release. It is rewritten to state the invariant that is true in BOTH states and that CE can actually stand behind: **not every plugin declares its capability boundaries, so `deferredScope` bounds only what the DECLARING plugins state and is never a coverage inventory** — an empty or short list is not a claim of full coverage. CE floats over a peer RANGE and cannot derive Enterprise's plugin roster, so any sentence that counted providers was a claim it had no way to check. Also here: the edition-comparison chart gains the Ed25519 evidence-pack signing row, carrying its permanent scope in-sentence — one framework's envelope and the artifacts it enumerates, an operator-held key, never a vendor attestation. **And a second fix, found by trying to USE the previous release's headline:** `compliance sign-pack` and `compliance verify-pack` dispatched correctly but were **absent from `nsauditor-ai help`** for the whole of 0.2.43 — documented in every README, changelog and design record, and missing from the one surface a user actually reads. Both now carry usage blocks, and a guard derives the dispatched verb set from the dispatch site and asserts help/dispatch equality in both directions, so a reachable-but-undiscoverable command fails the build.
-
-**The pack-signing commands land in the CLI — reachable, and not yet proven at that release (CE 0.2.43 / Enterprise 0.38.0).** ⚠️ **Correcting this entry's own words: that gate has since RUN.** On 2026-08-17 it ran against the published EE 0.38.0 registry bytes and passed, so evidence-pack signing is PROVEN for an operator-held key over one framework's envelope and the artifacts it enumerates, never a vendor attestation. `nsauditor-ai compliance sign-pack --manifest <envelope>` signs a chain-of-custody envelope with an operator-held Ed25519 key; `compliance verify-pack` establishes authorship from it — via `--registry` (your identity registry, with revocation and validity checked **as at signing time**) or `--public-key` (which discloses in its own output that those checks did not run). Both are thin forwards: Enterprise owns every decision and refusal, CE contributes the flags and the exit code. **Verify does more than the signature** — it recomputes every `artifacts[].sha256` against disk, so a signed pack whose report was edited returns a failure with the signature still reading VERIFIED. Exit **0** verified · **1** a violation · **2** the run could not measure, and the third is never a failure. Requires the Enterprise package; an auditor can also verify offline with `openssl` and nothing of ours, because the exact signed bytes ship beside the signature. **⚠️ Also a correction affecting 0.2.42/0.37.0:** a **gzipped** KEV/EPSS store — the default shape, since FIRST distributes EPSS only as `.csv.gz` — loaded with ZERO entries, so every finding reported *no store* rather than an exploit band. Misdiagnosis and silent degradation, **not** a false security verdict: findings carried a visible no-store marker throughout. Compression is now decided by file content rather than by filename.
-
-**The `feed` commands: offline CVE data can be hand-carried (CE 0.2.42 / Enterprise 0.37.0).** `nsauditor-ai feed bundle` merges the NVD feed files you downloaded on a connected host into one portable archive; `feed import` reads one into the offline store on an isolated host — delivered as a **restricted** distribution rather than a public `npm install`, and amd64 only. The implementations are Enterprise-side (**requires `@nsasoft/nsauditor-ai-ee` >= 0.37.0**); the commands, flags and usage text are here, because this is the package with the `bin`. Optional `--kev` / `--epss` carry **your own** downloads from CISA and FIRST inside the archive, and `--extras-dir` places them on import and prints the environment lines to set — **no exploit data ships with either package**. `bundle` bundles the FEEDS YOU DOWNLOADED, never "your database": the offline store is a lossy derivation of an NVD feed and cannot be turned back into one. Import now names **why** it skipped records — about a quarter of a real NVD year file is skipped by design (withdrawn CVEs, entries with no CPE data) and a bare `skipped 9353` reads as data loss; malformed records are called out separately because those are **not** expected. ⚠️ **A bundle is integrity-checked, not authenticated** — the recorded SHA-256 detects alteration in transit but cannot establish authorship, because it travels inside the archive it covers. Also here: **`--flag=value` is now refused by name** instead of being parsed as a valueless flag with the value discarded, which made `--severity=high` run a default-severity scan and report success — a wrong answer that looked like a right one; and the **mDNS module-shape fallback was a TDZ self-reference**, so it never once fell back. **The air-gap delivery claims are earned back at this release**, with two conditions that travel with them: the dependency-complete bundle is a **restricted** distribution rather than a public install, and it is **amd64** only — no arm64 image is published.
-
-**The compliance report now verifies the signatures it renders (CE 0.2.41 / Enterprise 0.36.0).** Paired with Enterprise 0.36.0 — **no CE behaviour change; the peer floor stays `>=0.2.40`, unraised, because nothing in this cycle needs new CE code.** Enterprise-side, a registry member may now carry the approver's public key beside its fingerprint, and when it does, every suppression signature in a compliance report is cryptographically checked — the Ed25519 suppression-signing capability this exercises is **proven as of Enterprise 0.36.0**, its verification gate having run against the published bytes and passed with a tamper negative control, and verified for approvers whose registry entry carries **key material**. Verdicts name the exact bytes they verified, a revoked key's bytes are still checked so signing-after-revocation becomes a cryptographic finding, and a MISSING verdict reads "not checked" rather than "failed" — a report must not accuse an operator of forgery for not having migrated. **Ed25519 suppression signing was `not yet proven` when this shipped**: it shipped the code that made the verification gate satisfiable, and that gate then passed at Enterprise 0.36.0.
-
-**The suppression-approval commands land in the CLI (CE 0.2.40 / Enterprise 0.35.0).** `compliance suppress | review | renew | keygen` are new subcommands — thin forwards, the same discipline `compliance attest` established: Enterprise owns validation, defaults, the signing decision and every refusal; CE contributes flags and an exit code. `keygen` writes an approval keypair for a capability that was not yet proven at that release — Ed25519, private half `0600` — and prints an identity-registry member to paste, refusing to overwrite an existing signing key — regenerating one makes every signature it ever produced unverifiable, and nothing reports that until an auditor checks an archived approval. `suppress` signs the approval it writes when `NSAUDITOR_SIGNING_KEY` names a local Ed25519 key, and a malformed key fails at the command with nothing written. `renew` warns that renewing a signed approval invalidates its signature, because the expiry and the renewal record are inside the signed payload. Ed25519 suppression signing was thereby reachable and, **at that release, not yet proven** — its verification gate had not run against published bytes. It passed at Enterprise 0.36.0.
-
-**Exploit intelligence lands in Pro, and a risk-score claim gets corrected here (CE 0.2.39 / Enterprise 0.34.0).** Paired with Enterprise 0.34.0 — **no CE behaviour change.** Enterprise findings that carry CVEs are now joined by CVE-ID against a local **CISA KEV** catalog and a local **FIRST EPSS** scores file, banded and ordered exploit-first, so a KEV-listed MEDIUM outranks an unexploited CRITICAL. Both stores are **operator-populated — no feed data ships** — and fail closed when stale, so an out-of-date catalog never reports "not exploited". The CE-side change is a correction this README owed you: *"a composite risk score (severity × exploitability × impact × exposure)"* described inputs the code never had. It computes **CVSS weighted by verification status, with an uplift for initial-access techniques**, and that is what it now says. `prioritize()` in the documented FindingQueue sorts by **severity rank alone** — the exploit-aware ordering is Enterprise-side. Community Edition scanning, plugins and output are unchanged.
-
-**The opt-in RFC 3161 register stops understating itself (CE 0.2.38 / Enterprise 0.33.1).** Paired with Enterprise 0.33.1 — **no CE behaviour change; wording only, and it is the wording npm freezes.** Trusted timestamping is opt-in, became operator-configurable in 0.33.0, and has since been proven end to end against a real Time-Stamp Authority twice over: on the npm path, and separately from inside the published Marketplace container image. Six places in this README still told you the container leg was unverified. They now state what is true — **RFC 3161 timestamping is opt-in via `NSAUDITOR_TSA_URL`, with no default ever and an outbound call to the authority you name** — and keep the one caveat that survives: retained images at `:0.32.11` and earlier carry no `openssl` at all, so nothing here speaks for them. **Ed25519 suppression signing was unchanged at that release and still not reachable then** — it became reachable in EE 0.35.0 via `compliance suppress` and is **proven as of EE 0.36.0**, verified for approvers whose registry entry carries **key material**.
-
-See **[CHANGELOG.md](./CHANGELOG.md)** for the full per-release history.
-
-→ See a sample EE scan output: **[walk-through with synthetic Acme Corp AWS account](https://www.nsauditor.com/ai/docs/sample-scan/)** (no signup required)
-
----
-
+For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
 ## What It Does
 
@@ -172,39 +51,7 @@ Scan → Analyze → Prioritize → Track → Act
 
 NSAuditor AI is available in three editions: Community (free, MIT-licensed, no restrictions), Pro ($49/mo), and Enterprise ($2k+/yr).
 
-### Why upgrade to Enterprise?
-
-If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, GDPR Article 32, or NIST SP 800-171 / CMMC Level 2 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
-
-- ☁️ **29 enterprise plugins — 28 cloud auditors across AWS / Azure / GCP, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
-- 📋 **8 compliance frameworks shipped** — generate any combination from a single scan:
-  - **SOC 2** (AICPA TSC 2017) — 10 fully-covered + 4 partial controls
-  - **HIPAA Security Rule §164.312** — 7 covered + 3 partial Technical Safeguards; **Zero BAA required** (ePHI never leaves your infrastructure)
-  - **NIST CSF 2.0 Core** (NIST CSWP 29, Feb 2024) — 13 covered + 10 partial Subcategories across 106 of CSF 2.0's 107 Subcategories; Subcategory-level mapping (auditor-canonical, not high-level Function/Category claims)
-  - **PCI DSS v4.0.1** (PCI SSC, June 2024 errata; v3.2.1 retired March 31, 2024) — **19 covered + 9 partial + 44 OOS sub-requirements across 72 of ~250**; sub-requirement-level mapping for QSA Report on Compliance workflow; Defined-vs-Customized Approach discipline enforced at the schema layer, derived from the standard rather than from a list: PCI DSS v4.0.1 states ineligibility in each requirement's own Customized Approach Objective cell, not in an appendix, and no sub-requirement mapped here is ineligible; CHD Scope operator-attested via CDE Data Flow Diagram per Req 1.2.4; Card-brand AOC enforcement priority view (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC)
-  - **ISO/IEC 27001:2022** (ISO + IEC, Oct 2022; 2013 edition retired Oct 31, 2025) — **17 covered + 14 partial + 62 OOS across 93 Annex A controls** (the complete Annex A universe); per-Annex-A-code mapping auditor-canonical for ISO/IEC 17021-1 certification body assessors; Statement of Applicability per Clause 6.1.3.d discipline + ISMS Clauses 4-10 OOS-by-design with 7 Major Nonconformity classes
-  - **CIS Critical Security Controls v8** (CIS, May 2021; v8.1 errata June 2024) — **17 covered + 23 partial + 113 OOS across 153 Safeguards / 18 Controls**; per-Safeguard mapping with the **Implementation Group cumulative discipline** (IG1=56 cyber-insurance baseline / IG2 cumulative=130 / IG3 cumulative=153); no-certification-body attestation discipline (INPUT to your CSAT / CIS-CAT Pro self-attestation, never "CIS certified"); Cloud Companion Guide v8 shared-responsibility + CIS-Hardened-Image substrate-evidence credit (4.1/4.2/4.6)
-  - **GDPR Article 32 (Security of Processing)** (Regulation (EU) 2016/679) — **4 covered + 5 partial + 2 OOS across 11 Art. 32 sub-measure units**; **GDPR Article 32 infrastructure substrate only — NOT GDPR compliance** (GDPR is a 99-article legal regime; Art. 32 security-of-processing is the only article an infrastructure scanner can substrate-evidence; the rest is operator-side, out of scope by design). Four-factor proportionality (substrate *for* your "appropriate to the risk" determination, never an absolute pass/fail); personal-data-scope attestation (pair with your Art. 30 records of processing); **Art. 83(4) lower fine tier** (€10M/2%, not the €20M/4% headline tier); Art. 32(3)/Art. 42 cloud-provider certification-inheritance
-  - **NIST SP 800-171 Rev 2** (NIST, Feb 2020; the baseline CMMC assesses by rule) — **2 covered + 49 partial + 59 OOS across all 110 requirements**, claimed at the SP 800-171A determination-statement level. ⚠️ This is EXAMINE-method evidence substrate for **CMMC Level 2 preparation** — not a CMMC certification, not a FedRAMP authorization, and it emits no MET/NOT MET determination and no SPRS score; each of those is a C3PAO's to make.
-- 🔐 **Evidence with a verifiable chain of custody** — SHA-256 sidecars on every artifact, verifiable offline. RFC 3161 trusted timestamps are **opt-in since EE 0.33.0** via `NSAUDITOR_TSA_URL`, require an outbound call to the authority you name plus the `openssl` binary, and were exercised against a live Time-Stamp Authority on the npm path on 2026-08-07: the auditor procedure `openssl ts -verify` returned OK, with a one-byte-mutated copy returning FAILED as the control. The `:0.33.0` Marketplace image is proven too: on 2026-08-08 the same round-trip was driven from inside the pushed image against a real authority, verified with the image’s own `openssl`. **Retained images at `:0.32.11` and earlier carry no `openssl` at all**, so nothing here speaks for them. **Ed25519 suppression signing became reachable in EE 0.35.0 via `compliance suppress`** and is **proven as of EE 0.36.0 for approvers whose registry entry carries key material** — a shipped entry point signs, and a one-character length-preserving tamper makes the report render `signature FAILED verification`. A fingerprint-only registry entry reads `not checked by this report`, which records that no check ran and never that one failed.
-- 🏛️ **Zero Data Exfiltration architecture** — no scan data is collected, transmitted, or stored by Nsasoft; reports are written to your local disk. Air-gapped operation once configured for it (`NSAUDITOR_OFFLINE_ONLY=1` plus a local NVD store; a default run queries NIST's public CVE API). AI analysis happens locally (Ollama) or via your own API keys. Important for PCI DSS CDE-isolation threat models.
-- 🔗 **GRC connectors — Vanta + Drata + Secureframe (Enterprise)** — map compliance findings to your GRC platform's evidence/test records and push them at **scan time** (opt-in). Suppression-aware outcome mapping (Vanta) / structured records (Drata + Secureframe), idempotent retries, rate-limit handling, token redaction, and Zero-Data-Exfiltration egress redaction. Early-access, single-workspace; live validation against production tenants is in progress. See **[GRC Connectors](#grc-connectors-vanta-drata-secureframe)** below.
-- 🗄️ **WORM posture VALIDATION** — we read your bucket's S3 Object Lock configuration per CloudTrail trail bucket and fail the control when it is absent, in GOVERNANCE mode or under-retained. That is substrate FOR a SEC Rule 17a-4(f) / FINRA 4511 retention claim, not the claim itself: the engine WRITING artifacts into the immutable store is built and **not reachable** (no caller), so the retention guarantee stays yours to make about your own archive
-- 📊 **SLA / MTTR tracking + recurring-scan attestation** — the **Type II operating-effectiveness evidence** auditors actually demand (not just point-in-time snapshots)
-- 🎯 **14 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 9-of-9 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + NIST SP 800-171 + GRC connector)
-
-→ **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
-→ **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
-
-### Prefer to buy through AWS Marketplace?
-
-Enterprise Edition is also available as an **[AWS Marketplace container listing](https://aws.amazon.com/marketplace/pp?sku=etar8knc8dx7bshizrrnnjbzi)** — same product, same local ES256 license key, billed through your AWS account (consolidated billing / EDP drawdown, procurement-friendly; custom Enterprise terms via AWS Private Offers). *The listing is public. If it doesn't resolve in your AWS region or account, [contact us](https://www.nsauditor.com/support.html) and we'll extend a Private Offer directly.*
-
-How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS dependency at scan time):
-
-1. **Subscribe** on the listing (tiers `base` / `growth` / `scale` mirror the 5 / 25 / unlimited-seat plans).
-2. **Register** your email + AWS account ID at the URL shown in the listing's usage instructions — your **ES256 license key arrives by email**.
-3. **Pull and run** the Docker image from the Marketplace registry (commands in the listing's usage instructions and your license email) with `NSAUDITOR_LICENSE_KEY=<your key>`. One tier-agnostic image — upgrades are just a new license key, never a new image. The container runs fully offline after that; billing lives in AWS, enforcement is your local key.
+**→ [What Pro and Enterprise add](./docs/editions.md)** — the long-form comparison behind the table below.
 
 ### Feature comparison
 
@@ -254,34 +101,15 @@ How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS 
 
 ---
 
-## GRC Connectors (Vanta, Drata, Secureframe)
+### Prefer to buy through AWS Marketplace?
 
-*Enterprise feature. Requires `@nsasoft/nsauditor-ai-ee`.*
+Enterprise Edition is also available as an **[AWS Marketplace container listing](https://aws.amazon.com/marketplace/pp?sku=etar8knc8dx7bshizrrnnjbzi)** — same product, same local ES256 license key, billed through your AWS account (consolidated billing / EDP drawdown, procurement-friendly; custom Enterprise terms via AWS Private Offers). *The listing is public. If it doesn't resolve in your AWS region or account, [contact us](https://www.nsauditor.com/support.html) and we'll extend a Private Offer directly.*
 
-Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta, Drata, or Secureframe workspace reflects the latest cloud posture without a manual export/import round-trip.
+How Marketplace fulfillment works (ZDE and air-gap preserved — no runtime AWS dependency at scan time):
 
-**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, egress is redaction-gated: resource identifiers can be hashed or removed, the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
-
-```bash
-# Enable the scan-time push (Enterprise)
-COMPLIANCE_GRC_PROVIDER=vanta        # or: drata | secureframe
-COMPLIANCE_GRC_TOKEN=<your API key>  # never serialized to artifacts
-# Optional:
-# COMPLIANCE_GRC_REDACTION=hash      # off | hash | remove  (egress identifier redaction)
-# COMPLIANCE_GRC_CONTROL_MAP=/path/to/config.json  # provider config: Vanta control→test map, Drata connection ({connectionId, resourceId, schemaMap}), or Secureframe ({workspaceId, collectionId, schemaMap})
-```
-
-| Platform | Status | Model |
-|---|---|---|
-| **Vanta** | Connector + scan-time activation shipped | Maps findings to Vanta test results; suppression-aware outcome mapping (pass / fail / passed-with-compensating-control), framework-dimensioned idempotency keys, retry with rate-limit backoff, circuit breaker |
-| **Drata** | Connector library shipped | Pushes structured records via Drata **Custom Connections**; your Drata **Test Builder** rules (Advanced/Enterprise plans) evaluate them — the connector delivers evidence, your rules do the evaluation |
-| **Secureframe** | Connector library shipped (early-access) | Pushes structured records to a workspace evidence collection; **your** Secureframe rules evaluate them — the connector carries the control `status` verbatim, it does not compute pass/fail. API shape published-assumed; live-tenant validation deferred (partner intake) |
-
-**Reliability + audit-integrity built in:** idempotent retries (a network-timed-out push won't create duplicate records), per-attempt + total-duration timeout caps, a consecutive-failure circuit breaker, token redaction across every log and error path, and a durable per-control push audit log written next to your scan artifacts.
-
-> **Honest status.** The Vanta, Drata, and Secureframe connectors are shipped, opt-in, and covered by an extensive test suite. **Live validation against production Vanta / Drata / Secureframe tenants is in progress** as partner onboarding proceeds — until it completes, treat production use as early-access and validate against your own tenant first. This is a single-workspace, operator-configured connector; it is not a multi-tenant managed sync. (Secureframe's API shape is published-assumed pending partner intake; its idempotency keys are SENT but vendor-side dedup is unverified.)
-
----
+1. **Subscribe** on the listing (tiers `base` / `growth` / `scale` mirror the 5 / 25 / unlimited-seat plans).
+2. **Register** your email + AWS account ID at the URL shown in the listing's usage instructions — your **ES256 license key arrives by email**.
+3. **Pull and run** the Docker image from the Marketplace registry (commands in the listing's usage instructions and your license email) with `NSAUDITOR_LICENSE_KEY=<your key>`. One tier-agnostic image — upgrades are just a new license key, never a new image. The container runs fully offline after that; billing lives in AWS, enforcement is your local key.
 
 ## Quick Start
 
@@ -342,209 +170,6 @@ Results land in `./out/<host>_<timestamp>/`:
 | `scan_report.md` | GitHub-flavored Markdown report — only with `--output-format md` (or `markdown`) |
 
 > Works on Node 20+ (tested on Node 22).
-
----
-
-## Plugins
-
-### Core Scanners
-
-| ID | Name | Protocols | Purpose |
-|---|---|---|---|
-| 001 | Ping Checker | ICMP/ARP | Reachability + TTL-based OS hints |
-| 002 | SSH Scanner | TCP:22 | Banner, version fingerprinting, timeout policy |
-| 003 | Port Scanner | TCP/UDP | Bulk open port detection (populates context for downstream plugins) |
-| 004 | FTP Banner Check | TCP:21 | FTP daemon version detection |
-| 005 | Host Up Check | TCP/UDP | Quick multi-probe reachability confirmation |
-| 006 | HTTP Probe | TCP:80/443 | Headers, server token, vendor hints |
-| 007 | SNMP Scanner | UDP:161 | sysDescr, OIDs, serial/hardware/firmware extraction |
-| 008 | Result Concluder | Meta | Fuses all plugin outputs (always runs last) |
-| 009 | DNS Scanner | TCP/UDP:53 | `version.bind` CHAOS/TXT + A record lookup |
-| 010 | Webapp Detector | HTTP | Technology stack fingerprinting via wappalyzer |
-| 011 | TLS Scanner | TCP:443+ | TLS version + cipher enumeration per port |
-| 012 | OpenSearch Scanner | HTTP:9200+ | OpenSearch/Dashboards version + Linux/Node.js hints |
-| 013 | OS Detector | Meta | Derives distro/OS from all prior banners with TTL fallback |
-| 014 | NetBIOS Scanner | UDP:137/TCP:445 | NetBIOS/SMB enumeration + SMB2 null session probe |
-| 015 | SUN RPC Scanner | TCP/UDP:111 | RPC portmapper service discovery (NFS, mountd) |
-| 016 | WS-Discovery | UDP:3702 | Multicast device discovery with XML metadata |
-| 024 | TCP SYN Scanner | TCP (Nmap) | SYN half-open scan via Nmap wrapper (optional) |
-| 040 | TLS Certificate & Cipher Auditor | TCP:443+ | Cert expiry, chain integrity, hostname mismatch, weak ciphers, deprecated protocols, key strength |
-| 050 | TRIBE v2 Neural API Security Probe | TCP/HTTP:8080 | Debug leak detection, stack traces in errors, header security, CORS misconfiguration, unauthenticated routes |
-| 060 | DNS Security Auditor | DNS/UDP:53 | SPF/DKIM/DMARC, dangling CNAMEs, DNSSEC, NS delegation, zone transfer exposure, MX security, CAA records |
-| 070 | MCP Scanner | TCP/HTTP+SSE | Detects MCP (Model Context Protocol) servers on candidate ports (1967, 3000, 3005, 5173, 6274, 6277, 8000, 8090). Audits for cleartext transport (HTTP not HTTPS), missing/anonymous auth, anonymous tool enumeration, deprecated protocol versions, and Inspector exposure on non-loopback. Maps findings to CWE/OWASP/MITRE per the FindingSchema. STDIO-transport MCP servers are out of scope (no network port). |
-
-### Discovery Plugins
-
-| Name | Purpose |
-|---|---|
-| ARP Scanner | MAC resolution + OUI vendor lookup + OS hints |
-| mDNS/Bonjour Scanner | Local service discovery + friendly names from TXT records |
-| UPnP/SSDP Scanner | Device discovery + description XML parsing |
-| DNS-SD Scanner | DNS Service Discovery announcements |
-| LLMNR Scanner | Link-local multicast name resolution |
-| DB Scanner | Database service detection (MySQL, PostgreSQL, Redis, etc.) |
-
-### Pro/Enterprise Plugins (via @nsasoft/nsauditor-ai-ee)
-
-**29 enterprise plugins: 28 cloud auditors across AWS, GCP and Azure substrate, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 28 declare, so `1023` never runs on a cloud pass. It runs on a network-host scan with the full plugin set — measured on the shipped CLI, selecting it by id on its own does not work, because it requires the host to be confirmed up by a discovery plugin.
-
-→ **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the evidence pack actually looks like.
-
-→ **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/enterprise/)** · $2k / $5k / $10k+ per year · 5 / 25 / unlimited seats · onboarding call included.
-
-**All EE plugins follow the same institutional plumbing pattern:**
-
-- **Thread H `_instrumentSdkClient` wrap** — per-API AccessDenied counter + ZDE structural guard (verb-prefix denylist regex blocks `Get*` / `Retrieve*` / `Read*` value-reading APIs at SDK boundary) + idempotency sentinel
-- **Throttle-retry** — exponential-backoff retry on `Throttling*` / `RequestLimitExceeded` / `TooManyRequestsException` with per-command wall-clock budget
-- **Thread F `conclude()` field-selection allowlist** — structured-data ZDE: only AWS-public-namespace identifiers + integer counts flow through to findings; customer policy content / key material / encrypted payloads NEVER propagate
-- **`conservative_classifier_principle`** — emit INFO+evidenceGap with verification prompt when ARN-shape disambiguation needs a follow-up API call; vacuous PASS on partial substrate evidence is treated as the worst SOC 2 reporting outcome
-- **`aws_string_case_normalization`** — trim + lowercase AWS-returned strings at SDK-helper boundary; protects against the 7+ recurrent classes of case-sensitivity fail-open (IAM Condition keys, Lambda runtimes, KMS aliases, Effect/Action discriminators, FULL_ADMIN sentinel, S3 region)
-
-| ID | Name | Tier | What it audits |
-|---|---|---|---|
-| 1020 | AWS S3 Security | Enterprise | Bucket hardening: public-access block, encryption at rest, versioning, Object Lock COMPLIANCE-mode, MFA Delete, access logging. **CC6.1 / C1.1 / C1.2** |
-| 1021 | GCP Cloud Scanner | Enterprise | Firewall rules + IAM bindings + Storage bucket public-access. **CC6.1 / CC6.6 / C1.1** |
-| 1022 | Azure Cloud Scanner | Enterprise | NSG rules + RBAC role assignments + Storage account hardening. **CC6.1 / CC6.6 / C1.1** |
-| 1023 | Zero Trust Checker | Enterprise | Segmentation, encryption, identity, lateral-movement scoring across the network surface. **CC6.1 / CC6.6** |
-| 1024 | GCP Cloud Storage Auditor | Enterprise | Multi-cloud parity sister of plugin 1020 AWS S3. 6 dimensions: bucket-level IAM public bindings (allUsers = CRITICAL, allAuthenticatedUsers = HIGH), Uniform Bucket-Level Access (closes legacy bucket-ACL false-PASS class), Object Versioning, Bucket Lock retention policy (SEC 17a-4 / FINRA 4511 WORM-alignment), CMEK via Cloud KMS (four-tier custody ladder), bucket-level access logging. **CC6.1 / CC6.6 / CC7.1 / C1.1 / C1.2 / A1.2** |
-| 1025 | GCP IAM Project-Level Auditor (v2 — EE 0.7.1) | Enterprise | First plugin in the v0.7.x GCP-IAM-deep-audit cohort. Mirrors plugin 1030 AWS IAM Deep Auditor's shadow-admin discipline adapted to the GCP IAM data model. **7 dimensions (EE 0.7.1 v2 expansion):** project-scope public-member bindings (allUsers = CRITICAL, allAuthenticatedUsers = HIGH at the project root), admin-equivalent role inventory across 12 predefined sensitive roles, IAM Conditions classifier on sensitive-role bindings (restrictive CEL = PASS, absent on sensitive = MEDIUM, vacuous = LOW + evidenceGap), **custom-role permission audit** (`*` wildcard = CRITICAL; admin-equivalent permission intersection across 16-entry allowlist = HIGH), **SA key custody** (user-managed long-lived keys = HIGH; 90-day rotation threshold uplift), **SA impersonation graph BFS** (transitive `serviceAccountTokenCreator`/`User`/`OpenIdTokenCreator` chains — 2-hop = HIGH, 3+ hop = CRITICAL; project-scope grants surface independently as CRITICAL), **Organization Policy constraint enumeration** (4 sensitive constraints incl. `iam.disableServiceAccountKeyCreation`). Honors `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` via `utils/gcp_auth.mjs`. **CC6.1 / CC6.6 / C1.1** |
-| 1030 | AWS IAM Deep Auditor | Enterprise | Shadow-admin path detection via BFS over PassRole / AssumeRole / federated trust. Restrictive-Condition allowlist for Auth0 / Okta / Cognito OIDC patterns. **CC6.1** |
-| 1040 | AWS CloudTrail Operational Integrity | Enterprise | Trail health + CloudWatch alarm coverage against CIS AWS Benchmark §3.1–3.14 + AWS Config + cross-account S3 trail-destination WORM verification (SEC 17a-4 / FINRA 4511). **CC7.2 / CC7.3** |
-| 1050 | AWS API Gateway Assurance | Enterprise | Per-route authz classifier (`NONE`=CRITICAL), custom-domain TLS policy, stage-level access logging + WAF, public-endpoint exposure. Entry-point evidence for serverless deployments. **CC6.1 / CC6.6 / CC6.7 / CC7.1 / A1.2** |
-| 1060 | AWS DynamoDB Audit Integrity | Enterprise | First "audit-the-auditor" plugin. PITR + deletion protection + KMS-CMK custody + resource-policy presence + CloudTrail data-event cross-reference. **CC6.6 / CC7.1 / C1.1 / PI1.5** |
-| 1070 | AWS KMS Auditor | Enterprise | Per-key rotation + wildcard-Principal classifier across 5 severity tiers (covers `Principal.AWS` / Federated / Service / CanonicalUser + NotPrincipal-Allow + NotAction-Allow + glob actions). **CC6.3 / C1.1** |
-| 1080 | AWS Lambda Security | Enterprise | Runtime EOL detection (CRITICAL on `nodejs16.x` / `python3.7` etc.), public function URLs, resource-policy wildcards, env-var secret-name detection (ZDE-safe), VPC config, KMS custody, DLQ. **CC6.1 / CC6.6 / CC7.1 / C1.1** |
-| 1090 | AWS Secrets Manager + SSM Parameter Store | Enterprise | Rotation cadence + KMS-CMK custody + SecureString classification + secret-name detection. **ZDE-critical**: never calls `GetSecretValue` / `GetParameter` — metadata only. Verb-prefix denylist blocks `Get*` / `Retrieve*` / `Read*` at the SDK boundary. **CC6.1 / CC6.6 / C1.1** |
-| 1100 | AWS CodePipeline + CodeBuild | Enterprise | Source-stage encryption, `privilegedMode` detection, buildspec drift, secrets-via-env vs Secrets-Manager, IAM wildcard-Action, artifact-store encryption, stale-execution detection. **CC6.1 / CC7.1 / CC8.1 / C1.1** |
-| 1110 | IAM Effective Decrypt-Path Auditor | Enterprise | Cross-plugin reconciler — walks IAM policies for `kms:Decrypt` / `ReEncrypt*` / `GenerateDataKey` grants and cross-references against KMS key policies to compute the effective decrypt path. Closes the NotAction-implicit-decrypt false-PASS class. **CC6.1 / CC6.6 / C1.1 / C1.2** |
-| 1120 | AWS S3 Lifecycle + Cross-Region Replication | Enterprise | Lifecycle policy enumeration + cross-region replication topology. Cross-region destination-bucket reachability check closes silent-PASS where replication FAILED but emitted clean. **C1.1 / C1.2 / A1.2** |
-| 1130 | AWS Backup Auditor | Enterprise | The flagship plugin — 12-dimension air-gapped vault attestation arc for `LogicallyAirGappedBackupVault` resources. Audits Plans + Vaults + Recovery Points + Frameworks + Restore Testing + Legal Holds + vault Access Policy. SEC 17a-4 / FINRA 4511 ransomware-defense substrate. **CC6.3 / CC6.6 / CC7.1 / CC8.1 / C1.1 / C1.2 / A1.2** |
-| 1140 | AWS RDS Auditor | Enterprise | 10 dimensions: Multi-AZ, storage encryption + KMS custody, parameter-group SSL, backup retention, public accessibility, IAM database auth, snapshot encryption, **pgAudit + SPL cross-check**, CloudWatch Logs exports (engine-dispatched), log retention. **A1.2 / CC6.1 / CC6.6 / C1.1 / CC7.2 / CC7.3** |
-| 1150 | AWS SQS/SNS Auditor | Enterprise | 7 dimensions across both services: encryption at rest + KMS custody, transit-encryption policy, topic-policy wildcards (CRITICAL on unconditional + NotPrincipal-Allow), DLQ presence, CloudWatch alarm coverage on `ApproximateAgeOfOldestMessage` + `NumberOfNotificationsFailed`. **C1.1 / CC6.6 / A1.2 / CC7.1 / CC7.2** |
-| 1160 | AWS VPC Endpoints / PrivateLink | Enterprise | Endpoint-policy wildcards (CRITICAL on PrivateLink-breaking unconditional), PrivateDNS enabled (silent-bypass class), endpoint state (`failed` = silent failure), type substrate disclosure. **CC6.6 / A1.2 / CC7.2** |
-| 1170 | AWS EC2 SG Perimeter | Enterprise | RESTRICTED_PORTS (23 ports per CIS AWS Foundations v3.0) wildcard ingress + IPv6 ::/0 + all-protocol-from-wildcard + orphan SG detection. **SG→SG transitive chain reachability**: BFS from public-CIDR roots through `UserIdGroupPairs` — 2-hop = HIGH, 3+ hop = CRITICAL. Catches the ALB → app → database exposure that per-SG audits silently miss. **CC6.6 / CC6.2** |
-| 1180 | AWS ElastiCache Redis | Enterprise | 6 dimensions: transit encryption, at-rest + KMS custody (four-tier ladder), Redis AUTH / IAM user groups (Redis 7+ ACL), Multi-AZ, snapshot retention cadence, subnet placement. Cross-plugin sister to plugin 1170 for cache-tier perimeter. **CC6.1 / CC6.2 / CC6.6 / A1.2 / C1.1** |
-| 1190 | AWS SES Email Integrity | Enterprise | 6 dimensions: DKIM enablement + CNAME DNS resolution + key-fingerprint pin, DMARC TXT parsing + alignment classifier, custom MailFrom alignment, config-set TLS enforcement, sending-auth policy wildcards, dedicated IP pool, suppression list (count-only — ZDE invariant: never reads addresses). **CC6.1 / CC6.6 / C1.1 / CC7.1 / Privacy** |
-| 1200 | AWS Inspector2 / GuardDuty Enablement | Enterprise | 4 dimensions across all opted-in regions (17+ incl. GovCloud / ISO): GuardDuty Detector + protection features (S3 / EKS / EBS-malware / RDS-login / Lambda / RuntimeMonitoring), Inspector2 enablement, scan-target coverage. Plus alerting-destination dim (EventBridge or SecurityHub) and per-target liveness probes for Lambda / SNS / SQS / IAM / API destination / CloudWatch Logs. **CC7.1 / CC7.2** |
-| 1210 | AWS EC2 Instance (**EE 0.13.1**) | Enterprise | Multi-region (DescribeRegions; single-region fallback emits an evidence-gap) EC2 instance audit: IMDSv1 enabled (IMDSv2-only enforcement; hop-limit > 1 container-escape) + EBS volume + account-default encryption + public-IP exposure (incl. IPv6 GUA + secondary-ENI/EIP) + instance-store evidence-gap. **AMI inventory → CIS-Hardened-Image detection** on CIS Safeguards 4.1/4.2/4.6 — the AWS producer; Azure (1022) + GCP (1021) feed the same `cisImageInventory` contract. **CC6.1 / C1.1 / CC6.6** |
-| 1220 | Azure Storage Account Data-Protection (**EE 0.13.2**) | Enterprise | Dedicated Azure Storage Account encryption / transit / authorization auditor — orthogonal to the 1022 scanner's network-exposure dims (no double-emission; mirrors the AWS 1020 + 1120 two-plugin S3 split). HTTPS-only transit (`enableHttpsTrafficOnly`) + minimum TLS version + Shared Key authorization (`allowSharedKeyAccess` — bypasses Azure AD; absent = enabled, never silent-PASS) + infrastructure (double) encryption + encryption key source incl. **customer-managed-key reachability + rotation** (`keyVaultProperties` — a disabled/revoked/version-pinned CMK degrades, not silent-PASS). Conservative classifier: indeterminate field / AccessDenied → evidence-gap; single-subscription scope surfaced explicitly. **CC6.7 / CC6.1 / C1.1** |
-| 1221 | Azure NSG Perimeter (**EE 0.14.0**; UDP lane **EE 0.14.1**) | Enterprise | The Azure analog of AWS 1170 — a CC6.6 network-segmentation perimeter auditor for Azure Network Security Groups. Evaluates each NSG's inbound rules in Azure priority order (first match wins; DenyAllInbound default): all-protocol public Allow + public-source (`*`/`0.0.0.0/0`/`Internet`) to a restricted **TCP** management/data-tier port (SSH/RDP/MSSQL/MySQL/Postgres/Redis/Mongo/SMB/WinRM/etc.) + `::/0` IPv6-wildcard to a restricted port (the dimension 1022's flat lint misses) + **public-source / `::/0` to a restricted UDP service** (SNMP/CLDAP/NTP/rpcbind/IPMI/IKE/Memcached etc. — Dim 2u/3u, EE 0.14.1) + public→non-restricted INFO + PASS substrate. **Attachment-aware** (attached → CRITICAL effective; orphaned → MEDIUM latent) + effective priority/deny-override resolution + `0.0.0.0/1` split-range coverage. Non-overlapping-by-depth with 1022's coarse per-rule NSG lint. Conservative classifier: denied/indeterminate → evidence-gap; one malformed NSG degrades per-resource. **CC6.6** |
-| 1222 | Azure Key Vault Deep Auditor (**EE 0.15.0**) | Enterprise | The third dedicated Azure auditor (after 1220 storage + 1221 NSG) — the KV analog of how 1221 deepens 1022's flat NSG dim. Enumerates each vault's keys, role assignments, and diagnostic settings across 4 dims: (1) key **auto-rotation policy** + (2) key **expiry** (epoch-s/ms/Date/string coerced) + (3) **diagnostic logging → Log Analytics** (`@azure/arm-monitor`) + (4) **privileged-access depth** (RBAC `roleAssignments` admin/data-plane/scope-aware + legacy `accessPolicies` export/wide-crypto breadth). Orthogonal to 1022's vault-property dims (purge/soft-delete/network-ACL/RBAC-mode) — no double-emission. Secret/cert expiry is a deliberate data-plane scope boundary. Conservative classifier: indeterminate field / AccessDenied / arm-monitor absent → evidence-gap; one malformed vault degrades per-resource. **CC6.3 / C1.1 / CC6.1 / CC7.2** |
-| 1230 | AWS DocumentDB Auditor (**EE 0.41.0**) | Enterprise | Amazon DocumentDB (MongoDB-compatible) cluster security — owns the `docdb` engine on the shared RDS control plane (plugin 1140 delegates it and discloses Neptune as unaudited). Seven dimensions: storage encryption at rest + KMS custody classification (customer-alias PASS / AWS-managed / foreign-account + key-UUID custody-unverifiable evidence gaps — encryption is fixed at cluster creation, so the emission gives a migration remediation, never an unrunnable in-place one) + `tls` cluster parameter (disabled = HIGH) + `audit_logs` + CloudWatch `audit` export (generating-but-unexported = MEDIUM) + backup retention vs the 7-day floor + deletion protection + replica/AZ availability topology under the CLUSTER lens (the per-instance Multi-AZ flag is RDS semantics and never consulted) + manual-snapshot public/cross-account restorability (`all` = CRITICAL). Non-docdb engines counted and skipped; DocumentDB Elastic clusters declared deferred; per-dimension fail-closed evidence gaps. **C1.1 / CC6.1 / CC6.6 / CC7.2 / A1.2** |
-| — | SOC 2 Compliance Engine | Enterprise | AICPA TSC 2017 mapping (10 covered + 4 partial controls), SHA-256 chain-of-custody, opt-in RFC 3161 timestamps, exercised against a live TSA on both the npm path and the `:0.33.0` container image, and the suppression workflow. (Ed25519 SIGNING of suppressions is reachable from EE 0.35.0 and PROVEN at EE 0.36.0, verified per approver holding **key material**.) |
-| — | **HIPAA Compliance Engine (EE 0.9.0)** | Enterprise | HIPAA Security Rule §164.312 Technical Safeguards mapping (7 covered + 3 partial + 45 OOS within §164.312 + entire §164.308 + entire §164.310). HHS Required/Addressable discipline per control. Same evidence infrastructure as SOC 2 (SHA-256 chain-of-custody; opt-in RFC 3161 timestamps; suppression signing reachable from EE 0.35.0, proven at EE 0.36.0 and verified per approver holding **key material**). Use `--compliance hipaa` or `--compliance soc2,hipaa` for dual-framework reports from a single scan. **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. |
-| — | **NIST CSF 2.0 Compliance Engine (EE 0.10.0)** | Enterprise | NIST Cybersecurity Framework 2.0 Core mapping at the auditor-canonical Subcategory level — 13 covered + 10 partial + 83 OOS across 106 of CSF 2.0's 107 Subcategories. Govern function OOS-by-design (GV.SC-04 partial as substrate exception); Respond function OOS-entirely; Implementation Tiers 1-4 OOS as organizational-maturity claims. NIST SP 800-53 Rev. 5 + CIS Critical Security Controls v8 cross-references baked into `informativeReferences`. Use `--compliance nist-csf` or `--compliance soc2,hipaa,nist-csf` for triple-framework reports from a single scan. |
-| — | **PCI DSS v4.0.1 Compliance Engine (EE 0.11.0)** | Enterprise | PCI DSS v4.0.1 (PCI SSC, June 2024 errata; supersedes v4.0 March 2022; v3.2.1 retired March 31, 2024) mapping at the auditor-canonical sub-requirement level for QSA Report on Compliance workflow — **19 covered + 9 partial + 44 OOS across 72 enumerated sub-requirements** (derived from the shipped `coverageSummary` — the 0.11.0 record read 19/9/39 across 67 under a density label since retired) (Req 7.2.2 down-rated covered→partial in EE 0.19.4 — access-by-job-classification is process/HR-gated). Req 12 Information Security Program OOS-by-design entirely. Req 5 anti-malware + Req 9 physical OOS-entirely. **Defined-vs-Customized Approach eligibility is read from each requirement's own Customized Approach Objective cell** (PCI DSS v4.0.1 states ineligibility there, never in an appendix; the 0.11.0 record's "per Appendix E, 15 Defined-only" doctrine was wrong about most of its members and is withdrawn). **Cardholder Data Environment (CDE) scope operator-attested** via CDE Data Flow Diagram per Req 1.2.4 + Req 12.5.1. **Card-brand AOC enforcement priority view** (Visa CISP / Mastercard SDP / Amex DSOP / Discover DISC). **4 load-bearing schema enrichments** per control: `controlType` + `approachEligibility` + `cloudProviderAttestation` (AWS / Azure / GCP currently-named AOCs) + `cdeScope`. CAO MVP-deferred to EE 0.11.1. Use `--compliance pci-dss` or `--compliance soc2,hipaa,nist-csf,pci-dss` for quad-framework reports from a single scan. |
-| — | **ISO/IEC 27001:2022 Compliance Engine (EE 0.12.0)** | Enterprise | ISO/IEC 27001:2022 (ISO + IEC, October 2022; 2013 edition retired October 31, 2025) Annex A mapping at the auditor-canonical per-Annex-A-code level for ISO/IEC 17021-1 certification body assessors — **17 covered + 14 partial + 62 OOS across 93 Annex A controls** (the complete Annex A universe across 4 themes: A.5 Organizational 37 + A.6 People 8 + A.7 Physical 14 + A.8 Technological 34). **Statement of Applicability per Clause 6.1.3.d discipline** — engine produces substrate for INCLUDED controls; SoA inclusion/exclusion is operator-side. **ISMS Clauses 4-10 OOS-by-design** with 7 Major Nonconformity classes (absence of internal audit per Clause 9.2 OR management review per Clause 9.3 = auto-fail Stage 2). 11 NEW 2022 controls + 5-attribute taxonomy (cybersecurityConcepts 5 categories, NOT 6 like NIST CSF) + 2013-to-2022 transition discipline + Cloud-Provider Certificate Inheritance Matrix. Use `--compliance iso-27001` or any combination for multi-framework reports from a single scan. |
-| — | **CIS Critical Security Controls v8 Compliance Engine (EE 0.13.0)** | Enterprise | CIS Controls v8 (Center for Internet Security, May 2021; v8.1 errata June 2024) mapping at the per-Safeguard level (the atomic, attestable unit; coverage claimed at the SAFEGUARD level, never the Control level) — **17 covered + 23 partial + 113 OOS across 153 Safeguards / 18 Controls**. **Implementation Group cumulative discipline** — IG1=56 (cyber-insurance baseline; ~50-70% of mid-market policies require IG1 attestation), IG2 cumulative=130, IG3 cumulative=153; smallest-IG-membership tagging (NEVER report IG2 as 74-of-74 in isolation). **No-certification-body attestation discipline** — engine output is INPUT to CSAT / CIS-CAT Pro self-attestation OR a SOC 2 auditor cross-validating CIS scope, never "CIS certified." Cloud Companion Guide v8 shared-responsibility-model boundary + CIS-Hardened-Image substrate-evidence credit (Safeguards 4.1/4.2/4.6) + 5 Security Functions (NOT 6 — no Govern) + 6 Asset Types + MS-ISAC/EI-ISAC/H-ISAC sector baselines + v7.1-to-v8 cross-reference. Use `--compliance cis-v8` or `--compliance soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr` for hepta-framework reports from a single scan. |
-| — | **GDPR Article 32 Compliance Engine (EE 0.20.0)** | Enterprise | **GDPR Article 32 (Security of Processing)** infrastructure substrate (Regulation (EU) 2016/679) — **4 covered + 5 partial + 2 OOS across 11 Art. 32 sub-measure units** (the 7th framework). **This is GDPR Article 32 infrastructure substrate ONLY — NOT GDPR compliance.** GDPR is a 99-article legal regime; Art. 32 security-of-processing is the only article whose evidence is technical infrastructure state, so the rest of GDPR (lawful basis, consent, DSARs, records of processing, DPIAs, transfers) is operator-side and out of scope by design. **Four-factor proportionality** — Art. 32 measures are "appropriate to the risk" taking into account state-of-the-art / cost / nature-scope-context-purposes / risk; nothing is an absolute pass/fail, the engine produces substrate *for* the operator's determination. **Personal-data-scope attestation** — the scanner reads configuration, not data classification; a finding is an Art. 32 concern only if the resource processes personal data (pair with your Art. 30 records of processing). Controller-vs-processor role applicability + Art. 28 processor agreements. **Art. 83(4) lower fine tier** — Art. 32 infringements cap at €10M or 2% of turnover, NOT the €20M / 4% Art. 83(5) headline tier (which is for the basic principles + data-subject rights). Art. 32(3)/Art. 42 cloud-provider certification-inheritance (ISO 27001 / SOC 2 / C5 / EU Cloud CoC adherence as an element of demonstrable compliance, not a substitute). Use `--compliance gdpr` or any combination for multi-framework reports from a single scan. |
-| — | SLA & MTTR Tracking | Enterprise | Per-severity SLA targets, compensating-control flow, finding lifecycle, Type II rolling-quarter cadence. |
-| — | Recurring-Scan Attestation | Enterprise | Multi-scan chronological matrix, cadence gap detection, scope-drift surface (CC8.1). |
-| — | GRC Platform Connector | Enterprise | Vanta + Drata + Secureframe connectors — scan-time push (opt-in), retry/backoff, deterministic idempotency, rate-limit handling, circuit breaker, foreign-token detection, ZDE egress redaction. See [GRC Connectors](#grc-connectors-vanta-drata-secureframe). |
-| — | WORM Posture Validation | Enterprise | Reads S3 Object Lock configuration on your trail buckets + resource redaction + SHA-256 manifest — substrate for a SEC 17a-4 / FINRA 4511 claim. The archive WRITER (`prepareArchive`) is built and **not reachable**: no caller, so no first-party run writes into an immutable store. |
-| — | Tabletop Simulation | Enterprise | Probe-event manifest + SIEM detection correlation, configurable coverage bands (Type II / High-Assurance presets). |
-
-**Running EE plugins** (after `nsauditor-ai license install <key>`):
-
-```bash
-# Run a single EE plugin
-nsauditor-ai scan --host aws --plugins 1130 --compliance soc2 --out evidence.json
-
-# Run multiple EE plugins
-nsauditor-ai scan --host aws --plugins 1030,1040,1070,1130 --compliance soc2
-
-# Run all EE plugins (auto-discovered via plugin manager)
-nsauditor-ai scan --host aws --plugins all --compliance soc2
-
-# Run a single Enterprise plugin by id
-nsauditor-ai scan --host aws --plugins 1130 --compliance soc2
-```
-
-### Scoping the AWS audit to regions — `--aws-region`
-
-By default an AWS audit runs against a single region (`AWS_REGION`, else `us-east-1`). The `--aws-region <one|csv|all>` flag controls which regions the **regional** plugins (security groups, EC2, RDS, KMS, Lambda, Secrets Manager, DynamoDB, CodePipeline/CodeBuild, Backup, SQS/SNS, VPC endpoints, ElastiCache, SES, Inspector/GuardDuty, CloudTrail) audit — each now audits *every in-scope region*, not just the configured one:
-
-```bash
-# A single region
-nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region us-east-1
-
-# A comma-separated list of regions
-nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region us-east-1,eu-west-1,ap-southeast-2
-
-# Every region enabled on the account (via DescribeRegions; static-list fallback on AccessDenied)
-nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region all
-```
-
-- **Precedence:** `--aws-region` flag › `AWS_REGION` (shell / `--env` file) › single-region default.
-- **Default (no flag, no `AWS_REGION`):** scans one region and adds an informational *"incomplete region coverage"* note listing the enabled regions that were **not** scanned. It maps to no compliance control (a disclosure, not a finding — your posture is unchanged); pass `--aws-region all` for full coverage.
-- **Unknown region:** the explicit flag **fails fast** on an unrecognized region code (set `NSA_AWS_REGION_ALLOW_UNKNOWN=1` to permit a brand-new region); an `AWS_REGION`-derived value warns and proceeds.
-- **Global services** (IAM, account-level S3 enumeration) are audited once regardless of `--aws-region`; the S3 auditors resolve **each bucket's own region** and skip + disclose buckets outside the scoped set (closing latent cross-region false-cleans).
-- **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it to scan the server-configured `AWS_REGION`, or pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) to fan out. Omitting does **not** fan out, so a single tool-call stays within Desktop's timeout.
-
-The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on both the npm path and the `:0.33.0` container image. Ed25519 suppression SIGNING is reachable from EE 0.35.0 and PROVEN at EE 0.36.0, verified per approver holding **key material**. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
-
----
-
-## How Results Are Fused
-
-The Result Concluder (plugin 008) merges all plugin outputs into a normalized structure:
-
-1. **Imports** each plugin's `conclude()` adapter to get normalized `ServiceRecord` objects
-2. **Merges** services by `(protocol, port)`, preferring authoritative records
-3. **Selects OS** — OS Detector result first, then high-signal hints (Windows services, HTTP tokens), finally TTL fallback
-4. **Produces** a unified `{ summary, host, services, evidence }` output
-5. **Enriches** host details with names from mDNS, UPnP, NetBIOS; MAC + vendor from ARP
-
----
-
-## AI Analysis
-
-NSAuditor AI supports three AI providers for vulnerability analysis. **All providers work in all tiers** — CE, Pro, and Enterprise. AI is optional; the platform is fully functional without it.
-
-**Providers:** OpenAI (GPT-4o), Anthropic Claude (Sonnet/Opus), Ollama (fully local)
-
-**What changes by tier is the prompt content, not the provider:**
-
-- **CE** — basic scan-summary prompts (services, ports, versions detected). Local MITRE ATT&CK mapping via `utils/attack_map.mjs`: service-context-aware CVE→technique mapping (`mapCveToAttack`, `mapServiceToAttack`), plus a CWE→technique fallback (`cweToMitre`, `cwesToMitre`) covering ~30 common CWEs (auth, crypto, injection, memory safety, info disclosure, privilege escalation, web). The CWE fallback fires only when CVE-derived mapping returns no techniques — useful for findings annotated with `evidence.cwe[]` (per FindingSchema v0.1.13+) but no CVE context, such as agent-detected misconfigurations and compliance-flagged weaknesses
-- **Pro** — intelligence-enriched prompts (CVE matches, MITRE ATT&CK technique annotations, composite risk scores injected into the prompt). Same API call, better-grounded output
-- **Enterprise** — Pro prompts + compliance context
-
-**Redaction:** Before any data reaches an AI API, the redaction pipeline masks IP addresses, MAC addresses, serial numbers, and configurable confidential keywords. Admin RAW reports retain full detail for internal review.
-
-```ini
-# .env
-AI_PROVIDER=claude
-ANTHROPIC_API_KEY=sk-ant-...        # Your key — never sent to Nsasoft
-ANTHROPIC_MODEL=claude-sonnet-4-6
-OPENAI_PROMPT_MODE=optimized
-OPENAI_REDACT=true
-```
-
-For fully local AI (no external API calls), use [Ollama](https://ollama.ai):
-
-```ini
-AI_PROVIDER=ollama
-OLLAMA_MODEL=llama3
-```
-
----
-
-## Continuous Monitoring (CTEM)
-
-Watch mode enables periodic rescanning with delta detection and webhook alerts:
-
-```bash
-nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
-  --watch --interval 15 \
-  --webhook-url https://hooks.example.com/security \
-  --alert-severity high
-```
-
-- **Scheduling** with configurable intervals and concurrency control
-- **Delta detection** — new, removed, and changed services highlighted between cycles
-- **Webhook alerts** — JSON POST with retry (exponential backoff, no retry on 4xx)
-- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. Set `NSA_ALLOW_ALL_HOSTS=1` to scan RFC 1918 ranges (local network auditing)
-- **Scan history** stored in `.scan_history/` (JSONL format, 7-day retention in CE)
 
 ---
 
@@ -977,185 +602,183 @@ not ignored: a CSV has nowhere to put a cover page.
 
 ---
 
-## Configuration
+## Pro & Enterprise Activation
 
-### Environment Variables (.env)
+After purchasing at [nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing), you'll receive an email with your license key and an npm install command. Two steps:
 
-**AI configuration:**
+```bash
+# 1. Install both packages (one-time, token included in email — the base package carries the CLI)
+npm install -g nsauditor-ai
+npm install -g @nsasoft/nsauditor-ai-ee --//registry.npmjs.org/:_authToken=npm_xxxxx
+
+# 2. Install your license key — identical on macOS, Linux and Windows, no environment variable needed
+nsauditor-ai license install "pro_eyJhbGci..."
+```
+
+Verify:
+
+```bash
+nsauditor-ai license --status
+# ✓ Pro license active | Expires: 2027-04-04
+
+nsauditor-ai license --capabilities
+# ✓ intelligenceEngine  ✓ riskScoring  ✓ proAI  ✓ advancedCTEM ...
+```
+
+License keys are delivered automatically via Stripe webhook — no manual processing. Subscription renewals generate a fresh key and email it to you before the current one expires.
+
+No license key? Everything in this repository works perfectly without one. The CE is not crippled — it's a complete, production-ready security scanner.
+
+→ [Pricing](https://www.nsauditor.com/ai/pricing/) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
+
+---
+
+## Plugins
+
+### Core Scanners
+
+| ID | Name | Protocols | Purpose |
+|---|---|---|---|
+| 001 | Ping Checker | ICMP/ARP | Reachability + TTL-based OS hints |
+| 002 | SSH Scanner | TCP:22 | Banner, version fingerprinting, timeout policy |
+| 003 | Port Scanner | TCP/UDP | Bulk open port detection (populates context for downstream plugins) |
+| 004 | FTP Banner Check | TCP:21 | FTP daemon version detection |
+| 005 | Host Up Check | TCP/UDP | Quick multi-probe reachability confirmation |
+| 006 | HTTP Probe | TCP:80/443 | Headers, server token, vendor hints |
+| 007 | SNMP Scanner | UDP:161 | sysDescr, OIDs, serial/hardware/firmware extraction |
+| 008 | Result Concluder | Meta | Fuses all plugin outputs (always runs last) |
+| 009 | DNS Scanner | TCP/UDP:53 | `version.bind` CHAOS/TXT + A record lookup |
+| 010 | Webapp Detector | HTTP | Technology stack fingerprinting via wappalyzer |
+| 011 | TLS Scanner | TCP:443+ | TLS version + cipher enumeration per port |
+| 012 | OpenSearch Scanner | HTTP:9200+ | OpenSearch/Dashboards version + Linux/Node.js hints |
+| 013 | OS Detector | Meta | Derives distro/OS from all prior banners with TTL fallback |
+| 014 | NetBIOS Scanner | UDP:137/TCP:445 | NetBIOS/SMB enumeration + SMB2 null session probe |
+| 015 | SUN RPC Scanner | TCP/UDP:111 | RPC portmapper service discovery (NFS, mountd) |
+| 016 | WS-Discovery | UDP:3702 | Multicast device discovery with XML metadata |
+| 024 | TCP SYN Scanner | TCP (Nmap) | SYN half-open scan via Nmap wrapper (optional) |
+| 040 | TLS Certificate & Cipher Auditor | TCP:443+ | Cert expiry, chain integrity, hostname mismatch, weak ciphers, deprecated protocols, key strength |
+| 050 | TRIBE v2 Neural API Security Probe | TCP/HTTP:8080 | Debug leak detection, stack traces in errors, header security, CORS misconfiguration, unauthenticated routes |
+| 060 | DNS Security Auditor | DNS/UDP:53 | SPF/DKIM/DMARC, dangling CNAMEs, DNSSEC, NS delegation, zone transfer exposure, MX security, CAA records |
+| 070 | MCP Scanner | TCP/HTTP+SSE | Detects MCP (Model Context Protocol) servers on candidate ports (1967, 3000, 3005, 5173, 6274, 6277, 8000, 8090). Audits for cleartext transport (HTTP not HTTPS), missing/anonymous auth, anonymous tool enumeration, deprecated protocol versions, and Inspector exposure on non-loopback. Maps findings to CWE/OWASP/MITRE per the FindingSchema. STDIO-transport MCP servers are out of scope (no network port). |
+
+### Discovery Plugins
+
+| Name | Purpose |
+|---|---|
+| ARP Scanner | MAC resolution + OUI vendor lookup + OS hints |
+| mDNS/Bonjour Scanner | Local service discovery + friendly names from TXT records |
+| UPnP/SSDP Scanner | Device discovery + description XML parsing |
+| DNS-SD Scanner | DNS Service Discovery announcements |
+| LLMNR Scanner | Link-local multicast name resolution |
+| DB Scanner | Database service detection (MySQL, PostgreSQL, Redis, etc.) |
+
+### Pro/Enterprise Plugins
+
+Pro and Enterprise add 29 cloud and posture auditors on top of the Community scanners — AWS, Azure and GCP, mapped to eight compliance frameworks. They require `@nsasoft/nsauditor-ai-ee` and a licence.
+
+**→ [Pro / Enterprise plugin catalog](./docs/enterprise-plugins.md)** — every plugin with its id, what it audits, and the AWS region-scoping rules for the regional auditors (`--aws-region <one|csv|all>`).
+
+See [Pro & Enterprise Activation](#pro--enterprise-activation) to install a licence.
+
+## GRC Connectors (Vanta, Drata, Secureframe)
+
+*Enterprise feature. Requires `@nsasoft/nsauditor-ai-ee`.*
+
+Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta, Drata, or Secureframe workspace reflects the latest cloud posture without a manual export/import round-trip.
+
+**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, egress is redaction-gated: resource identifiers can be hashed or removed, the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
+
+```bash
+# Enable the scan-time push (Enterprise)
+COMPLIANCE_GRC_PROVIDER=vanta        # or: drata | secureframe
+COMPLIANCE_GRC_TOKEN=<your API key>  # never serialized to artifacts
+# Optional:
+# COMPLIANCE_GRC_REDACTION=hash      # off | hash | remove  (egress identifier redaction)
+# COMPLIANCE_GRC_CONTROL_MAP=/path/to/config.json  # provider config: Vanta control→test map, Drata connection ({connectionId, resourceId, schemaMap}), or Secureframe ({workspaceId, collectionId, schemaMap})
+```
+
+| Platform | Status | Model |
+|---|---|---|
+| **Vanta** | Connector + scan-time activation shipped | Maps findings to Vanta test results; suppression-aware outcome mapping (pass / fail / passed-with-compensating-control), framework-dimensioned idempotency keys, retry with rate-limit backoff, circuit breaker |
+| **Drata** | Connector library shipped | Pushes structured records via Drata **Custom Connections**; your Drata **Test Builder** rules (Advanced/Enterprise plans) evaluate them — the connector delivers evidence, your rules do the evaluation |
+| **Secureframe** | Connector library shipped (early-access) | Pushes structured records to a workspace evidence collection; **your** Secureframe rules evaluate them — the connector carries the control `status` verbatim, it does not compute pass/fail. API shape published-assumed; live-tenant validation deferred (partner intake) |
+
+**Reliability + audit-integrity built in:** idempotent retries (a network-timed-out push won't create duplicate records), per-attempt + total-duration timeout caps, a consecutive-failure circuit breaker, token redaction across every log and error path, and a durable per-control push audit log written next to your scan artifacts.
+
+> **Honest status.** The Vanta, Drata, and Secureframe connectors are shipped, opt-in, and covered by an extensive test suite. **Live validation against production Vanta / Drata / Secureframe tenants is in progress** as partner onboarding proceeds — until it completes, treat production use as early-access and validate against your own tenant first. This is a single-workspace, operator-configured connector; it is not a multi-tenant managed sync. (Secureframe's API shape is published-assumed pending partner intake; its idempotency keys are SENT but vendor-side dedup is unverified.)
+
+---
+
+## How Results Are Fused
+
+The Result Concluder (plugin 008) merges all plugin outputs into a normalized structure:
+
+1. **Imports** each plugin's `conclude()` adapter to get normalized `ServiceRecord` objects
+2. **Merges** services by `(protocol, port)`, preferring authoritative records
+3. **Selects OS** — OS Detector result first, then high-signal hints (Windows services, HTTP tokens), finally TTL fallback
+4. **Produces** a unified `{ summary, host, services, evidence }` output
+5. **Enriches** host details with names from mDNS, UPnP, NetBIOS; MAC + vendor from ARP
+
+---
+
+## AI Analysis
+
+NSAuditor AI supports three AI providers for vulnerability analysis. **All providers work in all tiers** — CE, Pro, and Enterprise. AI is optional; the platform is fully functional without it.
+
+**Providers:** OpenAI (GPT-4o), Anthropic Claude (Sonnet/Opus), Ollama (fully local)
+
+**What changes by tier is the prompt content, not the provider:**
+
+- **CE** — basic scan-summary prompts (services, ports, versions detected). Local MITRE ATT&CK mapping via `utils/attack_map.mjs`: service-context-aware CVE→technique mapping (`mapCveToAttack`, `mapServiceToAttack`), plus a CWE→technique fallback (`cweToMitre`, `cwesToMitre`) covering ~30 common CWEs (auth, crypto, injection, memory safety, info disclosure, privilege escalation, web). The CWE fallback fires only when CVE-derived mapping returns no techniques — useful for findings annotated with `evidence.cwe[]` (per FindingSchema v0.1.13+) but no CVE context, such as agent-detected misconfigurations and compliance-flagged weaknesses
+- **Pro** — intelligence-enriched prompts (CVE matches, MITRE ATT&CK technique annotations, composite risk scores injected into the prompt). Same API call, better-grounded output
+- **Enterprise** — Pro prompts + compliance context
+
+**Redaction:** Before any data reaches an AI API, the redaction pipeline masks IP addresses, MAC addresses, serial numbers, and configurable confidential keywords. Admin RAW reports retain full detail for internal review.
 
 ```ini
-AI_ENABLED=false                     # Set to true to enable AI analysis
-AI_PROVIDER=openai                   # openai | claude | ollama
-OPENAI_API_KEY=sk-...               # Your OpenAI key
-OPENAI_MODEL=gpt-4o-mini
-ANTHROPIC_API_KEY=sk-ant-...        # Your Claude key
+# .env
+AI_PROVIDER=claude
+ANTHROPIC_API_KEY=sk-ant-...        # Your key — never sent to Nsasoft
 ANTHROPIC_MODEL=claude-sonnet-4-6
-OPENAI_PROMPT_MODE=optimized        # basic | pro | optimized
-OPENAI_REDACT=true                  # Redact before sending to AI
-CONFIDENTIAL_KEYWORDS=serial,password,token,secret
+OPENAI_PROMPT_MODE=optimized
+OPENAI_REDACT=true
 ```
 
-**Plugin-specific:**
+For fully local AI (no external API calls), use [Ollama](https://ollama.ai):
 
 ```ini
-TLS_SCANNER_TIMEOUT_MS=8000
-TLS_SCANNER_VERSIONS=TLSv1,TLSv1.1,TLSv1.2,TLSv1.3
-TLS_SCANNER_PORTS=443:https,465:smtps,563:nntps,993:imaps,995:pop3s
-OPENSEARCH_SCANNER_TIMEOUT_MS=6000
-OPENSEARCH_SCANNER_INSECURE_TLS=false
-DNS_TIMEOUT_MS=800
-HTTP_PROBE_TIMEOUT_MS=6000
-WEBAPP_DETECTOR_TIMEOUT_MS=6000
-SMB_NULL_SESSION=false
-SMB_NULL_SESSION_TIMEOUT=5000
-ENABLE_SYN_SCAN=false
-SYN_SCAN_PORTS=
-SYN_SCAN_TIMEOUT=30000
-PING_FALLBACK=true
-PING_FALLBACK_TIMEOUT=2000
-```
-
-**Licensing (Pro/Enterprise):**
-
-```ini
-NSAUDITOR_LICENSE_KEY=pro_eyJhbGci...   # Pro or Enterprise license key
-NSAUDITOR_PLUGIN_PATH=                   # Additional plugin directories (colon-separated)
-```
-
-**Longitudinal compliance evidence (Enterprise CLI, new alongside the variables below):**
-
-A single scan shows configuration at an instant. A SOC 2 Type II auditor — and the ISO
-surveillance cadence, PCI DSS v4.0.1 Section 6 sampling (the assessor's documented determination; the standard prescribes no size), HIPAA §164.312(b) and GDPR Art. 32(1)(d)
-equivalents — asks whether controls operated over a *period*. Every scan has always written
-a per-framework `scan_attestation_<framework>.json`, so a history you already have is
-aggregatable today:
-
-```bash
-# Track remediation SLA / MTTR against a directory of prior scans
-nsauditor-ai scan --host aws --compliance soc2 \
-  --compliance-history ./out --sla-policy ./my-sla.json
-
-# Roll a directory of prior scans up into a multi-period attestation
-nsauditor-ai compliance attest --history ./out --framework soc2 --window 12m
-```
-
-Three things the roll-up states about itself rather than leaving you to discover:
-discovery reads **one** directory level (`<history-root>/<scan-id>/`), scans whose own
-attestation is marked `REPORT INVALID FOR AUDIT` are **counted and named** rather than
-averaged into a clean verdict, and an empty history exits **3** with status `no_evidence` —
-absence of evidence is a finding, not a pass.
-
-**The approval commands (CE 0.2.40 / Enterprise 0.35.0).** Four more `compliance` subcommands, all
-forwarding to Enterprise — they need `@nsasoft/nsauditor-ai-ee` installed and exit 2 with an
-explanatory message if it is absent. CLI-only; the MCP surface does not reach them.
-
-```bash
-# Create an approval keypair — private half 0600, plus an identity-registry member
-# (pass --email/--role/--team too, or the member prints REPLACE ME placeholders)
-nsauditor-ai compliance keygen --key ~/.nsauditor/approver.pem --approver "Ann Approver"
-
-# Record an approval; SIGNS it when NSAUDITOR_SIGNING_KEY names a local Ed25519 key (verified per approver holding key material)
-NSAUDITOR_SIGNING_KEY=~/.nsauditor/approver.pem \
-nsauditor-ai compliance suppress --suppressions ./out/suppressions.json \
-  --source auth_agent --title-pattern "SSH password authentication enabled" \
-  --status accepted_risk --rationale "compensating control at the perimeter" \
-  --approver "Ann Approver" --attestation-level approver
-
-# List every approval across a scan history with its expiry status
-nsauditor-ai compliance review --history ./out
-
-# Re-approve before expiry (appended to the record's renewals[] chain)
-nsauditor-ai compliance renew --suppressions ./out/suppressions.json \
-  --id supp-abc123 --rationale "quarterly re-review" --approver "Ann Approver"
-```
-
-Three refusals and a warning you will meet rather than a happy path: `keygen` will not overwrite an
-existing signing key (every signature it made becomes unverifiable, and nothing says so until an
-auditor checks an archived approval); a malformed signing key fails the command and writes
-**nothing**; `awskms:` references are refused in this release; and `renew` on a SIGNED approval
-**invalidates its signature** — the expiry and the renewal record are inside the signed payload — so
-it warns loudly and tells you to re-approve.
-
-⚠️ **`--flag=value` is not supported**, here or on any flag this CLI has: use `--flag value`.
-Ed25519 suppression signing is reachable from Enterprise 0.35.0, and **proven at 0.36.0 for approvers whose registry entry carries key material**.
-Its verification gate ran against the published bytes and passed, tamper negative control included.
-A fingerprint-only registry entry reads `not checked by this report`, which records that no check
-ran and never that one failed.
-Verification runs for approvers whose registry entry carries key material; a fingerprint-only entry
-reads `not checked by this report`, which records that no check ran and never that one failed.
-
-**Compliance evidence (`NSAUDITOR_*` — Enterprise, all opt-in):**
-
-Every variable added from Enterprise 0.33.0 onward carries the `NSAUDITOR_` prefix, so a
-deploy can tell at a glance which environment variables belong to this product. The
-unprefixed families above (`AI_*`, `OPENAI_*`, `NVD_API_KEY`, `COMPLIANCE_GRC_*`) keep
-working exactly as they do today — prefixed aliases arrive in a later minor, and a silent
-rename will never happen.
-
-```ini
-NSAUDITOR_OFFLINE_ONLY=1          # Exact match on '1'. Forbids outbound: CVE matching reads a local
-                                  # NVD store and reports an explicit coverage gap rather than a silent
-                                  # clean. Also VETOES the two settings below — configuring an offline
-                                  # posture and an outbound destination together is a startup error,
-                                  # never a quiet downgrade to weaker evidence.
-NSAUDITOR_TSA_URL=                # RFC 3161 Time-Stamp Authority endpoint, opt-in. Proven against a
-                                  # live TSA on the npm path AND from inside the :0.33.0 container
-                                  # image; :0.32.11 and earlier carry no openssl. NO DEFAULT, EVER —
-                                  # unset means the feature is absent, not "use a vendor default".
-NSAUDITOR_TSA_CERT_CHAIN=         # Path to the TSA certificate chain (PEM), for offline verification
-NSAUDITOR_TSA_POLICY_OID=         # Optional policy OID to request from the TSA
-NSAUDITOR_IDENTITY_REGISTRY=      # Path to the approver identity registry JSON. Binds the humans named
-                                  # in your suppression file to identities an assessor can check.
-                                  # Template ships at data/compliance/identity_registry.json (Enterprise).
-NSAUDITOR_SIGNING_KEY=            # A REFERENCE, never key material: keychain:LABEL | /path/to/key.pem
-                                  # (mode 0600) | awskms:alias/… — see the honesty note below.
-```
-
-Both of these are capabilities now, and each was proven later than it was wired — saying exactly
-when, on which delivery vehicle, and for whom is the point:
-
-- **`NSAUDITOR_SIGNING_KEY` is CONSUMED from EE 0.35.0, and the note below used to say otherwise.** EE 0.33.0 stopped parsing it at option-resolution time — a malformed value used to abort the EE stage for a setting nothing read — so it is carried through unparsed; `parseSigningRef` / `resolveSigner` hold the parse and the offline veto at the point a key is used. As of EE 0.35.0 `compliance suppress` signs the approval it writes when this variable names a local Ed25519 key — proven as of EE 0.36.0 and verified per approver holding key material.
-  Its verification gate ran against the published bytes and passed, so a produced signature IS
-  evidence for those approvers; a fingerprint-only registry entry reads `not checked by this report`. The record's `algorithm` and `backend` fields were frozen *before* the first
-  signature could reach a customer archive, because retrofitting that later breaks every
-  auditor holding one.
-- **`NSAUDITOR_TSA_URL` is wired, and it is proven on both delivery vehicles — the npm path on 2026-08-07, and from inside the `:0.33.0` container image on 2026-08-08.**
-  The live check this note used to say was outstanding has been run: through the installed
-  binary, against a real Time-Stamp Authority, the auditor procedure `openssl ts -verify`
-  returns OK on the compliance report, the scope attestation and the chain of custody; the
-  same response file checked against a one-byte-mutated copy of the artifact returns FAILED,
-  so the OK is a statement about those exact bytes and not about the command having run.
-  ⚠️ The Marketplace container is a second delivery vehicle and was a separate question,
-  because the implementation shells out to the `openssl` binary and a distroless runtime
-  does not carry one unless it was deliberately put there. **It was deliberately put there
-  for `:0.33.0`**: the image now carries the openssl CLI and libs, and a build-blocking gate
-  proves it by building a real `openssl ts -query` request through the shipped module INSIDE
-  the image before the leg is allowed to push. That check is made by RUNNING the image, never
-  by reading the Dockerfile — a negative from a broken probe reads exactly like a negative
-  from a missing binary, so the gate exits 2 rather than 1 when its own positive control
-  fails. **And the live round-trip has now been run too** (2026-08-08): the shipped signing
-  function was driven from inside the pushed `:0.33.0` image against a real authority,
-  returning a genuine `.tsr` that the image's own `openssl` verified — with a one-byte-appended
-  copy returning FAILED, so the OK is a statement about those bytes rather than about the
-  command running. Both delivery vehicles are therefore proven end to end. **The one container
-  caveat that survives is version scope:** retained images at `:0.32.11` and earlier do not
-  carry the binary at all, so nothing here speaks for them.
-
-**Security overrides:**
-
-```ini
-NSA_ALLOW_ALL_HOSTS=1    # Allow scanning private/RFC 1918 ranges (local network auditing)
-NSA_AI_TIMEOUT_MS=120000 # AI provider call timeout in ms (default: 120000 = 2 min)
-```
-
-**Debug:**
-
-```ini
-NSA_VERBOSE=true      # Verbose PluginManager logging
-DEBUG_MODE=true       # Plugin-level debug output
+AI_PROVIDER=ollama
+OLLAMA_MODEL=llama3
 ```
 
 ---
+
+## Continuous Monitoring (CTEM)
+
+Watch mode enables periodic rescanning with delta detection and webhook alerts:
+
+```bash
+nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
+  --watch --interval 15 \
+  --webhook-url https://hooks.example.com/security \
+  --alert-severity high
+```
+
+- **Scheduling** with configurable intervals and concurrency control
+- **Delta detection** — new, removed, and changed services highlighted between cycles
+- **Webhook alerts** — JSON POST with retry (exponential backoff, no retry on 4xx)
+- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. Set `NSA_ALLOW_ALL_HOSTS=1` to scan RFC 1918 ranges (local network auditing)
+- **Scan history** stored in `.scan_history/` (JSONL format, 7-day retention in CE)
+
+---
+
+## Configuration
+
+Configuration is entirely environment-based — a `.env` file, `--env <file>`, or the shell. No config is required for a default scan.
+
+**→ [Configuration reference](./docs/configuration.md)** — every environment variable, its default and its effect.
+
+The two that change behaviour most: `NSAUDITOR_OFFLINE_ONLY=1` forbids outbound CVE lookups and reads a local NVD store instead (reporting an explicit coverage gap rather than a silent clean), and `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / a local Ollama endpoint enable the opt-in AI analysis pass.
 
 ## Developing Plugins
 
@@ -1223,37 +846,6 @@ export default {
 - Keep `probe_info` and `response_banner` concise — full detail goes in evidence
 - Use `authoritativePorts` to take precedence over other plugins for the same port
 - Plugins can also be loaded from external npm packages via `NSAUDITOR_PLUGIN_PATH`
-
----
-
-## Pro & Enterprise Activation
-
-After purchasing at [nsauditor.com/ai/pricing](https://www.nsauditor.com/ai/pricing), you'll receive an email with your license key and an npm install command. Two steps:
-
-```bash
-# 1. Install both packages (one-time, token included in email — the base package carries the CLI)
-npm install -g nsauditor-ai
-npm install -g @nsasoft/nsauditor-ai-ee --//registry.npmjs.org/:_authToken=npm_xxxxx
-
-# 2. Install your license key — identical on macOS, Linux and Windows, no environment variable needed
-nsauditor-ai license install "pro_eyJhbGci..."
-```
-
-Verify:
-
-```bash
-nsauditor-ai license --status
-# ✓ Pro license active | Expires: 2027-04-04
-
-nsauditor-ai license --capabilities
-# ✓ intelligenceEngine  ✓ riskScoring  ✓ proAI  ✓ advancedCTEM ...
-```
-
-License keys are delivered automatically via Stripe webhook — no manual processing. Subscription renewals generate a fresh key and email it to you before the current one expires.
-
-No license key? Everything in this repository works perfectly without one. The CE is not crippled — it's a complete, production-ready security scanner.
-
-→ [Pricing](https://www.nsauditor.com/ai/pricing/) · [Enterprise contact](https://www.nsauditor.com/ai/enterprise)
 
 ---
 
