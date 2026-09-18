@@ -43,10 +43,22 @@ const cmpVersion = (a, b) => {
   return 0;
 };
 
-// Identity is host+plugin+title. Stated rather than assumed: this is a NATURAL key and two
-// findings from one plugin on one host sharing a title collapse into one. That is a declared
-// limit, surfaced in `limits`, not a silent merge — see `collisions` below.
-const keyOf = (f) => `${f.host}|${f.plugin}|${f.title}`;
+// ⚠️ IDENTITY MUST CARRY THE RESOURCE, and the first draft of this did not — a HIGH defect an
+// independent seat found by reading the FIXTURES rather than the code. Cloud issue strings carry
+// the DEFECT, not the resource ("No public access block configured…"), so twelve buckets with one
+// misconfiguration share a title; resource identity lives in `finding.resource` (contract-v1 §1.1).
+// Under a host+plugin+title key those twelve collapse to ONE, and the failure is in the dangerous
+// direction: fix bucket-c, acquire bucket-d with the same defect, and the delta reported
+// "unchanged" — A NEW EXPOSURE ABSENT FROM `newFindings` ENTIRELY, measured, not theorised.
+//
+// ⚠️ `severity` IS DELIBERATELY NOT IN THE KEY. Adding it would render one escalation as a
+// resolved finding PLUS a new one — two false verdicts from one true change. Identity first, then
+// severity compared between MATCHED findings into `changed`.
+//
+// ⚠️ `originalIndex` IS NOT A CANDIDATE, though contract-v1 §1.2 freezes it on every record: it is
+// the index in the INPUT array and all fan-out records of one cloud finding SHARE it (§1.2:53).
+// Positional and non-unique — adopting it as an id would be worse than this composed key.
+const keyOf = (f) => [f.host, f.plugin, f.resource ?? f.target ?? '-', f.port ?? '-', f.title].join('|');
 
 const scopeOf = (side) => {
   const rec = side?.record ?? {};
@@ -81,7 +93,7 @@ export function buildScanDelta({ baseline, current }) {
   const limits = [];
   const refuse = (reason, detail) => ({
     schema: SCAN_DELTA_SCHEMA, comparable: false, refusal: { reason, detail },
-    newFindings: [], resolved: [], unchanged: [], notComparable: [],
+    newFindings: [], resolved: [], unchanged: [], changed: [], notComparable: [],
     baselineIntegrity: null, limits: [detail],
   });
 
@@ -132,17 +144,29 @@ export function buildScanDelta({ baseline, current }) {
   const cFind = current?.findings ?? [];
   const bMap = new Map(bFind.map((f) => [keyOf(f), f]));
   const cMap = new Map(cFind.map((f) => [keyOf(f), f]));
+  // ⚠️ THE LIMIT NAMES THE DIRECTION, because the previous wording ("per-instance deltas are not
+  // distinguished") read as a granularity note when the real consequence is a missing exposure.
   if (bMap.size !== bFind.length || cMap.size !== cFind.length) {
-    limits.push('Two or more findings share one host+plugin+title identity and were collapsed; per-instance deltas are not distinguished.');
+    limits.push('Two or more findings collapsed to one identity (same host, plugin, resource, port and title). '
+      + 'Appearance and disappearance of individual instances cannot be distinguished, so A NEW FINDING MAY BE '
+      + 'MASKED by a surviving one that shares its identity.');
   }
 
   const resolved = [];
   const newFindings = [];
   const unchanged = [];
+  const changed = [];
   const notComparable = [];
 
   for (const [k, f] of bMap) {
-    if (cMap.has(k)) { unchanged.push(f); continue; }
+    if (cMap.has(k)) {
+      // Matched on identity — so a severity move is the SAME finding getting worse or better,
+      // which is the trend report's actual deliverable. Never a resolution plus a new finding.
+      const now = cMap.get(k);
+      if ((f.severity ?? null) !== (now.severity ?? null)) changed.push({ ...now, from: f.severity ?? null, to: now.severity ?? null });
+      else unchanged.push(f);
+      continue;
+    }
     const why = incomparabilityReason(f, bScope, cScope);
     if (why) notComparable.push({ ...f, direction: 'disappeared', ...why });
     else resolved.push(f);
@@ -158,7 +182,7 @@ export function buildScanDelta({ baseline, current }) {
 
   return {
     schema: SCAN_DELTA_SCHEMA, comparable: true, refusal: null,
-    newFindings, resolved, unchanged, notComparable,
+    newFindings, resolved, unchanged, changed, notComparable,
     baselineIntegrity, limits,
     coverage: {
       hostsOnlyInBaseline: [...bScope.hosts].filter((h) => !cScope.hosts.has(h)),

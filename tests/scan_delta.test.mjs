@@ -133,3 +133,53 @@ test('REFUSES when baseline integrity COULD NOT BE MEASURED — could-not-measur
   assert.equal(d.refusal.reason, 'baseline-integrity-unmeasurable');
   assert.deepEqual(d.resolved, []);
 });
+
+// ⚠️ THE FIXTURE POPULATION WAS THE BLIND SPOT, NOT THE VERIFICATION. Every test above uses ONE
+// title — 'Root account has no MFA' — which is the single most singleton finding on the AWS
+// surface: one root account per account, the one title that CANNOT collide. Uniqueness was a
+// premise every fixture and therefore every mutant shared, so no mutation could reach this class.
+// Real cloud findings are inherently multi-resource: the S3 auditor's issue strings carry the
+// DEFECT and not the bucket ("No public access block configured…"), and resource identity lives
+// in `finding.resource` per contract-v1 §1.1. Found by an independent seat reading the fixtures
+// rather than the code.
+const s3 = (resource, over = {}) => ({ host: '10.0.0.1', plugin: 'aws-s3', resource, title: 'No public access block configured', severity: 'high', ...over });
+
+test('a NEW exposure on a different resource, sharing a title with a fixed one, is NOT masked', () => {
+  const d = buildScanDelta({
+    baseline: { record: run('A', { pluginsRequested: ['aws-s3'] }), findings: [s3('bucket-a'), s3('bucket-b'), s3('bucket-c')] },
+    current: { record: run('B', { pluginsRequested: ['aws-s3'] }), findings: [s3('bucket-a'), s3('bucket-b'), s3('bucket-d')] },
+  });
+  assert.equal(d.newFindings.length, 1, 'bucket-d is a new exposure and must be reported');
+  assert.equal(d.newFindings[0].resource, 'bucket-d');
+  assert.equal(d.resolved.length, 1, 'bucket-c was genuinely fixed');
+  assert.equal(d.resolved[0].resource, 'bucket-c');
+  assert.equal(d.unchanged.length, 2);
+});
+
+test('an ESCALATION between matched findings is reported as CHANGED, not as unchanged', () => {
+  const d = buildScanDelta({
+    baseline: { record: run('A', { pluginsRequested: ['aws-s3'] }), findings: [s3('bucket-a', { severity: 'medium' })] },
+    current: { record: run('B', { pluginsRequested: ['aws-s3'] }), findings: [s3('bucket-a', { severity: 'critical' })] },
+  });
+  assert.equal(d.changed.length, 1, '"this got worse" is the deliverable of a trend report');
+  assert.equal(d.changed[0].from, 'medium');
+  assert.equal(d.changed[0].to, 'critical');
+  assert.deepEqual(d.resolved, [], 'an escalation is never a resolution plus a new finding');
+  assert.deepEqual(d.newFindings, []);
+  assert.equal(d.unchanged.length, 0);
+});
+
+test('when two findings DO collapse to one identity, the run says a new finding may be MASKED', () => {
+  // The collision survives the resource fix: a plugin can emit two issues for ONE resource with
+  // the same title and port. Rarer than before, not gone — and a limit nothing drives is a claim
+  // about the code that nothing checks. This fixture exists because silencing the limit survived
+  // the mutation battery; it was the one probe-bounded survivor of fifteen.
+  const dup = () => s3('bucket-a');
+  const d = buildScanDelta({
+    baseline: { record: run('A', { pluginsRequested: ['aws-s3'] }), findings: [dup(), dup()] },
+    current: { record: run('B', { pluginsRequested: ['aws-s3'] }), findings: [dup(), dup()] },
+  });
+  const masked = d.limits.filter((l) => /MASKED/.test(l));
+  assert.equal(masked.length, 1, 'the collapse must be declared, and declared in the dangerous direction');
+  assert.match(masked[0], /collapsed to one identity/);
+});
