@@ -31,6 +31,7 @@ import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE } from './utils/run_record.mjs';
+import { buildSinceView } from './utils/scan_delta_view.mjs';
 import { loadRun } from './utils/report_inputs.mjs';
 import { loadBrand } from './utils/brand.mjs';
 import { renderExecutiveReport } from './utils/executive_report.mjs';
@@ -810,6 +811,8 @@ export async function parseArgs(argv) {
   args.format = str('format');
   const runVal = get('run');
   args.run = runVal === undefined ? undefined : runVal;
+  const sinceVal = get('since');
+  args.since = sinceVal === undefined ? undefined : sinceVal;
   const brandVal = get('brand');
   args.brand = brandVal === undefined ? undefined : brandVal;
   const reportOutVal = get('out');
@@ -1281,7 +1284,9 @@ function tierLabelFromCaps(caps) {
  * or refused (bad/missing flags, a flag mismatch, a tier refusal, `no-run`, `record-unreadable`,
  * a write failure) — fix the request or the environment. **1** = `loadRun` refused for any other
  * reason — fix the run by re-scanning. **0** = rendered (a caveated or zero-finding render is
- * still 0 — the exit code must never encode whether findings exist).
+ * still 0 — the exit code must never encode whether findings exist, and with `--since` it must
+ * never encode WHETHER ANYTHING CHANGED either: a no-change delta and a twelve-new-exposure
+ * delta both exit 0, and only could-not-measure is non-zero).
  *
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
@@ -1309,7 +1314,7 @@ export async function runReport(args, caps) {
   // catch this after the fact — it must be caught here or never. Same precedent already applied
   // to `--sla-policy`/`--compliance-history` in the scan path, below.
   for (const [flag, val] of [['--from', args.from], ['--brand', args.brand],
-    ['--run', args.run], ['--out', args.out]]) {
+    ['--run', args.run], ['--out', args.out], ['--since', args.since]]) {
     if (val === true) {
       logErr(`\`report\` needs a value for ${flag}. A flag that quietly does nothing is how an `
         + 'operator concludes a subject was resolved.');
@@ -1394,6 +1399,16 @@ export async function runReport(args, caps) {
   }
   if (model.coverage.incomplete) {
     log('[report] coverage: incomplete — the run did not record completion');
+  }
+
+  // ── `--since`: the cross-run delta. Placed AFTER the coverage caveats so a partial or
+  // incomplete CURRENT run is already disclosed before any delta verdict is read.
+  if (typeof args.since === 'string' && args.since !== '') {
+    const view = await buildSinceView({ outRoot: args.from, model, since: args.since,
+      allowPartial: !!args.allowPartial, tier: tierLabelFromCaps(caps) });
+    view.out.forEach(log);
+    view.err.forEach(logErr);
+    if (view.code !== 0) return finish(view.code);
   }
 
   let body;

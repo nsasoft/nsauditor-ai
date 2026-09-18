@@ -160,6 +160,12 @@ export function shapeFinding(host, f) {
     .digest('hex').slice(0, 16);
   return {
     host, port, severity, title,
+    // ⚠️ CARRIED FOR IDENTITY, not for display. Cloud issue strings name the DEFECT and not the
+    // resource ("No public access block configured…"), so without this every bucket on one host
+    // normalises to the same {host, port, severity, title} and a cross-run delta collapses them —
+    // masking a NEW exposure behind a surviving one. Dropping it here would defeat the delta's
+    // identity key from outside the delta, with the delta's own tests still green.
+    resource: f?.resource ?? f?.target ?? f?.details?.resource ?? null,
     // ALL issues, not just the lead clause the title took: a report that shows one of a
     // finding's four issues silently drops three the scan actually recorded.
     detail: explicitDetail ?? (issueTexts.length ? issueTexts.join(' · ') : null),
