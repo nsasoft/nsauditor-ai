@@ -183,3 +183,36 @@ test('when two findings DO collapse to one identity, the run says a new finding 
   assert.equal(masked.length, 1, 'the collapse must be declared, and declared in the dangerous direction');
   assert.match(masked[0], /collapsed to one identity/);
 });
+
+// ⚠️ F5 — A LEG THAT CANNOT FIRE IS WORSE THAN AN ABSENT ONE, because it makes the
+// five-asymmetry claim FALSE while reading as complete. The framework-enumeration leg was
+// guarded by `mine.frameworks && theirs.frameworks && f.control` — all three absent through the
+// shipped path (CE ships no compliance data at all: data/compliance is empty, `control` appears
+// zero times in report_inputs.mjs, and the view never passed frameworkEnumeration). So the guard
+// SHORT-CIRCUITED TO null and the finding fell through to `resolved`.
+//
+// That direction is the opposite of the `plugin` gap and it is the dangerous one: `plugin`
+// missing failed SAFE (a wall of NOT-COMPARABLE, useless but never wrong), while this failed
+// OPEN — a finding whose control stopped being enumerated between two runs was reported as
+// REMEDIATED in a client-facing artifact. PCI moved 19/9/39 → 19/9/44 in one cycle, so the
+// trigger is real and recent. The repo's own answer to an absent oracle is gate:cascade's
+// LEG (ii): print NOT EVALUATED, never pass silently.
+test('with no framework data, the delta SAYS movement was not evaluated — it never passes silently', () => {
+  const d = buildScanDelta({
+    baseline: { record: run('A'), findings: [finding()] },
+    current: { record: run('B'), findings: [] },
+  });
+  const note = d.limits.filter((l) => /not evaluated/i.test(l));
+  assert.equal(note.length, 1, 'an absent oracle must be declared, not short-circuited');
+  assert.match(note[0], /may appear as resolved/i,
+    'and it must name the CONSEQUENCE — a reader cannot infer the risk from "not evaluated"');
+});
+
+test('when BOTH runs carry framework data the leg still fires — the disclosure did not replace it', () => {
+  const d = buildScanDelta({
+    baseline: { record: run('A'), findings: [finding({ control: '11.5.2' })], frameworkEnumeration: ['11.5.2'] },
+    current: { record: run('B'), findings: [], frameworkEnumeration: [] },
+  });
+  assert.equal(d.notComparable[0].reason, 'framework-enumeration-changed');
+  assert.equal(d.limits.filter((l) => /not evaluated/i.test(l)).length, 0);
+});

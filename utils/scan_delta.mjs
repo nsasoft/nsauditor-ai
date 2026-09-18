@@ -23,6 +23,31 @@
 // driven without a filesystem, and the chain can be driven without the delta.
 export const SCAN_DELTA_SCHEMA = 1;
 
+// ⚠️ THE BOUNDARY CONTRACT. Three fields were dropped at ONE seam before this existed —
+// `resource` (a new exposure masked), `plugin` (every comparison fell to plugin-not-run) and
+// `control` (a finding whose control left the enumeration read as RESOLVED). Each was invisible
+// to this module's own tests because each fixture was built by hand with the field present: a fix
+// verified only against fixtures the author constructs is verified against the author's idea of
+// the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
+// against the REAL loader, so the fourth instance fails by name instead of shipping.
+export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'resource', 'port', 'title', 'severity', 'control'];
+
+// Fields this module WRITES onto its output records; they are never read from a loaded finding,
+// so they must not be demanded of the loader. Declared so the derivation can subtract them.
+export const OUTPUT_ONLY_FINDING_FIELDS = ['reason', 'detail', 'direction', 'from', 'to'];
+
+// A consumed field the loader legitimately cannot produce. NOT a bare allowlist: each entry names
+// the limit that DISCLOSES its absence, and the guard verifies that limit is actually emitted —
+// a carve-out whose premise nobody checks is how an absence becomes a silent pass.
+export const DECLARED_ABSENT_FINDING_FIELDS = {
+  control: {
+    reason: 'Community ships no compliance data (data/compliance is empty) and report_inputs.mjs '
+      + 'emits no control id, so a CE run record cannot carry one. Compliance routing is EE\'s.',
+    disclosedBy: 'FRAMEWORK_MOVEMENT_NOT_EVALUATED',
+  },
+};
+
+
 // ⚠️ DERIVED FROM THE FROZEN CONTRACT, NOT INVENTED HERE. `docs/contract-v1.md` §5.3: the
 // `findingCount` key KEPT ITS NAME AND CHANGED ITS VALUE in the first release after EE 0.46.0 —
 // every archived pack before that release printed the ISSUE count under it. A delta spanning that
@@ -58,7 +83,13 @@ const cmpVersion = (a, b) => {
 // ⚠️ `originalIndex` IS NOT A CANDIDATE, though contract-v1 §1.2 freezes it on every record: it is
 // the index in the INPUT array and all fan-out records of one cloud finding SHARE it (§1.2:53).
 // Positional and non-unique — adopting it as an id would be worse than this composed key.
-const keyOf = (f) => [f.host, f.plugin, f.resource ?? f.target ?? '-', f.port ?? '-', f.title].join('|');
+// ⚠️ NO `?? f.target` FALLBACK, and its removal is the F5 lesson applied to a benign case. The
+// boundary guard flagged `target` as consumed-but-never-emitted on its FIRST run: report_inputs
+// already folds target INTO resource (`resource: f?.resource ?? f?.target ?? …`), so a finding can
+// never reach here carrying a bare target. A fallback that cannot fire through the shipped path is
+// not defensive depth — it is dead code that reads as coverage, which is exactly what made the
+// framework-enumeration leg look complete while being inert.
+const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-', f.title].join('|');
 
 const scopeOf = (side) => {
   const rec = side?.record ?? {};
@@ -79,7 +110,13 @@ function incomparabilityReason(f, mine, theirs) {
   if (!theirs.plugins.has(f.plugin)) return { reason: 'plugin-not-run', detail: `plugin ${f.plugin} did not run in the other run` };
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
   if (gap) return { reason: 'evidence-gap', detail: `the other run recorded an evidence gap on ${f.host}/${f.plugin}: ${gap}` };
-  if (mine.frameworks && theirs.frameworks && f.control) {
+  // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
+  // f.control`, and all three are absent through the shipped path — so the leg returned null and
+  // the finding fell through to `resolved`. That is FAIL-OPEN, the opposite of the `plugin` gap:
+  // a finding whose control stopped being enumerated read as REMEDIATED in a client artifact.
+  // Whether the oracle exists is now decided ONCE, by `frameworkEnumerationEvaluable`, and its
+  // absence is DECLARED in `limits` rather than absorbed here.
+  if (frameworkEnumerationEvaluable(mine, theirs) && f.control) {
     const inMine = mine.frameworks.includes(f.control);
     const inTheirs = theirs.frameworks.includes(f.control);
     if (inMine !== inTheirs) {
@@ -87,6 +124,19 @@ function incomparabilityReason(f, mine, theirs) {
     }
   }
   return null;
+}
+
+// The oracle test, separated from the per-finding check so its ABSENCE has somewhere to be
+// declared. gate:cascade's LEG (ii) is the precedent this repo already set: when the oracle is
+// missing, print NOT EVALUATED and never pass silently.
+export const FRAMEWORK_MOVEMENT_NOT_EVALUATED =
+  'Coverage-matrix movement between the two runs was NOT EVALUATED: this edition records no '
+  + 'framework enumeration on a run, so if a control stopped being enumerated between the two '
+  + 'scans, findings that mapped to it may appear as resolved here. Compare the two runs\' '
+  + 'framework coverage separately before treating any row as remediation.';
+
+function frameworkEnumerationEvaluable(mine, theirs) {
+  return Boolean(mine?.frameworks && theirs?.frameworks);
 }
 
 export function buildScanDelta({ baseline, current }) {
@@ -137,6 +187,10 @@ export function buildScanDelta({ baseline, current }) {
     limits.push('The baseline carries no integrity digest (it predates chained run records), so alteration of the baseline could not be ruled out.');
   }
   limits.push(CHAIN_ASSURANCE_LABEL);
+  // Declared once for the whole comparison, not per finding: it is a property of the two RUNS.
+  if (!frameworkEnumerationEvaluable(scopeOf(baseline), scopeOf(current))) {
+    limits.push(FRAMEWORK_MOVEMENT_NOT_EVALUATED);
+  }
 
   const bScope = scopeOf(baseline);
   const cScope = scopeOf(current);

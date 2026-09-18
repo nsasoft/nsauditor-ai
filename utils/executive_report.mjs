@@ -621,7 +621,7 @@ function deltaBasis(delta) {
 function deltaRow(bucket, f, basis) {
   return `<tr class="delta-${bucket}"><td>${escapeHtml(bucket)}</td>`
     + `<td>${escapeHtml(f.title ?? '')}</td>`
-    + `<td>${escapeHtml(f.resource ?? f.target ?? '—')}</td>`
+    + `<td>${escapeHtml(f.resource ?? '—')}</td>`
     + `<td>${escapeHtml(String(f.severity ?? '—'))}</td>`
     + `<td>${escapeHtml(basis)}</td></tr>`;
 }
