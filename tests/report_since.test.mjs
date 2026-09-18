@@ -90,7 +90,18 @@ test('a chain-BROKEN baseline refuses, LISTS the verified alternatives, and does
   fs.writeFileSync(f, before.replace('10.0.0.7', '10.0.0.8'), 'utf8');   // length-preserving
 
   const r = await runReport({ from: outRoot, format: 'executive', run: current, since: 'prior' }, PRO());
-  assert.notEqual(r.code, 0, 'a baseline that was altered cannot support any verdict');
+  // ⚠️ `notEqual(code, 0)` ACCEPTED BOTH 1 AND 2 AND THEREFORE PROVED ONLY "something other than
+  // success". runReport's contract makes 2 = REFUSED and 1 = a loadRun refusal for another
+  // reason, so the loose form could not tell REFUSED from CRASHED — in a repo whose whole exit
+  // doctrine is that 1 and 2 mean different things. This is the most important customer-facing
+  // behaviour of the integrity design: a tampered baseline is detected AND NAMED. Detection the
+  // customer cannot read is not detection.
+  //
+  // It survived because the three assertions around it are precise; one loose assertion among
+  // tight ones is invisible, because the test reads as rigorous and IS rigorous about the rest.
+  assert.equal(r.code, 2, 'a tampered baseline is a REFUSAL (2), not a loadRun failure (1) and not a crash');
+  assert.match(r.stderr, /REFUSED: the baseline is chain-broken/,
+    'the refusal must NAME the tamper, not merely decline to produce a report');
   assert.doesNotMatch(r.stdout, /resolved/i, 'bucket-a must NOT be reported resolved off a broken baseline');
   assert.match(r.stderr + r.stdout, new RegExp(oldest), 'the operator must be told which earlier records are chain-verified');
   assert.doesNotMatch(r.stdout, new RegExp(`baseline[^\\n]*${oldest}`, 'i'),
