@@ -16,7 +16,10 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { runRecordPath } from './run_record.mjs';
+// ⚠️ SELF-CONTAINED BY NECESSITY: `run_record` imports the sealer from here, so importing the
+// path helper back from it would be a cycle. The filename shape is one line and is pinned by
+// the tests in both modules.
+const runRecordPath = (outRoot, runId) => path.join(outRoot, `scan_run_${runId}.json`);
 
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');

@@ -11,6 +11,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { CE_RETENTION_MS } from './scan_history.mjs';
+import { sealRunRecord, latestSealedDigest } from './run_chain.mjs';
 
 export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
@@ -134,7 +135,12 @@ export async function writeRunStart(outRoot, rec) {
       // Additive (MINOR per contract-v1 §9; the run record is not a frozen surface). Carries the
       // digest of the previous finalized record in this out root, so the chain links. Null on a
       // first run and on any run written before chaining shipped — neither is a broken chain.
-      prevDigest: rec.prevDigest ?? null,
+      // ⚠️ DEFAULTED HERE, NOT AT THE CALL SITE. The first version of this required every caller
+      // to pass `prevDigest` and to call `sealRunRecord` after finalizing — and the one shipped
+      // caller did neither, so `report --since` read a chain nothing ever wrote while three
+      // release surfaces said run records ARE sealed and chained. A contract a caller can forget
+      // is one a caller will forget; an explicit value still wins.
+      prevDigest: rec.prevDigest ?? await latestSealedDigest(outRoot),
       kevLoaded: Boolean(rec.kevLoaded),
       kevSnapshot: rec.kevSnapshot ?? null,
       epssLoaded: Boolean(rec.epssLoaded),
@@ -211,7 +217,12 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     if ('kevSnapshot' in opts) existing.kevSnapshot = opts.kevSnapshot ?? null;
     if ('epssLoaded' in opts) existing.epssLoaded = Boolean(opts.epssLoaded);
     if ('epssSnapshot' in opts) existing.epssSnapshot = opts.epssSnapshot ?? null;
-    return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
+    const wrote = Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
+    // SEALED HERE, and only here: the record is rewritten N+2 times per run, so a digest taken
+    // any earlier names bytes that are meant to change. Failure to seal is warned and never fatal —
+    // a report-side fault must not fail a scan, which is the whole promise of this file.
+    if (wrote) await sealRunRecord(outRoot, runId);
+    return wrote;
   });
 }
 

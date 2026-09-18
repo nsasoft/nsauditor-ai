@@ -45,10 +45,15 @@ test('a ONE-BYTE, LENGTH-PRESERVING edit to a sealed record is detected', async 
   assert.equal(v.status, 'chain-broken');
 });
 
-test('an UNSEALED record is chain-ABSENT, never chain-broken — nothing measured must not read as tampering', async () => {
+test('a record from BEFORE chaining is chain-ABSENT, never chain-broken — nothing measured must not read as tampering', async () => {
+  // ⚠️ THE FIXTURE CHANGED WHEN SEALING MOVED INSIDE `finalizeRunRecord`, and the honest shape is
+  // now what a PRE-1.1.0 record looks like on disk: the record exists, its sidecar does not. Writing
+  // it the old way would no longer produce an unsealed record at all, so this leg would have gone
+  // vacuous — passing while testing nothing — which is worse than failing.
   const root = await tmp();
   await writeRunStart(root, { runId: 'R0', startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'] });
   await finalizeRunRecord(root, 'R0', { finishedAt: '2026-09-18T01:00:00Z' });
+  await fsp.rm(chainDigestPath(root, 'R0'));          // a record written before chaining shipped
   const v = await verifyRunChain(root, 'R0');
   assert.equal(v.status, 'chain-absent', 'a record predating the chain is not an accusation');
 });
@@ -76,4 +81,44 @@ test('the chain LINKS: a successor carries its predecessor digest, and altering 
   await fsp.writeFile(f, before.replace('10.0.0.1', '10.0.0.2'), 'utf8');
   const v = await verifyRunChain(root, 'R2');
   assert.equal(v.linkBroken, true, 'R2 vouches for bytes that R1 no longer has');
+});
+
+// ⚠️ THE WRITE SIDE WAS NEVER WIRED, AND A REAL SMOKE RUN IS WHAT FOUND IT.
+// `report --since` READ the chain from the day it shipped, and nothing ever WROTE one: `cli.mjs`
+// called `sealRunRecord` zero times, so three real scans produced zero `.sha256` sidecars and
+// `prevDigest: null` on every record. Every delta would have reported `chain-absent` forever while
+// the CHANGELOG, the press release and the README all said run records ARE sealed and chained.
+// Class E one layer over — the capability existed and no shipped path invoked it.
+//
+// The fix is placed INSIDE `finalizeRunRecord`/`writeRunStart` rather than at the call site, so it
+// cannot be forgotten by the next caller. That is the defect class removed, not the instance.
+test('finalizing a run SEALS it — no caller has to remember', async () => {
+  const root = await tmp();
+  await writeRunStart(root, { runId: 'S1', startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'] });
+  await finalizeRunRecord(root, 'S1', { finishedAt: '2026-09-18T01:00:00Z' });
+  const v = await verifyRunChain(root, 'S1');
+  assert.equal(v.status, 'chain-verified', 'a finalized run must carry its digest without an explicit seal call');
+});
+
+test('the NEXT run chains to the previous one automatically', async () => {
+  const root = await tmp();
+  await writeRunStart(root, { runId: 'S1', startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'] });
+  await finalizeRunRecord(root, 'S1', { finishedAt: '2026-09-18T01:00:00Z' });
+  const first = (await verifyRunChain(root, 'S1')).digest;
+
+  await writeRunStart(root, { runId: 'S2', startedAt: '2026-09-18T02:00:00Z', hostsRequested: ['10.0.0.1'] });
+  await finalizeRunRecord(root, 'S2', { finishedAt: '2026-09-18T03:00:00Z' });
+  const rec = JSON.parse(await fsp.readFile(runRecordPath(root, 'S2'), 'utf8'));
+  assert.equal(rec.prevDigest, first, 'the successor must vouch for its predecessor without the caller passing it');
+  assert.equal((await verifyRunChain(root, 'S2')).linkBroken, false);
+});
+
+test('an explicit prevDigest still wins — the default must not overwrite a caller', async () => {
+  const root = await tmp();
+  await writeRunStart(root, { runId: 'S1', startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'] });
+  await finalizeRunRecord(root, 'S1', { finishedAt: '2026-09-18T01:00:00Z' });
+  const pinned = 'a'.repeat(64);
+  await writeRunStart(root, { runId: 'S2', startedAt: '2026-09-18T02:00:00Z', hostsRequested: ['10.0.0.1'], prevDigest: pinned });
+  const rec = JSON.parse(await fsp.readFile(runRecordPath(root, 'S2'), 'utf8'));
+  assert.equal(rec.prevDigest, pinned);
 });
