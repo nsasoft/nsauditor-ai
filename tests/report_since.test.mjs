@@ -136,3 +136,36 @@ test('NOT-COMPARABLE reaches the operator WITH ITS REASON, never as a bare count
   assert.match(r.stdout, /host-not-scanned/, 'and its REASON must travel with it');
   assert.doesNotMatch(r.stdout, /1 resolved/, 'it must never be counted as remediation');
 });
+
+test('END TO END — the delta reaches the CLIENT ARTIFACT, not just stdout', async () => {
+  // A delta that stops at stdout is a developer feature: the paying persona is a consultant whose
+  // deliverable is the report they hand their client. If this ever regresses, a release note
+  // saying "delta reports" overstates what shipped.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-e2e-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-c')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [] });
+  const outFile = path.join(outRoot, 'report.html');
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline, out: outFile }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  const html = fs.readFileSync(outFile, 'utf8');
+  assert.match(html, /id="delta"/, 'the delta section must be in the artifact the client receives');
+  assert.match(html, /bucket-c/);
+  assert.match(html, /chain-verified/, 'and the basis for calling it resolved travels with it');
+  assert.match(html, /NOT tamper-proof/, 'and so does what the integrity claim is NOT');
+});
+
+test('loadRun CARRIES `plugin` — without it EVERY finding falls to plugin-not-run and the delta is useless', async () => {
+  // The same loader-boundary class as `resource`, one field over, and found by the end-to-end
+  // test rather than by any unit. Its direction is the SAFE one — nothing is ever falsely called
+  // resolved — but the cost is the failure mode the review warned about: a wall of NOT-COMPARABLE
+  // that an operator stops reading after the second time. A feature that is never wrong and never
+  // useful is still not shipped.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-plug-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+  assert.equal(loaded.ok, true, loaded.message);
+  assert.equal(loaded.model.findings[0].plugin, 'aws-s3',
+    'the producing plugin is part of a finding’s identity and of its comparability');
+});

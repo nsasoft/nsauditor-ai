@@ -1403,12 +1403,17 @@ export async function runReport(args, caps) {
 
   // ── `--since`: the cross-run delta. Placed AFTER the coverage caveats so a partial or
   // incomplete CURRENT run is already disclosed before any delta verdict is read.
+  let sinceDelta = null;
   if (typeof args.since === 'string' && args.since !== '') {
     const view = await buildSinceView({ outRoot: args.from, model, since: args.since,
       allowPartial: !!args.allowPartial, tier: tierLabelFromCaps(caps) });
     view.out.forEach(log);
     view.err.forEach(logErr);
     if (view.code !== 0) return finish(view.code);
+    // ⚠️ CARRIED INTO THE ARTIFACT, not only printed. stdout reaches the OPERATOR, who knows what
+    // the tool does; the HTML reaches the CLIENT being billed. A delta that stops at stdout is a
+    // developer feature, and a release note calling it a "delta REPORT" would overstate it.
+    sinceDelta = view.delta ?? null;
   }
 
   let body;
@@ -1419,7 +1424,7 @@ export async function runReport(args, caps) {
       logErr(brandResult.message);
       return finish(2);
     }
-    body = renderExecutiveReport(model, brandResult.brand, { renderedAt: new Date() });
+    body = renderExecutiveReport(model, brandResult.brand, { renderedAt: new Date(), delta: sinceDelta });
     ext = 'html';
   } else {
     body = renderJiraCsv(model);

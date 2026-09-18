@@ -605,7 +605,68 @@ function describeBrand(v) {
 // left to a reading — `tests/executive_report_brand_absent.test.mjs` pins this module's export
 // surface, so exporting either helper fails the build rather than silently opening an
 // unguarded path.
-export function renderExecutiveReport(model, brand, { renderedAt = new Date() } = {}) {
+
+// ── The cross-run delta, rendered for the CLIENT rather than the operator. ───────────────────
+//
+// ⚠️ A `resolved` ROW HERE IS AN ASSERTION OF REMEDIATION TO THAT CLIENT'S AUDITOR, so the basis
+// travels PER ROW and never as a footnote. A footnote is precisely the shape a compression pass
+// keeps while emptying it of force, and this lane has already watched a bare COUNT survive a
+// mutation battery on the easier stdout surface. The reader of this document does not know what
+// the tool does; the operator did.
+function deltaBasis(delta) {
+  return `comparable: host, plugin, scope and framework enumeration present in both runs; `
+    + `baseline ${delta.baselineIntegrity}`;
+}
+
+function deltaRow(bucket, f, basis) {
+  return `<tr class="delta-${bucket}"><td>${escapeHtml(bucket)}</td>`
+    + `<td>${escapeHtml(f.title ?? '')}</td>`
+    + `<td>${escapeHtml(f.resource ?? f.target ?? '—')}</td>`
+    + `<td>${escapeHtml(String(f.severity ?? '—'))}</td>`
+    + `<td>${escapeHtml(basis)}</td></tr>`;
+}
+
+function renderDelta(delta) {
+  if (!delta) return '';   // no `--since` was asked for: no section, never an empty or invented one.
+
+  if (!delta.comparable) {
+    // ⚠️ A REFUSED COMPARISON NAMES NO FINDING. Listing them beside a refusal invites the reader
+    // to draw the verdict the refusal exists to withhold.
+    return `<section id="delta">
+<h2>Since Last Scan</h2>
+<p class="delta-refused"><strong>No comparison was made.</strong> ${escapeHtml(delta.refusal.reason)} —
+${escapeHtml(delta.refusal.detail)}</p>
+<p>Nothing in this report is stated as fixed, new or unchanged relative to an earlier scan.</p>
+</section>`;
+  }
+
+  const rows = [
+    ...delta.resolved.map((f) => deltaRow('resolved', f, deltaBasis(delta))),
+    ...delta.newFindings.map((f) => deltaRow('new', f, deltaBasis(delta))),
+    ...delta.changed.map((f) => deltaRow('changed', f, `${deltaBasis(delta)}; severity ${escapeHtml(String(f.from))} → ${escapeHtml(String(f.to))}`)),
+    // The reason rides the row, not a legend.
+    ...delta.notComparable.map((f) => deltaRow('not-comparable', f, `${f.reason}: ${f.detail}`)),
+  ].join('\n');
+
+  const counts = `${delta.newFindings.length} new · ${delta.resolved.length} resolved · `
+    + `${delta.changed.length} changed · ${delta.notComparable.length} not comparable · `
+    + `${delta.unchanged.length} unchanged`;
+
+  return `<section id="delta">
+<h2>Since Last Scan</h2>
+<p class="delta-counts">${escapeHtml(counts)}</p>
+${delta.notComparable.length ? `<p class="delta-nc-note">${escapeHtml(String(delta.notComparable.length))} finding(s) could NOT be compared between the two scans. They are listed below with the reason. A finding that could not be compared is <strong>not</strong> a finding that was fixed.</p>` : ''}
+<table class="delta"><thead><tr><th>Change</th><th>Finding</th><th>Resource</th><th>Severity</th><th>Basis</th></tr></thead>
+<tbody>
+${rows}
+</tbody></table>
+<div class="delta-limits">
+${delta.limits.map((l) => `<p class="limit">${escapeHtml(l)}</p>`).join('\n')}
+</div>
+</section>`;
+}
+
+export function renderExecutiveReport(model, brand, { renderedAt = new Date(), delta = null } = {}) {
   if (brand === null || typeof brand !== 'object' || Array.isArray(brand)) {
     throw new TypeError(
       'renderExecutiveReport: `brand` must be an object — pass the `brand` field of '
@@ -626,6 +687,7 @@ export function renderExecutiveReport(model, brand, { renderedAt = new Date() } 
 <body>
 ${renderCover(model, brand, renderedAt)}
 ${renderTopRisks(model.findings)}
+${renderDelta(delta)}
 <section id="chart">
 <h2>Severity Distribution</h2>
 ${renderChart(model.findings)}

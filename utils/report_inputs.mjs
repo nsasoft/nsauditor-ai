@@ -117,7 +117,7 @@ function issueText(i) {
   return String(i);
 }
 
-export function shapeFinding(host, f) {
+export function shapeFinding(host, f, plugin = null) {
   const severity = f?.severity != null ? String(f.severity).toUpperCase() : 'INFO';
   const port = f?.port ?? null;
   // ⚠️ THE REPORT USED TO READ `f.title` ALONE, AND NO SHIPPED PLUGIN EMITS IT.
@@ -166,6 +166,11 @@ export function shapeFinding(host, f) {
     // masking a NEW exposure behind a surviving one. Dropping it here would defeat the delta's
     // identity key from outside the delta, with the delta's own tests still green.
     resource: f?.resource ?? f?.target ?? f?.details?.resource ?? null,
+    // ⚠️ CARRIED FOR COMPARABILITY, and for the same reason as `resource`. A cross-run delta can
+    // only call a finding resolved if the plugin that produced it RAN in both scans; without the
+    // producing plugin on the finding, every comparison falls to "plugin-not-run" — never a false
+    // "resolved" (the safe direction) but a wall of NOT-COMPARABLE, which is a feature nobody reads.
+    plugin: plugin ?? f?.plugin ?? null,
     // ALL issues, not just the lead clause the title took: a report that shows one of a
     // finding's four issues silently drops three the scan actually recorded.
     detail: explicitDetail ?? (issueTexts.length ? issueTexts.join(' · ') : null),
@@ -253,7 +258,7 @@ export function shapeHostFindings(host, raw, queue = []) {
     // producers; the report sees BOTH paths.
     const rf = res.findings;
     if (Array.isArray(rf)) {
-      for (const f of rf) push(shapeFinding(host, f));
+      for (const f of rf) push(shapeFinding(host, f, e?.name ?? null));
     } else if (rf && typeof rf === 'object') {
       // 060 DNS Security Auditor emits a DICT OF CATEGORIES ({spf:[…], dmarc:[…]}), which
       // an `Array.isArray` guard skips in complete silence.
