@@ -131,6 +131,10 @@ export async function writeRunStart(outRoot, rec) {
       tier: rec.tier ?? null,
       ceVersion: rec.ceVersion ?? null,
       eeVersion: rec.eeVersion ?? null,
+      // Additive (MINOR per contract-v1 §9; the run record is not a frozen surface). Carries the
+      // digest of the previous finalized record in this out root, so the chain links. Null on a
+      // first run and on any run written before chaining shipped — neither is a broken chain.
+      prevDigest: rec.prevDigest ?? null,
       kevLoaded: Boolean(rec.kevLoaded),
       kevSnapshot: rec.kevSnapshot ?? null,
       epssLoaded: Boolean(rec.epssLoaded),
