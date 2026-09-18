@@ -17,18 +17,18 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.54 + Enterprise 1.0.0 — Enterprise reaches 1.0; Community is a README-only release.** The eight
-surfaces frozen in Enterprise's `docs/contract-v1.md` (the plugin finding shape and its markers, the MCP
-`scan_cloud` / `get_findings` schemas, the report and attestation formats, the framework-mapping
-conventions, the Community peer-range floor, the GRC push posture) are binding from EE 1.0.0 — a change
-to any is semver-major. The cargo is corrective: `Findings analyzed` in every Enterprise report now
-counts findings rather than issues (a 1.0.0 pack reads a SMALLER number than a 0.46.0 pack over the same
-estate, and that is the correction), an Azure RBAC assignment at the root scope is named as such, and PCI
-DSS `11.5.2` is critical-file change detection. Community ships no code this cycle: the peer floor stays
-`>= 0.2.49`, the plugin count stays 27 Community + 29 Enterprise, and every coverage matrix is unchanged.
-This version exists because npm freezes a README at publish time: the 0.2.53 package page still carried
-the superseded PCI DSS matrix in its Plugin Catalog row, and a corrected README reaches the page only with a
-version.
+**Latest: CE 0.2.55 + Enterprise 1.1.0 — *what changed since the last scan*.**
+`nsauditor-ai report --from <dir> --since <runId|prior>` (Pro/Enterprise) compares two scan runs:
+what is new, what is resolved, what changed severity — and, above all, **what could NOT be compared
+and why**. "Resolved" is the dangerous verdict: a finding that disappeared because the host was not
+scanned, the plugin did not run, the scanner lost permission, or the framework enumeration moved is
+reported as NOT COMPARABLE **with its reason**, never as remediation. Run records are sealed with a
+SHA-256 chain, so an altered baseline REFUSES the comparison instead of producing verdicts from it —
+tamper-EVIDENT against corruption, partial restore and unsophisticated edits, **not tamper-proof
+against host-level access and not non-repudiation**, and the report says so in the body. The delta
+renders into the client-facing HTML report, not only to stdout. Plugin counts UNCHANGED at 27
+Community + 29 Enterprise; every coverage matrix UNCHANGED; the Enterprise peer floor stays
+`>= 0.2.49`. The free last-vs-current webhook alerting delta is untouched and stays free.
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 

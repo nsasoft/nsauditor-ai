@@ -6,7 +6,44 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.54 (⏳ PRE-PUBLISH — opened 2026-09-15, NOT YET ON npm) — a README-only release, paired with Enterprise 1.0.0
+## 0.2.55 (⏳ PRE-PUBLISH — opened 2026-09-18, NOT YET ON npm) — *what changed since the last scan*, and the three fields that made it honest
+
+**`nsauditor-ai report --from <dir> --since <runId|prior>`** (Pro/Enterprise) compares two scan runs
+and reports what is new, what is resolved, what changed severity — and, above all, **what could not
+be compared and why**. The delta renders into the client-facing HTML report, not only to stdout.
+
+**"Resolved" is the dangerous verdict, not "new".** A finding that disappeared for any reason other
+than being fixed reads as remediation to a buyer and to an assessor. A finding is called resolved
+only when its host, plugin, scope and framework enumeration were in scope in BOTH runs; otherwise it
+is reported as NOT COMPARABLE **with its reason**, never silently dropped. Five ways a finding can
+vanish without being fixed are handled separately: the host was not scanned · the plugin did not run
+· an evidence gap (AccessDenied, budget exceeded, incomplete region enumeration) · the framework
+enumeration moved · the two runs straddle a product boundary where a reported number changed meaning.
+
+**Baseline integrity, no keys.** Run records are sealed at finalize with a SHA-256 digest over the
+exact persisted bytes and chained through `prevDigest`, so an altered baseline is detected. The
+report states which of `chain-verified` / `chain-absent` / `chain-broken` applies **per row that
+claims remediation**, and says plainly what the guarantee is NOT: tamper-EVIDENT against accidental
+corruption, partial restore and unsophisticated edits — **not tamper-proof against an attacker with
+host-level access, and not non-repudiation**. A tampered or unmeasurable baseline REFUSES the whole
+comparison rather than producing verdicts from it, and the refusal lists which earlier records are
+chain-verified without ever silently switching to one.
+
+**Three fields were being dropped between the loader and the delta**, each invisible to the delta's
+own tests because every fixture was hand-built with the field present. `resource` — twelve buckets
+with one misconfiguration shared an identity, so fixing one and acquiring another reported
+"unchanged" and **a new exposure appeared nowhere**. `plugin` — every comparison fell to
+"plugin-not-run": never wrong, entirely useless. `control` — the framework-enumeration check could
+not fire at all and fell through to **resolved**, the one failure direction that reaches a customer
+as a false remediation claim. All three are fixed, and `tests/delta_boundary_contract.test.mjs` now
+derives both sides of that seam so a fourth instance fails by name; it caught `target` on its first
+run. Community carries no compliance data, so where a control id genuinely cannot exist the report
+DECLARES that coverage-matrix movement was not evaluated rather than skipping the check silently.
+
+`utils/delta_reporter.mjs` — the free last-vs-current webhook alerting delta — is untouched, its
+signatures unmoved and un-gated. This is a second engine beside it.
+
+## 0.2.54 (2026-09-15) — a README-only release, paired with Enterprise 1.0.0
 
 Paired with **Enterprise 1.0.0 / agent-skill 0.2.52**. **NOT a floor bump: Enterprise still requires
 Community `>= 0.2.49`.** No scanner change, no plugin change — Community stays at 27 plugins and nothing in
