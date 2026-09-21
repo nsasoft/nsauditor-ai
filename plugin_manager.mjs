@@ -27,6 +27,29 @@ const __filename = fileURLToPath(import.meta.url);
 
 const VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NSA_VERBOSE || ''));
 const PLUGIN_TIMEOUT_MS = Number(process.env.PLUGIN_TIMEOUT_MS || 30000);
+
+// ── O1(b): A PLUGIN MAY DECLARE ITS OWN TIME BUDGET, BOUNDED BY THIS CEILING ────────────────
+// A plugin whose cost is LINEAR in what the account holds cannot be budgeted by a single global
+// constant: plugin 1020 audits every S3 bucket serially at roughly 3 s each, so it ran in ~18 s
+// on a six-bucket account and hit `status=timeout duration_ms=30001 findings=0` once a few more
+// buckets existed. The producer is the only party that knows its own cost, so it declares it —
+// and the ceiling is what stops a declaration from hanging a scan. An exceeded DECLARED budget
+// still fails closed to not-measured; a budget buys TIME, never a pass.
+export const PLUGIN_TIMEOUT_CEILING_MS = Number(process.env.PLUGIN_TIMEOUT_CEILING_MS || 120000);
+
+/**
+ * The ONE place the budget is decided. Both enforcement sites call it, because a policy with
+ * two call sites is how one of them silently keeps the old behaviour.
+ * Precedence: a positive plugin-declared `timeoutMs` (clamped to the ceiling) outranks a caller
+ * budget, which outranks the global default.
+ */
+export function resolvePluginTimeoutMs(mod, callerTimeoutMs, globalMs = PLUGIN_TIMEOUT_MS) {
+  const caller = Number(callerTimeoutMs);
+  const base = Number.isFinite(caller) && caller > 0 ? caller : globalMs;
+  const declared = Number(mod && mod.timeoutMs);
+  if (!Number.isFinite(declared) || declared <= 0) return base;
+  return Math.min(declared, PLUGIN_TIMEOUT_CEILING_MS);
+}
 const PREFIX = '[nsauditor]';
 const vlog   = VERBOSE ? (...a) => console.log(PREFIX, ...a) : () => {};
 const vwarn  = VERBOSE ? (...a) => console.warn(PREFIX, ...a) : () => {};
@@ -153,8 +176,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
 
     // Honor a per-run timeout (cloud path) but clamp to a positive number; an
     // undefined (network path) or non-positive value falls back to PLUGIN_TIMEOUT_MS.
-    const reqTimeout = Number(cliOpts && cliOpts.timeoutMs);
-    const timeoutMs = Number.isFinite(reqTimeout) && reqTimeout > 0 ? reqTimeout : PLUGIN_TIMEOUT_MS;
+    const timeoutMs = resolvePluginTimeoutMs(mod, cliOpts && cliOpts.timeoutMs);
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -506,7 +528,11 @@ export class PluginManager {
   }
 
   async _runOne(plugin, host, port, opts = {}) {
-    const timeoutMs = parseInt(process.env.PLUGIN_TIMEOUT_MS, 10) || PLUGIN_TIMEOUT_MS;
+    // Same resolver as callPlugin — the env read stays the GLOBAL floor, not the whole answer.
+    const timeoutMs = resolvePluginTimeoutMs(
+      plugin, opts && opts.timeoutMs,
+      parseInt(process.env.PLUGIN_TIMEOUT_MS, 10) || PLUGIN_TIMEOUT_MS,
+    );
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Plugin ${plugin.name || plugin.id} timed out after ${timeoutMs}ms`)), timeoutMs);
