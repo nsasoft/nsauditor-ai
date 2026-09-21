@@ -60,8 +60,15 @@ const nowStamp = () => {
 const safeHost = (h) => String(h ?? 'unknown').replace(/[\/\\?%*:|"<>]/g, '_');
 // toCleanPath imported from ./utils/path_helpers.mjs (consolidated in v0.1.20)
 
-/** Minimal redactor used if nothing external is provided. */
-function redactSensitiveForAI(input, targetHost) {
+/**
+ * Minimal redactor used if nothing external is provided.
+ *
+ * ⚠️ EXPORTED SO IT CAN BE DRIVEN. A redactor's FALSE POSITIVE is invisible from the redacted
+ * artifact alone — `EE-[IP]` reads like a redaction that worked — so the only way to see one is
+ * to compare a raw against its payload, which needs the real function rather than a re-spelling
+ * of its rules. `tests/redact_product_ids.test.mjs` is that census.
+ */
+export function redactSensitiveForAI(input, targetHost) {
   const DROP_KEYS = new Set([
     'ip6', 'deviceWebPage', 'deviceWebPageInstruction',
     'hardwareVersion', 'firmwareVersion'
@@ -78,7 +85,22 @@ function redactSensitiveForAI(input, targetHost) {
     s = s.replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '[MAC]'); // MAC
     s = s.replace(/\bfe80::[0-9a-f:]+\b/gi, '[FE80::/64]');         // IPv6 link-local
     s = s.replace(/\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b/gi, '[IPv6]');
-    s = s.replace(/\b(?:(?:\d{1,3}\.){3}\d{1,3})\b/g, (ip) => (isPrivateV4(ip) ? ip : '[IP]'));
+    // ⚠️ OUR OWN IDENTIFIERS ARE MATCHED FIRST, IN THE SAME ALTERNATION — not in an earlier pass.
+    // `-` is a non-word character, so the `\b` below holds right after `EE-`, and the
+    // four-component id `EE-0.3.2.4` matched as an address: two AI payloads in this cycle's
+    // evidence tree carry `plugin 1020 (EE-[IP] fold)` where the source says `EE-0.3.2.4`.
+    //
+    // ONE alternation, because two passes cannot work in either order — the ordering defect this
+    // repo already recorded for the JSX extractor, where blanking comments before strings let the
+    // `//` in a URL open a comment run. Here: scrubbing addresses first destroys the id, and
+    // restoring ids afterwards cannot tell a real address from one that was always an id. With a
+    // single pass each construct consumes its own extent, so an address STANDING NEXT TO an id is
+    // still redacted — which is the direction that would leak, and has its own test.
+    //
+    // Anchored on `EE-`, so `FOO-203.0.113.5` is still scrubbed: an exemption keyed on "letters
+    // then a dash" would be a hole a hostname could walk through.
+    s = s.replace(/(\bEE-(?:RT\.)?\d+(?:\.\d+)*\b)|(\b(?:\d{1,3}\.){3}\d{1,3}\b)/g,
+      (m, productId, ip) => (productId !== undefined ? productId : (isPrivateV4(ip) ? ip : '[IP]')));
     return s;
   };
 
