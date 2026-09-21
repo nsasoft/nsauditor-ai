@@ -147,3 +147,122 @@ test('region-unknown does NOT resurrect rule 2 — a bare region cannot be judge
   // alone rather than nulling it, and the exact rule still fires wherever the region IS known.
   assert.equal(canon('us-east-1', null), 'us-east-1');
 });
+
+// ── `regionOf` — ONE DERIVATION, APPLIED IDENTICALLY ON BOTH SIDES OF BOTH CHANNELS ─────────
+//
+// ⚠️ WHAT MAKES A COMPOSITE CHANGE FREE IS NOT THAT A FIELD EXISTS ON BOTH SIDES — it is that
+// the SAME function derives the component from whatever each side actually stores. The two sides
+// of a comparison are different shapes: the delta compares two loader-shaped runs (both carry
+// `region`), while the MTTR tracker compares a raw current finding against a STORED violation,
+// and that stored shape has no region at all (3735 violations measured, zero with the field).
+// A field present on one side is not a key.
+//
+// The derivation, in order, and each step's occupancy MEASURED over the 1.1.0 evidence tree's
+// 1786 stored violation resources:
+//   1. the stored/stamped `region` field        — the steady state
+//   2. recovered from a trailing ` [<region>]`  — 124, everything the old stamper decorated
+//   3. a STRUCTURED parse (ARN field position)  — 0 occupants today; kept narrow and
+//      fixture-proven, never corpus-proven
+//   4. null
+//
+// ⚠️ STEP 3 IS A STRUCTURED PARSE AND NEVER A SCAN, and that is a measurement not a preference.
+// A free "find a region-shaped token anywhere in the string" scan matches **562 of the 1786**
+// stored resources — `s3:bucket:s3-violator-bucket-522412052794` contains `ator-bucket-52` — and
+// every one of those would attribute a fabricated region to a finding, desynchronising the very
+// sides this function exists to synchronise.
+import { regionOf } from '../utils/finding_identity.mjs';
+
+test('regionOf is the STAMPED FIELD and nothing cleverer', () => {
+  assert.equal(regionOf({ region: 'us-east-1', resource: 'x' }), 'us-east-1');
+  assert.equal(regionOf({ resource: 'x' }), null);
+  assert.equal(regionOf({ region: '', resource: 'x' }), null);
+  assert.equal(regionOf(null), null);
+});
+
+test('WITHDRAWN BY MEASUREMENT — regionOf must NOT recover a region from a stored violation', () => {
+  // ⚠️ THIS LEG ASSERTS AN ABSENCE, and it exists because two richer versions of `regionOf` were
+  // specified and both were withdrawn — a recovery from the ` [<region>]` decoration, and a
+  // structured parse of an ARN's region field. Measured over all 69,792 stored violations:
+  // ZERO carry a region field, ZERO embed a region token (so the ARN parse had no occupant at
+  // all), 2,873 carry a suffix, 5,950 are a bare region, and **60,959 can yield no region by any
+  // means**. Any composite that carries region on the current side while the prior yields null
+  // resets those sixty thousand lifecycles at the upgrade boundary — the repair would have
+  // caused a larger instance of the defect it was written to prevent.
+  //
+  // Region reaches MTTR identity through COMPOSITION NEGOTIATION instead. If someone later
+  // "improves" this function to recover a region, that negotiation silently stops being
+  // commensurable, so the absence is pinned here rather than left as a comment.
+  assert.equal(regionOf({ resource: 'sg-abc [us-east-1]' }), null,
+    'recovering from the decoration is WITHDRAWN — the suffix is stripped from the RESOURCE, '
+    + 'which is what keeps an old prior equal to a clean current; it is not a region source');
+  assert.equal(regionOf({ resource: 'arn:aws:sqs:us-east-1:123456789012:q' }), null,
+    'the ARN parse is WITHDRAWN — zero occupants in 69,792 stored violations');
+  assert.equal(regionOf({ resource: 's3:bucket:s3-violator-bucket-522412052794' }), null);
+  assert.equal(regionOf({ resource: 'us-east-1' }), null,
+    'a bare region is the basis-bumped producers\' population, declared and not guessed');
+});
+
+// ── THE BOUNDARY, AS TWO-REGION SYNTHETIC PAIRS ─────────────────────────────────────────────
+//
+// ⚠️ THE CORPUS CANNOT ADJUDICATE THIS AND SAYING SO IS PART OF THE EVIDENCE. The Gate-2 records
+// are SINGLE-REGION, so no live artifact can exhibit a cross-region collapse — "0 collapses"
+// there is a corpus that cannot fail. Every case below is therefore a synthetic prior/current
+// pair asserting BOTH directions at once: equal ACROSS the upgrade boundary (or the repair is a
+// mass fabricated remediation) and distinct ACROSS regions (or a per-region scope literal
+// collapses and N-1 regions read as removed).
+// The two negotiated compositions, modelled here exactly as `mttr_engine` computes them: v1 is
+// today's identity and carries NO region; v2 adds it. The composition for a (prior, current)
+// pair is chosen by what the PRIOR scan stores, so the sides are commensurable by construction.
+const v1 = (v) => `${canonicaliseResource(v.resource ?? null, regionOf(v)) ?? '-'}`;
+const v2 = (v) => `${v1(v)}|${regionOf(v) ?? '-'}`;
+
+test('BOUNDARY — an OLD-shaped prior meets a new current under v1: equal, zero churn', () => {
+  // The prior stores no region, so the pair is compared under v1 — today's identity exactly.
+  // What makes them equal is the suffix STRIP, not any region rescue.
+  const priorEast = { resource: 'lambda:function:f [us-east-1]' };          // stored by 0.2.54
+  const currEast = { resource: 'lambda:function:f', region: 'us-east-1' };  // emitted after E1
+  assert.equal(v1(priorEast), v1(currEast), 'the upgrade must not churn it');
+  assert.equal(v1({ resource: 'lambda:function:f [eu-west-2]' }),
+    v1({ resource: 'lambda:function:f', region: 'eu-west-2' }));
+});
+
+test('BOUNDARY — a NEW prior meets a new current under v2: distinct across regions', () => {
+  // Once violations record the field, the pair negotiates v2 and per-region findings separate.
+  const currEast = { resource: 'lambda:function:f', region: 'us-east-1' };
+  const currWest = { resource: 'lambda:function:f', region: 'eu-west-2' };
+  assert.equal(v2(currEast), v2({ resource: 'lambda:function:f', region: 'us-east-1' }));
+  assert.notEqual(v2(currEast), v2(currWest), 'two regions stay two findings under v2');
+});
+
+test('BOUNDARY — a per-region SCOPE LITERAL across both eras, with the v1 limit stated', () => {
+  // `kms:account` is emitted once per region and names no object. Under v1 its regions compare
+  // ACCOUNT-WIDE — which is exactly what happens today, so it is a stated limit and not a new
+  // defect; the run prints it. Under v2 they separate, from the first scan whose prior records
+  // the field, without touching a single one of the ~66 emission sites.
+  const pE = { resource: 'kms:account [us-east-1]' }, cE = { resource: 'kms:account', region: 'us-east-1' };
+  const cW = { resource: 'kms:account', region: 'eu-west-2' };
+  assert.equal(v1(pE), v1(cE), 'old prior vs new current: no churn');
+  assert.equal(v1(cE), v1(cW), 'v1 LIMIT: per-region scope findings compare account-wide');
+  assert.notEqual(v2(cE), v2(cW), 'v2: a scope literal does NOT collapse per region');
+});
+
+test('BOUNDARY — the 60,959: a prior with no region at all is equal under v1 and NOT reset', () => {
+  // This is the population the withdrawn ruling would have broken. Under v1 the region is not a
+  // component at all, so a prior that can yield none is commensurable by construction.
+  assert.equal(v1({ resource: 'iam:user:u' }), v1({ resource: 'iam:user:u', region: 'us-east-1' }));
+  assert.equal(v1({ resource: 'arn:aws:sqs:us-east-1:123456789012:q' }),
+    v1({ resource: 'arn:aws:sqs:us-east-1:123456789012:q', region: 'us-east-1' }),
+    'an embedded region is not decoration and is not stripped — identity is the ARN itself');
+});
+
+test('BOUNDARY — GovCloud and EUSC suffixes strip; `[target-1]` is never touched', () => {
+  // ⚠️ `eusc-de-east-1` (European Sovereign Cloud) is why the token needed widening — the first
+  // shape was derived from a single-region corpus and missed it, which is the same
+  // corpus-cannot-fail limit this block opens with, one level down.
+  assert.equal(v1({ resource: 'x [us-gov-west-1]' }), 'x');
+  assert.equal(v1({ resource: 'sg-abc [eusc-de-east-1]' }), 'sg-abc');
+  assert.equal(v1({ resource: 'y [ap-southeast-2]' }), 'y');
+  assert.equal(v1({ resource: 'z [cn-north-1]' }), 'z');
+  assert.equal(v1({ resource: 'res [target-1]' }), 'res [target-1]',
+    'not a region: identity is left whole');
+});

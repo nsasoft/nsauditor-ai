@@ -24,6 +24,54 @@
  */
 
 /**
+ * The shape of a cloud region token. Two to four leading letters, one to three dash-separated
+ * alpha groups, a trailing number: `us-east-1` · `us-gov-west-1` · `ap-southeast-2` ·
+ * `cn-north-1` · `eusc-de-east-1` (European Sovereign Cloud).
+ *
+ * ⚠️ IT IS ONLY EVER USED ANCHORED, and that is the load-bearing part. Applied as a SCAN over a
+ * resource string it matches **562 of the 1786** stored violation resources in the 1.1.0
+ * evidence tree — `s3:bucket:s3-violator-bucket-522412052794` contains `ator-bucket-52` — and
+ * every one of those would attribute a fabricated region to a finding.
+ *
+ * ⚠️ AND ITS FIRST DRAFT WAS DERIVED FROM A SINGLE-REGION CORPUS, so it missed `eusc-de-east-1`
+ * and left that suffix decorating identity forever. A shape derived from a corpus that carries
+ * one value is a shape nobody has tested.
+ */
+const REGION_TOKEN = '[a-z]{2,4}(?:-[a-z]+){1,3}-\\d{1,2}';
+const TRAILING_REGION_DECORATION = new RegExp(`^(.*?) \\[(${REGION_TOKEN})\\]$`);
+
+/**
+ * The region a finding belongs to — the STAMPED FIELD, and deliberately nothing cleverer.
+ *
+ * ⚠️ TWO RICHER VERSIONS OF THIS FUNCTION WERE SPECIFIED AND BOTH WERE WITHDRAWN BY
+ * MEASUREMENT, which is why this one is three lines. The idea was to recover a region for a
+ * STORED violation — from the ` [<region>]` decoration, or by parsing an ARN's region field —
+ * so that `region` could join the MTTR composite. Measured over the whole evidence tree, all
+ * 69,792 stored violations:
+ *   · carrying a `region` field ............................ 0
+ *   · whose resource EMBEDS a region token ................. 0   → the ARN parse has no occupant
+ *   · carrying a ` [<region>]` suffix ...................... 2,873
+ *   · whose resource IS a bare region ...................... 5,950 (the basis-bumped producers)
+ *   · with no region recoverable by any means ............. 60,959
+ * Sixty thousand priors can yield no region at all — mostly producers with an empty or
+ * name-only resource. So ANY composite carrying region on the current side while the prior
+ * yields null resets those lifecycles at the upgrade boundary: the repair would have introduced
+ * the defect it was written to prevent, on a larger population than the one it fixed.
+ *
+ * Region enters MTTR identity by COMPOSITION NEGOTIATION instead (see `mttr_engine.mjs`): the
+ * composition is chosen by what the PRIOR scan stores, so the two sides are always commensurable
+ * by construction rather than by rescuing one of them. Here, region is simply the field — which
+ * is all the delta ever needed, because both sides of a delta are loader-shaped runs that carry
+ * it.
+ *
+ * @param {object} v — a finding or a stored violation.
+ * @returns {string|null}
+ */
+export function regionOf(v) {
+  return typeof v?.region === 'string' && v.region.length > 0 ? v.region : null;
+}
+
+/**
  * @param {unknown} resource — the raw `resource` as the producer (or the stamper) left it.
  * @param {unknown} region   — the finding's OWN region, from its own field. Never a default:
  *   without it nothing can be decoration, and guessing one would strip a real name.
@@ -53,7 +101,7 @@ export function canonicaliseResource(resource, region) {
   // `us-east-1` is indistinguishable from an object legitimately so named, and leaving identity
   // alone is the safe direction where nulling it is not.
   if (typeof region !== 'string' || region.length === 0) {
-    const m = /^(.*?) \[[a-z]{2}(?:-gov|-iso[a-z]?)?-[a-z]+-\d{1,2}\]$/.exec(resource);
+    const m = TRAILING_REGION_DECORATION.exec(resource);
     return m ? m[1] : resource;
   }
 
