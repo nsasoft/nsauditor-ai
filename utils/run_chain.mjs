@@ -109,6 +109,31 @@ async function readRunRecords(outRoot) {
 }
 
 /**
+ * Every run-record digest in this out root, hashed ONCE. `verifyRunChain` resolves `linkedTo`
+ * existentially — "does any record here still hash to it?" — and doing that per call makes a
+ * caller that verifies N records do N passes over N files.
+ *
+ * ⚠️ THE COST IS ON THE REFUSAL PATH, which is why it is worth closing even though nothing is
+ * wrong: `scan_delta_view` verifies every OTHER record only when it is already refusing, so the
+ * command got slowest exactly when a baseline was broken and an operator was waiting on the
+ * answer. Same "worst precisely when it matters" shape this repo records about gate:cascade's
+ * partial-fetch false clean — there it cost correctness, here only time.
+ *
+ * Pass the result as `opts.linkIndex` to `verifyRunChain`. Omitting it is unchanged behaviour,
+ * so no caller is obliged to know about this.
+ */
+export async function buildRunRecordDigestIndex(outRoot) {
+  const index = new Set();
+  let names = [];
+  try { names = await fsp.readdir(outRoot); } catch { return index; }
+  for (const n of names) {
+    if (!RUN_FILE_RE.test(n)) continue;
+    try { index.add(sha256(await fsp.readFile(path.join(outRoot, n)))); } catch { /* unreadable: not a link target */ }
+  }
+  return index;
+}
+
+/**
  * The digest a run starting at `startedAt` should link to: the most recent SEALED record that
  * started before it. SEALED is required here and only here — the chain can only link to a digest.
  * `--since prior` deliberately does NOT skip an unsealed record: skipping would compare against an
@@ -142,7 +167,7 @@ export async function latestSealedDigest(outRoot, startedAt) {
  * Rendering "nothing was checked" as "tampering" accuses honest evidence; rendering it as
  * "verified" is the false clean. Both are their own verdict.
  */
-export async function verifyRunChain(outRoot, runId) {
+export async function verifyRunChain(outRoot, runId, opts = {}) {
   let bytes;
   try { bytes = await fsp.readFile(runRecordPath(outRoot, runId)); }
   catch { return { status: 'chain-unreadable', reason: 'the run record itself could not be read' }; }
@@ -223,14 +248,23 @@ export async function verifyRunChain(outRoot, runId) {
   const linkedTo = parsed?.prevDigest ?? null;
   let linkBroken = false;
   if (linkedTo) {
-    linkBroken = true;
-    let names = [];
-    try { names = await fsp.readdir(outRoot); } catch { /* unreadable dir */ }
-    for (const n of names) {
-      if (!RUN_FILE_RE.test(n)) continue;
-      try {
-        if (sha256(await fsp.readFile(path.join(outRoot, n))) === linkedTo) { linkBroken = false; break; }
-      } catch { /* skip */ }
+    // ⚠️ AN INDEX IF THE CALLER SHARES ONE, THE SAME SCAN IF NOT. A caller verifying many records
+    // builds it once (`buildRunRecordDigestIndex`); a caller verifying one pays nothing extra and
+    // needs to know nothing. The two paths must answer identically — `tests/run_chain_link_cost`
+    // asserts the verdicts alongside the cost, because a cheaper loop that verifies less would
+    // satisfy a pure counting assertion perfectly.
+    if (opts?.linkIndex) {
+      linkBroken = !opts.linkIndex.has(linkedTo);
+    } else {
+      linkBroken = true;
+      let names = [];
+      try { names = await fsp.readdir(outRoot); } catch { /* unreadable dir */ }
+      for (const n of names) {
+        if (!RUN_FILE_RE.test(n)) continue;
+        try {
+          if (sha256(await fsp.readFile(path.join(outRoot, n))) === linkedTo) { linkBroken = false; break; }
+        } catch { /* skip */ }
+      }
     }
   }
   // ⚠️ THE REASON STATES ITS OWN COVERAGE, because `chain-verified` over a record that sealed no

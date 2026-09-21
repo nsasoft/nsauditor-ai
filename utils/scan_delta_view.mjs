@@ -11,7 +11,7 @@
 // auto-falls-back to one. Falling back silently changes the SUBJECT of the comparison, which is
 // the single thing the delta engine exists not to do.
 import { listRunRecords, readRunRecord } from './run_record.mjs';
-import { verifyRunChain, predecessorOf } from './run_chain.mjs';
+import { verifyRunChain, predecessorOf, buildRunRecordDigestIndex } from './run_chain.mjs';
 import { buildScanDelta, SCAN_DELTA_SCHEMA, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
 import { loadRun } from './report_inputs.mjs';
 
@@ -22,8 +22,10 @@ const scopeOf = (rec) => {
 };
 
 /** `prior` = the record immediately before the current one; otherwise an explicit runId. */
-export async function resolveBaseline(outRoot, currentRunId, since) {
-  const all = await listRunRecords(outRoot);              // newest startedAt first
+export async function resolveBaseline(outRoot, currentRunId, since, records = null) {
+  // `records` lets a caller that already has the list share it; omitting it reads them, so no
+  // caller is obliged to know. Same shape as `verifyRunChain`'s `linkIndex`.
+  const all = records ?? await listRunRecords(outRoot);   // newest startedAt first
   if (since === 'prior') {
     // ⚠️ THE SAME ORDERING THE CHAIN USES, and previously it was not. `all[i + 1]` is a POSITION
     // in a list whose sort key is `startedAt` — and `localeCompare` returns 0 for two records
@@ -58,7 +60,15 @@ const refusedComparison = (out, err, reason, detail) => ({
 export async function buildSinceView({ outRoot, model, since, allowPartial, tier }) {
   const out = [];
   const err = [];
-  const baseRec = await resolveBaseline(outRoot, model.runId, since);
+  // Hashed ONCE for this whole invocation and shared with every `verifyRunChain` below. Without
+  // it each call rescans and rehashes every record in the out root, and the two alternatives
+  // loops call it once per record — N passes over N files, on the refusal path.
+  const linkIndex = await buildRunRecordDigestIndex(outRoot);
+  // Read ONCE too. Three call sites each read every record in the out root — `resolveBaseline`
+  // and both alternatives loops — so the record list was walked three times per invocation on
+  // top of the per-call hashing.
+  const records = await listRunRecords(outRoot);
+  const baseRec = await resolveBaseline(outRoot, model.runId, since, records);
   if (!baseRec) {
     err.push(`[report] --since ${since}: no such run record in ${outRoot}. `
       + 'Refusing rather than comparing against an arbitrary run.');
@@ -69,7 +79,7 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
   // actionable; a refusal about an unnamed one is not.
   out.push(`[report] baseline: runId ${baseRec.runId} · started ${baseRec.startedAt} · scope ${scopeOf(baseRec)}`);
 
-  const chain = await verifyRunChain(outRoot, baseRec.runId);
+  const chain = await verifyRunChain(outRoot, baseRec.runId, { linkIndex });
   if (chain.status === 'chain-broken' || chain.status === 'chain-unreadable') {
     // ⚠️ THE DECLARED CODE TRAVELS WITH THE PROSE. This refusal used to name only
     // `chain.status`, so the vocabulary an operator could grep for (`baseline-chain-broken`,
@@ -79,12 +89,12 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
     err.push(`[report] REFUSED: ${chain.status === 'chain-broken' ? 'baseline-chain-broken' : 'baseline-integrity-unmeasurable'}`
       + ` — the baseline is ${chain.status}: ${chain.reason}. `
       + 'No finding can be called resolved against a baseline that may have been altered.');
-    const others = (await listRunRecords(outRoot))
+    const others = records
       .filter((r) => r?.runId && r.runId !== baseRec.runId && r.runId !== model.runId);
     if (others.length) {
       err.push('[report] earlier records you can name explicitly with `--since <runId>`:');
       for (const r of others) {
-        const v = await verifyRunChain(outRoot, r.runId);
+        const v = await verifyRunChain(outRoot, r.runId, { linkIndex });
         err.push(`[report]   ${r.runId} · ${r.startedAt} · ${v.status}`);
       }
       err.push('[report] NOT falling back automatically: choosing a different baseline changes the '
@@ -110,7 +120,7 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
   // refusing there would turn ordinary housekeeping — deleting old records — into a blanket
   // refusal. That is the accuse-honest-evidence direction. Refuse the substitution; DISCLOSE the
   // integrity fact.
-  const curChain = await verifyRunChain(outRoot, model.runId);
+  const curChain = await verifyRunChain(outRoot, model.runId, { linkIndex });
   // ⚠️ THE CURRENT RUN IS JUST AS ALTERABLE AS THE BASELINE, and only the baseline was verified.
   // `report --run <older> --since <even-older>` is a legitimate invocation — both records are
   // historical — and an edited CURRENT findings file produced `new` and `resolved` rows with no
@@ -138,12 +148,12 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
       err.push('[report] REFUSED: this run\'s record names a predecessor whose bytes no longer exist, '
         + `so \`--since prior\` would compare against ${baseRec.runId}, which is NOT that predecessor. `
         + 'Silently changing the subject of the comparison is the one thing this command does not do.');
-      const others = (await listRunRecords(outRoot))
+      const others = records
         .filter((r) => r?.runId && r.runId !== model.runId);
       if (others.length) {
         err.push('[report] records you can name explicitly with `--since <runId>`:');
         for (const r of others) {
-          const v = await verifyRunChain(outRoot, r.runId);
+          const v = await verifyRunChain(outRoot, r.runId, { linkIndex });
           err.push(`[report]   ${r.runId} · ${r.startedAt} · ${v.status}`);
         }
       }
