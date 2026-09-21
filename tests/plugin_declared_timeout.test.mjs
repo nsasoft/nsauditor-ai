@@ -47,10 +47,23 @@ test('a declared budget ABOVE the ceiling is CLAMPED, so one plugin cannot hang 
 
 // ── THE FIX ITSELF ──────────────────────────────────────────────────────────────────────────
 
-test('a declared budget is HONOURED, and outranks a shorter caller budget', () => {
+test('a declared budget is HONOURED against the GLOBAL DEFAULT — which is the starvation it fixes', () => {
   assert.equal(resolvePluginTimeoutMs({ id: '1020', timeoutMs: 90000 }, undefined), 90000);
-  // The producer knows its own cost; a system-wide 25 s must not starve it back to not-measured.
-  assert.equal(resolvePluginTimeoutMs({ id: '1020', timeoutMs: 90000 }, 25000), 90000);
+});
+
+test('⚠️ a CALLER WALL BINDS over a longer declaration — the consumer frame, not the plugin frame', () => {
+  // ⚠️ THIS LEG WAS WRITTEN THE OTHER WAY ROUND FIRST, ASSERTING THAT 90 s "must not be starved
+  // by a system-wide 25 s". That reasons from the PLUGIN's frame and is wrong in the consumer's.
+  // The only caller that names a budget is the cloud path (`CLOUD_PLUGIN_TIMEOUT_MS || 25000`),
+  // whose single consumer is the `scan_cloud` MCP tool, and CLAUDE DESKTOP HARD-KILLS AN MCP
+  // CALL AT ~60 s. Measured live 2026-06-01: 45,000 ms returned 15 of 20 plugins with an honest
+  // "5 incomplete"; 90,000 ms returned NOTHING. Overriding the wall does not buy time — it turns
+  // a DISCLOSED PARTIAL into a killed call with no result, which is worse than the timeout it
+  // was meant to fix. `min(declared, ceiling, callerWall)`.
+  assert.equal(resolvePluginTimeoutMs({ id: '1020', timeoutMs: 90000 }, 25000), 25000);
+  assert.equal(resolvePluginTimeoutMs({ id: '1020', timeoutMs: 90000 }, 45000), 45000);
+  // and a declaration SHORTER than the wall still binds — the wall is a ceiling, not a floor.
+  assert.equal(resolvePluginTimeoutMs({ id: '1020', timeoutMs: 10000 }, 25000), 10000);
 });
 
 // ── BOTH ENFORCEMENT SITES, because one policy with two call sites is how 1210 stayed broken ──
@@ -88,10 +101,8 @@ test('exceeding its OWN declared budget still fails closed to not-measured', asy
     'the refusal must name the DECLARED budget, not the global one');
 });
 
-test('1020 DECLARES a budget, with its arithmetic, and it is within the ceiling', async () => {
-  const mod = (await import('../../nsauditor-ai-ee/plugins/1020_aws_s3_auditor.mjs')).default;
-  assert.ok(Number.isFinite(mod.timeoutMs) && mod.timeoutMs > 30000,
-    `1020 must declare a budget above the 30s default that starved it; got ${mod.timeoutMs}`);
-  assert.ok(mod.timeoutMs <= PLUGIN_TIMEOUT_CEILING_MS,
-    'a declared budget above the ceiling is clamped — declare one that fits');
-});
+// ⚠️ THE 1020 DECLARATION LEG LIVES IN EE (`tests/plugin_1020_declared_budget.test.mjs`), NOT
+// HERE. It asserts an EE plugin's declared budget against this ceiling, and the first draft
+// reached it by a hardcoded sibling path (`../../nsauditor-ai-ee/plugins/…`) — which is not a
+// dependency, just an assumption about where two checkouts sit on one disk. The CE suite must
+// stay runnable from a lone CE clone; EE already imports this module by package name.

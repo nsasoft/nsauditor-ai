@@ -40,15 +40,33 @@ export const PLUGIN_TIMEOUT_CEILING_MS = Number(process.env.PLUGIN_TIMEOUT_CEILI
 /**
  * The ONE place the budget is decided. Both enforcement sites call it, because a policy with
  * two call sites is how one of them silently keeps the old behaviour.
- * Precedence: a positive plugin-declared `timeoutMs` (clamped to the ceiling) outranks a caller
- * budget, which outranks the global default.
+ *
+ * PRECEDENCE: a plugin-declared budget outranks the GLOBAL DEFAULT ONLY. A caller budget is a
+ * WALL and always binds: `min(declared, ceiling, callerWall)`.
+ *
+ * ⚠️ DO NOT RE-INVERT THIS — a declaration outranking the caller reads reasonable from the
+ * PLUGIN's frame and is wrong in the CONSUMER's. The only caller that names a budget is the
+ * cloud path (`_runCloudPluginsParallel`, `CLOUD_PLUGIN_TIMEOUT_MS || 25000`), whose single
+ * consumer is the `scan_cloud` MCP tool — and CLAUDE DESKTOP HARD-KILLS AN MCP TOOL CALL AT
+ * ABOUT 60 s. Measured live 2026-06-01: a 45,000 ms budget returned 15 of 20 plugins with an
+ * honest "5 incomplete"; 90,000 ms returned NOTHING AT ALL. So letting a 90 s declaration
+ * override a 25 s wall does not buy that plugin more time — it converts a DISCLOSED PARTIAL
+ * into a killed call with no result, which is strictly worse than the timeout it was meant to
+ * fix. The wall is the operator's, and it binds.
+ *
+ * CONSEQUENCE, STATED: on the Desktop path a large-estate S3 audit still reads not-measured
+ * unless the operator raises `CLOUD_PLUGIN_TIMEOUT_MS` toward 45-55 s. The CLI — which is the
+ * compliance path, and the one that writes evidence — names no caller budget and therefore gets
+ * the full declared budget.
  */
 export function resolvePluginTimeoutMs(mod, callerTimeoutMs, globalMs = PLUGIN_TIMEOUT_MS) {
   const caller = Number(callerTimeoutMs);
-  const base = Number.isFinite(caller) && caller > 0 ? caller : globalMs;
+  const hasWall = Number.isFinite(caller) && caller > 0;
+  const base = hasWall ? caller : globalMs;
   const declared = Number(mod && mod.timeoutMs);
   if (!Number.isFinite(declared) || declared <= 0) return base;
-  return Math.min(declared, PLUGIN_TIMEOUT_CEILING_MS);
+  const bounded = Math.min(declared, PLUGIN_TIMEOUT_CEILING_MS);
+  return hasWall ? Math.min(bounded, caller) : bounded;
 }
 const PREFIX = '[nsauditor]';
 const vlog   = VERBOSE ? (...a) => console.log(PREFIX, ...a) : () => {};
@@ -164,6 +182,11 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
   // Special-case OS Detector: pass prior plugin outputs so it can reason over them
   const isOsDetector = (mod?.id === "013") || /os\s*detector/i.test(String(mod?.name || ""));
 
+  // Hoisted: the resolved budget does not depend on the port, and the failure branch below
+  // reports it OUTSIDE runWithCtx's scope — printing the global constant there was false the
+  // moment any plugin declared its own.
+  const resolvedTimeoutMs = resolvePluginTimeoutMs(mod, cliOpts && cliOpts.timeoutMs);
+
   const runWithCtx = (port) => {
     const extra = isOsDetector && Array.isArray(priorOutputs) ? { results: priorOutputs } : {};
     // Forward CLI-derived opts (ports, etc.) so plugins can honor flags like --ports.
@@ -176,7 +199,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
 
     // Honor a per-run timeout (cloud path) but clamp to a positive number; an
     // undefined (network path) or non-positive value falls back to PLUGIN_TIMEOUT_MS.
-    const timeoutMs = resolvePluginTimeoutMs(mod, cliOpts && cliOpts.timeoutMs);
+    const timeoutMs = resolvedTimeoutMs;
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -210,7 +233,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     if (!r.ok) {
       const isTimeout = r.error?.message?.includes('timed out') || false;
       if (isTimeout) {
-        vlog(`Plugin "${mod.name}" timed out after ${PLUGIN_TIMEOUT_MS}ms — skipping`);
+        vlog(`Plugin "${mod.name}" timed out after ${resolvedTimeoutMs}ms — skipping`);
       }
       return {
         id: String(mod.id || ""),
@@ -766,7 +789,7 @@ export class PluginManager {
       for (const wrapped of wrappedRuns) {
         if (wrapped.result?.timedOut) {
           status = 'timeout';
-          reason = wrapped.result.error || `timed out after ${PLUGIN_TIMEOUT_MS}ms`;
+          reason = wrapped.result.error || `timed out after ${resolvePluginTimeoutMs(mod, opts && opts.timeoutMs)}ms`;
         } else if (wrapped.result?.error && status !== 'timeout') {
           status = 'error';
           reason = wrapped.result.error;
