@@ -61,7 +61,7 @@ export const REFUSAL_REASONS = Object.freeze([
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
 export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap',
-  'resource', 'port', 'title', 'severity', 'control'];
+  'contentDigest', 'identityQualifier', 'resource', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
 // so they must not be demanded of the loader. Declared so the derivation can subtract them.
@@ -120,7 +120,25 @@ const cmpVersion = (a, b) => {
 // never reach here carrying a bare target. A fallback that cannot fire through the shipped path is
 // not defensive depth — it is dead code that reads as coverage, which is exactly what made the
 // framework-enumeration leg look complete while being inert.
-const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-', f.title].join('|');
+// ⚠️ NEVER OVER A TRUNCATED STRING. The title is SYNTHESISED and CUT AT 160 CHARS for producers
+// that emit none, and on a live estate three world-open ingress rules on one security group
+// differed only past the cut — one identity for three CRITICAL exposures, so a NEW world-open
+// database port would have read as UNCHANGED. `contentDigest` covers the untrucated content and
+// `identityQualifier` carries the producer's OWN rule discriminators; the title remains the
+// fallback for anything emitting neither.
+// ⚠️ BOTH `title` AND `contentDigest`, NEVER ONE INSTEAD OF THE OTHER — measured, and the first
+// draft got it wrong in the dangerous direction. `contentDigest ?? title` looked equivalent-or-
+// better and was STRICTLY COARSER for producers that emit no raw title: 1020 names the bucket only
+// in the SYNTHESISED title, while the digest covers `[rawTitle, issues]` where rawTitle is null and
+// the issue text carries no bucket. Two different S3 buckets — `aws-config-logs-…` and
+// `cloudtrail-violator-logs-…` — hashed identically and collapsed. The fix for one producer's
+// masking re-created it at another, which is why this was caught on the REAL record and not by the
+// fixtures written from 1170.
+//
+// Taking both is strictly finer than either: the digest separates content that TRUNCATION hid, the
+// title separates naming the digest never saw, and the qualifier separates rules that share both.
+const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-',
+  f.identityQualifier ?? '-', f.title, f.contentDigest ?? '-'].join('|');
 
 // A plugin status that means THE SURFACE WAS NOT READ. `ran` is the only status that licenses a
 // comparison; the rest are the machine saying so itself.
@@ -366,9 +384,28 @@ export function buildScanDelta({ baseline, current }) {
   // ⚠️ THE LIMIT NAMES THE DIRECTION, because the previous wording ("per-instance deltas are not
   // distinguished") read as a granularity note when the real consequence is a missing exposure.
   if (bMap.size !== bFind.length || cMap.size !== cFind.length) {
-    limits.push('Two or more findings collapsed to one identity (same host, plugin, resource, port and title). '
-      + 'Appearance and disappearance of individual instances cannot be distinguished, so A NEW FINDING MAY BE '
-      + 'MASKED by a surviving one that shares its identity.');
+    // ⚠️ THE LIMIT NAMES EACH COLLIDING IDENTITY. A generic disclosure tells a reader that SOME
+    // finding may be masked and gives them nothing to act on; the whole point is that they can go
+    // and look at the one that collided.
+    const collide = [];
+    for (const [side, list] of [['baseline', bFind], ['current', cFind]]) {
+      const seen = new Map();
+      for (const f of list) {
+        const k = keyOf(f);
+        seen.set(k, (seen.get(k) ?? 0) + 1);
+      }
+      for (const f of list) {
+        const k = keyOf(f);
+        if ((seen.get(k) ?? 0) > 1 && !collide.some((c) => c.k === k)) {
+          collide.push({ k, text: `${side}: plugin ${f.plugin} · ${f.resource ?? 'no resource'} · `
+            + `"${String(f.title ?? '').slice(0, 80)}" ×${seen.get(k)}` });
+        }
+      }
+    }
+    limits.push('Two or more findings collapsed to one identity (same host, plugin, resource, port, rule '
+      + 'qualifier and content). Appearance and disappearance of individual instances cannot be distinguished, '
+      + 'so A NEW FINDING MAY BE MASKED by a surviving one that shares its identity. Colliding identities: '
+      + collide.map((c) => c.text).join(' | '));
   }
 
   const resolved = [];

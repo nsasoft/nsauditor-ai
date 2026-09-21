@@ -187,6 +187,24 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // on 7 AWS and 3 Azure findings of the real 1.1.0 run), which means the READ side needs no
     // writer change to see it.
     evidenceGap: f?.details?.evidenceGap === true,
+    // ⚠️ IDENTITY MUST NEVER BE COMPUTED OVER A TRUNCATED STRING, and these two exist because it
+    // was. Plugin 1170 emits no `title`, so one is synthesised from `issues` and CUT AT 160 CHARS
+    // — and on a live estate three ingress rules on ONE security group (PostgreSQL 5432, SSH 22,
+    // Redis 6379, every one open to 0.0.0.0/0) synthesised to the SAME 158-character string,
+    // because the port list is the only token that differs and it falls just past the cut.
+    // `resource` is the REGION for that plugin and `port` is null, so neither discriminated.
+    // Three real CRITICAL exposures held ONE identity: remediate the SSH rule, acquire a new
+    // 0.0.0.0/0 rule on the same group, and the delta reports UNCHANGED.
+    //
+    // `contentDigest` is taken over the UNTRUNCATED content this function already holds, so the
+    // fix covers EVERY producer whose text differs only past 160 chars, not just 1170.
+    contentDigest: crypto.createHash('sha256')
+      .update(JSON.stringify([f?.title ?? null, contentIssues])).digest('hex').slice(0, 16),
+    // And the PRODUCER-EMITTED discriminators, never ones invented here: a rule identity the
+    // plugin already carries in `details`. Absent on producers that emit none, which is why the
+    // key falls back rather than requiring it.
+    identityQualifier: [f?.details?.groupId, f?.details?.protocol, f?.details?.fromPort, f?.details?.toPort]
+      .filter((v) => v != null).join('/') || null,
     // WHICH ORACLE adjudicates this producer's scope. A plugin id is answerable from the record's
     // `pluginsRequested`; an EE analysis agent is NOT — it appears in no such list, because
     // `agents/agent_runner.mjs` derives the agent set from CAPABILITIES and the envelope persists

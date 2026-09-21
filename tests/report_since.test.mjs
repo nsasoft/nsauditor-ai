@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runReport } from '../cli.mjs';
 import { resolveCapabilities } from '../utils/capabilities.mjs';
-import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, runRecordPath } from '../utils/run_record.mjs';
+import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, runRecordPath, readRunRecord } from '../utils/run_record.mjs';
 import { sealRunRecord, chainDigestPath } from '../utils/run_chain.mjs';
 
 const s3 = (resource, severity = 'HIGH') => ({ severity, title: 'No public access block configured', port: 443, resource });
@@ -515,4 +515,226 @@ test('the CLIENT ARTIFACT basis names the current run’s integrity, through the
     'both sides are verifiable since T3, and the row that asserts remediation must say so for BOTH');
   assert.doesNotMatch(html, /current not recorded/,
     'the fallback exists for a record the view could not measure, not for a field the view forgot to pass');
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// T8 / G10 — IDENTITY COMPUTED OVER A TRUNCATED STRING COLLAPSES REAL EXPOSURES.
+//
+// ⚠️ FOUND ON A LIVE ESTATE, NOT IMAGINED. Plugin 1170 emits NO `title`, so the loader synthesises
+// one from `issues` and truncates at 160 chars. Three ingress rules on ONE security group —
+// PostgreSQL 5432, SSH 22, Redis 6379, every one open to 0.0.0.0/0 — synthesise to the SAME
+// 158-character string, because the port list is the only token that differs and it falls just
+// past the cut. `resource` is the REGION for this plugin and `port` is null, so neither
+// discriminates. `host|plugin|resource|port|title` is identical for all three.
+//
+// WHAT IT COSTS: remediate the SSH rule, acquire a new 0.0.0.0/0 rule on the same group, and the
+// delta reports UNCHANGED. A new CRITICAL exposure, absent from `new` entirely — the masking this
+// engine exists to prevent. The fixture below is the REAL finding shape, copied from
+// audit-evidence-samples/ee-1.1.0's AWS envelope, not invented.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+const sgIssue = (port, name) =>
+  `Security Group 'sg-0def2fbb3db67eae5' (name='nsauditor-exposed-sg', vpc='vpc-0f82f090d58df59e0') `
+  + `permits tcp ingress from 0.0.0.0/0 to restricted port(s) [${port} ${name}]. CC6.6 perimeter `
+  + 'CRITICAL: management and data-store ports must never be world-open.';
+
+/** The real 1170 emission: no title, content in `issues`, discriminators in `details`. */
+const sgFinding = (port, name) => ({
+  severity: 'critical',
+  issues: [sgIssue(port, name)],
+  region: 'us-east-1',
+  resource: 'us-east-1',
+  details: { category: 'ec2-sg-ipv4-wildcard-restricted-port-ingress', groupId: 'sg-0def2fbb3db67eae5',
+    groupName: 'nsauditor-exposed-sg', vpcId: 'vpc-0f82f090d58df59e0',
+    protocol: 'tcp', fromPort: port, toPort: port, restrictedPortsCovered: [port] },
+});
+
+test('G10 — three ingress rules differing only PAST the title truncation are THREE identities', async () => {
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z',
+    findings: [sgFinding(5432, 'PostgreSQL'), sgFinding(22, 'SSH'), sgFinding(6379, 'Redis')] });
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+  const rec = await readRunRecord(outRoot, runId);
+
+  assert.equal(loaded.model.findings.length, 3, 'the loader must carry all three');
+  assert.equal(new Set(loaded.model.findings.map((f) => f.title)).size, 1,
+    'PREMISE: the synthesised titles ARE identical — that is the defect, and if this ever fails the '
+    + 'truncation moved and this test must be re-derived rather than deleted');
+
+  const d = buildScanDelta({
+    baseline: { record: rec, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: { ...rec, runId: 'R2' }, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+  assert.equal(d.unchanged.length, 3,
+    'three distinct rules must hold three distinct identities; collapsing them lets a NEW world-open '
+    + 'port be masked by a surviving one');
+  assert.ok(!d.limits.some((l) => /collapsed to one identity/.test(l)),
+    'and with the identities separated there is nothing to disclose');
+});
+
+test('G10 FOURTH QUADRANT — the SAME rule emitted twice STILL collapses, and STILL raises the limit', async () => {
+  // ⚠️ THE DIRECTION THE DEFECT CANNOT EXERCISE. A key widened until nothing ever collides would
+  // pass the test above and destroy the disclosure: duplicate emissions of ONE rule are the case
+  // the collapse limit exists for, and they must still be seen.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10b-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z',
+    findings: [sgFinding(22, 'SSH'), sgFinding(22, 'SSH')] });
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+  const rec = await readRunRecord(outRoot, runId);
+
+  const d = buildScanDelta({
+    baseline: { record: rec, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: { ...rec, runId: 'R2' }, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+  assert.equal(d.unchanged.length, 1, 'one rule emitted twice is ONE identity');
+  const limit = d.limits.find((l) => /collapsed to one identity/.test(l));
+  assert.ok(limit, 'and the collapse must still be DISCLOSED');
+  assert.match(limit, /010/, 'the limit must NAME the colliding identity by plugin');
+  assert.match(limit, /us-east-1/, 'and by resource, so a reader can act on it');
+});
+
+test('G10 MASKING — fix SSH, acquire MySQL: the new world-open port is REPORTED, not swallowed', async () => {
+  // ⚠️ THE DEFECT'S ACTUAL COST, as a test. Under the collapsing key all three rules were one
+  // identity, so remediating one and acquiring another read UNCHANGED — a new world-open database
+  // port absent from `new` entirely. This is F1's masking direction on a live CRITICAL, and it is
+  // the leg that has to stay green for the key to be worth changing.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10c-'));
+
+  const before = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z',
+    findings: [sgFinding(5432, 'PostgreSQL'), sgFinding(22, 'SSH'), sgFinding(6379, 'Redis')] });
+  const after = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z',
+    findings: [sgFinding(5432, 'PostgreSQL'), sgFinding(3306, 'MySQL'), sgFinding(6379, 'Redis')] });
+
+  const bL = await loadRun(outRoot, { runId: before, allowPartial: false }, { tier: 'pro' });
+  const cL = await loadRun(outRoot, { runId: after, allowPartial: false }, { tier: 'pro' });
+  const d = buildScanDelta({
+    baseline: { record: await readRunRecord(outRoot, before), findings: bL.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: await readRunRecord(outRoot, after), findings: cL.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+
+  assert.equal(d.resolved.length, 1, 'the SSH rule was genuinely removed');
+  assert.equal(d.newFindings.length, 1, 'and the MySQL rule is a NEW world-open database port');
+  assert.equal(d.unchanged.length, 2, 'PostgreSQL and Redis are untouched');
+  // ⚠️ IDENTIFIED BY THE QUALIFIER, NOT BY THE TITLE, and the reason is a RESIDUAL worth stating:
+  // the title is truncated before the port list, so it CANNOT name which rule this is. Identity is
+  // fixed; DISPLAY is not. A reader of the client artifact sees a new CRITICAL row reading
+  // "…permits tcp ingress from 0.0.0.0/0 to restricted…" and cannot tell 3306 from 22 without
+  // opening the raw envelope. The untruncated text exists on `detail`; wiring it to the rendered
+  // row is a separate change and is boarded, not smuggled in here.
+  assert.match(d.newFindings[0].identityQualifier, /\/3306\//,
+    'the new row must be the MySQL rule — masking it behind a surviving sibling is the whole defect');
+  assert.match(d.resolved[0].identityQualifier, /\/22\//, 'and the resolved one must be SSH');
+  assert.doesNotMatch(d.newFindings[0].title, /3306|MySQL/,
+    'RESIDUAL, pinned so it is not mistaken for fixed: the rendered title still cannot name the port. '
+    + 'If this ever fails, the display was fixed too and this assertion should be deleted with a note.');
+});
+
+test('G10 REGRESSION — a producer whose issue text is IDENTICAL across resources keeps its identities', async () => {
+  // ⚠️ THIS LEG EXISTS BECAUSE THE FIRST FIX BROKE IT, and it was caught on the real record rather
+  // than by any fixture written from 1170. `keyOf` was drafted as `contentDigest ?? title`, which
+  // reads as equivalent-or-better and is STRICTLY COARSER here: plugin 1020 emits NO raw title and
+  // its issue text is byte-identical across buckets — the bucket appears only in the SYNTHESISED
+  // title. So the digest over `[rawTitle, issues]` hashed two DIFFERENT S3 buckets identically
+  // (`aws-config-logs-…` and `cloudtrail-violator-logs-…`), and the fix for 1170's masking
+  // re-created the same masking at 1020. The key takes BOTH title and digest now.
+  //
+  // Shape copied from audit-evidence-samples/ee-1.1.0's AWS envelope: `bucket` is a TOP-LEVEL
+  // field and `issues[0]` is the same string for every bucket.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const ownership = (bucket) => ({
+    bucket, severity: 'low', region: 'us-east-1',
+    issues: ['Object Ownership: BucketOwnerEnforced (ACL-based public access structurally impossible)'],
+    details: { category: 's3-object-ownership' },
+  });
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10d-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z',
+    findings: [ownership('aws-config-logs-522412052794'), ownership('cloudtrail-violator-logs-522412052794')] });
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+
+  assert.equal(new Set(loaded.model.findings.map((f) => f.contentDigest)).size, 1,
+    'PREMISE: the two findings DO hash identically — the issue text is the same and neither carries '
+    + 'a raw title, which is exactly why the digest alone cannot be the identity');
+  assert.equal(new Set(loaded.model.findings.map((f) => f.title)).size, 2,
+    'and the synthesised titles DO differ, because they name the bucket');
+
+  const rec = await readRunRecord(outRoot, runId);
+  const d = buildScanDelta({
+    baseline: { record: rec, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: { ...rec, runId: 'R2' }, findings: loaded.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+  assert.equal(d.unchanged.length, 2, 'two different buckets are two findings; collapsing them masks one');
+  assert.ok(!d.limits.some((l) => /collapsed to one identity/.test(l)));
+});
+
+// ⚠️ THESE TWO LEGS EXIST BECAUSE THREE MUTANTS SURVIVED, AND THE REASON GENERALISES. Measured on
+// the live 268-finding corpus: `title + qualifier` gives 268 identities and `title + digest` gives
+// 268 too — so on real data the digest and the qualifier are MUTUALLY REDUNDANT, each covering
+// 1170 on its own, and removing either alone changed nothing any test could see. Dropping BOTH
+// loses it (266, the original defect) and dropping the TITLE loses the 1020 case (267). A clause
+// proven only where a neighbour also covers it is proven by the neighbour. Each field gets a leg
+// that ONLY it can satisfy.
+
+test('G10 — the DIGEST alone separates content that truncation hid (no details to qualify on)', async () => {
+  // A producer with NO `details` discriminators whose issue text differs only past the 160-char
+  // cut: the qualifier is null for both, the titles are identical, and only the untruncated
+  // content tells them apart.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const pad = 'Perimeter control requires that management and data-store ports are never world-open; ';
+  const longIssue = (tail) => `Security Group 'sg-aaaa' (name='x', vpc='vpc-1') permits tcp ingress from 0.0.0.0/0. ${pad}${tail}`;
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10e-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [
+    { severity: 'critical', issues: [longIssue('affected port 5432')] },
+    { severity: 'critical', issues: [longIssue('affected port 3306')] },
+  ] });
+  const l = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+
+  assert.equal(new Set(l.model.findings.map((f) => f.title)).size, 1,
+    'PREMISE: the synthesised titles are identical — the tail falls past the truncation');
+  assert.deepEqual(l.model.findings.map((f) => f.identityQualifier), [null, null],
+    'PREMISE: no producer details, so the qualifier cannot help here');
+  assert.equal(new Set(l.model.findings.map((f) => f.contentDigest)).size, 2,
+    'only the digest over the UNTRUNCATED content can separate them');
+  // ⚠️ AND THE KEY MUST USE IT — asserting the loader field alone leaves `keyOf` unexercised, which
+  // is how the first battery let a key-dropping mutant survive.
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const rec = await readRunRecord(outRoot, runId);
+  const d = buildScanDelta({
+    baseline: { record: rec, findings: l.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: { ...rec, runId: 'R2' }, findings: l.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+  assert.equal(d.unchanged.length, 2, 'the delta must hold two identities, not one');
+});
+
+test('G10 — the QUALIFIER alone separates rules whose text is identical (digest cannot)', async () => {
+  // The mirror: a producer that summarises without naming the rule, so the issue text is
+  // byte-identical and only `details` carries the discriminator.
+  const { loadRun } = await import('../utils/report_inputs.mjs');
+  const rule = (port) => ({ severity: 'critical', resource: 'us-east-1',
+    issues: ['Security group permits world-open ingress on a restricted port.'],
+    details: { groupId: 'sg-bbbb', protocol: 'tcp', fromPort: port, toPort: port } });
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-g10f-'));
+  const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [rule(22), rule(3389)] });
+  const l = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+
+  assert.equal(new Set(l.model.findings.map((f) => f.title)).size, 1, 'PREMISE: identical titles');
+  assert.equal(new Set(l.model.findings.map((f) => f.contentDigest)).size, 1,
+    'PREMISE: identical content, so the digest CANNOT separate them — this is the leg only the '
+    + 'qualifier can satisfy, and without it two different world-open ports share one identity');
+  assert.equal(new Set(l.model.findings.map((f) => f.identityQualifier)).size, 2,
+    'the producer already emits the discriminator; the key must use it');
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const rec = await readRunRecord(outRoot, runId);
+  const d = buildScanDelta({
+    baseline: { record: rec, findings: l.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: { ...rec, runId: 'R2' }, findings: l.model.findings, integrity: 'chain-verified', pluginStatus: [] },
+  });
+  assert.equal(d.unchanged.length, 2,
+    'two world-open ports on one group are two findings — with the qualifier out of the key they are one');
 });
