@@ -103,6 +103,58 @@ async function loadOneRun(writeRaw, { pluginsRequested }) {
   return { loaded, rec: await readRunRecord(outRoot, runId) };
 }
 
+// ── THE SAME QUESTION FOR `host` (board C6). `scan_delta.mjs`'s `scopeOf` builds its host set
+// from `record.hostsWritten[].host` and buckets on `theirs.hosts.has(f.host)`, so a
+// loader-emitted host in a DIFFERENT vocabulary from the record's would send every finding to
+// `host-not-scanned` — the `plugin` defect one field over, and failing in the safe direction
+// (a wall of not-comparable) exactly as `plugin` did before T1.
+//
+// ⚠️ THE FIXTURE IS IPv6 ON PURPOSE, AND WITHOUT THAT THIS LEG WOULD BE VACUOUS. The loader
+// takes the host straight off `hostsWritten`, so for `10.0.0.7` the assertion is true by
+// construction and no mutant could disturb it. A SECOND host vocabulary does exist in this
+// product: `cli.mjs:60`'s `safeHost` rewrites `/ \ ? % * : | " < >` to `_` to build the scan
+// DIRECTORY name. Measured: `fe80::1` normalises to `fe80::1` and its directory form is
+// `fe80__1` — so a loader that ever derived the host from the directory basename, which is
+// exactly the sort of "obvious" simplification this file exists to catch, produces a token that
+// is in no record's host list. For an IPv4 host the two forms are identical and the defect is
+// invisible, which is why the fixture is not the ordinary case.
+const IPV6_HOST = 'fe80::1';
+const IPV6_DIR = 'fe80__1';        // what `safeHost` would produce — deliberately NOT the host
+
+test('finding.host is a MEMBER of record.hostsWritten hosts, on a host whose DIRECTORY name differs', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-hostvocab-'));
+  const runId = newRunId();
+  await writeRunStart(outRoot, { runId, startedAt: '2026-09-01T10:00:00.000Z',
+    hostsRequested: [IPV6_HOST], pluginsRequested: [REAL_ENVELOPE_ID], tier: 'pro',
+    ceVersion: '0.2.55', eeVersion: '1.1.0' });
+  fs.mkdirSync(path.join(outRoot, IPV6_DIR), { recursive: true });
+  fs.writeFileSync(path.join(outRoot, IPV6_DIR, 'scan_conclusion_raw.json'), JSON.stringify({
+    runId,
+    pluginStatus: [{ id: REAL_ENVELOPE_ID, name: REAL_ENVELOPE_NAME, status: 'ran', reason: null }],
+    results: [{ id: REAL_ENVELOPE_ID, name: REAL_ENVELOPE_NAME,
+      result: { up: true, findings: [{ severity: 'HIGH', title: 'Telnet service exposed', port: 23 }] } }],
+  }), 'utf8');
+  await appendHostWritten(outRoot, runId, { host: IPV6_HOST, dir: IPV6_DIR });
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-09-01T11:00:00.000Z' });
+
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
+  assert.equal(loaded.ok, true, loaded.message);
+  const rec = await readRunRecord(outRoot, runId);
+
+  const recordHosts = (rec.hostsWritten ?? []).map((h) => h.host);
+  assert.ok(recordHosts.includes(IPV6_HOST),
+    `the record must hold the host itself, not its directory form — got ${JSON.stringify(recordHosts)}`);
+
+  const f = loaded.model.findings[0];
+  assert.ok(f, 'the fixture must produce a finding, or the leg asserts over an empty set');
+  assert.ok(recordHosts.includes(f.host),
+    `finding.host "${f.host}" is not in hostsWritten ${JSON.stringify(recordHosts)} — the delta's `
+    + "host-scope check can never match, and EVERY finding buckets host-not-scanned");
+  assert.notEqual(f.host, IPV6_DIR,
+    'and it must not be the DIRECTORY name: that is the other vocabulary, and the one a '
+    + 'basename-derived host would produce');
+});
+
 test('finding.plugin is a MEMBER of record.pluginsRequested through the REAL loader with REAL shapes', async () => {
   const { loaded, rec } = await loadOneRun((dir, runId) => {
     fs.writeFileSync(path.join(dir, 'scan_conclusion_raw.json'), JSON.stringify({
