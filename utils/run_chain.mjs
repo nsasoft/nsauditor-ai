@@ -28,6 +28,37 @@ export function chainDigestPath(outRoot, runId) {
   return path.join(outRoot, `scan_run_${runId}.sha256`);
 }
 
+// ⚠️ THE CHAIN COVERED THE INDEX AND NOT THE EVIDENCE, and the two are different files. The run
+// record carries no findings; the delta reads THESE, in each written host's directory. Until
+// 2026-09-20 nothing hashed them, so deleting a finding from a sealed baseline left the verdict at
+// `chain-verified` while the comparison moved — and five published surfaces said an altered
+// baseline is detected and refused. Hash what the CONSUMER reads, not merely what the writer
+// indexes.
+export const HOST_EVIDENCE_FILES = Object.freeze(['scan_conclusion_raw.json', 'scan_finding_queue.json']);
+
+/**
+ * Digest every evidence file of one written host directory, for sealing INTO the record.
+ * ⚠️ AN ABSENT FILE IS SEALED AS AN EXPLICIT `null`, NEVER OMITTED and never a fabricated digest.
+ * Omitting it would make its later APPEARANCE invisible, and adding a `scan_finding_queue.json` to
+ * a sealed baseline injects findings into the comparison — which moves rows out of `resolved` or
+ * into `new` just as surely as editing one does.
+ * A file that exists but cannot be READ is neither: it is left out and warned, because recording
+ * it as absent would accuse it of appearing later, and this module's rule is that not-measured
+ * must never render as tampering.
+ */
+export async function digestHostEvidence(outRoot, dir) {
+  const out = {};
+  for (const name of HOST_EVIDENCE_FILES) {
+    try {
+      out[name] = sha256(await fsp.readFile(path.join(outRoot, dir, name)));
+    } catch (e) {
+      if (e?.code === 'ENOENT') out[name] = null;
+      else console.warn(`[RunChain] could not digest ${dir}/${name}: ${e?.message || e}`);
+    }
+  }
+  return out;
+}
+
 // Sealed at FINALIZE and never before: the record is rewritten N+2 times per run (start, one
 // append per host, finalize), so a digest taken earlier names bytes that are meant to change.
 export async function sealRunRecord(outRoot, runId) {
@@ -79,11 +110,50 @@ export async function verifyRunChain(outRoot, runId) {
     return { status: 'chain-broken', digest: actual, reason: 'the run record does not match the digest recorded when it was sealed' };
   }
 
+  // ── THE EVIDENCE, not just the index. Verified only after the record's own digest matches,
+  // because the digests being checked are READ FROM that record: checking them first would be
+  // trusting bytes that have not been vouched for yet.
+  let parsed = null;
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { /* the digest matched, so this is a parse we can survive */ }
+  const written = Array.isArray(parsed?.hostsWritten) ? parsed.hostsWritten : [];
+  let filesCovered = 0;
+  let hostsUncovered = 0;
+  for (const h of written) {
+    if (!h?.digests || typeof h.digests !== 'object') { hostsUncovered += 1; continue; }
+    for (const [name, expected] of Object.entries(h.digests)) {
+      const where = `${h.dir}/${name}`;
+      let actual = null;
+      try {
+        actual = sha256(await fsp.readFile(path.join(outRoot, h.dir, name)));
+      } catch (e) {
+        // ⚠️ ENOENT IS A MEASUREMENT ("it is not there"); anything else is a FAILURE to measure,
+        // and the two must not share a verdict. Reporting an unreadable file as missing would
+        // accuse honest evidence of having been deleted.
+        if (e?.code !== 'ENOENT') {
+          return { status: 'chain-unreadable',
+            reason: `the findings file ${where} is sealed with this record but could not be read, so alteration could neither be confirmed nor ruled out` };
+        }
+      }
+      if (expected === null && actual !== null) {
+        return { status: 'chain-broken',
+          reason: `the findings file ${where} did not exist when this record was sealed and exists now — findings added to a baseline after the fact change the comparison exactly as edited ones do` };
+      }
+      if (expected !== null && actual === null) {
+        return { status: 'chain-broken',
+          reason: `the findings file ${where} was sealed with this record and is now missing` };
+      }
+      if (expected !== null && actual !== expected) {
+        return { status: 'chain-broken', digest: actual,
+          reason: `the findings file ${where} does not match the digest sealed with the record` };
+      }
+      filesCovered += 1;
+    }
+  }
+
   // The LINK. `prevDigest` names a digest, not an id, so the check is existential: does any record
   // in this out root still hash to it? If none does, this record vouches for bytes that no longer
   // exist — which is what a rewritten predecessor looks like from here.
-  let linkedTo = null;
-  try { linkedTo = JSON.parse(bytes.toString('utf8'))?.prevDigest ?? null; } catch { /* verified above */ }
+  const linkedTo = parsed?.prevDigest ?? null;
   let linkBroken = false;
   if (linkedTo) {
     linkBroken = true;
@@ -96,5 +166,20 @@ export async function verifyRunChain(outRoot, runId) {
       } catch { /* skip */ }
     }
   }
-  return { status: 'chain-verified', digest: actual, linkedTo, linkBroken, reason: 'the record matches the digest recorded when it was sealed' };
+  // ⚠️ THE REASON STATES ITS OWN COVERAGE, because `chain-verified` over a record that sealed no
+  // findings files claims more than it measured — and the surfaces that quote this verdict say an
+  // altered BASELINE is refused, which is a claim about the findings.
+  const coverage = hostsUncovered > 0
+    ? `; the findings files of ${hostsUncovered} written host(s) were NOT covered by this record `
+      + '(it predates per-host sealing), so alteration of those files could not be ruled out'
+    : (written.length ? `, together with ${filesCovered} sealed findings file(s) across ${written.length} written host(s)` : '');
+  return {
+    status: 'chain-verified',
+    digest: actual,
+    linkedTo,
+    linkBroken,
+    filesCovered,
+    hostsUncovered,
+    reason: `the record matches the digest recorded when it was sealed${coverage}`,
+  };
 }

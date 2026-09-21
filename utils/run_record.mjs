@@ -11,7 +11,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { CE_RETENTION_MS } from './scan_history.mjs';
-import { sealRunRecord, latestSealedDigest } from './run_chain.mjs';
+import { sealRunRecord, latestSealedDigest, digestHostEvidence } from './run_chain.mjs';
 
 export const RUN_RECORD_SCHEMA = 1;
 const RUN_FILE_RE = /^scan_run_(.+)\.json$/;
@@ -217,6 +217,16 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     if ('kevSnapshot' in opts) existing.kevSnapshot = opts.kevSnapshot ?? null;
     if ('epssLoaded' in opts) existing.epssLoaded = Boolean(opts.epssLoaded);
     if ('epssSnapshot' in opts) existing.epssSnapshot = opts.epssSnapshot ?? null;
+    // ⚠️ SEAL THE EVIDENCE, NOT ONLY THE INDEX — and do it HERE, before the record is written, so
+    // the digests are inside the bytes that `sealRunRecord` then covers. Sealing them afterwards
+    // would leave them vouched for by nothing, which is the defect one level up: a digest nobody
+    // digests. The delta reads the per-host findings files, not this record's contents, so a chain
+    // that stops at this file cannot support the published claim that an altered baseline is
+    // refused. Failure to digest one file is warned inside the helper and never fatal, for the
+    // same reason sealing is: a report-side fault must not fail a scan.
+    for (const h of (existing.hostsWritten ?? [])) {
+      if (h?.dir) h.digests = await digestHostEvidence(outRoot, h.dir);
+    }
     const wrote = Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'run finalize'));
     // SEALED HERE, and only here: the record is rewritten N+2 times per run, so a digest taken
     // any earlier names bytes that are meant to change. Failure to seal is warned and never fatal —

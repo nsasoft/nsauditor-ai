@@ -17,7 +17,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { sealRunRecord, verifyRunChain, chainDigestPath } from '../utils/run_chain.mjs';
-import { writeRunStart, finalizeRunRecord, runRecordPath } from '../utils/run_record.mjs';
+import { writeRunStart, appendHostWritten, finalizeRunRecord, runRecordPath, readRunRecord } from '../utils/run_record.mjs';
 
 const tmp = async () => fsp.mkdtemp(path.join(os.tmpdir(), 'nsa-chain-'));
 const mkRun = async (root, id, over = {}) => {
@@ -121,4 +121,127 @@ test('an explicit prevDigest still wins — the default must not overwrite a cal
   await writeRunStart(root, { runId: 'S2', startedAt: '2026-09-18T02:00:00Z', hostsRequested: ['10.0.0.1'], prevDigest: pinned });
   const rec = JSON.parse(await fsp.readFile(runRecordPath(root, 'S2'), 'utf8'));
   assert.equal(rec.prevDigest, pinned);
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// T3 / G5 — THE CHAIN COVERED THE INDEX AND NOT THE EVIDENCE.
+//
+// `sealRunRecord` digests `scan_run_<id>.json`. The delta does not READ that file's findings —
+// there are none in it. It reads `scan_conclusion_raw.json` and `scan_finding_queue.json` in each
+// written host's directory, and NOTHING covered them: delete a finding from a sealed baseline's
+// findings file and `verifyRunChain` still said `chain-verified`, while the delta moved from
+// `2 unchanged` to `1 new · 1 unchanged`. Five surfaces — the press release, the CE CHANGELOG, the
+// EE README, SKILL.md item (3) and the client HTML's own per-row basis — said an altered baseline
+// is detected and refused. Gate 3-B's B3 arm tampered the RECORD, so it proved the index leg only.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+const RAW = 'scan_conclusion_raw.json';
+const QUEUE = 'scan_finding_queue.json';
+
+/** A run with one written host directory, through the real writers, sealed by finalize. */
+async function mkRunWithHost(root, id, { queue = null, findings = [{ severity: 'HIGH', title: 'T' }] } = {}) {
+  await writeRunStart(root, { runId: id, startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'],
+    pluginsRequested: ['010'], tier: 'pro' });
+  await fsp.mkdir(path.join(root, 'h1'), { recursive: true });
+  await fsp.writeFile(path.join(root, 'h1', RAW), JSON.stringify({
+    runId: id, pluginStatus: [{ id: '010', name: 'aws-s3', status: 'ran' }],
+    results: [{ id: '010', name: 'aws-s3', result: { up: true, findings } }],
+  }), 'utf8');
+  if (queue) await fsp.writeFile(path.join(root, 'h1', QUEUE), JSON.stringify(queue), 'utf8');
+  await appendHostWritten(root, id, { host: '10.0.0.1', dir: 'h1' });
+  await finalizeRunRecord(root, id, { finishedAt: '2026-09-18T01:00:00Z' });
+}
+
+test('G5 — altering a FINDINGS FILE after sealing is detected, and the refusal NAMES the file', async () => {
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1', { findings: [{ severity: 'HIGH', title: 'A' }, { severity: 'HIGH', title: 'B' }] });
+  const f = path.join(root, 'h1', RAW);
+  const before = await fsp.readFile(f, 'utf8');
+  const after = before.replace('"title":"B"', '"title":"C"');
+  assert.equal(after.length, before.length, 'length-preserving, or it proves nothing');
+  assert.notEqual(after, before, 'the tamper must actually land');
+  await fsp.writeFile(f, after, 'utf8');
+
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-broken',
+    'the delta READS this file; a chain that does not cover it cannot support the claim that an altered baseline is refused');
+  assert.match(v.reason, /h1\/scan_conclusion_raw\.json/,
+    'and it must NAME the file — a refusal an operator cannot act on is half a refusal');
+});
+
+test('G5 ACCEPT — an untouched run with host files still verifies, digests and all', async () => {
+  // The fourth quadrant. A leg that refuses everything would satisfy the test above and destroy
+  // the feature; the motivating defect cannot exercise this direction.
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1', { queue: [{ id: 'F-1', title: 'Q', severity: 'HIGH' }] });
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-verified', v.reason);
+  const rec = await readRunRecord(root, 'R1');
+  assert.ok(rec.hostsWritten[0].digests, 'the record must carry the per-host digests it was sealed with');
+  assert.match(rec.hostsWritten[0].digests[RAW], /^[0-9a-f]{64}$/);
+});
+
+test('G5 — a findings file that APPEARED after sealing is detected, not just one that changed', async () => {
+  // ⚠️ THE DIRECTION THE PRESCRIPTION DID NOT NAME. Sealing only the files that existed leaves
+  // ADDING one undetectable — and adding a `scan_finding_queue.json` to a sealed baseline injects
+  // findings into the comparison, which moves rows out of `resolved` or into `new`. An absent file
+  // is recorded as an explicit null so that its later appearance is a mismatch rather than a gap.
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1');                       // no queue file at seal time
+  const rec = await readRunRecord(root, 'R1');
+  assert.equal(rec.hostsWritten[0].digests[QUEUE], null,
+    'an absent file is sealed as null — never omitted, or its appearance is invisible, and never a fabricated digest');
+
+  await fsp.writeFile(path.join(root, 'h1', QUEUE), JSON.stringify([{ id: 'F-X', title: 'injected', severity: 'CRITICAL' }]), 'utf8');
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-broken');
+  assert.match(v.reason, /scan_finding_queue\.json/);
+});
+
+test('G5 — a record sealed BEFORE per-host digests keeps verifying, and SAYS what it does not cover', async () => {
+  // ⚠️ NOT-MEASURED MUST NOT READ AS TAMPERING — this module's own four-state rule. A record from
+  // an earlier release carries no `digests`, and calling that chain-broken would accuse honest
+  // evidence. But a bare `chain-verified` over it OVERSTATES: the findings files were never
+  // covered. The verdict stays, the reason discloses.
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1');
+  const rec = await readRunRecord(root, 'R1');
+  delete rec.hostsWritten[0].digests;                    // the pre-1.1.0 shape on disk
+  await fsp.writeFile(runRecordPath(root, 'R1'), JSON.stringify(rec), 'utf8');
+  await sealRunRecord(root, 'R1');                       // reseal: the RECORD is intact, just older in shape
+
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-verified', 'an older record is not a tampered one');
+  assert.match(v.reason, /findings files/i,
+    'but the reason must say the findings files were not covered — otherwise the verdict claims more than it measured');
+});
+
+test('G5 — a sealed findings file that has been DELETED is chain-broken, naming it', async () => {
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1', { queue: [{ id: 'F-1', title: 'Q', severity: 'HIGH' }] });
+  await fsp.rm(path.join(root, 'h1', QUEUE));
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-broken');
+  assert.match(v.reason, /scan_finding_queue\.json was sealed with this record and is now missing/);
+});
+
+test('G5 — a findings file that cannot be READ is chain-UNREADABLE, never chain-broken', async () => {
+  // ⚠️ THIS MODULE'S OWN FOUR-STATE RULE, applied to the new leg: ENOENT is a MEASUREMENT ("it is
+  // not there") and EACCES is a FAILURE to measure. Collapsing them would report an unreadable
+  // file as a deleted one — accusing honest evidence of tampering, which this module's header
+  // names as the mirror-image error of the false clean. Written because I wrote that branch and
+  // nothing exercised it.
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1');
+  const f = path.join(root, 'h1', RAW);
+  await fsp.chmod(f, 0o000);
+  try {
+    const v = await verifyRunChain(root, 'R1');
+    assert.equal(v.status, 'chain-unreadable',
+      'could-not-measure is its own verdict; it is neither verified nor broken');
+    assert.match(v.reason, /could not be read/);
+    assert.match(v.reason, /h1\/scan_conclusion_raw\.json/);
+  } finally {
+    await fsp.chmod(f, 0o600);                      // restore, or the temp dir cannot be cleaned
+  }
 });
