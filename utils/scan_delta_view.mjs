@@ -70,9 +70,15 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
   }
 
   const currentRec = await readRunRecord(outRoot, model.runId);
+  // ⚠️ `pluginStatus` TRAVELS WITH EACH SIDE, and its ABSENCE is a different fact from an empty
+  // one. The loader has always carried it (`model.plugins.byHost`); this view passed only
+  // `findings`, so the engine could not tell a plugin that RAN from one that ERRORED on the host
+  // and could not tell "no gaps" from "no oracle". Both read as clean, which is the fail-open
+  // direction: a finding whose plugin crashed read as REMEDIATED in the client's report.
   const delta = buildScanDelta({
-    baseline: { record: baseRec, findings: loadedBase.model.findings, integrity: chain.status },
-    current: { record: currentRec, findings: model.findings },
+    baseline: { record: baseRec, findings: loadedBase.model.findings, integrity: chain.status,
+      pluginStatus: loadedBase.model.plugins.byHost },
+    current: { record: currentRec, findings: model.findings, pluginStatus: model.plugins.byHost },
   });
 
   if (!delta.comparable) {

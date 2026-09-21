@@ -180,6 +180,19 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // masking a NEW exposure behind a surviving one. Dropping it here would defeat the delta's
     // identity key from outside the delta, with the delta's own tests still green.
     resource: f?.resource ?? f?.target ?? f?.details?.resource ?? null,
+    // ⚠️ AN EVIDENCE GAP IS SCOPE, NOT A FINDING, and the delta cannot tell them apart without
+    // this. A gap record says "the scanner could not read this surface" — so a finding that
+    // vanished behind one was not fixed, nobody looked. It is carried on the finding rather than
+    // in a side-channel because that is where the producer already writes it (`details.evidenceGap`
+    // on 7 AWS and 3 Azure findings of the real 1.1.0 run), which means the READ side needs no
+    // writer change to see it.
+    evidenceGap: f?.details?.evidenceGap === true,
+    // WHICH ORACLE adjudicates this producer's scope. A plugin id is answerable from the record's
+    // `pluginsRequested`; an EE analysis agent is NOT — it appears in no such list, because
+    // `agents/agent_runner.mjs` derives the agent set from CAPABILITIES and the envelope persists
+    // no per-agent run status. Deriving this in the delta would mean guessing from the shape of
+    // the string; the loader KNOWS, because it knows which container the finding came out of.
+    producerKind: (plugin ?? f?.plugin) != null ? 'plugin' : null,
     // ⚠️ CARRIED FOR COMPARABILITY, and for the same reason as `resource`. A cross-run delta can
     // only call a finding resolved if the plugin that produced it RAN in both scans; without the
     // producing plugin on the finding, every comparison falls to "plugin-not-run" — never a false
@@ -242,6 +255,9 @@ function shapeQueueEntry(host, q) {
     // still refuse rather than fall through. Absence here is a per-finding fact, not a class.
     plugin: q?.evidence?.source ?? null,
     pluginName: q?.evidence?.source ?? null,
+    producerKind: q?.evidence?.source ? 'agent' : null,
+    // A queue entry is never a gap record: gaps are emitted by plugins into the host envelope.
+    evidenceGap: false,
     id: q?.id ?? null,
   };
 }

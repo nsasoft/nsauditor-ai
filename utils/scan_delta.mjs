@@ -30,7 +30,8 @@ export const SCAN_DELTA_SCHEMA = 1;
 // verified only against fixtures the author constructs is verified against the author's idea of
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
-export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'resource', 'port', 'title', 'severity', 'control'];
+export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap',
+  'resource', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
 // so they must not be demanded of the loader. Declared so the derivation can subtract them.
@@ -91,17 +92,66 @@ const cmpVersion = (a, b) => {
 // framework-enumeration leg look complete while being inert.
 const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-', f.title].join('|');
 
+// A plugin status that means THE SURFACE WAS NOT READ. `ran` is the only status that licenses a
+// comparison; the rest are the machine saying so itself.
+const NOT_MEASURED_STATUS = new Set(['error', 'timeout', 'skipped']);
+
+// ⚠️ SCOPE IS WHAT A RUN MEASURED, WHICH IS NARROWER THAN WHAT IT REQUESTED IN THREE WAYS, and
+// every one of them was fail-open here until 2026-09-20 — each produced a `resolved` row in a
+// CLIENT artifact when driven through `report --since`:
+//   HOSTS were `hostsRequested ∪ hostsWritten`, so a host that was asked for and never produced
+//     output counted as scanned and its baseline findings read as remediation.
+//   PLUGIN STATUS was not consulted at all, though the loader has always carried it, so a plugin
+//     that ERRORED or TIMED OUT on a host counted as having measured it.
+//   EVIDENCE GAPS were read from `side.evidenceGaps`, which NO shipped caller ever populated —
+//     dead since the day it was written, and the fall-through from a dead leg is `resolved`.
+// ⚠️ THE `side.evidenceGaps` READ IS DELETED RATHER THAN REPAIRED. It was unreachable AND
+// shape-wrong: the only producer of that record shape (`cloud_finding_summary.mjs`) builds
+// `plugin: String(r?.id ?? '')` with NO `host` key at all, so even a caller that filled it would
+// key `undefined|1170` against a lookup keyed `<host>|<id>`. Leaving a second unreachable path
+// beside the repaired one is the F5 mistake this module already records at the framework leg —
+// dead code that reads as coverage.
 const scopeOf = (side) => {
   const rec = side?.record ?? {};
-  const hosts = new Set([
-    ...(rec.hostsRequested ?? []),
-    ...(rec.hostsWritten ?? []).map((h) => h?.host).filter(Boolean),
-  ]);
+  const hosts = new Set((rec.hostsWritten ?? []).map((h) => h?.host).filter(Boolean));
   const plugins = new Set(rec.pluginsRequested ?? []);
   const gaps = new Map();
-  for (const g of side?.evidenceGaps ?? []) gaps.set(`${g.host}|${g.plugin}`, g.reason ?? 'unspecified');
-  return { hosts, plugins, gaps, frameworks: side?.frameworkEnumeration ?? null };
+  // Gaps as the PRODUCER records them — on the finding, where they already ride.
+  for (const fi of side?.findings ?? []) {
+    if (fi?.evidenceGap === true && fi.plugin != null) {
+      gaps.set(`${fi.host}|${fi.plugin}`, fi.title ?? fi.detail ?? 'an evidence gap was recorded');
+    }
+  }
+  // And as the ENGINE records them: a plugin the host never successfully ran.
+  for (const h of (Array.isArray(side?.pluginStatus) ? side.pluginStatus : [])) {
+    for (const ps of (h?.status ?? [])) {
+      if (!NOT_MEASURED_STATUS.has(ps?.status)) continue;
+      gaps.set(`${h.host}|${String(ps.id)}`,
+        `the plugin's status on that host was "${ps.status}"${ps.reason ? `: ${ps.reason}` : ''}`);
+    }
+  }
+  return {
+    hosts, plugins, gaps,
+    // ⚠️ AN ABSENT ORACLE IS NOT A CLEAN ONE. `[]` means "measured, no gaps"; MISSING means
+    // nothing was measured, and the two must not render alike. Declared in `limits`, never
+    // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
+    evaluable: Array.isArray(side?.pluginStatus),
+    eeEnabled: (rec.eeVersion ?? null) !== null,
+    frameworks: side?.frameworkEnumeration ?? null,
+  };
 };
+
+export const SCOPE_NOT_EVALUATED =
+  'Scope non-evaluation: one of the two runs recorded no per-host plugin status, so evidence gaps '
+  + 'and failed plugins could NOT be distinguished from a clean scan on that side. A finding '
+  + 'reported as resolved here may instead be one the scanner could not read. Re-run the '
+  + 'comparison against a run recorded by this release or later before treating any row as remediation.';
+
+export const AGENT_SCOPE_FROM_TIER =
+  'Agent-produced findings: their scope is derived from the run TIER, not from a per-agent run '
+  + 'record — this edition persists no per-agent status, and the agent set is a function of the '
+  + 'licensed capabilities. The two runs carry the same tier, which is what makes them comparable; '
+  + 'a tier difference refuses the comparison outright rather than narrowing it.';
 
 // The producer as a READER should see it. `plugin` is an id because that is the vocabulary the
 // run record can be checked against; the id alone is not a sentence, and this string is rendered
@@ -122,7 +172,18 @@ function incomparabilityReason(f, mine, theirs) {
     return { reason: 'producer-unknown',
       detail: 'this finding carries no producer identity, so whether it was in scope in the other run cannot be established' };
   }
-  if (!theirs.plugins.has(f.plugin)) return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
+  // ⚠️ THE ORACLE DEPENDS ON THE PRODUCER KIND, and guessing it from the string's SHAPE is what
+  // this leg refuses to do. A plugin id is answerable from `pluginsRequested`. An EE analysis
+  // agent appears in no such list and never will, so checking it there would bucket every
+  // agent-produced finding as `plugin-not-run` for ever — safe, and useless, which is the failure
+  // mode this engine was built to avoid on the other axis. Its scope is the run TIER, and the two
+  // whole-comparison refusals above (`ee-presence-differs`, `tier-differs`) are what make that
+  // sound: by the time control reaches here both sides carry Enterprise and carry the SAME tier,
+  // so the agent set is identical on both. No per-finding agent check is written here, because a
+  // check that cannot fail through the shipped path is dead code that reads as coverage.
+  if (f.producerKind !== 'agent' && !theirs.plugins.has(f.plugin)) {
+    return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
+  }
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
   if (gap) return { reason: 'evidence-gap', detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap}` };
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
@@ -154,6 +215,11 @@ function frameworkEnumerationEvaluable(mine, theirs) {
   return Boolean(mine?.frameworks && theirs?.frameworks);
 }
 
+const gapList = (scope) => [...scope.gaps.entries()].map(([k, reason]) => {
+  const i = k.indexOf('|');
+  return { host: k.slice(0, i), plugin: k.slice(i + 1), reason };
+});
+
 export function buildScanDelta({ baseline, current }) {
   const limits = [];
   const refuse = (reason, detail) => ({
@@ -178,6 +244,20 @@ export function buildScanDelta({ baseline, current }) {
         '(contract-v1 §5.3): before it the key carried the ISSUE count, so a comparison across it shows a fall that is a ' +
         'correction and not remediation');
     }
+  }
+  // ⚠️ TIER IS A STATEMENT ABOUT THE PRODUCER POPULATION, not about how much detail a report
+  // shows. `agents/agent_runner.mjs` runs the agents the run's CAPABILITIES license, so an
+  // enterprise baseline compared against a pro current is missing an entire producer — and every
+  // finding that producer found would read as REMEDIATION. This refuses rather than annotating,
+  // for the same reason `ee-presence-differs` does: the two populations are not the same
+  // population, and no per-finding verdict across them is trustworthy.
+  const bTier = baseline?.record?.tier ?? null;
+  const cTier = current?.record?.tier ?? null;
+  if (bTier !== cTier) {
+    return refuse('tier-differs',
+      `the baseline ran at tier "${bTier}" and the current run at tier "${cTier}": the licensed `
+      + 'producer set differs between them, so findings absent from the narrower run may simply '
+      + 'never have been looked for');
   }
   if ((baseline?.record?.schema ?? null) !== (current?.record?.schema ?? null)) {
     return refuse('run-record-schema-differs',
@@ -209,8 +289,30 @@ export function buildScanDelta({ baseline, current }) {
 
   const bScope = scopeOf(baseline);
   const cScope = scopeOf(current);
-  const bFind = baseline?.findings ?? [];
-  const cFind = current?.findings ?? [];
+  if (!bScope.evaluable || !cScope.evaluable) limits.push(SCOPE_NOT_EVALUATED);
+
+  // ⚠️ A GAP RECORD IS SCOPE AND MUST NOT BE BUCKETED AS A FINDING. It has a severity, a title and
+  // — since the producer identity landed — a plugin, so it is comparable like anything else and
+  // would otherwise arrive in the client's NEW EXPOSURES table as an INFO row reading
+  // "Evidence gap (…)". It has already been read INTO `scopeOf` above, which is its whole job:
+  // it explains why its neighbours are not comparable. Measured before the exclusion: the
+  // `gap-leg` scenario read `1 new · 1 resolved` where the honest answer is `0 new · 0 resolved`.
+  const isGap = (f) => f.evidenceGap === true;
+  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f));
+  const cFind = (current?.findings ?? []).filter((f) => !isGap(f));
+  if ((baseline?.findings ?? []).some(isGap) || (current?.findings ?? []).some(isGap)) {
+    // ⚠️ THE WORDING AVOIDS THE LITERAL BUCKET NAME ON PURPOSE. `scripts/board_probe_delta_driver.mjs`
+    // harvests reasons by matching that phrase against every output line, so a LIMIT containing it
+    // is read back as if it were a per-finding reason — an instrument the next seat reads,
+    // reporting a bucket that no finding is in.
+    limits.push('One or more EVIDENCE GAPS were recorded. A gap is a surface the scanner could not '
+      + 'read, not a finding: gaps are listed under coverage, and any finding a gap covers is '
+      + 'reported as not-comparable rather than as resolved.');
+  }
+  if ((baseline?.findings ?? []).some((f) => f.producerKind === 'agent')
+    || (current?.findings ?? []).some((f) => f.producerKind === 'agent')) {
+    limits.push(AGENT_SCOPE_FROM_TIER);
+  }
   const bMap = new Map(bFind.map((f) => [keyOf(f), f]));
   const cMap = new Map(cFind.map((f) => [keyOf(f), f]));
   // ⚠️ THE LIMIT NAMES THE DIRECTION, because the previous wording ("per-instance deltas are not
@@ -258,6 +360,10 @@ export function buildScanDelta({ baseline, current }) {
       hostsOnlyInCurrent: [...cScope.hosts].filter((h) => !bScope.hosts.has(h)),
       pluginsOnlyInBaseline: [...bScope.plugins].filter((p) => !cScope.plugins.has(p)),
       pluginsOnlyInCurrent: [...cScope.plugins].filter((p) => !bScope.plugins.has(p)),
+      // The gaps themselves, named. A reader who sees a NOT-COMPARABLE row needs to be able to
+      // find out WHICH surface was unreadable without reading the raw envelope.
+      gapsInBaseline: gapList(bScope),
+      gapsInCurrent: gapList(cScope),
     },
   };
 }

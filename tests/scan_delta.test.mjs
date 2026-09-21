@@ -26,10 +26,21 @@ const run = (id, over = {}) => ({
 });
 const finding = (over = {}) => ({ host: '10.0.0.1', plugin: 'aws-iam', title: 'Root account has no MFA', severity: 'critical', ...over });
 
+// ⚠️ THE GAP RIDES ON A FINDING, AS THE SHIPPED PATH EMITS IT. This fixture used to pass a
+// `side.evidenceGaps` array, and that array was NEVER POPULATED BY ANY SHIPPED CALLER — the leg
+// it fed was dead from the day it was written, and the fall-through from a dead leg is
+// `resolved`. The fixture was the only thing that made the leg look alive, which is precisely the
+// class this file's own boundary guard exists for: a fix verified only against fixtures the
+// author constructs is verified against the author's idea of the input.
 test('a finding that vanished because the scanner LOST PERMISSION is NOT reported resolved', () => {
   const delta = buildScanDelta({
-    baseline: { record: run('A'), findings: [finding()] },
-    current: { record: run('B'), findings: [], evidenceGaps: [{ host: '10.0.0.1', plugin: 'aws-iam', reason: 'AccessDenied' }] },
+    baseline: { record: run('A'), findings: [finding()], pluginStatus: [] },
+    current: {
+      record: run('B'),
+      findings: [finding({ title: 'Evidence gap: AccessDenied on iam:GetAccountSummary',
+        severity: 'info', evidenceGap: true })],
+      pluginStatus: [],
+    },
   });
 
   assert.deepEqual(delta.resolved, [],
@@ -38,12 +49,17 @@ test('a finding that vanished because the scanner LOST PERMISSION is NOT reporte
   assert.equal(delta.notComparable[0].reason, 'evidence-gap');
   assert.match(delta.notComparable[0].detail, /AccessDenied/);
   assert.equal(delta.notComparable[0].title, 'Root account has no MFA');
+  // The gap record is SCOPE. It explains the row above; it is not itself a new exposure.
+  assert.deepEqual(delta.newFindings, [], 'the gap record must never be bucketed as a finding');
+  assert.deepEqual(delta.coverage.gapsInCurrent,
+    [{ host: '10.0.0.1', plugin: 'aws-iam', reason: 'Evidence gap: AccessDenied on iam:GetAccountSummary' }],
+    'and it must be NAMED under coverage, so a reader can find out which surface was unreadable');
 });
 
 test('ACCEPT CASE — a genuinely fixed finding, fully in scope in both runs, IS reported resolved', () => {
   const delta = buildScanDelta({
     baseline: { record: run('A'), findings: [finding()] },
-    current: { record: run('B'), findings: [], evidenceGaps: [] },
+    current: { record: run('B'), findings: [], pluginStatus: [] },
   });
 
   assert.equal(delta.resolved.length, 1, 'the rule must not be satisfiable by refusing everything');
