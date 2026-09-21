@@ -973,7 +973,36 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // through it, whatever its own enrichment found.
   let hostAppended = false;
   try {
-    const outRoot = toCleanPath(process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out').replace(/\.[^/.]+$/, '') || 'out';
+    // ⚠️ `resolveBaseOutDir()`, NOT THE INLINE STRIP THAT USED TO BE HERE (board C3). The old
+    // expression was `toCleanPath(...).replace(/\.[^/.]+$/, '')` — remove everything after the
+    // last dot — so `--out …/ee-1.1.0` wrote the scan into `ee-1.1.0/` and its HISTORY into a
+    // SIBLING `ee-1.1/`, created silently beside it. Both `ee-1.1/` and `ee-1.0/` are live
+    // strays in this project's own evidence tree, which is how it was found: by looking at the
+    // directory, not at the code.
+    //
+    // It is the EE 0.32.8 evidence-misplacement bug — "has a dot" read as "is a file" — surviving
+    // in the one call site that never adopted the fixed resolver. A repair applied to a helper
+    // does not reach a caller that does not use it, and the version-named directory convention
+    // this project uses for its own evidence is exactly the shape that breaks.
+    const outRoot = resolveBaseOutDir();
+
+    // ⚠️ AND THE MOVE IS ANNOUNCED RATHER THAN SILENT. A user whose previous scans wrote history
+    // to the stray sibling would otherwise find this scan reporting no prior run — a correct
+    // statement about the new location that reads as "nothing changed since last time". Name the
+    // file instead; it is not read any more and it is not deleted either. Same discipline as the
+    // report command's stale-artifact notice: never let an old file pass for a current one.
+    const legacyHistoryRoot = toCleanPath(
+      process.env.SCAN_OUT_PATH || process.env.OPENAI_OUT_PATH || 'out'
+    ).replace(/\.[^/.]+$/, '') || 'out';
+    if (legacyHistoryRoot !== outRoot) {
+      const here = await fsp.access(path.join(outRoot, HISTORY_FILE)).then(() => true, () => false);
+      const there = await fsp.access(path.join(legacyHistoryRoot, HISTORY_FILE)).then(() => true, () => false);
+      if (!here && there) {
+        console.warn(`[scan] scan history now lives in ${outRoot}. An earlier build wrote it to `
+          + `${legacyHistoryRoot}, which is NOT read any more — this scan starts a new history there. `
+          + 'The old file is left on disk; nothing was deleted.');
+      }
+    }
 
     // Append this host to the run record now that its directory has landed — inside the
     // SAME try/catch as the rest of scan-history recording. utils/run_record.mjs documents
