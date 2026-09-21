@@ -744,7 +744,8 @@ is the actionable form.
 > as shipped code. It is WITHDRAWN and always was: `save_finding` appears in **zero `.mjs`
 > files in this repo** (measured 2026-08-07), and there is no `tools.register` API — the real
 > registry is the single exported `TOOLS` array in §11.1, whose seven members are the complete
-> set an MCP client can call. WITHDRAWN on the same evidence: `risk_summary` and `scan_compare`
+> set an MCP client can call. WITHDRAWN on the same evidence: `risk_summary`; and `scan_compare`
+> was DELETED outright in EE 1.1.0
 > are implemented in an EE `registerProTools` that has no caller in either repo and that calls
 > `server.tool()` — a method the `Server` object CE constructs does not have. Implemented and
 > unreachable is still unreachable.
