@@ -30,7 +30,7 @@ export const SCAN_DELTA_SCHEMA = 1;
 // verified only against fixtures the author constructs is verified against the author's idea of
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
-export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'resource', 'port', 'title', 'severity', 'control'];
+export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'resource', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
 // so they must not be demanded of the loader. Declared so the derivation can subtract them.
@@ -103,13 +103,28 @@ const scopeOf = (side) => {
   return { hosts, plugins, gaps, frameworks: side?.frameworkEnumeration ?? null };
 };
 
+// The producer as a READER should see it. `plugin` is an id because that is the vocabulary the
+// run record can be checked against; the id alone is not a sentence, and this string is rendered
+// into the client's report. Both are printed when they differ, so the prose is readable AND the
+// token matches the baseline scope line, which prints `pluginsRequested` — ids.
+const producerLabel = (f) => (f.pluginName && f.pluginName !== f.plugin ? `${f.pluginName} (${f.plugin})` : String(f.plugin));
+
 // Why a finding present in ONE run cannot be compared against the other. Order matters only for
 // which reason is reported first; each is independently sufficient.
 function incomparabilityReason(f, mine, theirs) {
   if (!theirs.hosts.has(f.host)) return { reason: 'host-not-scanned', detail: `host ${f.host} was not scanned in the other run` };
-  if (!theirs.plugins.has(f.plugin)) return { reason: 'plugin-not-run', detail: `plugin ${f.plugin} did not run in the other run` };
+  // ⚠️ A NULL IDENTITY MAY NEVER SATISFY A SCOPE CHECK, and it may never be DESCRIBED as one
+  // either. Before this leg a finding with no producer fell into `plugin-not-run` and reported
+  // "plugin null did not run in the other run" — a sentence that is false about the run, about a
+  // finding whose comparability was never established. The honest verdict names the thing that is
+  // missing. It is checked FIRST because every leg below keys on the producer.
+  if (f.plugin == null) {
+    return { reason: 'producer-unknown',
+      detail: 'this finding carries no producer identity, so whether it was in scope in the other run cannot be established' };
+  }
+  if (!theirs.plugins.has(f.plugin)) return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
-  if (gap) return { reason: 'evidence-gap', detail: `the other run recorded an evidence gap on ${f.host}/${f.plugin}: ${gap}` };
+  if (gap) return { reason: 'evidence-gap', detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap}` };
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
   // f.control`, and all three are absent through the shipped path — so the leg returned null and
   // the finding fell through to `resolved`. That is FAIL-OPEN, the opposite of the `plugin` gap:

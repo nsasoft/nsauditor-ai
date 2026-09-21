@@ -31,7 +31,13 @@ function writeHostDir(outRoot, dir, runId, findings) {
 async function mkRun(outRoot, { startedAt, findings, seal = true, prevDigest = null }) {
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt, hostsRequested: ['10.0.0.7'],
-    pluginsRequested: ['aws-s3'], portsRequested: '443', tier: 'pro',
+    // ⚠️ IDS, because that is what `cli.mjs:3109` writes (`String(p.id ?? '')`). This fixture said
+    // `['aws-s3']` — the envelope's DISPLAY NAME — until 2026-09-20, and that one wrong token is
+    // what kept G2 invisible: with BOTH sides spelled in the name vocabulary the plugin-scope
+    // check matched, so the suite could not tell a working comparison from one that can never
+    // match on a real record. A fixture describing a record the product has never written tests
+    // the fixture. MEASURED: 7,962 `pluginsRequested` members across 152 real records, zero names.
+    pluginsRequested: ['010'], portsRequested: '443', tier: 'pro',
     ceVersion: '0.2.54', eeVersion: '1.0.0', prevDigest });
   writeHostDir(outRoot, `d-${runId}`, runId, findings);
   await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: `d-${runId}` });
@@ -77,7 +83,8 @@ test('the report NAMES the baseline — id, timestamp and scope — because base
   assert.equal(r.code, 0);
   assert.match(r.stdout, new RegExp(baseline), 'the baseline run id must appear');
   assert.match(r.stdout, /2026-09-01/, 'the baseline timestamp must appear');
-  assert.match(r.stdout, /aws-s3/, 'the baseline scope must appear — a narrow baseline explains a wall of NOT-COMPARABLE');
+  // The scope line prints the record's own `pluginsRequested`, which is the ID vocabulary.
+  assert.match(r.stdout, /plugins 010/, 'the baseline scope must appear — a narrow baseline explains a wall of NOT-COMPARABLE');
 });
 
 test('a chain-BROKEN baseline refuses, LISTS the verified alternatives, and does NOT auto-fall-back', async () => {
@@ -135,7 +142,7 @@ test('NOT-COMPARABLE reaches the operator WITH ITS REASON, never as a bare count
   // The current run scans a DIFFERENT host, so bucket-a is not comparable — it was never looked at.
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt: '2026-09-08T10:00:00.000Z', hostsRequested: ['10.0.0.9'],
-    pluginsRequested: ['aws-s3'], portsRequested: '443', tier: 'pro', ceVersion: '0.2.54', eeVersion: '1.0.0' });
+    pluginsRequested: ['010'], portsRequested: '443', tier: 'pro', ceVersion: '0.2.54', eeVersion: '1.0.0' });
   writeHostDir(outRoot, `d-${runId}`, runId, []);
   await appendHostWritten(outRoot, runId, { host: '10.0.0.9', dir: `d-${runId}` });
   await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-09-08T11:00:00.000Z' });
@@ -177,6 +184,10 @@ test('loadRun CARRIES `plugin` — without it EVERY finding falls to plugin-not-
   const runId = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
   const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'pro' });
   assert.equal(loaded.ok, true, loaded.message);
-  assert.equal(loaded.model.findings[0].plugin, 'aws-s3',
-    'the producing plugin is part of a finding’s identity and of its comparability');
+  assert.equal(loaded.model.findings[0].plugin, '010',
+    'the producing plugin is part of a finding’s identity and of its comparability, and that identity is the '
+    + 'ID — the vocabulary `pluginsRequested` is written in. This asserted the display NAME until 2026-09-20, '
+    + 'which is the assertion that PINNED the defect in place: it demanded the one value that can never match.');
+  assert.equal(loaded.model.findings[0].pluginName, 'aws-s3',
+    'and the display name travels BESIDE it, because the delta renders the producer into the client report');
 });

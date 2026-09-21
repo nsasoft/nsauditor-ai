@@ -216,3 +216,49 @@ test('when BOTH runs carry framework data the leg still fires — the disclosure
   assert.equal(d.notComparable[0].reason, 'framework-enumeration-changed');
   assert.equal(d.limits.filter((l) => /not evaluated/i.test(l)).length, 0);
 });
+
+// ── THE NULL-PRODUCER LEG (T1/G2). Before the loader stamped all five containers, a finding with
+// no producer identity fell through `theirs.plugins.has(undefined)` into `plugin-not-run` and
+// reported "plugin undefined did not run in the other run" — a sentence that is FALSE about the
+// run, attached to a finding whose comparability was never established. The direction was safe;
+// the sentence was not, and it reaches the client's report through the basis cell.
+//
+// ⚠️ THE FOURTH-QUADRANT LEG IS WRITTEN FIRST, below: a finding that DOES carry a producer must
+// still reach `resolved`. A veto that fires on everything is not a guard, and the defect this
+// rule was born from cannot exercise that direction.
+test('a finding with NO producer identity is refused by name, never called plugin-not-run', () => {
+  const delta = buildScanDelta({
+    baseline: { record: run('A'), findings: [finding({ plugin: null, pluginName: null })] },
+    current: { record: run('B'), findings: [] },
+  });
+
+  assert.deepEqual(delta.resolved, [], 'comparability was never established, so nothing was remediated');
+  assert.equal(delta.notComparable.length, 1);
+  assert.equal(delta.notComparable[0].reason, 'producer-unknown',
+    'the bucket must name what is missing — `plugin-not-run` asserts something about a run that was never measured');
+  assert.doesNotMatch(delta.notComparable[0].detail, /\bnull\b|\bundefined\b/,
+    'the detail is rendered into the CLIENT report; it must never print a JavaScript null');
+});
+
+test('a finding that DOES carry a producer still reaches resolved — the null leg is not a blanket veto', () => {
+  const delta = buildScanDelta({
+    baseline: { record: run('A'), findings: [finding()] },
+    current: { record: run('B'), findings: [] },
+  });
+  assert.equal(delta.resolved.length, 1, 'a genuinely fixed finding whose plugin ran in both runs is still resolved');
+  assert.equal(delta.notComparable.length, 0);
+});
+
+// The producer is rendered into the client's report, so the DETAIL must read as prose while the
+// IDENTITY stays the token the run record can be checked against. Both, when they differ.
+test('the plugin-not-run detail names the plugin readably AND by the id the record is keyed on', () => {
+  const delta = buildScanDelta({
+    baseline: { record: run('A', { pluginsRequested: ['003'] }), findings: [finding({ plugin: '003', pluginName: 'Port Scanner' })] },
+    current: { record: run('B', { pluginsRequested: ['005'] }), findings: [] },
+  });
+  assert.equal(delta.notComparable.length, 1);
+  assert.equal(delta.notComparable[0].reason, 'plugin-not-run');
+  assert.match(delta.notComparable[0].detail, /Port Scanner/, 'a client reads the name, not the id');
+  assert.match(delta.notComparable[0].detail, /\(003\)/,
+    'and the id travels with it, because the baseline scope line prints `pluginsRequested` — ids');
+});

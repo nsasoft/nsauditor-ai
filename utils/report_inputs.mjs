@@ -4,6 +4,16 @@
 // report that renders confidently over a partial or mismatched run is the false clean this
 // feature exists to prevent: a correct report about the wrong (or incomplete) run reads
 // identically to a correct one without that caveat.
+// ⚠️ `fs` IS IMPORTED BECAUSE IT WAS BEING USED WITHOUT BEING IMPORTED. The queue read below
+// called `fs.readFileSync` while this module bound only `fsp`, so it threw
+// `ReferenceError: fs is not defined` on EVERY call and the bare `catch` around it swallowed the
+// throw — the primary artifact path was dead code and 100% of finding-queue entries arrived
+// through the `eeEnrichment` fallback the comment there calls a legacy shim. It read clean under
+// every hand probe written with `node -e`, because `node -e` exposes built-in modules as globals
+// and a real module file does not: THE PROBE HABITAT, NOT THE CODE, IS WHAT WAS PASSING.
+// Behaviour-preserving on the whole corpus: all 12 real `scan_finding_queue.json` files under
+// audit-evidence-samples are byte-identical to their record's `eeEnrichment.queue`.
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -117,7 +127,11 @@ function issueText(i) {
   return String(i);
 }
 
-export function shapeFinding(host, f, plugin = null) {
+// The envelope's plugin id, in the vocabulary `cli.mjs` writes into `pluginsRequested`
+// (`String(p.id)`). MEASURED across 152 real run records: 7,962 members, not one a display name.
+const envId = (e) => (e?.id != null ? String(e.id) : null);
+
+export function shapeFinding(host, f, plugin = null, pluginName = null) {
   const severity = f?.severity != null ? String(f.severity).toUpperCase() : 'INFO';
   const port = f?.port ?? null;
   // ⚠️ THE REPORT USED TO READ `f.title` ALONE, AND NO SHIPPED PLUGIN EMITS IT.
@@ -171,6 +185,14 @@ export function shapeFinding(host, f, plugin = null) {
     // producing plugin on the finding, every comparison falls to "plugin-not-run" — never a false
     // "resolved" (the safe direction) but a wall of NOT-COMPARABLE, which is a feature nobody reads.
     plugin: plugin ?? f?.plugin ?? null,
+    // ⚠️ IDENTITY AND DISPLAY ARE TWO FIELDS, and splitting them is not tidiness. `plugin` is
+    // compared against `record.pluginsRequested`, which `cli.mjs` writes as plugin IDs, so it must
+    // BE an id or the comparison is false on every real record. But `scan_delta.mjs` interpolates
+    // the producing plugin into its `plugin-not-run` detail and `executive_report.mjs` renders
+    // that detail into the CLIENT HTML's basis cell — so stamping the id alone would put
+    // "plugin 003 did not run in the other run" into a branded deliverable. One field cannot be
+    // both the join key and the prose.
+    pluginName: pluginName ?? f?.pluginName ?? null,
     // ALL issues, not just the lead clause the title took: a report that shows one of a
     // finding's four issues silently drops three the scan actually recorded.
     detail: explicitDetail ?? (issueTexts.length ? issueTexts.join(' · ') : null),
@@ -209,6 +231,17 @@ function shapeQueueEntry(host, q) {
     epss: typeof q?.epssScore === 'number' && Number.isFinite(q.epssScore) ? q.epssScore
       : (typeof q?.epss === 'number' && Number.isFinite(q.epss) ? q.epss : null),
     exploitPriority: q?.exploitPriority ?? null,
+    // ⚠️ THE QUEUE IS A SIBLING ARTIFACT WITH ITS OWN PRODUCER VOCABULARY, and emitting NO
+    // producer at all was the fifth instance of the loader-boundary class: every queue finding
+    // reached the delta as `plugin: undefined` and bucketed `plugin-not-run` with the sentence
+    // "plugin undefined did not run in the other run". Its real producer is an EE ANALYSIS AGENT,
+    // not a CE plugin — measured across 350 real queue entries: intelligence_engine 302 ·
+    // crypto_agent 46 · exposure_agent 2, and ZERO entries carrying anything id-shaped. So this
+    // identity is NOT a member of `pluginsRequested` and never will be; deciding whether an agent
+    // was in scope on the other side needs its own oracle, which is why a null producer must
+    // still refuse rather than fall through. Absence here is a per-finding fact, not a class.
+    plugin: q?.evidence?.source ?? null,
+    pluginName: q?.evidence?.source ?? null,
     id: q?.id ?? null,
   };
 }
@@ -258,17 +291,17 @@ export function shapeHostFindings(host, raw, queue = []) {
     // producers; the report sees BOTH paths.
     const rf = res.findings;
     if (Array.isArray(rf)) {
-      for (const f of rf) push(shapeFinding(host, f, e?.name ?? null));
+      for (const f of rf) push(shapeFinding(host, f, envId(e), e?.name ?? null));
     } else if (rf && typeof rf === 'object') {
       // 060 DNS Security Auditor emits a DICT OF CATEGORIES ({spf:[…], dmarc:[…]}), which
       // an `Array.isArray` guard skips in complete silence.
       for (const arr of Object.values(rf)) {
-        if (Array.isArray(arr)) for (const f of arr) push(shapeFinding(host, f));
+        if (Array.isArray(arr)) for (const f of arr) push(shapeFinding(host, f, envId(e), e?.name ?? null));
       }
     }
     if (res.zeroTrust && typeof res.zeroTrust === 'object') {
       for (const dim of Object.values(res.zeroTrust)) {
-        if (Array.isArray(dim?.findings)) for (const f of dim.findings) push(shapeFinding(host, f));
+        if (Array.isArray(dim?.findings)) for (const f of dim.findings) push(shapeFinding(host, f, envId(e), e?.name ?? null));
       }
     }
     if (Array.isArray(res.portResults)) {
@@ -276,7 +309,7 @@ export function shapeHostFindings(host, raw, queue = []) {
         // The port result's own `severity` is a ROLL-UP of these issues, never a finding —
         // rendering both would double-count every TLS issue.
         if (Array.isArray(pr?.issues)) {
-          for (const i of pr.issues) push(shapeFinding(host, { ...i, port: i?.port ?? pr?.port ?? null }));
+          for (const i of pr.issues) push(shapeFinding(host, { ...i, port: i?.port ?? pr?.port ?? null }, envId(e), e?.name ?? null));
         }
       }
     }
