@@ -71,7 +71,13 @@ export function formatDeltaSummary(deltaReport) {
     let anyChange = false;
     if (deltaReport.hostDiffs) {
       for (const diff of deltaReport.hostDiffs.values()) {
-        if (diff.newServices?.length || diff.removedServices?.length || diff.changedServices?.length || diff.newFindings) {
+        // ⚠️ `findingsNotComparable` COUNTS AS A CHANGE (board C10). `newFindings` is `null` when
+        // the two scans counted findings on a different basis, and null is falsy — so without
+        // this the diff drops out of both gates and the operator hears NOTHING, which reads as
+        // "no change since last scan". That is the false clean this item is about, one layer out.
+        // A comparison we cannot make is news: it is what tells an operator to rescan.
+        if (diff.newServices?.length || diff.removedServices?.length || diff.changedServices?.length
+            || diff.newFindings || diff.findingsNotComparable) {
           anyChange = true;
           break;
         }
@@ -103,6 +109,7 @@ export function hasSignificantChanges(deltaReport) {
       if (diff.removedServices?.length > 0) return true;
       if (diff.changedServices?.length > 0) return true;
       if (diff.newFindings && diff.newFindings !== 0) return true;
+      if (diff.findingsNotComparable) return true;   // see the note in formatDeltaSummary
     }
   }
 

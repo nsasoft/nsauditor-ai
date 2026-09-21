@@ -292,6 +292,70 @@ function shapeQueueEntry(host, q) {
  * carrying severity-bearing objects that is neither read here nor allowlisted there fails
  * loudly. Incompleteness costs NOISE, never SILENCE.
  */
+// ⚠️ ONE DEFINITION OF A FINDING, SHARED BY BOTH COMPARISON CHANNELS (board C10).
+//
+// `scan_history.jsonl` used to carry a count `cli.mjs` computed for itself — service-level
+// attributes plus plugin `result.findings` — while `report --since` counted whatever THIS module
+// shapes. On the real estate the two disagreed completely: the 192.168.1.1 Gate-2 run recorded
+// `findingsCount: 0` while its queue held 37 entries, 21 carrying CVEs. The history is a
+// COMPARISON channel (`computeDiff` derives `newFindings` and `findingsDelta` from that number,
+// and `delta_reporter` gates a webhook on it), so the host reported "no change" on every scan.
+//
+// ⚠️ AND THE FIX IS NOT A THIRD SUM. The previous repair of this same channel added
+// `cloudFindingsCount` after cloud plugins recorded 0 over a 201-finding scan — a per-producer
+// patch, which closes only the producers it enumerates, which is how the channel came to be
+// wrong twice. Deriving the count from the shaping the delta already uses is what makes the two
+// channels incapable of drifting apart: a producer this module learns to read is counted by both,
+// on the same day, without anyone remembering to add it here.
+//
+// A GAP IS SCOPE, NOT A FINDING, and is excluded — exactly as the delta excludes gaps from its
+// buckets. Counting one would make an AccessDenied look like a vulnerability appearing and a
+// fixed permission look like a remediation.
+export function countHostFindings(host, raw, queue = []) {
+  return shapeHostFindings(host, raw, queue).filter((f) => f?.evidenceGap !== true).length;
+}
+
+// ⚠️ THE VALUE CHANGED UNDER AN UNCHANGED KEY, which contract-v1 §5.3 records as the shape that
+// once reported a mass remediation that never happened. A history line written before this fix
+// counted the old way; one written after counts the new way, and subtracting across them would
+// report a fabricated "+N new" on the first scan after an upgrade. The basis rides the line so
+// `computeDiff` can REFUSE the comparison instead of computing it.
+export const FINDINGS_COUNT_BASIS = 'loader-shaped-v1';
+
+// ⚠️ THE COUNT AND ITS BASIS COME FROM ONE CALL, DELIBERATELY. They were two statements, and a
+// mutant that reverted the COUNT to the old per-producer sum kept the BASIS stamp — so the
+// history line claimed to have been counted the new way while holding an old-way number, and the
+// end-to-end leg could not tell. A line's basis is a claim about HOW it was produced, so only the
+// thing that produces it may assert it. Returns null when the artifacts cannot be read, and the
+// caller then records an UN-BASED line rather than a mislabelled one.
+export async function deriveFindingsCount(outDir, host) {
+  try {
+    const raw = JSON.parse(await fsp.readFile(path.join(outDir, 'scan_conclusion_raw.json'), 'utf8'));
+    // ⚠️ THE QUEUE IS RESOLVED EXACTLY AS `loadRun` RESOLVES IT, and the first draft of this did
+    // not. `loadRun` normalises a non-array file (`{queue:[…]}` / `{findings:[…]}`) and falls back
+    // to the in-envelope `eeEnrichment.queue` for a run written before the file existed. Reading
+    // the same PATH is not the same as reading the same SOURCE: with a wrapped queue this counted
+    // zero while the report counted every entry — "one definition" nominally, two in fact, which
+    // is the whole defect C10 exists to close. Found by reading the consumer, not by a fixture.
+    return { count: countHostFindings(host, raw, resolveFindingQueue(outDir, raw)),
+      basis: FINDINGS_COUNT_BASIS };
+  } catch {
+    return null;
+  }
+}
+
+// The one resolver both channels use. Kept beside `countHostFindings` so a future change to the
+// queue's shape cannot reach one channel and miss the other.
+export function resolveFindingQueue(dir, raw) {
+  try {
+    const qRaw = JSON.parse(fs.readFileSync(path.join(dir, 'scan_finding_queue.json'), 'utf8'));
+    return Array.isArray(qRaw) ? qRaw : (qRaw?.queue ?? qRaw?.findings ?? []);
+  } catch {
+    const q = raw?.conclusion?.result?.eeEnrichment?.queue;
+    return Array.isArray(q) ? q : [];
+  }
+}
+
 export function shapeHostFindings(host, raw, queue = []) {
   const out = [];
   const seen = new Set();
@@ -457,14 +521,11 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
     // fallback covers a record written before the file existed. A queue that cannot be read
     // yields [] and the host simply renders its plugin findings — never an exception, and
     // never a silent substitution of one source for another.
-    let findingQueue = [];
-    try {
-      const qRaw = JSON.parse(fs.readFileSync(path.join(outRoot, dir, 'scan_finding_queue.json'), 'utf8'));
-      findingQueue = Array.isArray(qRaw) ? qRaw : (qRaw?.queue ?? qRaw?.findings ?? []);
-    } catch {
-      const q = raw?.conclusion?.result?.eeEnrichment?.queue;
-      if (Array.isArray(q)) findingQueue = q;
-    }
+    // ⚠️ ONE RESOLVER, SHARED WITH `deriveFindingsCount` (board C10). This logic was duplicated
+    // there and the copy was already wrong — it handled only a bare array, so a wrapped queue
+    // counted zero in the history channel and every entry in the report. Two copies of "what the
+    // queue is" is the same defect one layer down from two copies of "what a finding is".
+    const findingQueue = resolveFindingQueue(path.join(outRoot, dir), raw);
     // ⚠️ THE CENSUS RUNS ON EVERY REAL RUN, NOT ONLY IN TESTS — this is what makes it a
     // guard rather than a fixture. Its reconcile leg's corpus is synthetic, and the two real
     // runs were reconciled BY HAND; a new plugin inventing a new container would be silent

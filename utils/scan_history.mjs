@@ -31,6 +31,13 @@ export async function recordScan(outputDir, summary) {
     openPorts: Array.isArray(summary.openPorts) ? summary.openPorts : [],
     os: summary.os ?? null,
     findingsCount: summary.findingsCount ?? 0,
+    // ⚠️ WHAT THAT NUMBER MEANS, carried on the line itself (board C10). `findingsCount` kept its
+    // name and changed its value: it used to be service attributes plus plugin `result.findings`,
+    // and is now what the report loader shapes — which includes the finding QUEUE, where a
+    // network host's findings actually live. Lines written before the change have no basis, and
+    // `computeDiff` refuses to subtract across that boundary rather than reporting a fabricated
+    // "+N new" on the first scan after an upgrade.
+    findingsCountBasis: summary.findingsCountBasis ?? null,
     // review re-fold R-1: persist the cloud/service split so a cloud (--host aws)
     // scan's findings are machine-visible in history (findingsCount already
     // includes them; this surfaces how many came from cloud auditors).
@@ -139,7 +146,22 @@ export function computeDiff(current, previous) {
     }
   }
 
-  const findingsDelta = (current?.findingsCount ?? 0) - (previous?.findingsCount ?? 0);
+  // ⚠️ `findingsCount` KEPT ITS NAME AND CHANGED ITS VALUE (board C10), so two lines are only
+  // subtractable when they were counted the same way. A line written before the fix summed
+  // service attributes plus plugin `result.findings`; one written after counts what the loader
+  // shapes, which includes the finding QUEUE. Subtracting across that boundary reports a
+  // fabricated "+N new" on the first scan after an upgrade — an alarm produced by our own
+  // correction, on an estate where nothing changed.
+  //
+  // contract-v1 §5.3 records the same shape for `findingCount` in the archived packs, and the
+  // answer there was to REFUSE the comparison rather than compute it. Two OLD lines still
+  // compare with each other: they are commensurable, and refusing would break a working
+  // comparison for a customer who has not rescanned yet.
+  const basisOf = (rec) => rec?.findingsCountBasis ?? null;
+  const findingsComparable = basisOf(current) === basisOf(previous);
+  const findingsDelta = findingsComparable
+    ? (current?.findingsCount ?? 0) - (previous?.findingsCount ?? 0)
+    : null;
 
   // Build human-readable summary
   const parts = [];
@@ -152,7 +174,11 @@ export function computeDiff(current, previous) {
   if (changedServices.length) {
     parts.push(`${changedServices.length} service(s) changed`);
   }
-  if (findingsDelta !== 0) {
+  if (!findingsComparable) {
+    // Said out loud, not omitted. A missing findings clause reads as "no findings changed".
+    parts.push('findings not comparable: the two scans counted findings on a different basis '
+      + `(${basisOf(previous) ?? 'pre-1.1.0'} → ${basisOf(current) ?? 'pre-1.1.0'}); rescan to compare`);
+  } else if (findingsDelta !== 0) {
     const sign = findingsDelta > 0 ? '+' : '';
     parts.push(`findings delta: ${sign}${findingsDelta}`);
   }
@@ -165,7 +191,11 @@ export function computeDiff(current, previous) {
     newServices,
     removedServices,
     changedServices,
+    // `null`, never 0, when the bases differ: 0 is a CLAIM that nothing changed, and this
+    // function does not know that. `delta_reporter` gates its webhook on this value, so a number
+    // here would send the fabricated alarm and a 0 would suppress a real one.
     newFindings: findingsDelta,
+    findingsNotComparable: !findingsComparable,
     summary,
   };
 }

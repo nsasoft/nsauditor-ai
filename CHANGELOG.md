@@ -8,6 +8,32 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## 0.2.55 (⏳ PRE-PUBLISH — opened 2026-09-18, NOT YET ON npm) — *what changed since the last scan*, and the three fields that made it honest
 
+### ⚠️ CORRECTION — `scan_history.jsonl`'s `findingsCount` KEEPS ITS NAME AND CHANGES ITS VALUE
+
+**It was wrong for a whole class of host and it is a comparison channel, so the wrongness compounded.**
+The count was a sum computed in the scanner — service-level attributes plus plugin
+`result.findings` — and a network host's findings do not live in either: they ride the finding
+queue. Measured on a real run: **`findingsCount: 0` recorded against 37 queue entries, 21 of them
+carrying CVEs.** `computeDiff` derives `newFindings` and `findingsDelta` from that number and the
+delta reporter gates its webhook on it, so such a host reported **no change on every scan, forever**.
+It also meant the product's two comparison channels disagreed about what a finding is: `report
+--since` counted queue entries and `scan_history` did not.
+
+**What changed.** `findingsCount` is now DERIVED from the same shaping `report --since` uses, so
+one definition serves both channels and a producer the report learns to read is counted by both on
+the same day. **Evidence gaps are excluded** — a gap is a surface the scanner could not read, not a
+finding; counting one would make an AccessDenied look like a vulnerability appearing.
+
+**What you may see on upgrade, and why nothing is silently recomputed.** Lines written by earlier
+versions counted the old way. Subtracting across that boundary would report a fabricated *"+N new
+findings"* on your first scan after upgrading, on an estate where nothing changed. So each line now
+carries **`findingsCountBasis`** (additive), and a comparison between lines of different bases is
+**DECLARED not comparable** rather than computed: no delta number, an explicit reason in the
+summary, and the delta reporter sends that declaration instead of a count. **Two older lines still
+compare with each other** — they are commensurable — so an existing history keeps working until
+your next scan. Old history is never rewritten or deleted.
+
+
 **`nsauditor-ai report --from <dir> --since <runId|prior>`** (Pro/Enterprise) compares two scan runs
 and reports what is new, what is resolved, what changed severity — and, above all, **what could not
 be compared and why**. The delta renders into the client-facing HTML report, not only to stdout.

@@ -29,6 +29,7 @@ import { isBlockedIp, resolveAndValidate } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
+import { deriveFindingsCount } from './utils/report_inputs.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE } from './utils/run_record.mjs';
 import { buildSinceView } from './utils/scan_delta_view.mjs';
@@ -1047,7 +1048,36 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       const f = r?.result?.findings;
       return n + (Array.isArray(f) ? f.length : 0);
     }, 0);
-    const findingsCount = serviceFindingsCount + cloudFindingsCount;
+    // ⚠️ DERIVED FROM THE REPORT LOADER, NOT SUMMED HERE (board C10). The two sums above are
+    // KEPT because `cloudFindingsCount` still ships as its own field, but they no longer decide
+    // `findingsCount`: they could not see the finding QUEUE, so a network host whose findings are
+    // all CVE matches recorded ZERO — measured on the real 192.168.1.1 run, 0 against 37 queue
+    // entries of which 21 carried CVEs. `scan_history` is a COMPARISON channel, so that zero
+    // became "no change" on every subsequent scan, forever.
+    //
+    // The previous repair of this same channel added `cloudFindingsCount` when cloud plugins
+    // recorded 0 over a 201-finding scan. That was per-producer, and a per-producer repair closes
+    // only the producers it enumerates — which is how this channel came to be wrong twice. Using
+    // the shaping `report --since` already uses means a producer the loader learns to read is
+    // counted by BOTH channels on the same day, with nobody remembering to update this line.
+    //
+    // Read from DISK, not from memory: these are the exact bytes `report --since` will read, so
+    // the two channels count the same artifacts and not two views of them. Both are written by
+    // now — the envelope at the output stage, the queue by the enrichment hook.
+    // ⚠️ ONE CALL FOR BOTH THE NUMBER AND ITS BASIS. They were two statements here, and a mutant
+    // that reverted the count to the legacy sum kept the basis stamp — a line claiming to have
+    // been counted the new way while holding an old-way number, which the end-to-end leg could
+    // not see. Only the thing that produces the number may assert how it was produced.
+    const derived = await deriveFindingsCount(outDir, host);
+    const findingsCount = derived ? derived.count : (serviceFindingsCount + cloudFindingsCount);
+    const findingsCountBasis = derived ? derived.basis : null;
+    if (!derived) {
+      // Falls back to the legacy sum WITHOUT claiming the new basis, so `computeDiff` treats the
+      // line as pre-1.1.0 and refuses to subtract it against a properly-counted one rather than
+      // silently comparing two different definitions of a finding.
+      console.warn('[scan] could not derive findingsCount from the written artifacts; recording the '
+        + 'legacy sum and marking the line as un-based, so no comparison is made across it.');
+    }
 
     const scanSummary = {
       timestamp: new Date().toISOString(),
@@ -1056,6 +1086,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       openPorts: services.filter((s) => s.status === 'open').map((s) => s.port),
       os: conclusion?.result?.host?.os ?? null,
       findingsCount,
+      findingsCountBasis,
       cloudFindingsCount,
       services: services.map((s) => ({
         port: s.port, protocol: s.protocol ?? 'tcp',
