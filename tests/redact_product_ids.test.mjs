@@ -192,32 +192,64 @@ test('THE CENSUS OVER THE REAL EVIDENCE TREE — reported, never silently skippe
     + 'commit, so the pin cannot outlive the thing it records.');
 });
 
-test('THE ADDRESS RULE EXISTS EXACTLY ONCE IN cli.mjs — a second copy is how the next instance arrives', () => {
-  // ⚠️ THIS LEG EXISTS BECAUSE A MUTANT SURVIVED. Reverting the summary call site to its own
-  // inline `\b(?:(?:\d{1,3}\.){3}\d{1,3})\b` left every other leg in this file GREEN: they all
-  // drive `redactSensitiveForAI`, and the summary path is assembled inside `main()`. Sharing the
-  // rule was the right change and was entirely unproven.
+test('EXACTLY ONE RULE IN cli.mjs CAN MATCH A PUBLIC ADDRESS — counted by BEHAVIOUR, not by spelling', () => {
+  // ⚠️ THE FIRST VERSION OF THIS LEG COUNTED A COMMENT, AND A REVIEWING SEAT PROVED IT THREE WAYS.
+  // It searched for the literal text `\b(?:(?:\d{1,3}\.){3}\d{1,3})\b` — the OLD spelling, with
+  // two `(?:`. The helper's code spells the same rule `\b(?:\d{1,3}\.){3}\d{1,3}\b`, with one.
+  // So the single occurrence satisfying `=== 1` was my own JSDoc sentence quoting the defect:
+  //   · deleting that COMMENT turned the leg RED with "appears 0 times" — a failure for a
+  //     non-reason, and the clearest possible sign the subject was prose;
+  //   · adding a THIRD real dotted-quad rule in the helper's own spelling left it GREEN.
+  // My proving mutant had used the old spelling — the one spelling no future copy will ever use,
+  // because a maintainer copies the LIVE LINE, not the comment describing it.
   //
-  // The defect this closes is not a wrong regex — it is DUPLICATION. `cli.mjs` carried the
-  // address pattern twice; the identifier bug was found and fixed in one copy, and the other
-  // kept the original, not live only because a network-scan summary happens to carry no
-  // identifier. So the ratchet is on the COUNT, not on the text: any second copy fails here,
-  // whatever it is for.
-  //
-  // The private-address pattern is a DIFFERENT rule (it enumerates RFC1918 ranges rather than
-  // matching any dotted quad) and is not counted — named explicitly so the exclusion is a
-  // decision rather than an accident of the regex used to count.
+  // So this counts what a rule DOES, not how it is written: every regex literal in the source
+  // (comments stripped) is constructed and driven against a public address. Exactly one may
+  // match it. The RFC1918 pattern does not — it is anchored on literal octets — so it needs no
+  // exemption, which is better than one: an exclusion list is a second thing to keep true.
   const src = fs.readFileSync(path.join(REPO, 'cli.mjs'), 'utf8');
-  const anyDottedQuad = /\\b\(\?:\(\?:\\d\{1,3\}\\\.\)\{3\}\\d\{1,3\}\)\\b/g;
-  const occurrences = [...src.matchAll(anyDottedQuad)];
-  assert.equal(occurrences.length, 1,
-    `the any-address pattern appears ${occurrences.length} times in cli.mjs. It must appear ONCE, `
-    + 'inside `scrubIPv4KeepingProductIds`, with each call site supplying its own POLICY. A '
-    + 'second copy is how the identifier defect survived in the summary field after being fixed '
-    + 'in the redactor.');
-  assert.match(src, /export function scrubIPv4KeepingProductIds/,
-    'and the one copy must live in the shared helper');
-  // Both call sites must go through it, or the count above is satisfied by a helper nobody uses.
+  const noComments = src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+  const LITERAL = /\/(?:[^/\\\n[]|\\.|\[(?:[^\]\\]|\\.)*\])+\/[gimsuy]*/g;
+  // ⚠️ "MATCHES A PUBLIC ADDRESS" IS TOO WEAK ON ITS OWN, measured: it also caught
+  // `/^[\d.:[\]]+$/` (a digit/dot/colon character check) and `/\.[^/.]+$/` (a file-extension
+  // matcher, which matches the trailing `.5`). Three conditions, each for its own reason — a
+  // rule that would SCRUB an address has to treat the whole quad as one unit:
+  //   · it matches the address, and the MATCHED TEXT is the whole address (drops the extension
+  //     matcher, which only ever sees `.5`)
+  //   · it does NOT match a two-octet string (drops the character check, which matches any run
+  //     of digits and dots — it is not counting octets at all)
+  //   · it does NOT match ordinary prose (drops a catch-all that would match anything)
+  const PUBLIC = '203.0.113.5';
+  const TOO_FEW_OCTETS = '1.2';
+  const CONTROL = 'plain prose with no address in it';
+  const matchers = [];
+  for (const m of noComments.matchAll(LITERAL)) {
+    const body = m[0].slice(1, m[0].lastIndexOf('/'));
+    let re;
+    try { re = new RegExp(body); } catch { continue; }          // not a regex literal after all
+    const hit = re.exec(PUBLIC);
+    if (!hit || hit[0] !== PUBLIC) continue;
+    if (re.test(TOO_FEW_OCTETS)) continue;
+    if (re.test(CONTROL)) continue;
+    matchers.push(m[0].slice(0, 70));
+  }
+
+  assert.ok(matchers.length > 0,
+    'the extractor found NO address-matching literal at all — it is not reading the source, and a '
+    + 'count of zero would otherwise read as "no duplicates"');
+  assert.equal(matchers.length, 1,
+    `${matchers.length} regex literals in cli.mjs can match a public address:\n  `
+    + `${matchers.join('\n  ')}\n`
+    + 'Exactly one may, inside `scrubIPv4KeepingProductIds`, with each call site supplying its '
+    + 'own POLICY. The defect this ratchets is DUPLICATION — the address rule was copied, the '
+    + 'identifier bug was fixed in one copy, and the other kept the original — so a second rule '
+    + 'fails here whatever it is for and however it is spelled.');
+  assert.match(matchers[0], /EE-/, 'and the one that matches must be the shared product-id alternation');
+
+  assert.match(src, /export function scrubIPv4KeepingProductIds/, 'the rule lives in the shared helper');
   const callSites = [...src.matchAll(/scrubIPv4KeepingProductIds\(/g)];
   assert.ok(callSites.length >= 3,
     `expected the definition plus at least two call sites, found ${callSites.length} — a shared `
