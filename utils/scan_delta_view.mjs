@@ -11,7 +11,7 @@
 // auto-falls-back to one. Falling back silently changes the SUBJECT of the comparison, which is
 // the single thing the delta engine exists not to do.
 import { listRunRecords, readRunRecord } from './run_record.mjs';
-import { verifyRunChain } from './run_chain.mjs';
+import { verifyRunChain, predecessorOf } from './run_chain.mjs';
 import { buildScanDelta, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
 import { loadRun } from './report_inputs.mjs';
 
@@ -23,10 +23,20 @@ const scopeOf = (rec) => {
 
 /** `prior` = the record immediately before the current one; otherwise an explicit runId. */
 export async function resolveBaseline(outRoot, currentRunId, since) {
-  const all = await listRunRecords(outRoot);              // newest first
+  const all = await listRunRecords(outRoot);              // newest startedAt first
   if (since === 'prior') {
-    const i = all.findIndex((r) => r?.runId === currentRunId);
-    return (i >= 0 ? all[i + 1] : all[1]) ?? null;
+    // ⚠️ THE SAME ORDERING THE CHAIN USES, and previously it was not. `all[i + 1]` is a POSITION
+    // in a list whose sort key is `startedAt` — and `localeCompare` returns 0 for two records
+    // that share one, so ties fell through to `Array.prototype.sort`'s stability, i.e. to readdir
+    // order, i.e. to the filename. The chain picked by filename too, but by a DIFFERENT filename
+    // rule, so the two could name different records for the same run. One ordering now, keyed on
+    // the record's contents, with ties broken deterministically.
+    // ⚠️ AND IT DOES NOT REQUIRE THE PREDECESSOR TO BE SEALED, unlike the chain. Skipping an
+    // unsealed record would compare against an OLDER run without saying so — the subject
+    // substitution this command refuses — while comparing against an unsealed baseline merely
+    // earns the disclosed `baseline-unchained` limit. Disclose, never substitute.
+    const cur = all.find((r) => r?.runId === currentRunId);
+    return predecessorOf(all, cur?.startedAt ?? all[0]?.startedAt) ?? null;
   }
   return all.find((r) => r?.runId === since) ?? null;
 }

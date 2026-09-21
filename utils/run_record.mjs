@@ -140,7 +140,11 @@ export async function writeRunStart(outRoot, rec) {
       // caller did neither, so `report --since` read a chain nothing ever wrote while three
       // release surfaces said run records ARE sealed and chained. A contract a caller can forget
       // is one a caller will forget; an explicit value still wins.
-      prevDigest: rec.prevDigest ?? await latestSealedDigest(outRoot),
+      // ⚠️ `startedAt` IS PASSED, and that is the whole C2/C8 repair: the predecessor is the
+      // most recent SEALED record that STARTED before this one, never the one whose FILENAME
+      // sorts last. `newRunId()` is second-granular with a random suffix, so the old sort chose
+      // at random among runs started in the same second.
+      prevDigest: rec.prevDigest ?? await latestSealedDigest(outRoot, rec.startedAt),
       kevLoaded: Boolean(rec.kevLoaded),
       kevSnapshot: rec.kevSnapshot ?? null,
       epssLoaded: Boolean(rec.epssLoaded),

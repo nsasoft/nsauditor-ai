@@ -74,15 +74,64 @@ export async function sealRunRecord(outRoot, runId) {
 
 // The digest of the most recently finalized record in this out root, for the NEXT run to carry as
 // its `prevDigest`. Null when there is none — a first run is not a broken chain.
-export async function latestSealedDigest(outRoot) {
+// ⚠️ ONE ORDERING FOR THE CHAIN AND FOR `--since prior`, AND IT KEYS ON THE RECORD'S CONTENTS.
+// This used to sort run-record FILENAMES lexically and take the last. `newRunId()` is
+// `<ISO-to-the-SECOND>-<6 random hex>`, so for two records written inside the same second the
+// predecessor was decided by the RANDOM SUFFIX — the chain did not reliably reflect run order,
+// and `--since prior` resolves its baseline through that chain while the view's own comment says
+// silently changing a comparison's subject is the one thing the command does not do. A filename
+// sort is wrong at EVERY second boundary even with a monotonic id, which is why the repair is the
+// key and not the id. `startedAt` is millisecond-precise (`new Date().toISOString()`) and is
+// already what `listRunRecords` sorts on, so this ADOPTS that ordering rather than inventing one.
+//
+// STRICTLY PRECEDES: two runs that started in the same millisecond have no recoverable order, so
+// neither may claim the other — inventing one would be the same defect wearing a better key. Among
+// records sharing the newest qualifying `startedAt` the tie breaks on `runId`: arbitrary, but
+// DETERMINISTIC, which is the property that was missing.
+export function predecessorOf(records, startedAt) {
+  const before = (records ?? []).filter((r) => r?.startedAt && String(r.startedAt) < String(startedAt));
+  if (!before.length) return null;
+  return before.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))
+    || String(b.runId ?? '').localeCompare(String(a.runId ?? '')))[0];
+}
+
+// ⚠️ READS THE RECORDS RATHER THAN IMPORTING `listRunRecords`: `run_record.mjs` imports THIS
+// module, so importing it back would be a cycle. The parse is the same one, kept local.
+async function readRunRecords(outRoot) {
   let names = [];
-  try { names = await fsp.readdir(outRoot); } catch { return null; }
-  const runs = names.filter((n) => RUN_FILE_RE.test(n)).sort();
-  for (const n of runs.reverse()) {
-    const id = n.match(RUN_FILE_RE)[1];
-    try { return (await fsp.readFile(chainDigestPath(outRoot, id), 'utf8')).trim() || null; } catch { /* unsealed */ }
+  try { names = await fsp.readdir(outRoot); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!RUN_FILE_RE.test(n)) continue;
+    try { out.push(JSON.parse(await fsp.readFile(path.join(outRoot, n), 'utf8'))); } catch { /* not a run */ }
   }
-  return null;
+  return out;
+}
+
+/**
+ * The digest a run starting at `startedAt` should link to: the most recent SEALED record that
+ * started before it. SEALED is required here and only here — the chain can only link to a digest.
+ * `--since prior` deliberately does NOT skip an unsealed record: skipping would compare against an
+ * older run silently, while using it merely earns the disclosed `baseline-unchained` limit.
+ * Disclose, never substitute.
+ * ⚠️ `startedAt` is REQUIRED. Called without it the old whole-tree "latest" is not recoverable
+ * from a correct ordering, so it returns null rather than guessing — a wrong link is worse than
+ * an absent one, and an absent one reads as a chain head.
+ */
+export async function latestSealedDigest(outRoot, startedAt) {
+  if (!startedAt) return null;
+  const sealed = [];
+  for (const rec of await readRunRecords(outRoot)) {
+    if (!rec?.runId) continue;
+    try {
+      const d = (await fsp.readFile(chainDigestPath(outRoot, rec.runId), 'utf8')).trim();
+      if (d) sealed.push(rec);
+    } catch { /* unsealed: cannot be linked to */ }
+  }
+  const prev = predecessorOf(sealed, startedAt);
+  if (!prev) return null;
+  try { return (await fsp.readFile(chainDigestPath(outRoot, prev.runId), 'utf8')).trim() || null; }
+  catch { return null; }
 }
 
 /**
