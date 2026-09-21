@@ -292,3 +292,22 @@ test('G6 — a removed sidecar on a post-chaining record is chain-UNREADABLE, no
 // (The pre-chaining ACCEPT case for G6 is the corrected `a record from BEFORE chaining` leg
 // above, which now carries the absence it asserts about. Two tests of one fact is one test
 // and one decoration, and the decoration is the one that rots.)
+
+test('G5 — the coverage clause names the TWO populations, because one number overstated', async () => {
+  // ⚠️ THE DEFECT THIS PINS WAS FOUND ON THE FIRST REAL RECORD THE CLAUSE EVER DESCRIBED, not on a
+  // fixture: a three-host cloud run sealed 3 findings files and 3 recorded ABSENCES, and the clause
+  // said "6 sealed findings file(s)". A reader counts six files on disk; there are three. It is the
+  // count-that-says-more-than-it-measured class, inside the sentence added to stop `chain-verified`
+  // from overclaiming — so the fixture below is the real shape: one host WITH a queue file and one
+  // WITHOUT, which is exactly what a cloud+network run produces.
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1');                                   // no queue file: sealed as null
+  const v = await verifyRunChain(root, 'R1');
+
+  assert.equal(v.status, 'chain-verified', v.reason);
+  assert.equal(v.filesPresent, 1, 'one findings file exists on disk');
+  assert.equal(v.filesAbsent, 1, 'and one absence was recorded and re-verified as still absent');
+  assert.match(v.reason, /1 findings file\(s\) verified · 1 recorded absent/);
+  assert.doesNotMatch(v.reason, /2 sealed findings file\(s\)/,
+    'the two populations must never be summed into a single count of files that exist');
+});

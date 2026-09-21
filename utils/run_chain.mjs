@@ -132,7 +132,9 @@ export async function verifyRunChain(outRoot, runId) {
   let parsed = null;
   try { parsed = JSON.parse(bytes.toString('utf8')); } catch { /* the digest matched, so this is a parse we can survive */ }
   const written = Array.isArray(parsed?.hostsWritten) ? parsed.hostsWritten : [];
-  let filesCovered = 0;
+  // TWO POPULATIONS, COUNTED SEPARATELY — see the coverage clause below for why one number lies.
+  let filesPresent = 0;
+  let filesAbsent = 0;
   let hostsUncovered = 0;
   for (const h of written) {
     if (!h?.digests || typeof h.digests !== 'object') { hostsUncovered += 1; continue; }
@@ -162,7 +164,7 @@ export async function verifyRunChain(outRoot, runId) {
         return { status: 'chain-broken', digest: actual,
           reason: `the findings file ${where} does not match the digest sealed with the record` };
       }
-      filesCovered += 1;
+      if (expected === null) filesAbsent += 1; else filesPresent += 1;
     }
   }
 
@@ -185,16 +187,26 @@ export async function verifyRunChain(outRoot, runId) {
   // ⚠️ THE REASON STATES ITS OWN COVERAGE, because `chain-verified` over a record that sealed no
   // findings files claims more than it measured — and the surfaces that quote this verdict say an
   // altered BASELINE is refused, which is a claim about the findings.
+  // ⚠️ TWO POPULATIONS, NAMED SEPARATELY, AND THE FIRST DRAFT COLLAPSED THEM INTO ONE NUMBER THAT
+  // OVERSTATED. It read "6 sealed findings file(s)" on the first REAL record this clause ever
+  // described — a three-host cloud run where only THREE findings files exist and the other three
+  // entries are recorded ABSENCES sealed as `null`. A reader counts six files on disk; there are
+  // three. That is the count-that-says-more-than-it-measured class, inside the very sentence added
+  // to stop `chain-verified` from overclaiming, which is why it is named rather than rounded off.
   const coverage = hostsUncovered > 0
     ? `; the findings files of ${hostsUncovered} written host(s) were NOT covered by this record `
       + '(it predates per-host sealing), so alteration of those files could not be ruled out'
-    : (written.length ? `, together with ${filesCovered} sealed findings file(s) across ${written.length} written host(s)` : '');
+    : (written.length
+      ? `, together with ${filesPresent} findings file(s) verified · ${filesAbsent} recorded absent, `
+        + `verified still absent, across ${written.length} written host(s)`
+      : '');
   return {
     status: 'chain-verified',
     digest: actual,
     linkedTo,
     linkBroken,
-    filesCovered,
+    filesPresent,
+    filesAbsent,
     hostsUncovered,
     reason: `the record matches the digest recorded when it was sealed${coverage}`,
   };
