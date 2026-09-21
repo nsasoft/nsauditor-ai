@@ -41,7 +41,58 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   'evidence-gap',                  // a producer DECLARED it could not read the surface
   'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
+  'plugin-identity-basis-changed', // the producer changed WHAT IT NAMES between the two releases
 ]);
+
+/**
+ * WHEN EACH PRODUCER LAST CHANGED WHAT IT NAMES AS A FINDING'S OBJECT.
+ *
+ * A finding's identity is keyed partly on `resource`. Canonicalisation (`finding_identity.mjs`)
+ * makes an old decorated value and a new clean one compute the SAME key, so a producer that
+ * always named its object compares across an upgrade unchanged. It cannot do that for a producer
+ * that GAINED an identity: a finding keyed on `'-'` in the baseline and on `sg-0def2…` in the
+ * current run is one exposure wearing two keys, and a naive delta reports it as one RESOLVED
+ * plus one NEW — a fabricated remediation and a fabricated exposure in the same table, on the
+ * feature's headline use.
+ *
+ * The alternative was bumping `RUN_RECORD_SCHEMA`, which refuses EVERY pre-upgrade baseline
+ * outright — including for the ~20 producers that did not move. Per-producer declaration pays
+ * the cost in DISCLOSURE instead: the affected producer's rows are declared not comparable and
+ * every other producer's delta stands.
+ *
+ * ⚠️ THIS TABLE IS A CLAIM SURFACE IN BOTH DIRECTIONS AND BOTH ARE FATAL. An UNDECLARED mover
+ * fabricates churn — the defect this exists to prevent. A DECLARED producer that did NOT move
+ * throws away a real comparison, silently, for ever. It is held in equality with what the
+ * artifacts actually show by `tests/identity_basis_instrument.test.mjs`, which derives the mover
+ * set by running THIS loader over a pre-change run and a post-change run and comparing the key
+ * sets for the same objects. **Derive it; never hand-edit it to match a prediction.**
+ *
+ * The nine members are E1's own movers: 1150 / 1170 / 1190 claimed a REGION as their object and
+ * now name the real one; 1020 / 1024 / 1025 / 1030 / 1200 / 1210 named nothing and now name an
+ * object or their scope. `null → a value` moves a key exactly as `region → object id` does.
+ */
+export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
+  1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0', 1150: '1.1.0',
+  1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',
+});
+
+// ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
+// finding-count-semantics boundary) and my first draft shipped a duplicate beside it — two
+// version comparators in one module is exactly how two call sites come to disagree about what
+// "earlier" means. `String(null)` parses to 0 there, so a null baseline version sorts BEFORE any
+// release, which is the behaviour this declaration needs: a run record with no `eeVersion`
+// predates every declared change.
+
+/**
+ * Did this producer's identity basis change BETWEEN the two runs?
+ * True only when the baseline predates the declared change and the current run is at or after
+ * it — never merely because the versions differ, which would declare on every upgrade for ever.
+ */
+export function identityBasisChanged(plugin, baselineEeVersion, currentEeVersion) {
+  const at = IDENTITY_BASIS_CHANGED_AT[plugin];
+  if (!at) return false;
+  return cmpVersion(baselineEeVersion, at) < 0 && cmpVersion(currentEeVersion, at) >= 0;
+}
 
 // Whole-comparison refusals: cases where NO per-finding verdict is trustworthy, so none is offered.
 export const REFUSAL_REASONS = Object.freeze([
@@ -210,6 +261,10 @@ const scopeOf = (side) => {
   }
   return {
     hosts, plugins, gaps,
+    // The release that WROTE this side. Carried on the scope because the identity-basis
+    // declaration is a property of the comparison — which releases the two runs straddle — and
+    // `incomparabilityReason` sees only the two scopes.
+    eeVersion: rec.eeVersion ?? null,
     // ⚠️ AN ABSENT ORACLE IS NOT A CLEAN ONE. `[]` means "measured, no gaps"; MISSING means
     // nothing was measured, and the two must not render alike. Declared in `limits`, never
     // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
@@ -268,6 +323,22 @@ function incomparabilityReason(f, mine, theirs) {
   // check that cannot fail through the shipped path is dead code that reads as coverage.
   if (f.producerKind !== 'agent' && !theirs.plugins.has(f.plugin)) {
     return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
+  }
+  // ⚠️ THE PRODUCER CHANGED WHAT IT NAMES BETWEEN THESE TWO RELEASES, so its two keys for one
+  // object cannot be matched and must not be DIFFERENCED either. Checked here, before the
+  // evidence-gap legs, because it is a statement about the COMPARISON rather than about either
+  // run's coverage: the surface was read on both sides, and what moved is the noun.
+  //
+  // It is keyed on the baseline PREDATING the declared change, never on the versions merely
+  // differing — the latter would declare on every upgrade for ever and quietly retire the
+  // feature. `identityBasisChanged` is one-directional for that reason.
+  if (identityBasisChanged(f.plugin, mine.eeVersion, theirs.eeVersion)
+    || identityBasisChanged(f.plugin, theirs.eeVersion, mine.eeVersion)) {
+    const at = IDENTITY_BASIS_CHANGED_AT[f.plugin];
+    return { reason: 'plugin-identity-basis-changed',
+      detail: `plugin ${producerLabel(f)} changed what it names as a finding's object at EE ${at}; `
+        + 'the two runs straddle that change, so this finding\'s identity is not comparable '
+        + 'between them. It is NOT reported as fixed or as new — rescan to compare.' };
   }
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
   if (gap) {

@@ -40,10 +40,11 @@ const s3 = (resource, severity = 'HIGH', extra = {}) =>
 // DISPLAY-NAME vocabulary is what kept G2 invisible: both sides agreed, so the suite could not
 // tell a working comparison from one that can never match on a real record.
 function writeHostDir(outRoot, dir, runId, findings, { status = 'ran', omitResult = false,
-  queue = null, omitPluginStatus = false, host = '10.0.0.7' } = {}) {
+  queue = null, omitPluginStatus = false, host = '10.0.0.7', pluginId = '010',
+  pluginName = 'aws-s3' } = {}) {
   fs.mkdirSync(path.join(outRoot, dir), { recursive: true });
-  const env = { runId, results: omitResult ? [] : [{ id: '010', name: 'aws-s3', result: { up: true, findings } }] };
-  if (!omitPluginStatus) env.pluginStatus = [{ id: '010', name: 'aws-s3', status, reason: status === 'ran' ? null : 'credential expired' }];
+  const env = { runId, results: omitResult ? [] : [{ id: pluginId, name: pluginName, result: { up: true, findings } }] };
+  if (!omitPluginStatus) env.pluginStatus = [{ id: pluginId, name: pluginName, status, reason: status === 'ran' ? null : 'credential expired' }];
   fs.writeFileSync(path.join(outRoot, dir, 'scan_conclusion_raw.json'), JSON.stringify(env), 'utf8');
   if (queue) fs.writeFileSync(path.join(outRoot, dir, 'scan_finding_queue.json'), JSON.stringify(queue), 'utf8');
   return host;
@@ -51,11 +52,11 @@ function writeHostDir(outRoot, dir, runId, findings, { status = 'ran', omitResul
 
 async function mkRun(outRoot, { startedAt, findings = [], seal = true, tier = 'pro',
   eeVersion = '1.1.0', ceVersion = '0.2.55', plugins = ['010'], host = '10.0.0.7',
-  status, omitResult, queue, omitPluginStatus, prevDigest } = {}) {
+  status, omitResult, queue, omitPluginStatus, prevDigest, pluginId, pluginName } = {}) {
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [host],
     pluginsRequested: plugins, portsRequested: '443', tier, ceVersion, eeVersion, prevDigest });
-  writeHostDir(outRoot, `d-${runId}`, runId, findings, { status, omitResult, queue, omitPluginStatus, host });
+  writeHostDir(outRoot, `d-${runId}`, runId, findings, { status, omitResult, queue, omitPluginStatus, host, pluginId, pluginName });
   await appendHostWritten(outRoot, runId, { host, dir: `d-${runId}` });
   await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
   if (seal) await sealRunRecord(outRoot, runId);
@@ -116,6 +117,23 @@ const PRODUCERS = {
     const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
     const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z',
       findings: [s3('bucket-a', 'INFO', { details: { evidenceGap: true } })] });
+    return drive(outRoot, current, baseline);
+  },
+  'plugin-identity-basis-changed': async () => {
+    // ⚠️ DRIVEN THROUGH THE SHIPPED ENTRY POINT LIKE EVERY OTHER OUTCOME. Plugin 1170 is in
+    // `IDENTITY_BASIS_CHANGED_AT`: before EE 1.1.0 it claimed the REGION as its object, and now
+    // it names the security group. The baseline is written by a 1.0.0 run whose finding carries
+    // no usable object id and the current by a 1.1.0 run that names one — the same exposure
+    // wearing two keys, which without the declaration reads as one resolved plus one new.
+    const outRoot = tmp('ibc');
+    const sg = (resource) => ({ severity: 'CRITICAL', title: 'Security Group permits world ingress',
+      port: 443, resource, details: { groupId: 'sg-0def2fbb3db67eae5' } });
+    const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z',
+      findings: [sg(null)], plugins: ['1170'], pluginId: '1170', pluginName: 'aws-ec2-sg',
+      eeVersion: '1.0.0' });
+    const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z',
+      findings: [sg('sg-0def2fbb3db67eae5')], plugins: ['1170'], pluginId: '1170',
+      pluginName: 'aws-ec2-sg', eeVersion: '1.1.0' });
     return drive(outRoot, current, baseline);
   },
   'producer-unknown': async () => {
