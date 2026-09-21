@@ -15,6 +15,7 @@
 // non-remediated disappearance OUT of the resolved bucket.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { buildScanDelta } from '../utils/scan_delta.mjs';
 
 const run = (id, over = {}) => ({
@@ -279,4 +280,27 @@ test('the plugin-not-run detail names the plugin readably AND by the id the reco
   assert.match(delta.notComparable[0].detail, /Port Scanner/, 'a client reads the name, not the id');
   assert.match(delta.notComparable[0].detail, /\(003\)/,
     'and the id travels with it, because the baseline scope line prints `pluginsRequested` — ids');
+});
+
+// ── THE OUTCOME VOCABULARY, DECLARED AND DERIVED ────────────────────────────────────────────
+// Two surfaces downstream are WRITTEN FROM this vocabulary rather than counted by hand: the CE
+// CHANGELOG's "N ways a finding can vanish without being fixed" sentence and SKILL.md's item (2),
+// both of which have already shipped a count that disagreed with the code. A constant nobody
+// re-derives is prose, so this leg derives the produced set from the module's own source and holds
+// it in EQUALITY with the declaration — a new code that forgets the constant fails, and a code
+// deleted from the constant while still produced fails too.
+test('the declared outcome vocabulary is exactly what the module produces — it cannot rot', async () => {
+  const { NOT_COMPARABLE_REASONS, REFUSAL_REASONS } = await import('../utils/scan_delta.mjs');
+  const src = fs.readFileSync(new URL('../utils/scan_delta.mjs', import.meta.url), 'utf8');
+  const produced = [...src.matchAll(/reason: '([a-z][a-z0-9-]*)'/g)].map((m) => m[1]);
+  const refusals = [...src.matchAll(/refuse\('([a-z][a-z0-9-]*)'/g)].map((m) => m[1]);
+
+  assert.deepEqual([...new Set(produced)].sort(), [...NOT_COMPARABLE_REASONS].sort(),
+    'NOT_COMPARABLE_REASONS no longer matches the reasons this module emits');
+  assert.deepEqual([...new Set(refusals)].sort(), [...REFUSAL_REASONS].sort(),
+    'REFUSAL_REASONS no longer matches the refusals this module returns');
+  // Fourth quadrant: a derivation that finds nothing would satisfy both assertions against empty
+  // declarations, and a vocabulary guard over an empty corpus guards nothing.
+  assert.ok(produced.length >= 5 && refusals.length >= 4,
+    `the derivation found ${produced.length} reasons and ${refusals.length} refusals — too few to be believable; the patterns have drifted from the source`);
 });

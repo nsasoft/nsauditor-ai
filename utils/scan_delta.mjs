@@ -23,6 +23,36 @@
 // driven without a filesystem, and the chain can be driven without the delta.
 export const SCAN_DELTA_SCHEMA = 1;
 
+// ⚠️ REASON CODES ARE APPEND-ONLY UNDER `SCAN_DELTA_SCHEMA = 1`. Adding one is additive and needs
+// no schema bump; RENAMING or REMOVING one changes what an existing consumer's stored verdicts
+// mean, and bumps the schema.
+//
+// ⚠️ AND THEY ARE DECLARED HERE BECAUSE TWO SURFACES ARE WRITTEN FROM THEM RATHER THAN FROM A
+// COUNT SOMEBODY DID BY HAND. The CE CHANGELOG's "N ways a finding can vanish without being
+// fixed" sentence and the agent-skill's item (2) have both already shipped a count that disagreed
+// with the code — a count with no list beside it is invisible to every gate this product owns.
+// `tests/scan_delta.test.mjs` holds these in EQUALITY with the codes derived from this file's own
+// source: a new code that forgets the declaration fails, and so does a declaration whose code is
+// gone. The ORDER is the order the engine evaluates them, which is the order a reader meets them.
+export const NOT_COMPARABLE_REASONS = Object.freeze([
+  'host-not-scanned',              // the other run never wrote this host
+  'producer-unknown',              // the finding carries no producer identity to adjudicate
+  'plugin-not-run',                // the producing plugin was not requested in the other run
+  'evidence-gap',                  // a producer DECLARED it could not read the surface
+  'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
+  'framework-enumeration-changed', // the control left or joined the enumeration between the runs
+]);
+
+// Whole-comparison refusals: cases where NO per-finding verdict is trustworthy, so none is offered.
+export const REFUSAL_REASONS = Object.freeze([
+  'ee-presence-differs',
+  'tier-differs',
+  'finding-count-semantics-boundary',
+  'run-record-schema-differs',
+  'baseline-chain-broken',
+  'baseline-integrity-unmeasurable',
+]);
+
 // ⚠️ THE BOUNDARY CONTRACT. Three fields were dropped at ONE seam before this existed —
 // `resource` (a new exposure masked), `plugin` (every comparison fell to plugin-not-run) and
 // `control` (a finding whose control left the enumeration read as RESOLVED). Each was invisible
