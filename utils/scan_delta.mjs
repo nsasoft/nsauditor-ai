@@ -53,6 +53,19 @@ export const REFUSAL_REASONS = Object.freeze([
   'baseline-integrity-unmeasurable',
 ]);
 
+// ⚠️ SEPARATE, AND DELIBERATELY SO. `tests/scan_delta.test.mjs` holds `REFUSAL_REASONS` in EXACT
+// equality with the `refuse('…')` calls in THIS file — a guard that catches both a new code that
+// forgets the constant and a code deleted from the constant while still produced. A view-level
+// refusal put into that array breaks the equality, and the only way to keep one array would be to
+// relax it to a SUBSET check: a superset guard, which this repo's own notes call structurally
+// incapable of catching an omission. So the vocabulary is still one thing to a reader
+// (`DECLARED_OUTCOMES` unions them) and two things to the two derivations that can each stay
+// EXACT. Raised by `scan_delta_view.mjs`, never by `buildScanDelta`: the baseline record exists
+// but this build cannot read it — a schema it does not understand, or a corrupt file.
+export const VIEW_REFUSAL_REASONS = Object.freeze([
+  'baseline-unloadable',
+]);
+
 // ⚠️ THE BOUNDARY CONTRACT. Three fields were dropped at ONE seam before this existed —
 // `resource` (a new exposure masked), `plugin` (every comparison fell to plugin-not-run) and
 // `control` (a finding whose control left the enumeration read as RESOLVED). Each was invisible
@@ -339,7 +352,8 @@ export const DECLARED_LIMITS = Object.freeze({
 const outcome = (species, probe) => Object.freeze({ species, probe });
 export const DECLARED_OUTCOMES = Object.freeze({
   ...Object.fromEntries(NOT_COMPARABLE_REASONS.map((c) => [c, outcome('not-comparable', c)])),
-  ...Object.fromEntries(REFUSAL_REASONS.map((c) => [c, outcome('refusal', c)])),
+  ...Object.fromEntries([...REFUSAL_REASONS, ...VIEW_REFUSAL_REASONS]
+    .map((c) => [c, outcome('refusal', c)])),
   ...Object.fromEntries(Object.entries(DECLARED_LIMITS)
     .map(([c, text]) => [c, outcome('limit', text.slice(0, OUTCOME_PROBE_CHARS))])),
 });

@@ -1404,16 +1404,43 @@ export async function runReport(args, caps) {
   // ── `--since`: the cross-run delta. Placed AFTER the coverage caveats so a partial or
   // incomplete CURRENT run is already disclosed before any delta verdict is read.
   let sinceDelta = null;
+  // A refused COMPARISON still renders and still exits 2: the artifact says the comparison was
+  // refused, and could-not-measure stays loud.
+  let sinceRefusalCode = 0;
   if (typeof args.since === 'string' && args.since !== '') {
     const view = await buildSinceView({ outRoot: args.from, model, since: args.since,
       allowPartial: !!args.allowPartial, tier: tierLabelFromCaps(caps) });
     view.out.forEach(log);
     view.err.forEach(logErr);
-    if (view.code !== 0) return finish(view.code);
+    // ⚠️ TWO KINDS OF EXIT 2, AND THE ARTIFACT IS WHAT DISTINGUISHES THEM (board C9). This line
+    // used to `return finish(view.code)` for BOTH, so a refused comparison wrote no file at all
+    // — and `executive_report.mjs`'s `delta-refused` block, which renders exactly the honest
+    // artifact, was unreachable through every shipped path. The consultant's deliverable is
+    // `--out client.html`; a refusal that leaves a STALE client.html there is worse than the
+    // refusal, because the file they hand a client is from an earlier run and says nothing of it.
+    // ⚠️ AND THE ARTIFACT MUST BE ABLE TO CARRY THE REFUSAL, OR IT MUST NOT BE WRITTEN. Only the
+    // executive report renders the delta; `renderJiraCsv` never receives it. Writing a CSV that
+    // says nothing while exiting 2 would make "exit 2 WITH an artifact" mean one thing for HTML
+    // and the opposite for CSV — a contract that depends on the format is not a contract. Any
+    // format that cannot state the refusal falls back to the request/run behaviour: write
+    // nothing, name any stale file, exit 2.
+    if (view.code !== 0 && (!view.delta || format !== 'executive')) {
+      // The REQUEST or the RUN ITSELF was refused: nothing honest to render. Say so about any
+      // file already on disk, so it cannot pass as this run's output.
+      // ⚠️ `fsp`, NOT `fs` — this module imports only `node:fs/promises`. The first draft wrote
+      // `fs.existsSync` and threw ReferenceError on the refusal path. It surfaced immediately
+      // here; the same slip in `report_inputs.mjs` earlier this cycle sat under a bare `catch`
+      // and read CLEAN. Same bug, opposite visibility, and the difference was the catch.
+      const stale = args.out ? await fsp.access(args.out).then(() => true, () => false) : false;
+      if (stale) {
+        logErr(`[report] ${args.out} was NOT rewritten; it is from an earlier run.`);
+      }
+      return finish(view.code);
+    }
     // ⚠️ CARRIED INTO THE ARTIFACT, not only printed. stdout reaches the OPERATOR, who knows what
-    // the tool does; the HTML reaches the CLIENT being billed. A delta that stops at stdout is a
-    // developer feature, and a release note calling it a "delta REPORT" would overstate it.
+    // the tool does; the HTML reaches the CLIENT being billed.
     sinceDelta = view.delta ?? null;
+    sinceRefusalCode = view.code !== 0 ? view.code : 0;
   }
 
   let body;
@@ -1448,6 +1475,17 @@ export async function runReport(args, caps) {
     return finish(2);
   }
   log(`[report] wrote ${outPath}`);
+  // ⚠️ THE ARTIFACT IS WRITTEN AND THE EXIT IS STILL 2 when the COMPARISON was refused. The
+  // report rendered — that is what the 0 would be claiming — but the thing the operator ASKED
+  // for could not be measured, and could-not-measure stays loud everywhere in this repo. The
+  // artifact itself says which happened, so the pair is unambiguous: exit 2 WITH a file means
+  // the comparison was refused and the file says so; exit 2 WITHOUT one means the request or the
+  // run itself was refused.
+  if (sinceRefusalCode !== 0) {
+    logErr(`[report] the report was written, but the requested comparison was REFUSED — `
+      + `${outPath} states that and contains no resolved, new or changed rows.`);
+    return finish(sinceRefusalCode);
+  }
   return finish(0);
 }
 

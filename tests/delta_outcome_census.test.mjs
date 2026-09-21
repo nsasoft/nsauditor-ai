@@ -210,6 +210,11 @@ const PRODUCERS = {
     return drive(outRoot, current, baseline);
   },
   'evidence-gaps-recorded': async () => PRODUCERS['evidence-gap'](),
+  // ⚠️ THE SAME FIXTURE AS `run-record-schema-differs`, AND THAT IS THE POINT. A record whose
+  // schema this build does not understand is refused by `loadRun` — which is WHY that code is
+  // unreachable, and WHAT `baseline-unloadable` was declared to name. One fixture, two facts:
+  // the reachable code is produced, and the unreachable one is proven still unreachable.
+  'baseline-unloadable': async () => PRODUCERS['run-record-schema-differs'](),
   'agent-scope-from-tier': async () => {
     const outRoot = tmp('agt');
     const q = [{ id: 'F-1', severity: 'HIGH', title: 'Agent-produced finding', target: { port: 443 },
@@ -360,7 +365,10 @@ test('LEG 1b — every UNREACHABLE outcome is STILL unreachable, and what speaks
 test('LEG 2 — every outcome that must reach a human reaches BOTH stdout and the client artifact', async () => {
   const failures = [];
   for (const [code, o] of Object.entries(DECLARED_OUTCOMES)) {
-    if (o.species === 'refusal') continue;          // asserted by its own leg below
+    // ⚠️ REFUSALS JOIN THIS LEG AS OF C9. They used to be excluded because a refused comparison
+    // wrote no artifact at all — which was the defect, not the design: the client got a STALE
+    // file or none, and `executive_report.mjs`'s refusal block was unreachable. A refused
+    // comparison now renders, so its reason owes BOTH surfaces like every other outcome.
     if (DECLARED_UNREACHABLE_OUTCOMES[code]) continue;
     const r = await PRODUCERS[code]();
     const p = probeOf(code);
@@ -372,20 +380,29 @@ test('LEG 2 — every outcome that must reach a human reaches BOTH stdout and th
 });
 
 // ── LEG 2b — the refusal species, and the asymmetry stated rather than scoped away.
-test('LEG 2b — a REFUSAL names its reason on stdout, and writes NO client artifact (pinned, not assumed)', async () => {
+test('LEG 2b — a REFUSED comparison exits 2, writes a FRESH artifact, and names NO finding', async () => {
+  // ⚠️ THIS LEG PINNED THE OPPOSITE CONTRACT UNTIL C9, AND ITS OWN INSTRUCTION IS WHAT MOVED IT.
+  // It asserted that a refusal writes no artifact — true of the code, and the wrong behaviour:
+  // a consultant running `report --out client.html` over a refused comparison was left with the
+  // PREVIOUS run's file at that path. The leg carried the sentence "that may be the right change
+  // — decide deliberately and move this species into LEG 2", and that is what happened.
+  //
+  // The exit contract it now pins has two kinds of 2, distinguished by the artifact:
+  //   WITH a file    — the report rendered; the COMPARISON was refused and the file says so.
+  //   WITHOUT a file — the REQUEST or the RUN itself was refused (those paths carry no delta and
+  //                    are covered by tests/report_since_refusal_artifact.test.mjs).
   for (const [code, o] of Object.entries(DECLARED_OUTCOMES)) {
     if (o.species !== 'refusal') continue;
     if (DECLARED_UNREACHABLE_OUTCOMES[code]) continue;   // LEG 1b owns these, in both directions
     const r = await PRODUCERS[code]();
-    assert.equal(r.code, 2, `${code}: a refusal must exit 2`);
+    assert.equal(r.code, 2, `${code}: could-not-measure stays loud — a refusal is never exit 0`);
     assert.ok(r.stdout.includes(probeOf(code)), `${code}: the refusal must NAME its reason`);
-    // ⚠️ PINNED BECAUSE IT IS A DESIGN DECISION, NOT AN ACCIDENT — and because
-    // `executive_report.mjs` carries a rendered `delta-refused` block that NO shipped path can
-    // reach while this holds. If someone wires it, this assertion goes RED and tells them to move
-    // this species into LEG 2 rather than leaving two contradictory truths in the tree.
-    assert.equal(r.html, null,
-      `${code}: a refused comparison wrote a client artifact. That may be the right change — but the `
-      + 'refusal-HTML block in executive_report.mjs was unreachable when this was written, so decide '
-      + 'deliberately and move this species into LEG 2.');
+    assert.ok(r.html !== null, `${code}: a refused COMPARISON must still write the client artifact`);
+    assert.match(r.html, /No comparison was made/, `${code}: and the artifact must say so`);
+    for (const bucket of ['delta-resolved', 'delta-new', 'delta-changed']) {
+      assert.ok(!r.html.includes(bucket),
+        `${code}: a refused comparison names NO finding — a ${bucket} row invites exactly the `
+        + 'verdict the refusal exists to withhold');
+    }
   }
 });

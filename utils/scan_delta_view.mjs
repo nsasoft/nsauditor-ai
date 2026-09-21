@@ -12,7 +12,7 @@
 // the single thing the delta engine exists not to do.
 import { listRunRecords, readRunRecord } from './run_record.mjs';
 import { verifyRunChain, predecessorOf } from './run_chain.mjs';
-import { buildScanDelta, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
+import { buildScanDelta, SCAN_DELTA_SCHEMA, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
 import { loadRun } from './report_inputs.mjs';
 
 const scopeOf = (rec) => {
@@ -40,6 +40,20 @@ export async function resolveBaseline(outRoot, currentRunId, since) {
   }
   return all.find((r) => r?.runId === since) ?? null;
 }
+
+// ⚠️ TWO KINDS OF EXIT 2, AND THE ARTIFACT IS WHAT DISTINGUISHES THEM (board C9).
+//   WITH a delta    — the requested COMPARISON was refused. The report still renders, and the
+//                     client artifact carries the refusal and NO verdict rows.
+//   WITHOUT a delta — the REQUEST or the RUN ITSELF was refused. There is nothing honest to
+//                     render at all, so nothing is written and any pre-existing `--out` file is
+//                     NAMED as stale by the caller rather than left to pass as this run's output.
+// Could-not-measure stays loud either way: the exit is 2, never 0.
+const refusedComparison = (out, err, reason, detail) => ({
+  code: 2, out, err,
+  delta: { schema: SCAN_DELTA_SCHEMA, comparable: false, refusal: { reason, detail },
+    newFindings: [], resolved: [], unchanged: [], changed: [], notComparable: [],
+    baselineIntegrity: null, currentIntegrity: null, limits: [detail] },
+});
 
 export async function buildSinceView({ outRoot, model, since, allowPartial, tier }) {
   const out = [];
@@ -76,7 +90,12 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
       err.push('[report] NOT falling back automatically: choosing a different baseline changes the '
         + 'subject of the comparison, and that is the operator\'s decision to make, not this command\'s.');
     }
-    return { code: 2, out, err };
+    // The BASELINE is untrustworthy; this run is fine. That is a refused COMPARISON, so the
+    // client still gets an artifact — one that names the refusal and no finding.
+    return refusedComparison(out, err,
+      chain.status === 'chain-broken' ? 'baseline-chain-broken' : 'baseline-integrity-unmeasurable',
+      `the baseline is ${chain.status}: ${chain.reason}. No finding can be called resolved against `
+      + 'a baseline that may have been altered.');
   }
 
   // ⚠️ THE CURRENT RECORD'S LINK, WHICH WAS COMPUTED AND NEVER READ. `verifyRunChain` works out
@@ -135,8 +154,9 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
 
   const loadedBase = await loadRun(outRoot, { runId: baseRec.runId, allowPartial: !!allowPartial }, { tier });
   if (!loadedBase.ok) {
-    err.push(`[report] --since ${since}: the baseline run could not be loaded — ${loadedBase.message}`);
-    return { code: 2, out, err };
+    err.push(`[report] REFUSED: baseline-unloadable — the baseline run could not be loaded: ${loadedBase.message}`);
+    return refusedComparison(out, err, 'baseline-unloadable',
+      `the baseline run ${baseRec.runId} could not be loaded: ${loadedBase.message}`);
   }
 
   const currentRec = await readRunRecord(outRoot, model.runId);
@@ -154,7 +174,9 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
 
   if (!delta.comparable) {
     err.push(`[report] REFUSED: ${delta.refusal.reason} — ${delta.refusal.detail}`);
-    return { code: 2, out, err };
+    // ⚠️ THE DELTA TRAVELS WITH THE REFUSAL. It was dropped here, which is what made
+    // `executive_report.mjs`'s `delta-refused` block unreachable through every shipped path.
+    return { code: 2, out, err, delta };
   }
   delta.limits.push(...viewLimits);
 

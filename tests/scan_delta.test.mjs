@@ -304,3 +304,36 @@ test('the declared outcome vocabulary is exactly what the module produces — it
   assert.ok(produced.length >= 5 && refusals.length >= 4,
     `the derivation found ${produced.length} reasons and ${refusals.length} refusals — too few to be believable; the patterns have drifted from the source`);
 });
+
+// The same discipline for the VIEW's own refusals, added with C9. `VIEW_REFUSAL_REASONS` exists
+// so the equality above can stay EXACT rather than being relaxed to a subset check — but a second
+// constant is a second thing that can rot, so it gets its own derivation rather than a promise.
+test('VIEW_REFUSAL_REASONS is exactly what the VIEW raises and buildScanDelta does not', async () => {
+  const { REFUSAL_REASONS, VIEW_REFUSAL_REASONS } = await import('../utils/scan_delta.mjs');
+  const view = fs.readFileSync(new URL('../utils/scan_delta_view.mjs', import.meta.url), 'utf8');
+
+  // Every code the view hands to `refusedComparison`, including the ones chosen by a ternary in
+  // the argument list — a pattern anchored on `refusedComparison(out, err, '<literal>'` would
+  // silently miss those two and report a clean derivation over half the call sites.
+  // ⚠️ COMPARISON OPERANDS ARE STRIPPED FIRST, and the first draft of this guard FABRICATED a
+  // finding for want of it: site 95 chooses its code with
+  // `chain.status === 'chain-broken' ? 'baseline-chain-broken' : …`, so a naive scan of the call
+  // text reported the view as raising `chain-broken` — a status value, never a refusal code.
+  // A string being COMPARED is not a code being RAISED.
+  const calls = [...view.matchAll(/refusedComparison\(([\s\S]*?)\);/g)]
+    .map((m) => m[1].replace(/[=!]==\s*'[^']*'/g, ''));
+  const raised = new Set(calls.flatMap((c) => [...c.matchAll(/'([a-z][a-z0-9-]*-[a-z0-9-]*)'/g)].map((m) => m[1])));
+  assert.ok(raised.size >= 3,
+    `the derivation found ${raised.size} view refusals — too few to be believable; the pattern has drifted`);
+
+  const declared = new Set([...REFUSAL_REASONS, ...VIEW_REFUSAL_REASONS]);
+  for (const code of raised) {
+    assert.ok(declared.has(code), `the view raises "${code}", which neither constant declares`);
+  }
+  for (const code of VIEW_REFUSAL_REASONS) {
+    assert.ok(raised.has(code), `VIEW_REFUSAL_REASONS declares "${code}", which the view never raises`);
+    assert.ok(!REFUSAL_REASONS.includes(code),
+      `"${code}" is in BOTH constants. The split exists so each derivation can stay exact; a code `
+      + 'in both makes the buildScanDelta equality above pass over a refusal that module never returns.');
+  }
+});
