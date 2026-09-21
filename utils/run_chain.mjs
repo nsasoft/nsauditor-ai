@@ -98,9 +98,25 @@ export async function verifyRunChain(outRoot, runId) {
   try { bytes = await fsp.readFile(runRecordPath(outRoot, runId)); }
   catch { return { status: 'chain-unreadable', reason: 'the run record itself could not be read' }; }
 
+  // ⚠️ "PREDATES CHAINING" AND "WAS UNSEALED" ARE DIFFERENT FACTS, AND THEY ARE SEPARABLE
+  // DETERMINISTICALLY. This returned `chain-absent` for ANY missing sidecar — so deleting the
+  // sidecar, which is the unsophisticated edit the label claims to catch, downgraded a REFUSAL
+  // into a limit with a FALSE CAUSE: it told the operator the record was old. Every record
+  // `writeRunStart` has produced since chaining carries the `prevDigest` KEY, so a record that
+  // has the key and no sidecar was sealed and then unsealed. The key is checked rather than the
+  // sidecar's absence, so a genuinely pre-chaining record keeps its honest `chain-absent`.
   let recorded;
   try { recorded = (await fsp.readFile(chainDigestPath(outRoot, runId), 'utf8')).trim(); }
-  catch { return { status: 'chain-absent', reason: 'no digest sidecar — this record predates chained run records' }; }
+  catch {
+    let parsed = null;
+    try { parsed = JSON.parse(bytes.toString('utf8')); } catch { /* unparseable: treat as pre-chaining */ }
+    if (parsed && typeof parsed === 'object' && 'prevDigest' in parsed) {
+      return { status: 'chain-unreadable',
+        reason: 'this record was written after chaining shipped (it carries a prevDigest) and its digest '
+          + 'sidecar is gone — removed, or never written; alteration can neither be confirmed nor ruled out' };
+    }
+    return { status: 'chain-absent', reason: 'no digest sidecar — this record predates chained run records' };
+  }
 
   if (!/^[0-9a-f]{64}$/i.test(recorded)) {
     return { status: 'chain-unreadable', reason: 'the digest sidecar is present but is not a SHA-256 digest' };

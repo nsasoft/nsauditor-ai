@@ -335,3 +335,126 @@ test('SCOPE — at the SAME tier an agent-produced finding IS comparable, so a f
   assert.match(r.stdout, /derived from the run TIER/,
     'and the basis for that verdict must be DECLARED, because it rests on a derivation the reader cannot see');
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// T4 / G7 — `linkBroken` IS COMPUTED AND NEVER READ, SO `--since prior` RE-TARGETS IN SILENCE.
+//
+// `verifyRunChain` already works out whether a record's `prevDigest` still names bytes that
+// exist; the view reads `status` only. Delete the middle of three chained records and `prior`
+// quietly resolves to the survivor — the substitution `scan_delta_view.mjs`'s own header says it
+// never makes ("falling back silently changes the SUBJECT of the comparison, which is the single
+// thing the delta engine exists not to do"). The verdict that vanishes with the deleted record is
+// the one an operator was relying on.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+test('G7 — with the immediate predecessor DELETED, `--since prior` refuses instead of re-targeting', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-link-'));
+  const sealed = (id) => fs.readFileSync(chainDigestPath(outRoot, id), 'utf8').trim();
+  // Chained explicitly rather than by the writer's default: three runs created inside one second
+  // share a runId prefix and the default picks the lexically-last sidecar, which is not
+  // necessarily the one finalized last. That is a real edge (it is on the board) and it must not
+  // be what this test is measuring.
+  const A = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: null });
+  const B = await mkRun(outRoot, { startedAt: '2026-09-04T10:00:00.000Z', findings: [s3('bucket-a'), s3('bucket-b')], prevDigest: sealed(A) });
+  const C = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: sealed(B) });
+  fs.rmSync(runRecordPath(outRoot, B));
+  fs.rmSync(chainDigestPath(outRoot, B));
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: C, since: 'prior' }, PRO());
+
+  assert.equal(r.code, 2,
+    'the current record vouches for a predecessor that no longer exists; comparing against a '
+    + 'DIFFERENT run and calling it `prior` answers a question nobody asked');
+  assert.match(r.stderr + r.stdout, new RegExp(A),
+    'and the refusal must list what IS available, so the operator can name one explicitly');
+  assert.doesNotMatch(r.stdout, /resolved/i,
+    'bucket-b disappeared with the deleted record; reporting it resolved would be remediation by bookkeeping');
+});
+
+test('G7 ACCEPT — an INTACT chain still resolves `prior` and compares normally', async () => {
+  // The fourth quadrant: a refusal keyed on `linkBroken` must not fire on the arrangement the
+  // feature exists for. Nothing about the motivating defect exercises this direction.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-link-ok-'));
+  const sealed = (id) => fs.readFileSync(chainDigestPath(outRoot, id), 'utf8').trim();
+  const A = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: null });
+  const B = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], prevDigest: sealed(A) });
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: B, since: 'prior' }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /1 resolved/, 'an unbroken chain must still produce the verdict');
+});
+
+test('G7 NARROWED — an EXPLICIT `--since <runId>` over a broken link still compares, and DISCLOSES the break', async () => {
+  // ⚠️ THE REFUSAL IS SCOPED TO `prior`, AND THE SCOPE IS THE POINT. `linkBroken` means the current
+  // record vouches for bytes that no longer exist. Under `prior` that CHANGED THE SUBJECT — the
+  // command silently picked a different baseline than the one it names. Under an explicit runId the
+  // operator chose the subject themselves, so nothing was substituted and refusing would break a
+  // legitimate path: deleting old records is ordinary housekeeping, and turning it into a blanket
+  // refusal is the accuse-honest-evidence direction this lane keeps warning about. So: refuse the
+  // substitution, disclose the integrity fact.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-link-x-'));
+  const sealed = (id) => fs.readFileSync(chainDigestPath(outRoot, id), 'utf8').trim();
+  const A = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: null });
+  const B = await mkRun(outRoot, { startedAt: '2026-09-04T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: sealed(A) });
+  const C = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], prevDigest: sealed(B) });
+  fs.rmSync(runRecordPath(outRoot, B));
+  fs.rmSync(chainDigestPath(outRoot, B));
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: C, since: A }, PRO());
+  assert.equal(r.code, 0, `an explicitly named baseline is the operator's choice: ${r.stderr}`);
+  assert.match(r.stdout, /predecessor/i,
+    'but the break must be DISCLOSED — the current record vouches for bytes that are gone, and a '
+    + 'reader of this comparison is entitled to know that before treating a row as remediation');
+});
+
+// ── T4 step 3(c) — THE VIEW VERIFIED THE BASELINE ONLY ──────────────────────────────────────
+// `report --run <older> --since <even-older>` is a legitimate invocation: both records are
+// historical, and the CURRENT one is just as alterable as the baseline. Its chain was never read.
+// An edited current findings file therefore produced `new` and `resolved` rows with no mention of
+// it — the same fail-open as the baseline side, on the half nobody was looking at.
+test('an altered CURRENT run is refused too, naming which side — the baseline is not the only alterable one', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-cur-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a'), s3('bucket-b')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [s3('bucket-a'), s3('bucket-b')] });
+
+  const f = path.join(outRoot, `d-${current}`, 'scan_conclusion_raw.json');
+  const before = fs.readFileSync(f, 'utf8');
+  const after = before.replace('bucket-b', 'bucket-z');
+  assert.equal(after.length, before.length, 'length-preserving, or it proves nothing');
+  assert.notEqual(after, before, 'the tamper must actually land');
+  fs.writeFileSync(f, after, 'utf8');
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline }, PRO());
+  assert.equal(r.code, 2, 'an altered current run cannot support a `new` row any more than an altered baseline supports a `resolved` one');
+  assert.match(r.stderr, /current/i, 'and the refusal must name WHICH SIDE is altered — otherwise the operator checks the wrong file');
+  assert.doesNotMatch(r.stdout, /1 new/);
+});
+
+test('ACCEPT — an untouched pair still compares, so the current-side check is not a blanket refusal', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-cur-ok-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [] });
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /1 resolved/);
+});
+
+test('ACCEPT — a LEGACY current run (no digest at all) still compares, with the gap DISCLOSED not refused', async () => {
+  // ⚠️ THE OVER-REFUSAL DIRECTION, which no fixture built from the defect can reach: every fixture
+  // here seals, so a current-side rule that refused anything other than `chain-verified` would pass
+  // every other leg while turning every pre-1.1.0 run into a blanket refusal. Not-measured is not
+  // tampering — the verdict stands and the limit says what was not covered.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-cur-legacy-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [] });
+  const recPath = runRecordPath(outRoot, current);
+  const legacy = JSON.parse(fs.readFileSync(recPath, 'utf8'));
+  delete legacy.prevDigest;                              // the shape a record had before chaining
+  fs.writeFileSync(recPath, JSON.stringify(legacy), 'utf8');
+  fs.rmSync(chainDigestPath(outRoot, current));
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline }, PRO());
+  assert.equal(r.code, 0, `a legacy current run is not a tampered one: ${r.stderr}`);
+  assert.match(r.stdout, /current run carries no integrity digest/,
+    'but the reader must be told the run being reported was not covered');
+});

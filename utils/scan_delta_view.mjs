@@ -63,6 +63,56 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
     return { code: 2, out, err };
   }
 
+  // ⚠️ THE CURRENT RECORD'S LINK, WHICH WAS COMPUTED AND NEVER READ. `verifyRunChain` works out
+  // whether this run's `prevDigest` still names bytes that exist; this view read `status` alone.
+  // Delete the middle of three chained records and `prior` quietly resolved to the survivor — the
+  // silent substitution this module's own header says it never makes, and the verdict that
+  // vanished with the deleted record is the one the operator was relying on.
+  //
+  // ⚠️ SCOPED TO `prior`, DELIBERATELY, AND NARROWER THAN THE PRESCRIPTION. Under `prior` a broken
+  // link CHANGED THE SUBJECT: the command picked a baseline other than the one it names. Under an
+  // explicit `--since <runId>` the operator chose the subject, so nothing was substituted, and
+  // refusing there would turn ordinary housekeeping — deleting old records — into a blanket
+  // refusal. That is the accuse-honest-evidence direction. Refuse the substitution; DISCLOSE the
+  // integrity fact.
+  const curChain = await verifyRunChain(outRoot, model.runId);
+  // ⚠️ THE CURRENT RUN IS JUST AS ALTERABLE AS THE BASELINE, and only the baseline was verified.
+  // `report --run <older> --since <even-older>` is a legitimate invocation — both records are
+  // historical — and an edited CURRENT findings file produced `new` and `resolved` rows with no
+  // mention of it. The refusal NAMES the side, because "the run is chain-broken" sends an operator
+  // to whichever file they assume, and the point of naming a subject is that they check the right
+  // one. Same two fatal statuses as the baseline: an altered current run cannot support a `new`
+  // row any more than an altered baseline supports a `resolved` one.
+  if (curChain.status === 'chain-broken' || curChain.status === 'chain-unreadable') {
+    err.push(`[report] REFUSED: the CURRENT run ${model.runId} is ${curChain.status} — ${curChain.reason}. `
+      + 'No finding can be called new or resolved when the run being REPORTED may have been altered.');
+    return { code: 2, out, err };
+  }
+  if (curChain.status === 'chain-absent') {
+    out.push('[report]   LIMIT: the current run carries no integrity digest (it predates chained run '
+      + 'records), so alteration of the run being reported could not be ruled out.');
+  }
+  if (curChain.linkBroken) {
+    if (since === 'prior') {
+      err.push('[report] REFUSED: this run\'s record names a predecessor whose bytes no longer exist, '
+        + `so \`--since prior\` would compare against ${baseRec.runId}, which is NOT that predecessor. `
+        + 'Silently changing the subject of the comparison is the one thing this command does not do.');
+      const others = (await listRunRecords(outRoot))
+        .filter((r) => r?.runId && r.runId !== model.runId);
+      if (others.length) {
+        err.push('[report] records you can name explicitly with `--since <runId>`:');
+        for (const r of others) {
+          const v = await verifyRunChain(outRoot, r.runId);
+          err.push(`[report]   ${r.runId} · ${r.startedAt} · ${v.status}`);
+        }
+      }
+      return { code: 2, out, err };
+    }
+    out.push('[report]   LIMIT: this run\'s record names a predecessor whose bytes no longer exist '
+      + '(the record was deleted or rewritten). The baseline below was named explicitly, so it is the '
+      + 'one you asked for — but the run chain covering this comparison is incomplete.');
+  }
+
   const loadedBase = await loadRun(outRoot, { runId: baseRec.runId, allowPartial: !!allowPartial }, { tier });
   if (!loadedBase.ok) {
     err.push(`[report] --since ${since}: the baseline run could not be loaded — ${loadedBase.message}`);

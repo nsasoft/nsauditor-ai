@@ -46,14 +46,24 @@ test('a ONE-BYTE, LENGTH-PRESERVING edit to a sealed record is detected', async 
 });
 
 test('a record from BEFORE chaining is chain-ABSENT, never chain-broken — nothing measured must not read as tampering', async () => {
-  // ⚠️ THE FIXTURE CHANGED WHEN SEALING MOVED INSIDE `finalizeRunRecord`, and the honest shape is
-  // now what a PRE-1.1.0 record looks like on disk: the record exists, its sidecar does not. Writing
-  // it the old way would no longer produce an unsealed record at all, so this leg would have gone
-  // vacuous — passing while testing nothing — which is worse than failing.
+  // ⚠️ THIS FIXTURE SAID "a record written before chaining shipped" AND WAS NOT ONE, which only
+  // became visible when G6 gave the two states different verdicts. It was built by the CURRENT
+  // writer, and `writeRunStart` has set `prevDigest` since `c473f3e` — so on disk it was a record
+  // that had been SEALED AND THEN UNSEALED, which is the removed-sidecar case, not the legacy one.
+  // A genuinely pre-chaining record has no `prevDigest` KEY at all, and that is what the rule is
+  // keyed on, so the fixture has to carry the absence it is asserting about.
+  //
+  // The earlier note is kept, because its reasoning was right and its conclusion incomplete: the
+  // fixture had to change when sealing moved inside `finalizeRunRecord`, or writing it the old way
+  // would no longer produce an unsealed record at all and this leg would have gone vacuous.
+  // Removing the sidecar fixed the vacuity and left the record's SHAPE modern.
   const root = await tmp();
   await writeRunStart(root, { runId: 'R0', startedAt: '2026-09-18T00:00:00Z', hostsRequested: ['10.0.0.1'] });
   await finalizeRunRecord(root, 'R0', { finishedAt: '2026-09-18T01:00:00Z' });
-  await fsp.rm(chainDigestPath(root, 'R0'));          // a record written before chaining shipped
+  const legacy = JSON.parse(await fsp.readFile(runRecordPath(root, 'R0'), 'utf8'));
+  delete legacy.prevDigest;                           // the shape a record had before chaining shipped
+  await fsp.writeFile(runRecordPath(root, 'R0'), JSON.stringify(legacy), 'utf8');
+  await fsp.rm(chainDigestPath(root, 'R0'));
   const v = await verifyRunChain(root, 'R0');
   assert.equal(v.status, 'chain-absent', 'a record predating the chain is not an accusation');
 });
@@ -231,6 +241,13 @@ test('G5 — a findings file that cannot be READ is chain-UNREADABLE, never chai
   // file as a deleted one — accusing honest evidence of tampering, which this module's header
   // names as the mirror-image error of the false clean. Written because I wrote that branch and
   // nothing exercised it.
+  if (process.getuid?.() === 0) {
+    // SKIPPED BY NAME, never silently: root reads through mode bits, so this leg cannot be made to
+    // fail as root and a pass here would mean nothing. A gate that can skip itself without saying
+    // so is not a gate.
+    console.log('# SKIP (running as root: chmod cannot deny a read, so this leg cannot be exercised)');
+    return;
+  }
   const root = await tmp();
   await mkRunWithHost(root, 'R1');
   const f = path.join(root, 'h1', RAW);
@@ -245,3 +262,33 @@ test('G5 — a findings file that cannot be READ is chain-UNREADABLE, never chai
     await fsp.chmod(f, 0o600);                      // restore, or the temp dir cannot be cleaned
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// T4 / G6 — A DELETED SIDECAR READ AS "PREDATES CHAINING", WITH A FALSE CAUSE.
+//
+// `chain-absent` says "this record was written before chaining shipped, and we know that". It was
+// returned for ANY missing sidecar, including one that was REMOVED — and deleting a file is the
+// unsophisticated edit the label claims to catch. The two are separable deterministically: every
+// record `writeRunStart` has produced since chaining carries the `prevDigest` KEY, so a record
+// that has it and no sidecar was sealed and then unsealed.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+test('G6 — a removed sidecar on a post-chaining record is chain-UNREADABLE, not chain-absent', async () => {
+  const root = await tmp();
+  await mkRunWithHost(root, 'R1');
+  const rec = await readRunRecord(root, 'R1');
+  assert.ok('prevDigest' in rec,
+    'the premise: every record written since chaining carries the key, which is what separates '
+    + 'removed from predates. If this fails the WRITER changed and this leg must be re-derived.');
+
+  await fsp.rm(chainDigestPath(root, 'R1'));
+  const v = await verifyRunChain(root, 'R1');
+  assert.equal(v.status, 'chain-unreadable',
+    'the sidecar was removed, not never written — reporting that as "predates chained run records" '
+    + 'tells an operator the record is old when it has in fact been unsealed');
+  assert.match(v.reason, /removed|never written/i);
+});
+
+// (The pre-chaining ACCEPT case for G6 is the corrected `a record from BEFORE chaining` leg
+// above, which now carries the absence it asserts about. Two tests of one fact is one test
+// and one decoration, and the decoration is the one that rots.)
