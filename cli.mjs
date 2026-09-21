@@ -61,6 +61,35 @@ const safeHost = (h) => String(h ?? 'unknown').replace(/[\/\\?%*:|"<>]/g, '_');
 // toCleanPath imported from ./utils/path_helpers.mjs (consolidated in v0.1.20)
 
 /**
+ * ONE address rule for the whole AI payload, with our own identifiers carved out.
+ *
+ * ⚠️ SHARED BECAUSE IT WAS DUPLICATED AND ONE COPY WAS WRONG. `-` is a non-word character, so a
+ * bare `\b(?:(?:\d{1,3}\.){3}\d{1,3})\b` matches the tail of `EE-0.3.2.4` and rewrites a
+ * four-component identifier as an address. That shipped: two AI payloads carry
+ * `plugin 1020 (EE-[IP] fold)`. The identical rule was applied a second time to
+ * `payloadForAI.summary` — the same defect one field over, not live only because a network-scan
+ * summary happens to carry no identifier. Two copies of a rule, one of which was just found
+ * wrong, is how the next instance arrives; the POLICY differs between call sites (one keeps
+ * private addresses, the other scrubs every address) so the policy is the parameter and the rule
+ * is not.
+ *
+ * ⚠️ ONE ALTERNATION, NEVER TWO PASSES. Scrubbing addresses first destroys the identifier, and
+ * restoring identifiers afterwards cannot tell a real address from one that was always an id.
+ * With a single pass each construct consumes its own extent, so an address standing NEXT TO an
+ * identifier is still scrubbed.
+ *
+ * ⚠️ DECLARED RESIDUAL: an address wearing our own prefix — `EE-203.0.113.5` — is preserved
+ * verbatim, where the old rule scrubbed it. No value test can separate it from a real
+ * `EE-RT.11.1.2.5`, because the two are the same shape. Pinned in
+ * `tests/redact_product_ids.test.mjs` so the limit is stated rather than silent.
+ */
+const PRODUCT_ID_OR_IPV4 = /(\bEE-(?:RT\.)?\d+(?:\.\d+)*\b)|(\b(?:\d{1,3}\.){3}\d{1,3}\b)/g;
+export function scrubIPv4KeepingProductIds(str, replaceAddress) {
+  return String(str).replace(PRODUCT_ID_OR_IPV4,
+    (m, productId, ip) => (productId !== undefined ? productId : replaceAddress(ip)));
+}
+
+/**
  * Minimal redactor used if nothing external is provided.
  *
  * ⚠️ EXPORTED SO IT CAN BE DRIVEN. A redactor's FALSE POSITIVE is invisible from the redacted
@@ -85,22 +114,8 @@ export function redactSensitiveForAI(input, targetHost) {
     s = s.replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '[MAC]'); // MAC
     s = s.replace(/\bfe80::[0-9a-f:]+\b/gi, '[FE80::/64]');         // IPv6 link-local
     s = s.replace(/\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b/gi, '[IPv6]');
-    // ⚠️ OUR OWN IDENTIFIERS ARE MATCHED FIRST, IN THE SAME ALTERNATION — not in an earlier pass.
-    // `-` is a non-word character, so the `\b` below holds right after `EE-`, and the
-    // four-component id `EE-0.3.2.4` matched as an address: two AI payloads in this cycle's
-    // evidence tree carry `plugin 1020 (EE-[IP] fold)` where the source says `EE-0.3.2.4`.
-    //
-    // ONE alternation, because two passes cannot work in either order — the ordering defect this
-    // repo already recorded for the JSX extractor, where blanking comments before strings let the
-    // `//` in a URL open a comment run. Here: scrubbing addresses first destroys the id, and
-    // restoring ids afterwards cannot tell a real address from one that was always an id. With a
-    // single pass each construct consumes its own extent, so an address STANDING NEXT TO an id is
-    // still redacted — which is the direction that would leak, and has its own test.
-    //
-    // Anchored on `EE-`, so `FOO-203.0.113.5` is still scrubbed: an exemption keyed on "letters
-    // then a dash" would be a hole a hostname could walk through.
-    s = s.replace(/(\bEE-(?:RT\.)?\d+(?:\.\d+)*\b)|(\b(?:\d{1,3}\.){3}\d{1,3}\b)/g,
-      (m, productId, ip) => (productId !== undefined ? productId : (isPrivateV4(ip) ? ip : '[IP]')));
+    // The shared rule; this call site's POLICY keeps private addresses and masks public ones.
+    s = scrubIPv4KeepingProductIds(s, (ip) => (isPrivateV4(ip) ? ip : '[IP]'));
     return s;
   };
 
@@ -304,8 +319,12 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
     // Redact any remaining IP addresses in the summary field
     if (typeof payloadForAI.summary === 'string') {
-      payloadForAI.summary = payloadForAI.summary
-        .replace(/\b(?:(?:\d{1,3}\.){3}\d{1,3})\b/g, '[REDACTED_HOST]');
+      // ⚠️ THE SAME RULE, A DIFFERENT POLICY: every address goes, private ones included. It
+      // carried its own copy of the address regex — the copy that was NOT fixed when the
+      // identifier defect was found in the redactor, which is exactly how the second instance
+      // of a class arrives. Measured at the time: neither live payload's summary carries an
+      // `EE-` token, so this was a latent duplicate rather than a live defect.
+      payloadForAI.summary = scrubIPv4KeepingProductIds(payloadForAI.summary, () => '[REDACTED_HOST]');
     }
 
     // Also redact private IPs in nested service/evidence strings
