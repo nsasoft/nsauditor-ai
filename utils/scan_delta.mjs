@@ -74,7 +74,7 @@ export const VIEW_REFUSAL_REASONS = Object.freeze([
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
 export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap',
-  'contentDigest', 'identityQualifier', 'resource', 'port', 'title', 'severity', 'control'];
+  'contentDigest', 'identityQualifier', 'resource', 'region', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
 // so they must not be demanded of the loader. Declared so the derivation can subtract them.
@@ -150,8 +150,17 @@ const cmpVersion = (a, b) => {
 //
 // Taking both is strictly finer than either: the digest separates content that TRUNCATION hid, the
 // title separates naming the digest never saw, and the qualifier separates rules that share both.
+//
+// ⚠️ `region` IS A COMPONENT SINCE E1, AND REMOVING THE SUFFIX WITHOUT ADDING IT WOULD COLLAPSE
+// A POPULATION. Before E1 the region entered this key only as decoration inside `resource`
+// (` [us-east-1]`, appended downstream by EE's `_stampRegion`), so a per-region finding that
+// names no object — a scope literal like `backup:account`, emitted once per region — was
+// separated ONLY by that suffix. De-suffixing alone would have mapped every region's copy onto
+// one key and reported N-1 of them as removed. It is taken from the finding's own FIELD, which
+// both sides of any comparison recompute identically, so unlike a suffix it fabricates nothing
+// across an upgrade.
 const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-',
-  f.identityQualifier ?? '-', f.title, f.contentDigest ?? '-'].join('|');
+  f.region ?? '-', f.identityQualifier ?? '-', f.title, f.contentDigest ?? '-'].join('|');
 
 // A plugin status that means THE SURFACE WAS NOT READ. `ran` is the only status that licenses a
 // comparison; the rest are the machine saying so itself.

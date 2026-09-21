@@ -18,6 +18,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { describeFinding } from './cloud_finding_summary.mjs';
+import { canonicaliseResource } from './finding_identity.mjs';
 import { censusFindingContainers } from './report_finding_census.mjs';
 import {
   RUN_RECORD_SCHEMA, UNPARSEABLE, runRecordPath, listRunRecords, readRunRecord,
@@ -134,6 +135,10 @@ const envId = (e) => (e?.id != null ? String(e.id) : null);
 export function shapeFinding(host, f, plugin = null, pluginName = null) {
   const severity = f?.severity != null ? String(f.severity).toUpperCase() : 'INFO';
   const port = f?.port ?? null;
+  // The finding's OWN region, from its own field — never a default and never inferred. Nothing
+  // can be decoration without it, and guessing one would strip a legitimately region-named
+  // object. `null` for every non-regional producer, which is most of them.
+  const region = typeof f?.region === 'string' && f.region.length > 0 ? f.region : null;
   // ⚠️ THE REPORT USED TO READ `f.title` ALONE, AND NO SHIPPED PLUGIN EMITS IT.
   // Measured at Gate 3-B on the installed 0.44.0 trio: 27 of 29 EE plugins carry no
   // `title:` field, no CE plugin carries one, and exactly three `findings.push` sites
@@ -179,7 +184,22 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // normalises to the same {host, port, severity, title} and a cross-run delta collapses them —
     // masking a NEW exposure behind a surviving one. Dropping it here would defeat the delta's
     // identity key from outside the delta, with the delta's own tests still green.
-    resource: f?.resource ?? f?.target ?? f?.details?.resource ?? null,
+    // ⚠️ CANONICALISED, NOT RAW (board E1). EE's `utils/aws_region_scan.mjs::_stampRegion`
+    // rewrote this field on every finding routed through `forEachRegion`: a finding with no
+    // resource got the REGION as its object identity, and a finding with one got ` [<region>]`
+    // appended. E1 stops both at the producer, but the PUBLISHED CE 0.2.54 already wrote
+    // baselines full of the decorated values and `RUN_RECORD_SCHEMA` is 1 on both sides — so
+    // those baselines compare as commensurable. Canonicalising here is what makes that true:
+    // the same object computes the same key whichever side of the upgrade wrote it. Shared with
+    // EE's MTTR fingerprint so the two comparison channels cannot disagree about identity.
+    resource: canonicaliseResource(f?.resource ?? f?.target ?? f?.details?.resource ?? null, region),
+    // ⚠️ THE REGION AS ITS OWN FIELD, which it has never been on this shape. Before E1 the
+    // region reached both identity and the READER only through the decoration above — this file
+    // mentioned `region` zero times — so removing the suffix without adding the field would take
+    // the region out of an assessor's view and out of the delta's key at the same time. It is a
+    // FIELD and never a suffix: a suffix is a value change that fabricates churn across an
+    // upgrade, a field is recomputed identically on both sides of any comparison.
+    region,
     // ⚠️ AN EVIDENCE GAP IS SCOPE, NOT A FINDING, and the delta cannot tell them apart without
     // this. A gap record says "the scanner could not read this surface" — so a finding that
     // vanished behind one was not fixed, nobody looked. It is carried on the finding rather than
