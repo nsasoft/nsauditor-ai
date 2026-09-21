@@ -38,6 +38,13 @@ export async function recordScan(outputDir, summary) {
     // `computeDiff` refuses to subtract across that boundary rather than reporting a fabricated
     // "+N new" on the first scan after an upgrade.
     findingsCountBasis: summary.findingsCountBasis ?? null,
+    // ⚠️ WHICH TIER COUNTED IT (board E9). The tiers do not count the same things: Enterprise
+    // writes a finding QUEUE that Community never produces, and `findingsCount` is shaped by the
+    // report loader, which reads it. So a Community → Pro upgrade would otherwise report "+N new
+    // findings" on the free webhook the day the queue first appears — no estate changed, the
+    // COUNTER changed. `computeDiff` refuses across a tier boundary for the same reason it
+    // refuses across a basis boundary, and this field is what makes that refusal possible.
+    tier: summary.tier ?? null,
     // review re-fold R-1: persist the cloud/service split so a cloud (--host aws)
     // scan's findings are machine-visible in history (findingsCount already
     // includes them; this surfaces how many came from cloud auditors).
@@ -96,6 +103,14 @@ export async function getLastScan(outputDir, host) {
  * @param {object|null} previous - previous scan summary (null for first scan)
  * @returns {object} diff object
  */
+/**
+ * Why `computeDiff` refused to subtract two lines. DECLARED, because a reason string invented at
+ * a call site is one no consumer can switch on; held in two-way equality with what the function
+ * actually emits by `tests/scan_history_tier_comparability.test.mjs`, so a new reason must join
+ * the set and a retired one must leave it.
+ */
+export const NOT_COMPARABLE_REASONS = ['basis-changed', 'tier-changed', 'tier-unknown'];
+
 export function computeDiff(current, previous) {
   if (!previous) {
     return {
@@ -103,6 +118,8 @@ export function computeDiff(current, previous) {
       removedServices: [],
       changedServices: [],
       newFindings: current?.findingsCount ?? 0,
+      findingsNotComparable: false,
+      findingsNotComparableReason: null,
       summary: 'No previous scan for comparison.',
     };
   }
@@ -158,7 +175,38 @@ export function computeDiff(current, previous) {
   // compare with each other: they are commensurable, and refusing would break a working
   // comparison for a customer who has not rescanned yet.
   const basisOf = (rec) => rec?.findingsCountBasis ?? null;
-  const findingsComparable = basisOf(current) === basisOf(previous);
+  const basisChanged = basisOf(current) !== basisOf(previous);
+
+  // ⚠️ THE TIER BOUNDARY (board E9), and its carve-out mirrors the basis one deliberately: two
+  // lines that BOTH lack a tier still compare. Neither of them can have carried a queue, so they
+  // are commensurable, and refusing would break a working comparison for a customer who has not
+  // rescanned since the field landed — the same judgement made for pre-1.1.0 lines above.
+  // ABSENT-vs-PRESENT is refused, because that is exactly the shape an upgrade takes.
+  const tierOf = (rec) => rec?.tier ?? null;
+  const tierChanged = tierOf(current) !== tierOf(previous);
+  // ⚠️ NO `tierChanged &&` HERE, and its deletion is a MEASUREMENT rather than a tidy-up. With
+  // the verdict gate below, this value is only ever read when the comparison was already refused,
+  // so in the branch that reads it `tierChanged` is necessarily true — the conjunct was dead. It
+  // and the gate each made the other unfalsifiable: BOTH mutants survived, each masked by its
+  // twin, which is the pair-masking shape this repo has recorded before. One mechanism is kept
+  // (the gate, because it holds the invariant by construction for every future branch) and the
+  // redundant one is removed, so the kept one is mutant-provable.
+  const tierUnknown = tierOf(current) === null || tierOf(previous) === null;
+
+  const findingsComparable = !basisChanged && !tierChanged;
+  // Precedence is deterministic and the WIDER boundary wins: a basis change is the older and
+  // more fundamental incommensurability, so it names the refusal when both apply. The tier fact
+  // is still stated in the summary rather than dropped — a reader needs both.
+  // ⚠️ THE REASON IS GATED ON THE VERDICT, so "non-null reason ⟺ refused" holds BY CONSTRUCTION
+  // rather than by three branches agreeing. Found by a surviving mutant: with the reason computed
+  // independently, dropping the both-absent carve-out left `findingsNotComparable: false` sitting
+  // beside `reason: 'tier-unknown'` — a diff that says it compared AND says why it could not, and
+  // a consumer switching on the reason would refuse a comparison the verdict allowed.
+  const findingsNotComparableReason = findingsComparable ? null
+    : basisChanged ? 'basis-changed'
+      : tierUnknown ? 'tier-unknown'
+        : tierChanged ? 'tier-changed'
+          : null;
   const findingsDelta = findingsComparable
     ? (current?.findingsCount ?? 0) - (previous?.findingsCount ?? 0)
     : null;
@@ -176,8 +224,19 @@ export function computeDiff(current, previous) {
   }
   if (!findingsComparable) {
     // Said out loud, not omitted. A missing findings clause reads as "no findings changed".
-    parts.push('findings not comparable: the two scans counted findings on a different basis '
-      + `(${basisOf(previous) ?? 'pre-1.1.0'} → ${basisOf(current) ?? 'pre-1.1.0'}); rescan to compare`);
+    // BOTH facts when both apply: the reason names one boundary, the sentence states every one
+    // that was crossed, because a reader who is told only about the basis will rescan and be
+    // surprised again by the tier.
+    const why = [];
+    if (basisChanged) {
+      why.push('counted findings on a different basis '
+        + `(${basisOf(previous) ?? 'pre-1.1.0'} → ${basisOf(current) ?? 'pre-1.1.0'})`);
+    }
+    if (tierChanged) {
+      why.push(`ran at a different licence tier (${tierOf(previous) ?? 'unrecorded'} → `
+        + `${tierOf(current) ?? 'unrecorded'}), which counts a different set of findings`);
+    }
+    parts.push(`findings not comparable: the two scans ${why.join(', and ')}; rescan to compare`);
   } else if (findingsDelta !== 0) {
     const sign = findingsDelta > 0 ? '+' : '';
     parts.push(`findings delta: ${sign}${findingsDelta}`);
@@ -196,6 +255,7 @@ export function computeDiff(current, previous) {
     // here would send the fabricated alarm and a 0 would suppress a real one.
     newFindings: findingsDelta,
     findingsNotComparable: !findingsComparable,
+    findingsNotComparableReason,
     summary,
   };
 }

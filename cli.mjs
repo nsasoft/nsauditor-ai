@@ -1128,6 +1128,13 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       os: conclusion?.result?.host?.os ?? null,
       findingsCount,
       findingsCountBasis,
+      // ⚠️ THE TIER THAT PRODUCED THE COUNT (board E9), read from the SAME resolver this file
+      // already branches on twelve lines below, never re-derived. The tiers do not count the
+      // same things — Enterprise writes a finding queue that Community never produces — so
+      // `computeDiff` refuses to subtract across a tier boundary, and it can only do that if the
+      // line says which tier counted. Without this field every leg of that refusal is
+      // unreachable in production while its unit tests stay green.
+      tier: getTierFromEnv(),
       cloudFindingsCount,
       services: services.map((s) => ({
         port: s.port, protocol: s.protocol ?? 'tcp',
