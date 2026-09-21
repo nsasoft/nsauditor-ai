@@ -15,10 +15,24 @@ import { verifyRunChain, predecessorOf, buildRunRecordDigestIndex } from './run_
 import { buildScanDelta, SCAN_DELTA_SCHEMA, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
 import { loadRun } from './report_inputs.mjs';
 
+// ⚠️ WRITTEN, NOT REQUESTED — AND BOTH WHEN THEY DIFFER (board C5). This counted
+// `hostsRequested`, while the bucketing in `scan_delta.mjs` counts `hostsWritten`: G4's rule is
+// that scope is what a run WROTE, and it reached the verdicts without reaching the sentence that
+// EXPLAINS them. An interrupted baseline therefore printed `scope 2 host(s)` directly above
+// `host-not-scanned: host 10.0.0.9 was not scanned in the other run` — the line whose whole job
+// is to make that row make sense was the line that made it look like a bug. Same shape as G8,
+// where a per-row basis contradicted the limits block on the same page.
+//
+// Naming the gap rather than just correcting the number, because `1 of 2` is the fact an
+// operator needs: the baseline did not finish, which is why rows below are not comparable.
 const scopeOf = (rec) => {
-  const hosts = (rec?.hostsRequested ?? []).length;
+  const written = (rec?.hostsWritten ?? []).length;
+  const requested = (rec?.hostsRequested ?? []).length;
   const plugins = (rec?.pluginsRequested ?? []).join(', ') || 'none recorded';
-  return `${hosts} host(s) · plugins ${plugins}`;
+  const hosts = (requested && requested !== written)
+    ? `${written} of ${requested} host(s) written`
+    : `${written} host(s)`;
+  return `${hosts} · plugins ${plugins}`;
 };
 
 /** `prior` = the record immediately before the current one; otherwise an explicit runId. */
