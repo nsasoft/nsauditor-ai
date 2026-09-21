@@ -237,9 +237,17 @@ test('EXACTLY ONE RULE IN cli.mjs CAN MATCH A PUBLIC ADDRESS — counted by BEHA
     matchers.push(m[0].slice(0, 70));
   }
 
+  // ⚠️ DECLARED LIMIT: this reads regex LITERALS, so a rule built with `new RegExp(...)` — from a
+  // string constant, or assembled — is invisible to it. That is not hypothetical: rewriting the
+  // shared constant that way makes the extractor find nothing. The zero-matcher control below is
+  // what keeps that honest, and it is the reason the control exists: it turns "I could not see
+  // any rule" into a RED with its own sentence, rather than into a count of zero that reads
+  // exactly like "no duplicates". Named here so the next reader knows the shape of what this leg
+  // cannot see, instead of inferring coverage from a green line.
   assert.ok(matchers.length > 0,
-    'the extractor found NO address-matching literal at all — it is not reading the source, and a '
-    + 'count of zero would otherwise read as "no duplicates"');
+    'the extractor found NO address-matching literal at all — it is not reading the source (or the '
+    + 'rule is now built with `new RegExp`, which this leg cannot see), and a count of zero would '
+    + 'otherwise read as "no duplicates"');
   assert.equal(matchers.length, 1,
     `${matchers.length} regex literals in cli.mjs can match a public address:\n  `
     + `${matchers.join('\n  ')}\n`
