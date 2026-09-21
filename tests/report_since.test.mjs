@@ -254,6 +254,15 @@ test('SCOPE — a plugin that ERRORED on the host did not measure it, so its bas
   assert.doesNotMatch(r.stdout, /[1-9]\d* resolved/,
     'the plugin was attempted and FAILED — "requested" is not "measured", and the envelope says so on pluginStatus');
   assert.match(r.stdout, /NOT COMPARABLE/);
+  // ⚠️ THE BUCKET MUST NAME THE EVENT THAT HAPPENED. A producer DECLARING a gap and a plugin
+  // CRASHING both mean "not measured", but they are not the same event and the row is read by an
+  // auditor. The first draft reported this one as `evidence-gap` with the detail "the other run
+  // recorded an evidence gap … the plugin's status on that host was error" — the other run
+  // recorded nothing of the sort.
+  assert.match(r.stdout, /plugin-not-measured/,
+    'a crashed plugin is not a declared evidence gap, and the client-visible reason must say which happened');
+  assert.doesNotMatch(r.stdout, /recorded an evidence gap/,
+    'the sentence must be true about the run it describes');
 });
 
 test('SCOPE — a host that was REQUESTED and never WRITTEN was not scanned, whatever the record requested', async () => {

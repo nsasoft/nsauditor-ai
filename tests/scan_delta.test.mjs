@@ -52,8 +52,10 @@ test('a finding that vanished because the scanner LOST PERMISSION is NOT reporte
   // The gap record is SCOPE. It explains the row above; it is not itself a new exposure.
   assert.deepEqual(delta.newFindings, [], 'the gap record must never be bucketed as a finding');
   assert.deepEqual(delta.coverage.gapsInCurrent,
-    [{ host: '10.0.0.1', plugin: 'aws-iam', reason: 'Evidence gap: AccessDenied on iam:GetAccountSummary' }],
-    'and it must be NAMED under coverage, so a reader can find out which surface was unreadable');
+    [{ host: '10.0.0.1', plugin: 'aws-iam', kind: 'recorded-gap',
+      reason: 'Evidence gap: AccessDenied on iam:GetAccountSummary' }],
+    'and it must be NAMED under coverage, so a reader can find out which surface was unreadable — '
+    + 'with its KIND, because a producer declaring a gap and a plugin crashing are different events');
 });
 
 test('ACCEPT CASE — a genuinely fixed finding, fully in scope in both runs, IS reported resolved', () => {

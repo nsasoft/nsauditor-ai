@@ -119,15 +119,23 @@ const scopeOf = (side) => {
   // Gaps as the PRODUCER records them — on the finding, where they already ride.
   for (const fi of side?.findings ?? []) {
     if (fi?.evidenceGap === true && fi.plugin != null) {
-      gaps.set(`${fi.host}|${fi.plugin}`, fi.title ?? fi.detail ?? 'an evidence gap was recorded');
+      gaps.set(`${fi.host}|${fi.plugin}`,
+        { kind: 'recorded-gap', reason: fi.title ?? fi.detail ?? 'an evidence gap was recorded' });
     }
   }
   // And as the ENGINE records them: a plugin the host never successfully ran.
   for (const h of (Array.isArray(side?.pluginStatus) ? side.pluginStatus : [])) {
     for (const ps of (h?.status ?? [])) {
       if (!NOT_MEASURED_STATUS.has(ps?.status)) continue;
-      gaps.set(`${h.host}|${String(ps.id)}`,
-        `the plugin's status on that host was "${ps.status}"${ps.reason ? `: ${ps.reason}` : ''}`);
+      // ⚠️ A DIFFERENT KIND, AND THE DIFFERENCE IS CLIENT-VISIBLE. Both mean "this surface was not
+      // measured", so both belong in the same scope map — but a producer DECLARING a gap
+      // (AccessDenied, budget exceeded) and a plugin CRASHING are not the same event, and the
+      // first draft of this reported the second with the first's sentence: "the other run
+      // recorded an evidence gap … the plugin's status on that host was error". The other run
+      // recorded nothing of the sort. That sentence renders into the client's basis cell, which
+      // is the surface this whole engine exists to keep honest.
+      gaps.set(`${h.host}|${String(ps.id)}`, { kind: 'not-measured',
+        reason: `the plugin's status on that host was "${ps.status}"${ps.reason ? `: ${ps.reason}` : ''}` });
     }
   }
   return {
@@ -185,7 +193,13 @@ function incomparabilityReason(f, mine, theirs) {
     return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
   }
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
-  if (gap) return { reason: 'evidence-gap', detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap}` };
+  if (gap) {
+    return gap.kind === 'recorded-gap'
+      ? { reason: 'evidence-gap',
+        detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap.reason}` }
+      : { reason: 'plugin-not-measured',
+        detail: `${f.host}/${producerLabel(f)} was not measured in the other run — ${gap.reason}` };
+  }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
   // f.control`, and all three are absent through the shipped path — so the leg returned null and
   // the finding fell through to `resolved`. That is FAIL-OPEN, the opposite of the `plugin` gap:
@@ -215,9 +229,9 @@ function frameworkEnumerationEvaluable(mine, theirs) {
   return Boolean(mine?.frameworks && theirs?.frameworks);
 }
 
-const gapList = (scope) => [...scope.gaps.entries()].map(([k, reason]) => {
+const gapList = (scope) => [...scope.gaps.entries()].map(([k, g]) => {
   const i = k.indexOf('|');
-  return { host: k.slice(0, i), plugin: k.slice(i + 1), reason };
+  return { host: k.slice(0, i), plugin: k.slice(i + 1), kind: g.kind, reason: g.reason };
 });
 
 export function buildScanDelta({ baseline, current }) {
