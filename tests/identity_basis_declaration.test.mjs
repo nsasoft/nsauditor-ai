@@ -59,15 +59,24 @@ test('a producer that GAINED an identity is DECLARED, not reported as resolved +
   }
 });
 
-test('FOURTH QUADRANT — across the SAME version nothing is declared', () => {
-  // The leg that rots if the rule is written too wide: two 1.1.0 runs are commensurable, and a
-  // declaration that fired on them would throw away every comparison the feature exists for.
+// ⚠️ THE NEXT TWO LEGS USE A FINDING THAT DIFFERS ACROSS THE PAIR, AND THE FIRST DRAFT DID NOT.
+// They put the SAME finding — `sg-abc` on both sides — and asserted `notComparable.length === 0`.
+// A matched-unchanged row never reaches the not-comparable path at all, so that assertion holds
+// for ANY rule: a reviewing seat mutated the predicate to "always declare" and to a bidirectional
+// `cmpVersion(baseline, current) !== 0` and both stayed GREEN. The legs carrying the whole
+// one-directional design claim could not fail.
+//
+// A finding present in the BASELINE and absent from the CURRENT run is the shape that forces the
+// question: it must be reported RESOLVED, and it reaches the incomparability chain on its way
+// there, so a rule that declares too widely swallows a real remediation.
+test('FOURTH QUADRANT — across the SAME version a vanished finding is RESOLVED, not declared', () => {
   const d = buildScanDelta({
     baseline: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-abc' })]),
-    current: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-abc' })]),
+    current: side(REC({ eeVersion: '1.1.0' }), []),
   });
-  assert.equal(d.unchanged.length, 1);
-  assert.equal(d.notComparable.length, 0, 'same basis on both sides: nothing to declare');
+  assert.equal(d.resolved.length, 1,
+    'same basis on both sides: a finding that went away was FIXED, and saying otherwise hides it');
+  assert.equal(d.notComparable.length, 0, 'nothing to declare when neither side crossed a change');
 });
 
 test('FOURTH QUADRANT — a producer that did NOT move still compares across the upgrade', () => {
@@ -84,14 +93,28 @@ test('FOURTH QUADRANT — a producer that did NOT move still compares across the
   assert.equal(d.notComparable.length, 0);
 });
 
-test('the declaration is one-directional in VERSION — a NEWER baseline is not declared', () => {
-  // The basis changed AT 1.1.0. Two runs both at or after it are commensurable; the rule keys on
-  // the baseline predating the change, never merely on the versions differing.
+test('ONE-DIRECTIONAL — 1.1.0 → 1.2.0 resolves a vanished finding, it does not declare it', () => {
+  // The basis changed AT 1.1.0, so two runs both at or after it are commensurable. A rule keyed
+  // on the versions merely DIFFERING would declare here — and would go on declaring for every
+  // release after 1.1.0, for ever, quietly retiring the feature for these nine producers.
   const d = buildScanDelta({
     baseline: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-abc' })]),
-    current: side(REC({ eeVersion: '1.2.0' }), [F({ resource: 'sg-abc' })]),
+    current: side(REC({ eeVersion: '1.2.0' }), []),
   });
-  assert.equal(d.notComparable.length, 0, '1.1.0 → 1.2.0 does not cross this producer\'s change');
+  assert.equal(d.resolved.length, 1, '1.1.0 → 1.2.0 does not cross this producer\'s change');
+  assert.equal(d.notComparable.length, 0);
+});
+
+test('ONE-DIRECTIONAL — and the OTHER way: a NEWER baseline against an OLDER current', () => {
+  // The guard reads both orderings, so this pair crosses the change and IS declared. It is here
+  // because the implementation checks the predicate twice, and a leg that only ever drove one
+  // ordering would leave the second call unexercised.
+  const d = buildScanDelta({
+    baseline: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-abc' })]),
+    current: side(REC({ eeVersion: '1.0.0' }), []),
+  });
+  assert.equal(d.resolved.length, 0, 'a pair straddling the change may not report a remediation');
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['plugin-identity-basis-changed']);
 });
 
 test('the TABLE is exported and every entry names a version the comparison can order', () => {
