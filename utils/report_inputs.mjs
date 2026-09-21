@@ -166,8 +166,20 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
   // what every other caller titles. `description` in particular is NOT in REASON_KEYS, so
   // without this a zero-trust finding titles itself "MEDIUM finding (no description)".
   const contentIssues = issueTexts.length ? issueTexts : (explicitDetail ? [String(explicitDetail)] : []);
+  // ⚠️ THE CANONICAL RESOURCE IS COMPUTED HERE, ABOVE THE TITLE, BECAUSE THE TITLE EMBEDS IT —
+  // and canonicalising only the `resource` FIELD leaves the decoration alive in a second place
+  // that identity keys on. `describeFinding` renders the resource into the title it derives, so
+  // a pre-E1 baseline titled a finding `backup:account [eu-west-2] — …` while a post-E1 run
+  // titles the same finding `backup:account — …`. `title` is a component of the delta's identity
+  // key and of `id`, so the pair would read as resolved+new across the upgrade: the exact
+  // fabricated churn the canonicaliser exists to prevent, surviving in the field nobody looked
+  // at. Found by a leg that rendered the row and READ it, not by reasoning about the field.
+  const canonicalResource = canonicaliseResource(
+    f?.resource ?? f?.target ?? f?.details?.resource ?? null, region);
   const title = f?.title
-    ?? (contentIssues.length ? describeFinding({ ...f, issues: contentIssues }) : null);
+    ?? (contentIssues.length
+      ? describeFinding({ ...f, resource: canonicalResource, issues: contentIssues })
+      : null);
   const cves = Array.isArray(f?.cves) ? f.cves.map(String)
     : Array.isArray(f?.cve) ? f.cve.map(String) : [];
   // CE ships no KEV/EPSS store of its own (utils/scan_history.mjs comment at cli.mjs:2780):
@@ -192,7 +204,7 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // those baselines compare as commensurable. Canonicalising here is what makes that true:
     // the same object computes the same key whichever side of the upgrade wrote it. Shared with
     // EE's MTTR fingerprint so the two comparison channels cannot disagree about identity.
-    resource: canonicaliseResource(f?.resource ?? f?.target ?? f?.details?.resource ?? null, region),
+    resource: canonicalResource,
     // ⚠️ THE REGION AS ITS OWN FIELD, which it has never been on this shape. Before E1 the
     // region reached both identity and the READER only through the decoration above — this file
     // mentioned `region` zero times — so removing the suffix without adding the field would take

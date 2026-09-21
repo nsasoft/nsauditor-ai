@@ -512,7 +512,15 @@ export function buildScanDelta({ baseline, current }) {
       for (const f of list) {
         const k = keyOf(f);
         if ((seen.get(k) ?? 0) > 1 && !collide.some((c) => c.k === k)) {
-          collide.push({ k, text: `${side}: plugin ${f.plugin} · ${f.resource ?? 'no resource'} · `
+          // ⚠️ THE REGION IS NAMED WHEN THERE IS NO RESOURCE (board E1). This limit exists so a
+          // reader can ACT on a collision, which means it has to say WHICH object collided. The
+          // population that collides most is the one whose producer emits no resource at all —
+          // and before E1 those findings borrowed the REGION as their resource, so the limit
+          // read `us-east-1` and looked actionable. E1 correctly stops that borrowing, which
+          // would have left this limit saying `no resource` and nothing else. The region is a
+          // field now, so it is named as what it is rather than impersonating an object id.
+          const where = f.resource ?? (f.region ? `no resource · region ${f.region}` : 'no resource');
+          collide.push({ k, text: `${side}: plugin ${f.plugin} · ${where} · `
             + `"${String(f.title ?? '').slice(0, 80)}" ×${seen.get(k)}` });
         }
       }

@@ -542,8 +542,23 @@ test('the CLIENT ARTIFACT basis names the current run’s integrity, through the
 // audit-evidence-samples/ee-1.1.0's AWS envelope, not invented.
 // ════════════════════════════════════════════════════════════════════════════════════════════
 
+// ⚠️ RE-DERIVED AT BOARD E1, EXACTLY AS THIS TEST'S OWN PREMISE ASSERTION INSTRUCTS — "the
+// truncation moved and this test must be re-derived rather than deleted".
+//
+// `describeFinding` builds a title as `<resource> — <issue>` and clips it at 160 characters, so
+// where the distinguishing text falls depends on how long the resource prefix is. This fixture
+// is the bare-region case (`resource: 'us-east-1'`, which E1 canonicalises to null because a
+// region is not an object identity), so the prefix `us-east-1 — ` — twelve characters — VANISHED
+// and every port slid twelve characters earlier, to just INSIDE the clip. The titles became
+// distinct and the premise stopped holding: the test would then have passed for a reason that
+// has nothing to do with what it measures, which is that `contentDigest` and `identityQualifier`
+// separate rules the TITLE cannot.
+//
+// The group name is lengthened to push the ports back past the clip. Deriving it rather than
+// eyeballing: the prefix up to `[` must exceed 160 characters.
+const SG_NAME = 'nsauditor-exposed-sg-perimeter-ingress';
 const sgIssue = (port, name) =>
-  `Security Group 'sg-0def2fbb3db67eae5' (name='nsauditor-exposed-sg', vpc='vpc-0f82f090d58df59e0') `
+  `Security Group 'sg-0def2fbb3db67eae5' (name='${SG_NAME}', vpc='vpc-0f82f090d58df59e0') `
   + `permits tcp ingress from 0.0.0.0/0 to restricted port(s) [${port} ${name}]. CC6.6 perimeter `
   + 'CRITICAL: management and data-store ports must never be world-open.';
 
@@ -554,7 +569,7 @@ const sgFinding = (port, name) => ({
   region: 'us-east-1',
   resource: 'us-east-1',
   details: { category: 'ec2-sg-ipv4-wildcard-restricted-port-ingress', groupId: 'sg-0def2fbb3db67eae5',
-    groupName: 'nsauditor-exposed-sg', vpcId: 'vpc-0f82f090d58df59e0',
+    groupName: SG_NAME, vpcId: 'vpc-0f82f090d58df59e0',
     protocol: 'tcp', fromPort: port, toPort: port, restrictedPortsCovered: [port] },
 });
 
@@ -603,7 +618,12 @@ test('G10 FOURTH QUADRANT — the SAME rule emitted twice STILL collapses, and S
   const limit = d.limits.find((l) => /collapsed to one identity/.test(l));
   assert.ok(limit, 'and the collapse must still be DISCLOSED');
   assert.match(limit, /010/, 'the limit must NAME the colliding identity by plugin');
-  assert.match(limit, /us-east-1/, 'and by resource, so a reader can act on it');
+  // ⚠️ BY REGION, NOT BY RESOURCE, SINCE BOARD E1 — and the change is the point. This producer
+  // emits NO resource; before E1 it borrowed the region as one, so this limit read `us-east-1`
+  // and looked like it was naming an object. It never was. E1 stops the borrowing, so the limit
+  // names the region AS a region — the same actionability, without the false identity.
+  assert.match(limit, /no resource/, 'the limit must say plainly that there is no object id');
+  assert.match(limit, /region us-east-1/, 'and name the region, so a reader can still act on it');
 });
 
 test('G10 MASKING — fix SSH, acquire MySQL: the new world-open port is REPORTED, not swallowed', async () => {

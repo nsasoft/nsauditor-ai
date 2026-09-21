@@ -266,3 +266,38 @@ test('BOUNDARY — GovCloud and EUSC suffixes strip; `[target-1]` is never touch
   assert.equal(v1({ resource: 'res [target-1]' }), 'res [target-1]',
     'not a region: identity is left whole');
 });
+
+// ── THE SECOND PLACE THE DECORATION LIVED ───────────────────────────────────────────────────
+import { shapeFinding } from '../utils/report_inputs.mjs';
+
+test('the TITLE is derived from the canonical resource — canonicalising the field is not enough', () => {
+  // ⚠️ FOUND BY RENDERING A ROW AND READING IT, not by reasoning about the field. `shapeFinding`
+  // canonicalises `resource`, but the title is produced by `describeFinding`, which renders the
+  // resource INTO the title string. Fed the raw finding, a pre-E1 baseline titled a finding
+  // `backup:account [eu-west-2] — …` while a post-E1 run titles the same finding
+  // `backup:account — …`.
+  //
+  // `title` is a component of BOTH the delta's identity key and the finding `id` hash, so the
+  // pair read as resolved + new across the upgrade — the exact fabricated churn the
+  // canonicaliser exists to prevent, surviving in the one field nobody had looked at. A repair
+  // that moves a value has to be checked everywhere that value is REACHABLE, not only where it
+  // is stored.
+  const pre = shapeFinding('aws', { issues: ['Backup vault policy not enforced'],
+    resource: 'backup:account [eu-west-2]', region: 'eu-west-2', severity: 'MEDIUM' }, 1130, 'b');
+  const post = shapeFinding('aws', { issues: ['Backup vault policy not enforced'],
+    resource: 'backup:account', region: 'eu-west-2', severity: 'MEDIUM' }, 1130, 'b');
+
+  assert.equal(pre.resource, post.resource, 'the field');
+  assert.equal(pre.title, post.title, 'and the TITLE, which identity also keys on');
+  assert.equal(pre.id, post.id, 'and therefore the id hashed over it');
+  assert.ok(!pre.title.includes('[eu-west-2]'), 'no decoration survives into the title');
+});
+
+test('a region that is NOT decoration still reaches the title — the strip must not overreach', () => {
+  // Fourth quadrant: an ARN embeds its region legitimately and the old stamper never touched it.
+  // Stripping it from the title would rename a real object.
+  const shaped = shapeFinding('aws', { issues: ['Queue is unencrypted'],
+    resource: 'arn:aws:sqs:us-east-1:123456789012:q', region: 'us-east-1', severity: 'HIGH' }, 1150, 'b');
+  assert.ok(shaped.title.includes('us-east-1'), 'the ARN keeps its region');
+  assert.equal(shaped.resource, 'arn:aws:sqs:us-east-1:123456789012:q');
+});

@@ -637,9 +637,24 @@ function deltaBasis(delta) {
 }
 
 function deltaRow(bucket, f, basis) {
+  // ⚠️ THE REGION RIDES THE RESOURCE CELL (board E1(b)). Until E1 the region reached this table
+  // only as a ` [<region>]` suffix that EE's region stamper had written INTO `resource` — which
+  // is also why the delta keyed identity on a decorated value. E1 removes the decoration and
+  // makes `region` a field, and the delta's key separates the regions correctly; but a reader
+  // sees this table, and six `backup:account` rows from six regions would render IDENTICALLY.
+  // Six indistinguishable rows in a change table is worse than a collapse — it reads as a
+  // rendering fault and a reader can act on none of them.
+  //
+  // It is appended to the cell rather than given a column of its own because most producers
+  // carry no region at all: a sixth column would be em-dashes on every network finding, which
+  // trains a reader to ignore the cell that matters. Absent region → the cell is exactly what
+  // it was before.
+  const resourceCell = f.region
+    ? `${escapeHtml(f.resource ?? '—')} <span class="delta-region">[${escapeHtml(f.region)}]</span>`
+    : escapeHtml(f.resource ?? '—');
   return `<tr class="delta-${bucket}"><td>${escapeHtml(bucket)}</td>`
     + `<td>${escapeHtml(f.title ?? '')}</td>`
-    + `<td>${escapeHtml(f.resource ?? '—')}</td>`
+    + `<td>${resourceCell}</td>`
     + `<td>${escapeHtml(String(f.severity ?? '—'))}</td>`
     + `<td>${escapeHtml(basis)}</td></tr>`;
 }
