@@ -12,7 +12,7 @@
 // the single thing the delta engine exists not to do.
 import { listRunRecords, readRunRecord } from './run_record.mjs';
 import { verifyRunChain } from './run_chain.mjs';
-import { buildScanDelta } from './scan_delta.mjs';
+import { buildScanDelta, CURRENT_UNCHAINED, CURRENT_CHAIN_LINK_BROKEN } from './scan_delta.mjs';
 import { loadRun } from './report_inputs.mjs';
 
 const scopeOf = (rec) => {
@@ -47,7 +47,13 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
 
   const chain = await verifyRunChain(outRoot, baseRec.runId);
   if (chain.status === 'chain-broken' || chain.status === 'chain-unreadable') {
-    err.push(`[report] REFUSED: the baseline is ${chain.status} — ${chain.reason}. `
+    // ⚠️ THE DECLARED CODE TRAVELS WITH THE PROSE. This refusal used to name only
+    // `chain.status`, so the vocabulary an operator could grep for (`baseline-chain-broken`,
+    // `baseline-integrity-unmeasurable`) appeared NOWHERE on any surface, while `buildScanDelta`
+    // carried both codes in branches this refusal made unreachable. Two names for one event, and
+    // the declared one was the unreachable one — found by the outcome census.
+    err.push(`[report] REFUSED: ${chain.status === 'chain-broken' ? 'baseline-chain-broken' : 'baseline-integrity-unmeasurable'}`
+      + ` — the baseline is ${chain.status}: ${chain.reason}. `
       + 'No finding can be called resolved against a baseline that may have been altered.');
     const others = (await listRunRecords(outRoot))
       .filter((r) => r?.runId && r.runId !== baseRec.runId && r.runId !== model.runId);
@@ -96,8 +102,7 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
   // the client artifact AND is echoed to stdout by the limits loop below.
   const viewLimits = [];
   if (curChain.status === 'chain-absent') {
-    viewLimits.push('The current run carries no integrity digest (it predates chained run records), '
-      + 'so alteration of the run being reported could not be ruled out.');
+    viewLimits.push(CURRENT_UNCHAINED);
   }
   if (curChain.linkBroken) {
     if (since === 'prior') {
@@ -115,9 +120,7 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
       }
       return { code: 2, out, err };
     }
-    viewLimits.push('This run\'s record names a predecessor whose bytes no longer exist (the record '
-      + 'was deleted or rewritten). The baseline used here was named explicitly, so it is the one that '
-      + 'was asked for — but the run chain covering this comparison is incomplete.');
+    viewLimits.push(CURRENT_CHAIN_LINK_BROKEN);
   }
 
   const loadedBase = await loadRun(outRoot, { runId: baseRec.runId, allowPartial: !!allowPartial }, { tier });

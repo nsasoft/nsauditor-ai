@@ -191,7 +191,15 @@ const scopeOf = (side) => {
     // ⚠️ AN ABSENT ORACLE IS NOT A CLEAN ONE. `[]` means "measured, no gaps"; MISSING means
     // nothing was measured, and the two must not render alike. Declared in `limits`, never
     // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
-    evaluable: Array.isArray(side?.pluginStatus),
+    // ⚠️ THIS READ `Array.isArray(side?.pluginStatus)` UNTIL THE OUTCOME CENSUS DROVE IT. Through
+    // the shipped path `side.pluginStatus` is `model.plugins.byHost`, which the loader ALWAYS
+    // builds — so the test was always true, `scope-not-evaluated` was dead, and a run that
+    // recorded no per-host plugin status rendered identically to one that recorded a clean
+    // status. That is the exact false clean the comment above forbids, living inside the guard
+    // written to prevent it. The loader now carries `pluginStatusRecorded` beside the defaulted
+    // array, and this asks the question the comment always meant.
+    evaluable: Array.isArray(side?.pluginStatus)
+      && side.pluginStatus.every((h) => h?.pluginStatusRecorded !== false),
     frameworks: side?.frameworkEnumeration ?? null,
   };
 };
@@ -272,6 +280,92 @@ export const FRAMEWORK_MOVEMENT_NOT_EVALUATED =
   + 'scans, findings that mapped to it may appear as resolved here. Compare the two runs\' '
   + 'framework coverage separately before treating any row as remediation.';
 
+export const BASELINE_UNCHAINED =
+  'The baseline carries no integrity digest (it predates chained run records), so alteration of '
+  + 'the baseline could not be ruled out.';
+
+export const EVIDENCE_GAPS_RECORDED =
+  'One or more EVIDENCE GAPS were recorded. A gap is a surface the scanner could not read, not a '
+  + 'finding: gaps are listed under coverage, and any finding a gap covers is reported as '
+  + 'not-comparable rather than as resolved.';
+
+// The stable head of the collision limit; the colliding identities are appended at the call site.
+export const IDENTITY_COLLAPSE =
+  'Two or more findings collapsed to one identity (same host, plugin, resource, port, rule '
+  + 'qualifier and content). Appearance and disappearance of individual instances cannot be '
+  + 'distinguished, so A NEW FINDING MAY BE MASKED by a surviving one that shares its identity. '
+  + 'Colliding identities: ';
+
+// ⚠️ THESE TWO ARE EMITTED BY `scan_delta_view.mjs`, AND THEY LIVE HERE ANYWAY. The vocabulary is
+// one module or it is two copies: the view imports them. Declaring them beside the view that
+// pushes them would put half the census's subject outside the export the census reads.
+export const CURRENT_UNCHAINED =
+  'The current run carries no integrity digest (it predates chained run records), so alteration '
+  + 'of the run being reported could not be ruled out.';
+
+export const CURRENT_CHAIN_LINK_BROKEN =
+  'The current run record names a predecessor whose bytes no longer exist (the record was deleted '
+  + 'or rewritten). The baseline used here was named explicitly, so it is the one that was asked '
+  + 'for \u2014 but the run chain covering this comparison is incomplete.';
+
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// THE OUTCOME VOCABULARY — ONE EXPORT, READ BY THE CENSUS, COPIED NOWHERE.
+//
+// ⚠️ WHY THIS EXISTS: a guard can be disarmed by a FIX THAT NARROWS ITS SUBJECT, with nothing
+// failing and nobody editing the guard. It happened twice in two commits in this lane. The census
+// (`tests/delta_outcome_census.test.mjs`) asserts SET EQUALITY between what is declared here and
+// what the SHIPPED entry point actually produces, so a narrowed trigger fails BY NAME. A new
+// outcome joins the census by being written here — incompleteness costs NOISE, never silence.
+// ⚠️ APPEND-ONLY under `SCAN_DELTA_SCHEMA = 1`, exactly as the reason codes are.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+
+// How much of a limit's sentence identifies it. A limit has no short code in its own text, so the
+// census probes its HEAD; the self-check refuses two limits whose heads collide.
+export const OUTCOME_PROBE_CHARS = 48;
+
+export const DECLARED_LIMITS = Object.freeze({
+  'baseline-unchained': BASELINE_UNCHAINED,
+  'chain-assurance': CHAIN_ASSURANCE_LABEL,
+  'framework-movement-not-evaluated': FRAMEWORK_MOVEMENT_NOT_EVALUATED,
+  'scope-not-evaluated': SCOPE_NOT_EVALUATED,
+  'evidence-gaps-recorded': EVIDENCE_GAPS_RECORDED,
+  'agent-scope-from-tier': AGENT_SCOPE_FROM_TIER,
+  'identity-collapse': IDENTITY_COLLAPSE,
+  'current-unchained': CURRENT_UNCHAINED,
+  'current-chain-link-broken': CURRENT_CHAIN_LINK_BROKEN,
+});
+
+const outcome = (species, probe) => Object.freeze({ species, probe });
+export const DECLARED_OUTCOMES = Object.freeze({
+  ...Object.fromEntries(NOT_COMPARABLE_REASONS.map((c) => [c, outcome('not-comparable', c)])),
+  ...Object.fromEntries(REFUSAL_REASONS.map((c) => [c, outcome('refusal', c)])),
+  ...Object.fromEntries(Object.entries(DECLARED_LIMITS)
+    .map(([c, text]) => [c, outcome('limit', text.slice(0, OUTCOME_PROBE_CHARS))])),
+});
+
+// ⚠️ NOT A WAIVER, AND NOT A BARE ALLOWLIST. Each member names the limit that DISCLOSES its
+// absence, and the census verifies that limit is actually produced — the same premise-checking
+// discipline as `DECLARED_ABSENT_FINDING_FIELDS` above, for the same reason: a carve-out whose
+// premise nobody re-checks is how an absence becomes a silent pass.
+export const DECLARED_UNREACHABLE_OUTCOMES = Object.freeze({
+  'run-record-schema-differs': {
+    reason: 'An EARLIER layer refuses first and this branch cannot be reached. `loadRun` pins the '
+      + 'run-record schema to the one this build understands and refuses any other outright, so two '
+      + 'records that both LOAD always agree on schema. The guard stays because it is the library '
+      + 'contract for a caller that builds a delta without the loader.',
+    instead: 'this build understands schema',
+  },
+  'framework-enumeration-changed': {
+    reason: 'Reaching this needs a framework enumeration on BOTH runs and a `control` on a finding. '
+      + 'Community ships no compliance data, `report_inputs.mjs` emits no control id, and '
+      + '`scan_delta_view.mjs` passes no frameworkEnumeration to buildScanDelta — so no CE run can '
+      + 'produce it. It stays declared because EE routing supplies exactly these inputs, and the '
+      + 'engine must refuse rather than report a de-enumerated control as remediated.',
+    disclosedBy: 'framework-movement-not-evaluated',
+  },
+});
+
 function frameworkEnumerationEvaluable(mine, theirs) {
   return Boolean(mine?.frameworks && theirs?.frameworks);
 }
@@ -345,7 +439,7 @@ export function buildScanDelta({ baseline, current }) {
       'the baseline integrity digest could not be read, so alteration of the baseline could neither be confirmed nor ruled out');
   }
   if (baselineIntegrity === 'chain-absent') {
-    limits.push('The baseline carries no integrity digest (it predates chained run records), so alteration of the baseline could not be ruled out.');
+    limits.push(BASELINE_UNCHAINED);
   }
   limits.push(CHAIN_ASSURANCE_LABEL);
   // Declared once for the whole comparison, not per finding: it is a property of the two RUNS.
@@ -371,9 +465,7 @@ export function buildScanDelta({ baseline, current }) {
     // harvests reasons by matching that phrase against every output line, so a LIMIT containing it
     // is read back as if it were a per-finding reason — an instrument the next seat reads,
     // reporting a bucket that no finding is in.
-    limits.push('One or more EVIDENCE GAPS were recorded. A gap is a surface the scanner could not '
-      + 'read, not a finding: gaps are listed under coverage, and any finding a gap covers is '
-      + 'reported as not-comparable rather than as resolved.');
+    limits.push(EVIDENCE_GAPS_RECORDED);
   }
   if ((baseline?.findings ?? []).some((f) => f.producerKind === 'agent')
     || (current?.findings ?? []).some((f) => f.producerKind === 'agent')) {
@@ -402,10 +494,7 @@ export function buildScanDelta({ baseline, current }) {
         }
       }
     }
-    limits.push('Two or more findings collapsed to one identity (same host, plugin, resource, port, rule '
-      + 'qualifier and content). Appearance and disappearance of individual instances cannot be distinguished, '
-      + 'so A NEW FINDING MAY BE MASKED by a surviving one that shares its identity. Colliding identities: '
-      + collide.map((c) => c.text).join(' | '));
+    limits.push(IDENTITY_COLLAPSE + collide.map((c) => c.text).join(' | '));
   }
 
   const resolved = [];

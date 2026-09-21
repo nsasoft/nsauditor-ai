@@ -114,8 +114,17 @@ test('a chain-BROKEN baseline refuses, LISTS the verified alternatives, and does
   // It survived because the three assertions around it are precise; one loose assertion among
   // tight ones is invisible, because the test reads as rigorous and IS rigorous about the rest.
   assert.equal(r.code, 2, 'a tampered baseline is a REFUSAL (2), not a loadRun failure (1) and not a crash');
-  assert.match(r.stderr, /REFUSED: the baseline is chain-broken/,
-    'the refusal must NAME the tamper, not merely decline to produce a report');
+  // ⚠️ BOTH HALVES, and the pin got STRONGER rather than being re-pointed. The outcome census
+  // (`tests/delta_outcome_census.test.mjs`) found that `baseline-chain-broken` — a code this
+  // engine DECLARES — appeared on no surface anywhere, because this refusal named only
+  // `chain.status` while the declared code sat in a `buildScanDelta` branch the refusal made
+  // unreachable. Two names for one event, and the greppable one was the unreachable one. The
+  // refusal now carries the declared code AND the prose, so this asserts both: a future edit that
+  // drops either half fails here by name.
+  assert.match(r.stderr, /REFUSED: baseline-chain-broken/,
+    'the refusal must name the DECLARED code, which is the token an operator greps for');
+  assert.match(r.stderr, /the baseline is chain-broken/,
+    'the refusal must NAME the tamper in prose too, not merely decline to produce a report');
   assert.doesNotMatch(r.stdout, /resolved/i, 'bucket-a must NOT be reported resolved off a broken baseline');
   assert.match(r.stderr + r.stdout, new RegExp(oldest), 'the operator must be told which earlier records are chain-verified');
   assert.doesNotMatch(r.stdout, new RegExp(`baseline[^\\n]*${oldest}`, 'i'),

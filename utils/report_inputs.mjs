@@ -362,6 +362,15 @@ function shapeHost(host, dir, raw) {
   return {
     host, dir, up, findings,
     pluginStatus: Array.isArray(raw.pluginStatus) ? raw.pluginStatus : [],
+    // ⚠️ THE DEFAULT ABOVE ERASES THE ONE DISTINCTION `scan_delta.mjs` INSISTS ON. Its `scopeOf`
+    // says in as many words that `[]` means "measured, no gaps" while MISSING means nothing was
+    // measured, and that the two must not render alike — and then reads `Array.isArray(...)` over
+    // a value this loader guarantees is an array, so the question is always true and the
+    // `scope-not-evaluated` disclosure could never fire. The default stays (every consumer
+    // iterates it), and the answer travels BESIDE it. Same loader-boundary class as the dropped
+    // `plugin` / `resource` / `control` fields: the distinction was preserved in the consumer and
+    // destroyed here, before the consumer ever saw it.
+    pluginStatusRecorded: Array.isArray(raw.pluginStatus),
   };
 }
 
@@ -378,7 +387,8 @@ function buildModel(rec, hosts, counts) {
     // (`--host 10.0.0.7,10.0.0.7`, a repeated --host-file line, an overlapping range — none of
     // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
     // silently drops every same-named host's own plugin table but the final one's.
-    plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus });
+    plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus,
+      pluginStatusRecorded: h.pluginStatusRecorded });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;
