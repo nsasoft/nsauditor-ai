@@ -144,7 +144,6 @@ const scopeOf = (side) => {
     // nothing was measured, and the two must not render alike. Declared in `limits`, never
     // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
     evaluable: Array.isArray(side?.pluginStatus),
-    eeEnabled: (rec.eeVersion ?? null) !== null,
     frameworks: side?.frameworkEnumeration ?? null,
   };
 };
