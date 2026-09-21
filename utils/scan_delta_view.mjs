@@ -88,9 +88,16 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
       + 'No finding can be called new or resolved when the run being REPORTED may have been altered.');
     return { code: 2, out, err };
   }
+  // ⚠️ COLLECTED, NOT PRINTED. These are facts about the RUNS that the engine cannot derive — it
+  // is deliberately filesystem-free — so the view supplies them. Pushing them to `out` alone would
+  // put them on STDOUT ONLY: read by the operator, who knows what the tool does, and absent from
+  // the HTML read by the person being billed. That is the stdout-only shape this lane already
+  // retired once, for the not-comparable count. They go into `delta.limits`, which renders into
+  // the client artifact AND is echoed to stdout by the limits loop below.
+  const viewLimits = [];
   if (curChain.status === 'chain-absent') {
-    out.push('[report]   LIMIT: the current run carries no integrity digest (it predates chained run '
-      + 'records), so alteration of the run being reported could not be ruled out.');
+    viewLimits.push('The current run carries no integrity digest (it predates chained run records), '
+      + 'so alteration of the run being reported could not be ruled out.');
   }
   if (curChain.linkBroken) {
     if (since === 'prior') {
@@ -108,9 +115,9 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
       }
       return { code: 2, out, err };
     }
-    out.push('[report]   LIMIT: this run\'s record names a predecessor whose bytes no longer exist '
-      + '(the record was deleted or rewritten). The baseline below was named explicitly, so it is the '
-      + 'one you asked for — but the run chain covering this comparison is incomplete.');
+    viewLimits.push('This run\'s record names a predecessor whose bytes no longer exist (the record '
+      + 'was deleted or rewritten). The baseline used here was named explicitly, so it is the one that '
+      + 'was asked for — but the run chain covering this comparison is incomplete.');
   }
 
   const loadedBase = await loadRun(outRoot, { runId: baseRec.runId, allowPartial: !!allowPartial }, { tier });
@@ -128,13 +135,15 @@ export async function buildSinceView({ outRoot, model, since, allowPartial, tier
   const delta = buildScanDelta({
     baseline: { record: baseRec, findings: loadedBase.model.findings, integrity: chain.status,
       pluginStatus: loadedBase.model.plugins.byHost },
-    current: { record: currentRec, findings: model.findings, pluginStatus: model.plugins.byHost },
+    current: { record: currentRec, findings: model.findings, pluginStatus: model.plugins.byHost,
+      integrity: curChain.status },
   });
 
   if (!delta.comparable) {
     err.push(`[report] REFUSED: ${delta.refusal.reason} — ${delta.refusal.detail}`);
     return { code: 2, out, err };
   }
+  delta.limits.push(...viewLimits);
 
   out.push(`[report] delta vs ${baseRec.runId}: ${delta.newFindings.length} new · `
     + `${delta.resolved.length} resolved · ${delta.changed.length} changed · `

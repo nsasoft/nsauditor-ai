@@ -268,7 +268,7 @@ export function buildScanDelta({ baseline, current }) {
   const refuse = (reason, detail) => ({
     schema: SCAN_DELTA_SCHEMA, comparable: false, refusal: { reason, detail },
     newFindings: [], resolved: [], unchanged: [], changed: [], notComparable: [],
-    baselineIntegrity: null, limits: [detail],
+    baselineIntegrity: null, currentIntegrity: null, limits: [detail],
   });
 
   // ── Whole-comparison refusals. Each is a case where NO per-finding verdict is trustworthy.
@@ -310,6 +310,11 @@ export function buildScanDelta({ baseline, current }) {
   // ── Baseline integrity. A broken chain means the baseline on disk is not the baseline that was
   // written, so every verdict derived from it is unsound — refuse rather than annotate.
   const baselineIntegrity = baseline?.integrity ?? 'chain-absent';
+  // ⚠️ THE CURRENT RUN IS ALTERABLE TOO, and until T3 nothing could verify it. A basis that names
+  // only the baseline describes half the evidence the verdict rests on. Unlike the baseline this
+  // one is never a refusal HERE — the view refuses on it before the engine is called, because the
+  // engine is deliberately filesystem-free and integrity is a fact about bytes on disk.
+  const currentIntegrity = current?.integrity ?? null;
   if (baselineIntegrity === 'chain-broken') {
     return refuse('baseline-chain-broken',
       'the baseline run record does not match its recorded digest: it was altered, truncated or partially restored after the run');
@@ -397,7 +402,7 @@ export function buildScanDelta({ baseline, current }) {
   return {
     schema: SCAN_DELTA_SCHEMA, comparable: true, refusal: null,
     newFindings, resolved, unchanged, changed, notComparable,
-    baselineIntegrity, limits,
+    baselineIntegrity, currentIntegrity, limits,
     coverage: {
       hostsOnlyInBaseline: [...bScope.hosts].filter((h) => !cScope.hosts.has(h)),
       hostsOnlyInCurrent: [...cScope.hosts].filter((h) => !bScope.hosts.has(h)),

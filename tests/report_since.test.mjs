@@ -458,3 +458,61 @@ test('ACCEPT — a LEGACY current run (no digest at all) still compares, with th
   assert.match(r.stdout, /current run carries no integrity digest/,
     'but the reader must be told the run being reported was not covered');
 });
+
+test('the current-side disclosures reach the CLIENT ARTIFACT, not only stdout', async () => {
+  // ⚠️ THE STDOUT-ONLY SHAPE THIS LANE ALREADY RETIRED ONCE, for the not-comparable count. stdout
+  // is read by the OPERATOR, who knows what the tool does; the HTML is read by the person being
+  // billed. A caveat that exists only on stdout is a caveat the reader of the deliverable never
+  // meets — which is the whole reason the per-row basis rides the ROW rather than a footnote.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-discl-'));
+  const sealed = (id) => fs.readFileSync(chainDigestPath(outRoot, id), 'utf8').trim();
+  const A = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: null });
+  const B = await mkRun(outRoot, { startedAt: '2026-09-04T10:00:00.000Z', findings: [s3('bucket-a')], prevDigest: sealed(A) });
+  const C = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], prevDigest: sealed(B) });
+  fs.rmSync(runRecordPath(outRoot, B));
+  fs.rmSync(chainDigestPath(outRoot, B));
+  const outFile = path.join(outRoot, 'report.html');
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: C, since: A, out: outFile }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  const html = fs.readFileSync(outFile, 'utf8');
+  assert.match(html, /predecessor/i,
+    'the broken-link disclosure must ride the artifact the client receives, not just the terminal');
+});
+
+test('the current-side chain-ABSENT disclosure reaches the CLIENT ARTIFACT too', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-discl2-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [] });
+  const recPath = runRecordPath(outRoot, current);
+  const legacy = JSON.parse(fs.readFileSync(recPath, 'utf8'));
+  delete legacy.prevDigest;
+  fs.writeFileSync(recPath, JSON.stringify(legacy), 'utf8');
+  fs.rmSync(chainDigestPath(outRoot, current));
+  const outFile = path.join(outRoot, 'report.html');
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline, out: outFile }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(fs.readFileSync(outFile, 'utf8'), /current run carries no integrity digest/);
+});
+
+test('the CLIENT ARTIFACT basis names the current run’s integrity, through the real path', async () => {
+  // ⚠️ WRITTEN BECAUSE A MUTANT SURVIVED. The module-level leg in executive_report_delta.test.mjs
+  // asserts the basis renders `current <status>` when `buildScanDelta` is HANDED one — so removing
+  // `integrity: curChain.status` from the VIEW left every test green while the client artifact
+  // silently fell back to "current not recorded". That is the seam this whole lane exists over: a
+  // module-level drive cannot see a field the seam stops passing, and the engine is deliberately
+  // filesystem-free so the view is the only thing that can know this.
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-basis-'));
+  const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-c')] });
+  const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [] });
+  const outFile = path.join(outRoot, 'report.html');
+
+  const r = await runReport({ from: outRoot, format: 'executive', run: current, since: baseline, out: outFile }, PRO());
+  assert.equal(r.code, 0, r.stderr);
+  const html = fs.readFileSync(outFile, 'utf8');
+  assert.match(html, /baseline chain-verified · current chain-verified/,
+    'both sides are verifiable since T3, and the row that asserts remediation must say so for BOTH');
+  assert.doesNotMatch(html, /current not recorded/,
+    'the fallback exists for a record the view could not measure, not for a field the view forgot to pass');
+});

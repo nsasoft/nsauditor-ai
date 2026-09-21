@@ -27,6 +27,9 @@
 // vocabulary, even where the producer (report_inputs.mjs) is expected to constrain it.
 
 import { escapeHtml } from './brand.mjs';
+// The two evaluability SENTINELS, imported so the per-row basis is keyed on identity rather
+// than on prose. `scan_delta.mjs` imports nothing from here, so there is no cycle.
+import { SCOPE_NOT_EVALUATED, FRAMEWORK_MOVEMENT_NOT_EVALUATED } from './scan_delta.mjs';
 
 /* ------------------------------------------------------------------------------------------
  * egressViolations — deny-by-default. Two levels: every TAG, then EVERY attribute of it
@@ -613,9 +616,24 @@ function describeBrand(v) {
 // keeps while emptying it of force, and this lane has already watched a bare COUNT survive a
 // mutation battery on the easier stdout surface. The reader of this document does not know what
 // the tool does; the operator did.
+// ⚠️ DERIVED FROM THE LIMITS IN FORCE, NEVER WRITTEN AS A CONSTANT. This returned a fixed
+// sentence — "host, plugin, scope and framework enumeration present in both runs" — beside every
+// resolved / new / changed row, on a page whose own limits block said framework movement was NOT
+// EVALUATED and (before scope was threaded) that scope never was either. The page contradicted
+// itself, and of the two the ROW is the one that has to be true: the limit is what a compression
+// pass deletes, and the row is what a reader sees beside the word `resolved`.
+//
+// ⚠️ KEYED ON THE EXPORTED SENTINELS, NEVER ON PROSE. Matching the limit text would rot the first
+// time somebody copy-edits a sentence, and it would rot SILENTLY in the direction that overstates.
 function deltaBasis(delta) {
-  return `comparable: host, plugin, scope and framework enumeration present in both runs; `
-    + `baseline ${delta.baselineIntegrity}`;
+  const limits = delta.limits ?? [];
+  const scopeEvaluated = !limits.includes(SCOPE_NOT_EVALUATED);
+  const fwEvaluated = !limits.includes(FRAMEWORK_MOVEMENT_NOT_EVALUATED);
+  const legs = ['host', 'plugin', scopeEvaluated ? 'scope' : null].filter(Boolean).join(', ');
+  const fw = fwEvaluated ? 'present in both runs' : 'not evaluated';
+  // BOTH sides' integrity: the run being REPORTED is as alterable as the one compared against.
+  const integrity = `baseline ${delta.baselineIntegrity} · current ${delta.currentIntegrity ?? 'not recorded'}`;
+  return `comparable: ${legs} present in both runs; framework enumeration: ${fw}; ${integrity}`;
 }
 
 function deltaRow(bucket, f, basis) {

@@ -82,3 +82,73 @@ test('with NO delta the report is unchanged — the section is absent, never an 
   assert.doesNotMatch(html, /id="delta"/);
   assert.doesNotMatch(html, /Since last scan/i);
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// T5 / G8 — THE PER-ROW BASIS CONTRADICTED THE LIMITS BLOCK ON THE SAME PAGE.
+//
+// `deltaBasis` wrote a CONSTANT — "comparable: host, plugin, scope and framework enumeration
+// present in both runs" — beside every resolved / new / changed row, while the same page's limits
+// said framework movement was NOT EVALUATED and (before T2) scope never was either. The row is
+// what a reader sees beside the word `resolved`; the limit is what a compression pass deletes.
+// Of the two, the row is the one that has to be true.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+test('G8 — the basis NEVER claims a leg the limits say was not evaluated', async () => {
+  const { FRAMEWORK_MOVEMENT_NOT_EVALUATED } = await import('../utils/scan_delta.mjs');
+  const delta = buildScanDelta({
+    baseline: { record: rec(), findings: [s3('bucket-c')], integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: rec({ runId: 'R2' }), findings: [], pluginStatus: [] },
+  });
+  assert.ok(delta.limits.includes(FRAMEWORK_MOVEMENT_NOT_EVALUATED),
+    'the premise: this edition records no framework enumeration, so the limit must be present');
+  assert.equal(delta.resolved.length, 1);
+
+  const row = rowFor(render(delta), 'bucket-c');
+  // ⚠️ THE SAME LITERAL AS THE ACCEPT LEG BELOW, deliberately. The rendered form carries a colon
+  // ("framework enumeration: present in both runs"), so a negative written without it would pass
+  // trivially — including in the accept case — and the leg would be decoration.
+  assert.doesNotMatch(row, /framework enumeration: present in both runs/,
+    'the page cannot say in one cell that framework enumeration was present and in another that it was NOT EVALUATED');
+  assert.match(row, /framework enumeration: not evaluated/,
+    'and it must say so positively — dropping the clause would leave the reader to assume it was checked');
+});
+
+test('G8 — the basis names the leg as PRESENT when it genuinely was', () => {
+  // ⚠️ THE FOURTH QUADRANT, and the only leg that can catch a basis rewritten to say "not
+  // evaluated" unconditionally — which would pass the test above and understate the product.
+  const withFw = { record: rec(), findings: [s3('bucket-c')], integrity: 'chain-verified',
+    pluginStatus: [], frameworkEnumeration: ['CC6.1'] };
+  const delta = buildScanDelta({
+    baseline: withFw,
+    current: { record: rec({ runId: 'R2' }), findings: [], pluginStatus: [], frameworkEnumeration: ['CC6.1'] },
+  });
+  const row = rowFor(render(delta), 'bucket-c');
+  assert.match(row, /framework enumeration: present in both runs/,
+    'when both runs DO carry an enumeration, the basis must say so');
+  assert.doesNotMatch(row, /not evaluated/);
+});
+
+test('G8 — the basis reports BOTH sides’ integrity, because both are alterable', () => {
+  // T3 made the current run verifiable and T4 made it refuse; a basis that names only the baseline
+  // still describes half the evidence. `baseline <status> · current <status>`.
+  const delta = buildScanDelta({
+    baseline: { record: rec(), findings: [s3('bucket-c')], integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: rec({ runId: 'R2' }), findings: [], integrity: 'chain-absent', pluginStatus: [] },
+  });
+  const row = rowFor(render(delta), 'bucket-c');
+  assert.match(row, /baseline chain-verified/);
+  assert.match(row, /current chain-absent/,
+    'the run being REPORTED is as alterable as the one being compared against');
+});
+
+test('G8 — the basis omits SCOPE when scope could not be evaluated', () => {
+  // The SCOPE_NOT_EVALUATED case from T2, carried into the row: a side with no pluginStatus cannot
+  // be said to have had no gaps, so the row must not claim scope was present in both runs.
+  const delta = buildScanDelta({
+    baseline: { record: rec(), findings: [s3('bucket-c')], integrity: 'chain-verified', pluginStatus: [] },
+    current: { record: rec({ runId: 'R2' }), findings: [] },        // no pluginStatus: not evaluable
+  });
+  const row = rowFor(render(delta), 'bucket-c');
+  assert.doesNotMatch(row, /\bscope\b[^<]*present in both runs/,
+    'a page whose limits declare scope NOT EVALUATED cannot assert scope in its rows');
+});
