@@ -14,14 +14,32 @@ be compared and why**. The delta renders into the client-facing HTML report, not
 
 **"Resolved" is the dangerous verdict, not "new".** A finding that disappeared for any reason other
 than being fixed reads as remediation to a buyer and to an assessor. A finding is called resolved
-only when its host, plugin, scope and framework enumeration were in scope in BOTH runs; otherwise it
-is reported as NOT COMPARABLE **with its reason**, never silently dropped. Five ways a finding can
-vanish without being fixed are handled separately: the host was not scanned · the plugin did not run
-· an evidence gap (AccessDenied, budget exceeded, incomplete region enumeration) · the framework
-enumeration moved · the two runs straddle a product boundary where a reported number changed meaning.
+only when its host, plugin and scope were in scope in BOTH runs; otherwise it is reported as NOT
+COMPARABLE **with its reason**, never silently dropped, and every row that claims remediation
+carries the basis it rests on.
 
-**Baseline integrity, no keys.** Run records are sealed at finalize with a SHA-256 digest over the
-exact persisted bytes and chained through `prevDigest`, so an altered baseline is detected. The
+**SIX ways a finding can vanish without being fixed. FIVE are handled; the sixth is DECLARED, not
+handled, and the report says which.** The host was not scanned · the producing plugin did not run,
+errored, timed out, or cannot be identified · an evidence gap (AccessDenied, budget exceeded,
+incomplete region enumeration) · the two runs straddle a product boundary where a reported number
+changed meaning · the two runs ran at DIFFERENT LICENCE TIERS, so the set of producers that ran
+differs and a whole producer's findings would read as remediation — that one refuses the comparison
+outright. **The sixth is framework-enumeration movement, and this edition cannot evaluate it:** a
+run record carries no framework enumeration, so if a control stopped being enumerated between two
+scans, findings mapped to it could appear as resolved. The report states that as a LIMIT on every
+comparison and the per-row basis says `framework enumeration: not evaluated` rather than claiming a
+leg that was never checked.
+
+**Integrity, no keys — and the sentence names WHAT is sealed.** At finalize, the run record AND
+each written host's findings files (`scan_conclusion_raw.json`, `scan_finding_queue.json`) are
+digested over their exact persisted bytes; the per-file digests are sealed INSIDE the record, which
+is itself digested and chained through `prevDigest`. So an altered **findings file** — which is
+what the comparison actually reads — is detected and named, not merely an altered index. A file
+that did not exist at seal time is sealed as an explicit absence, so ADDING one is detected too.
+**BOTH runs are verified, not only the baseline**: the run being reported is as alterable as the one
+it is compared against. A file that cannot be READ is reported as unmeasurable rather than as
+tampering, and a record written before per-host sealing keeps its verdict while its reason says the
+findings files were not covered. The
 report states which of `chain-verified` / `chain-absent` / `chain-broken` applies **per row that
 claims remediation**, and says plainly what the guarantee is NOT: tamper-EVIDENT against accidental
 corruption, partial restore and unsophisticated edits — **not tamper-proof against an attacker with
