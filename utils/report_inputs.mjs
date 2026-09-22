@@ -306,8 +306,18 @@ function shapeQueueEntry(host, q) {
     plugin: q?.evidence?.source ?? null,
     pluginName: q?.evidence?.source ?? null,
     producerKind: q?.evidence?.source ? 'agent' : null,
-    // A queue entry is never a gap record: gaps are emitted by plugins into the host envelope.
-    evidenceGap: false,
+    // ⚠️ THIS WAS THE CONSTANT `false`, UNDER A COMMENT THAT SAID "a queue entry is never a gap
+    // record: gaps are emitted by plugins into the host envelope". Enterprise's CPE mapper emits
+    // SIX classes of coverage-gap record straight into this queue, and one of them exists purely
+    // to say "my discovery upstreams did not run" — so the premise was false about the code, and
+    // the seam discarded the only fact that record carried. Measured consequence on two real
+    // scans: three `[COVERAGE GAP] cpe_map_miss` rows that vanished because ten discovery plugins
+    // TIMED OUT were reported to the reader as REMEDIATED.
+    //
+    // The queue's vocabulary is `evidence.raw`, not `details` — a queue entry has no `details`.
+    // Exactly `true`, never merely truthy: a producer writing something else has a bug, and
+    // reading it as a declaration would make that producer's whole output un-differenceable.
+    evidenceGap: q?.evidence?.raw?.evidenceGap === true,
     id: q?.id ?? null,
   };
 }
