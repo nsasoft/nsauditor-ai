@@ -134,7 +134,7 @@ const PRODUCERS = {
       findings: [], scopeScanned: { unit: 'region', scanned: ['us-east-1'] } });
     return drive(outRoot, current, baseline);
   },
-  'plugin-identity-basis-changed': async () => {
+  'identity-basis-changed': async () => {
     // ⚠️ DRIVEN THROUGH THE SHIPPED ENTRY POINT LIKE EVERY OTHER OUTCOME. Plugin 1170 is in
     // `IDENTITY_BASIS_CHANGED_AT`: before EE 1.1.0 it claimed the REGION as its object, and now
     // it names the security group. The baseline is written by a 1.0.0 run whose finding carries

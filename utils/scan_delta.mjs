@@ -41,7 +41,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   'evidence-gap',                  // a producer DECLARED it could not read the surface
   'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
-  'plugin-identity-basis-changed', // the producer changed WHAT IT NAMES between the two releases
+  'identity-basis-changed',        // the producer changed WHAT IT NAMES between the two releases
   'scope-not-scanned',             // the finding's coverage unit was outside the OTHER run's recorded scope
 ]);
 
@@ -131,6 +131,29 @@ export function identityBasisChanged(plugin, baselineEeVersion, currentEeVersion
   if (!at) return false;
   return cmpVersion(baselineEeVersion, at) < 0 && cmpVersion(currentEeVersion, at) >= 0;
 }
+
+// ⚠️ THERE IS NO DISPLAY-LABEL MAP HERE, AND THE REASON IS A MEASUREMENT.
+//
+// `plugin-identity-basis-changed` was named when every declared producer WAS a plugin. EE 1.1.0
+// declares an analysis AGENT, and both render seams build their cell as `${f.reason}: ${f.detail}`
+// — so the row read "plugin-identity-basis-changed: producer intelligence_engine changed what it
+// names ...", detail repaired and CODE still asserting "plugin" about an agent.
+//
+// The first repair added a render-time LABEL map and kept the code, justified by: "the vocabulary
+// is append-only under SCAN_DELTA_SCHEMA; renaming changes what a consumer's stored verdicts
+// MEAN." That premise is CHECKABLE and was not checked. Measured against the published artifact
+// rather than against git — git answers about the repo, not about what a consumer holds —
+// `npm pack nsauditor-ai@0.2.54` does not contain THIS FILE at all, and the string appears
+// nowhere in those bytes (positive control: `utils/report_inputs.mjs` present, 47 files in
+// `utils/`). The engine is unpublished: zero stored verdicts carry the code, and no guard in
+// either repo ever stated the append-only rule.
+//
+// The map was also actively worse than the rename. It was a SECOND COPY of the outcome's spelling,
+// free to drift from the code it stood in for; and it moved ONE of two human surfaces, so the
+// terminal said `plugin-identity-basis-changed` while the client HTML said `identity basis
+// changed` — one outcome under two names, which makes a support call unanswerable. The code is
+// renamed instead: one spelling, true of a plugin and of an agent alike, on every surface that
+// interpolates it — including any seam added later, which a per-seam label can never cover.
 
 // Whole-comparison refusals: cases where NO per-finding verdict is trustworthy, so none is offered.
 export const REFUSAL_REASONS = Object.freeze([
@@ -513,7 +536,7 @@ function incomparabilityReason(f, mine, theirs) {
   if (identityBasisChanged(f.plugin, mine.eeVersion, theirs.eeVersion)
     || identityBasisChanged(f.plugin, theirs.eeVersion, mine.eeVersion)) {
     const at = IDENTITY_BASIS_CHANGED_AT[f.plugin];
-    return { reason: 'plugin-identity-basis-changed',
+    return { reason: 'identity-basis-changed',
       // ⚠️ "producer" FOR AN AGENT. This sentence renders into the client artifact's basis cell,
       // and it hardcoded "plugin" — harmless while every declared producer WAS one, and false the
       // moment an analysis agent joined the table. It was UNREACHABLE for an agent until that

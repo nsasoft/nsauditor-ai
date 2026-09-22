@@ -678,6 +678,10 @@ ${escapeHtml(delta.refusal.detail)}</p>
     ...delta.newFindings.map((f) => deltaRow('new', f, deltaBasis(delta))),
     ...delta.changed.map((f) => deltaRow('changed', f, `${deltaBasis(delta)}; severity ${escapeHtml(String(f.from))} → ${escapeHtml(String(f.to))}`)),
     // The reason rides the row, not a legend.
+    // ⚠️ THE CODE IS PRINTED VERBATIM, AND THAT IS THE DESIGN. A render-time label map was tried
+    // here and reverted: it moved this seam and left the terminal's, so one outcome carried two
+    // names. The noun that made a code wrong in front of a human was removed from the CODE
+    // instead, which fixes every seam at once. See `NOT_COMPARABLE_REASONS` in scan_delta.mjs.
     ...delta.notComparable.map((f) => deltaRow('not-comparable', f, `${f.reason}: ${f.detail}`)),
   ].join('\n');
 

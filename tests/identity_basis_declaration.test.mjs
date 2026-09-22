@@ -11,7 +11,7 @@
 // remediation and a fabricated exposure in the same table. The operator chose per-producer
 // DECLARATION over bumping the schema (which would refuse every pre-upgrade baseline outright,
 // including for the ~20 producers that did not move), so the cost is paid in DISCLOSURE: the
-// affected producer's rows are reported under `plugin-identity-basis-changed` and every other
+// affected producer's rows are reported under `identity-basis-changed` and every other
 // producer's delta stands.
 //
 // ⚠️ THE TABLE IS A CLAIM SURFACE IN BOTH DIRECTIONS, which is why both are fatal:
@@ -40,8 +40,8 @@ const side = (record, findings) => ({ record, findings, integrity: 'chain-verifi
   pluginStatus: [{ host: 'aws', plugin: '1170', status: 'ran' }] });
 
 test('the reason code is DECLARED — an undeclared code is invisible to every consumer', () => {
-  assert.ok(NOT_COMPARABLE_REASONS.includes('plugin-identity-basis-changed'));
-  assert.ok(DECLARED_OUTCOMES['plugin-identity-basis-changed']);
+  assert.ok(NOT_COMPARABLE_REASONS.includes('identity-basis-changed'));
+  assert.ok(DECLARED_OUTCOMES['identity-basis-changed']);
 });
 
 test('a producer that GAINED an identity is DECLARED, not reported as resolved + new', () => {
@@ -53,7 +53,7 @@ test('a producer that GAINED an identity is DECLARED, not reported as resolved +
   assert.equal(d.resolved.length, 0, 'the baseline row must NOT read as fixed');
   assert.equal(d.newFindings.length, 0, 'and the current row must NOT read as a new exposure');
   const codes = d.notComparable.map((x) => x.reason);
-  assert.ok(codes.includes('plugin-identity-basis-changed'),
+  assert.ok(codes.includes('identity-basis-changed'),
     `expected the basis declaration; got ${JSON.stringify(codes)}`);
   for (const nc of d.notComparable) {
     assert.match(nc.detail, /1170/, 'the declaration must NAME the producer');
@@ -115,7 +115,7 @@ test('ONE-DIRECTIONAL — and the OTHER way: a NEWER baseline against an OLDER c
     current: side(REC({ eeVersion: '1.0.0' }), []),
   });
   assert.equal(d.resolved.length, 0, 'a pair straddling the change may not report a remediation');
-  assert.deepEqual(d.notComparable.map((x) => x.reason), ['plugin-identity-basis-changed']);
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed']);
 });
 
 test('the TABLE is exported and every entry names a version the comparison can order', () => {
@@ -176,7 +176,7 @@ test('AGENT — two runs BOTH at or after the change compare normally', () => {
     baseline: qside(QREC(), [Q('[COVERAGE GAP] cpe_map_miss — udp/mdns')]),
     current: qside(QREC({ runId: 's' }), []),
   });
-  assert.equal(d.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+  assert.equal(d.notComparable.filter((x) => x.reason === 'identity-basis-changed').length, 0,
     'both runs are past the declared change, so there is nothing to declare — refusing here would '
     + 'throw away every real comparison this producer can ever make');
 });
@@ -186,7 +186,7 @@ test('AGENT — two runs BOTH before the change compare normally, because the ru
     baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)')]),
     current: qside(QREC({ runId: 's', eeVersion: '1.0.0' }), []),
   });
-  assert.equal(d.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+  assert.equal(d.notComparable.filter((x) => x.reason === 'identity-basis-changed').length, 0,
     'two pre-change runs share one basis; declaring on any version DIFFERENCE would declare for '
     + 'ever and quietly retire the feature');
 });
@@ -203,7 +203,7 @@ test('AGENT — a pair STRADDLING the change is DECLARED, not reported as resolv
   assert.equal(d.resolved.length, 0, 'the baseline row must NOT read as fixed');
   assert.equal(d.newFindings.length, 0, 'and the current row must NOT read as a new exposure');
   const codes = d.notComparable.map((x) => x.reason);
-  assert.ok(codes.includes('plugin-identity-basis-changed'),
+  assert.ok(codes.includes('identity-basis-changed'),
     `expected the basis declaration for the agent; got ${JSON.stringify(codes)}`);
 });
 
@@ -215,7 +215,7 @@ test('AGENT — the refusal detail calls it a PRODUCER, not a plugin', () => {
     baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)')]),
     current: qside(QREC({ runId: 's' }), [Q('[COVERAGE GAP] cpe_map_miss — udp/mdns')]),
   });
-  const row = d.notComparable.find((x) => x.reason === 'plugin-identity-basis-changed');
+  const row = d.notComparable.find((x) => x.reason === 'identity-basis-changed');
   assert.ok(row, 'the declaration must fire before its wording can be checked');
   assert.doesNotMatch(row.detail, /\bplugin intelligence_engine\b/,
     'an analysis agent is not a plugin, and this sentence reaches a client deliverable — the same '
@@ -229,7 +229,7 @@ test('FOURTH QUADRANT — a PLUGIN is still called a plugin', () => {
     baseline: side(REC({ eeVersion: '1.0.0' }), [F({ resource: null })]),
     current: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-0def2fbb3db67eae5' })]),
   });
-  const row = d.notComparable.find((x) => x.reason === 'plugin-identity-basis-changed');
+  const row = d.notComparable.find((x) => x.reason === 'identity-basis-changed');
   assert.ok(row);
   assert.match(row.detail, /plugin /, 'a plugin finding must keep the noun it always had');
 });
@@ -261,12 +261,12 @@ test('AGENT — the refusal is the DECLARATION\'s: an undeclared agent straddles
   });
 
   const declared = straddleFor(AGENT);
-  assert.ok(declared.notComparable.some((x) => x.reason === 'plugin-identity-basis-changed'),
+  assert.ok(declared.notComparable.some((x) => x.reason === 'identity-basis-changed'),
     'the declared producer must be refused — otherwise the entry is present but never consulted, '
     + 'which is the inert-declaration class this cycle has already shipped once');
 
   const undeclared = straddleFor('crypto_agent');
-  assert.equal(undeclared.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+  assert.equal(undeclared.notComparable.filter((x) => x.reason === 'identity-basis-changed').length, 0,
     '`crypto_agent` is an agent, is in the vocabulary, and straddles the SAME boundary — if it is '
     + 'refused too then the refusal is not the declaration\'s, and the leg above proves nothing '
     + 'about the table');
