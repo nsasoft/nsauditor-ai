@@ -135,11 +135,52 @@ export const OUTPUT_ONLY_FINDING_FIELDS = ['reason', 'detail', 'direction', 'fro
 // A consumed field the loader legitimately cannot produce. NOT a bare allowlist: each entry names
 // the limit that DISCLOSES its absence, and the guard verifies that limit is actually emitted —
 // a carve-out whose premise nobody checks is how an absence becomes a silent pass.
+// ⚠️ EVERY DECLARATION NAMES THE PATH IT EXCUSES. A finding reaches the delta through one of two
+// containers — a plugin ENVELOPE (`shapeFinding`) or the finding QUEUE (`shapeQueueEntry`) — and
+// they have different vocabularies. An unqualified declaration excuses a field on BOTH, so the
+// day either container stopped emitting it the carve-out would already be there to cover it.
 export const DECLARED_ABSENT_FINDING_FIELDS = {
   control: {
+    paths: ['plugin', 'queue'],
     reason: 'Community ships no compliance data (data/compliance is empty) and report_inputs.mjs '
       + 'emits no control id, so a CE run record cannot carry one. Compliance routing is EE\'s.',
     disclosedBy: 'FRAMEWORK_MOVEMENT_NOT_EVALUATED',
+  },
+  // ── QUEUE-PATH ABSENCES ───────────────────────────────────────────────────────────────────
+  // Found because the guard above had never been asked about this path: its fixture built a
+  // plugin envelope, so CONSUMED ⊆ EMITTED was checked against one container and believed of two.
+  contentDigest: {
+    paths: ['queue'],
+    reason: 'The digest exists because PLUGIN titles are SYNTHESISED from `issues` and CUT at 160 '
+      + 'characters — three CRITICAL ingress rules on one security group once synthesised to the '
+      + 'same 158-character string and held one identity. A queue title is AUTHORED by its '
+      + 'producer and never truncated, so the collision the digest was built for cannot arise on '
+      + 'this path. A digest here would have to hash the DESCRIPTION, which carries the same '
+      + 'volatile program name that EE 1.1.0 is moving OUT of identity — the volatility would '
+      + 'return through the digest. A collision that does occur anyway is named, per identity, at '
+      + 'runtime by IDENTITY_COLLAPSE.',
+    disclosedBy: 'AGENT_SCOPE_FROM_TIER',
+  },
+  identityQualifier: {
+    paths: ['queue'],
+    reason: 'A producer-emitted rule discriminator (`details.groupId` / protocol / port range). '
+      + 'Analysis agents emit no rule ids and carry no `details` object at all, so there is '
+      + 'nothing to qualify with. The key falls back rather than requiring it.',
+    disclosedBy: 'AGENT_SCOPE_FROM_TIER',
+  },
+  resource: {
+    paths: ['queue'],
+    reason: 'A cloud noun — the object a cloud producer names. A queue finding is scoped to a '
+      + 'HOST and a PORT, which the path does emit; inventing a resource for it would put a '
+      + 'fabricated object identity into the delta key.',
+    disclosedBy: 'AGENT_SCOPE_FROM_TIER',
+  },
+  region: {
+    paths: ['queue'],
+    reason: 'A cloud coverage unit. Queue findings come from network analysis agents, which have '
+      + 'no region; `scopeNotScanned` is silent for a finding with no unit, which is the correct '
+      + 'reading — a narrowed region says nothing about a port on a network host.',
+    disclosedBy: 'AGENT_SCOPE_FROM_TIER',
   },
 };
 
@@ -250,7 +291,11 @@ const NOT_MEASURED_STATUS = new Set(['error', 'timeout', 'skipped']);
  * covered: the resolver memo is keyed on the credential fingerprint, so two keys resolving
  * different sets inside one host's scan means the run has no single coverage to difference.
  */
-const PROVIDER_SCOPE_UNIT = Object.freeze({ aws: 'region', azure: 'subscription', gcp: 'project' });
+// ⚠️ IMPORTED, NOT DECLARED HERE — this module's ONLY import, and it buys the removal of a
+// second copy. Enterprise's CPE mapper needs the same provider list to know that a cloud host
+// has no service-feeding upstreams; `utils/cloud_providers.mjs` is the single home and derives
+// its host set from THIS map's keys, so adding a provider is one edit in one file.
+import { PROVIDER_SCOPE_UNIT } from './cloud_providers.mjs';
 
 function scopeNotScanned(f, mine, theirs) {
   const provider = String(f?.host ?? '');
@@ -429,7 +474,23 @@ function incomparabilityReason(f, mine, theirs) {
   const scopeMiss = scopeNotScanned(f, mine, theirs);
   if (scopeMiss) return { reason: 'scope-not-scanned', detail: scopeMiss };
 
-  const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
+  // ⚠️ `theirs` ONLY, AND THE `?? mine.gaps` THAT USED TO SIT HERE WAS WRONG IN BOTH HALVES.
+  // A gap says "this run could not read that surface", so it explains what a run is MISSING —
+  // never what a run is HOLDING. This lookup only ever runs for an UNMATCHED finding, and in both
+  // directions `theirs` is the side that failed to look: for a row that vanished, the other run is
+  // where it should have reappeared; for a row that appeared, the other run is where it should
+  // already have been. `mine` is never the side that failed to look at a finding my own run is
+  // holding in its hand.
+  //
+  // ⚠️ IT WAS UNREACHABLE, WHICH IS WHY IT SHIPPED — and EE 1.1.0's widened mapper boundary made
+  // it live on ordinary pairs. Before, the `mine` half needed a gap on the finding's own side
+  // beside a bucketed row from the SAME producer, and no shipped producer made that pair. Now both
+  // sides of any degraded network comparison carry the mapper's gap. Driven before this fix: a
+  // genuinely NEW row on the degraded side, against a full baseline that recorded no gap at all,
+  // came back `new = 0` and `not-comparable · evidence-gap` — a suppressed new exposure, explained
+  // by the detail below, which says "the OTHER run recorded an evidence gap" and was false about
+  // the baseline. Narrowing to `theirs` is what makes that sentence unconditionally true.
+  const gap = theirs.gaps.get(`${f.host}|${f.plugin}`);
   if (gap) {
     return gap.kind === 'recorded-gap'
       ? { reason: 'evidence-gap',

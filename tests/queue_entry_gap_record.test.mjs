@@ -158,3 +158,67 @@ test('a queue gap record is excluded from the finding COUNT, like every other ga
   assert.equal(withGap, 1, 'the gap record must not be counted as a finding');
   assert.equal(without, 1, 'and the real finding still is');
 });
+
+// ── FOLD 2 — A GAP ON MY OWN SIDE SPEAKS TO MY ABSENCES, NEVER TO MY PRESENCES ──────────────
+//
+// ⚠️ THIS BRANCH WAS UNREACHABLE UNTIL THE MAPPER'S BOUNDARY WIDENED, WHICH IS WHY IT SHIPPED.
+// `incomparabilityReason` read `theirs.gaps.get(k) ?? mine.gaps.get(k)` while its detail sentence
+// says "the OTHER run recorded an evidence gap" whichever side answered. Before EE 1.1.0 the
+// `mine` half needed a gap on the finding's OWN side beside a bucketed row from the SAME producer,
+// and no shipped producer made that pair. Now both sides of any real degraded network comparison
+// carry the mapper's gap, so the branch is live on ordinary pairs.
+//
+// Driven before the fix: a genuinely NEW row on the degraded side, against a full baseline that
+// recorded NO gap, came back `new = 0` and `not-comparable · evidence-gap` with the detail "the
+// other run recorded an evidence gap …". Both halves wrong — a suppressed new exposure, explained
+// by a sentence that is false about the baseline.
+//
+// The asymmetry is the rule: for a row that VANISHED, `theirs` is the side that failed to look;
+// for a row that APPEARED, `theirs` is again the side that failed to look. `mine` is never the
+// side that failed to look at a finding MY OWN run is holding.
+
+test('FOURTH QUADRANT — my own gap does NOT refuse my own new row', () => {
+  const prior = queueFinding('an unrelated prior row');
+  const fresh = queueFinding('[COVERAGE GAP] cpe_map_miss — NEW THING (mdns)');
+  const d = buildScanDelta({
+    baseline: side(shaped([prior]), { runId: 'b' }),                        // full run, no gap
+    current: side(shaped([prior, fresh, queueGapRecord()]), { runId: 'c' }), // degraded, carries a gap
+  });
+  assert.equal(d.newFindings.length, 1,
+    'the baseline looked and did not find it; my own run\'s gap explains my ABSENCES, not this');
+  assert.equal(d.newFindings[0].title, fresh.title);
+  assert.equal(d.notComparable.filter((r) => /NEW THING/.test(String(r.title ?? ''))).length, 0);
+});
+
+test('FOURTH QUADRANT — my own gap does NOT refuse a row only I am holding, in the other direction', () => {
+  const only = queueFinding('[COVERAGE GAP] cpe_map_miss — ONLY IN BASELINE (mdns)');
+  const d = buildScanDelta({
+    baseline: side(shaped([only, queueGapRecord()]), { runId: 'b' }),  // degraded, carries a gap
+    current: side(shaped([]), { runId: 'c' }),                         // full run, no gap
+  });
+  // The current run looked and did not find it. Whether that is remediation is for the ordinary
+  // rules; what must NOT happen is a refusal blamed on "the other run" over a gap that is mine.
+  const row = d.notComparable.find((r) => /ONLY IN BASELINE/.test(String(r.title ?? '')));
+  assert.equal(row?.reason === 'evidence-gap', false,
+    'the current run recorded no gap; refusing on MY gap prints a sentence false about the other run');
+});
+
+test('…and the refusals that DO depend on the other side are untouched', () => {
+  // The negative control for the fold: narrowing to `theirs` must not disarm the legs the whole
+  // seam exists for. Both directions, same pair shapes as above with the gap on the OTHER side.
+  const row = queueFinding('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)');
+  const vanished = buildScanDelta({
+    baseline: side(shaped([row]), { runId: 'b' }),
+    current: side(shaped([queueGapRecord()]), { runId: 'c' }),
+  });
+  assert.equal(vanished.resolved.length, 0);
+  assert.equal(vanished.notComparable.find((r) => /cpe_map_miss/.test(String(r.title ?? '')))?.reason,
+    'evidence-gap');
+  const appeared = buildScanDelta({
+    baseline: side(shaped([queueGapRecord()]), { runId: 'b' }),
+    current: side(shaped([row]), { runId: 'c' }),
+  });
+  assert.equal(appeared.newFindings.length, 0);
+  assert.equal(appeared.notComparable.find((r) => /cpe_map_miss/.test(String(r.title ?? '')))?.reason,
+    'evidence-gap');
+});

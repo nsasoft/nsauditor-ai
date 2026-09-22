@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as SD from '../utils/scan_delta.mjs';
 import { loadRun } from '../utils/report_inputs.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, readRunRecord } from '../utils/run_record.mjs';
 import { CONSUMED_FINDING_FIELDS, OUTPUT_ONLY_FINDING_FIELDS, DECLARED_ABSENT_FINDING_FIELDS,
@@ -37,15 +38,72 @@ async function emittedFields() {
   return new Set(Object.keys(loaded.model.findings[0]));
 }
 
-test('every field the delta CONSUMES is one the real loader EMITS — or is declared absent WITH its disclosure', async () => {
-  const emitted = await emittedFields();
-  const missing = CONSUMED_FINDING_FIELDS.filter((f) => !emitted.has(f));
-  for (const f of missing) {
-    const declared = DECLARED_ABSENT_FINDING_FIELDS[f];
-    assert.ok(declared, `the delta reads \`${f}\` and the loader does not emit it. Either thread it `
-      + 'through report_inputs.mjs, or declare it absent WITH the limit that discloses the gap — '
-      + 'silently reading a field nobody produces is how resource, plugin and control each shipped.');
-    assert.ok(declared.reason && declared.disclosedBy, `\`${f}\` is declared absent with no reason or disclosure`);
+// ⚠️ THE GUARD ABOVE WAS BOUNDED BY ITS OWN FIXTURE'S SHAPE, WHICH IS THE CLASS IT EXISTS TO
+// CATCH. `emittedFields` builds a PLUGIN ENVELOPE, so CONSUMED ⊆ EMITTED had never once been
+// asked of the FINDING QUEUE — the other container `shapeHostFindings` reads, shaped by a
+// different function with a different vocabulary. Measured when it was finally asked: the queue
+// path emits none of `contentDigest`, `identityQualifier`, `resource`, `region`, and not one of
+// them was declared absent. The delta read four fields on that path that nobody produced.
+//
+// A FINDING CAN ARRIVE THROUGH EITHER CONTAINER, so the contract has to hold for both.
+async function emittedFieldsFromQueue() {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-bcq-'));
+  const runId = newRunId();
+  await writeRunStart(outRoot, { runId, startedAt: '2026-09-01T10:00:00.000Z', hostsRequested: ['10.0.0.7'],
+    pluginsRequested: ['010'], tier: 'enterprise', ceVersion: '0.2.55', eeVersion: '1.1.0' });
+  fs.mkdirSync(path.join(outRoot, 'd1'), { recursive: true });
+  fs.writeFileSync(path.join(outRoot, 'd1', 'scan_conclusion_raw.json'), JSON.stringify({
+    runId, pluginStatus: [{ id: '010', name: 'aws-s3', status: 'ran', reason: null }], results: [],
+  }), 'utf8');
+  // Copied from Enterprise's own emission shape, not invented: `evidence.source` is the producer,
+  // `target` carries the port, and there is no `details` on a queue entry at all.
+  fs.writeFileSync(path.join(outRoot, 'd1', 'scan_finding_queue.json'), JSON.stringify([{
+    category: 'CVE', status: 'UNVERIFIED', severity: 'INFO',
+    title: '[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)',
+    target: { host: '10.0.0.7', port: 5353, protocol: 'udp', service: 'mdns' },
+    evidence: { source: 'intelligence_engine', cve: [], mitre: [], raw: {} },
+  }]), 'utf8');
+  await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir: 'd1' });
+  await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-09-01T11:00:00.000Z' });
+  const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'enterprise' });
+  assert.equal(loaded.ok, true, loaded.message);
+  assert.equal(loaded.model.findings.length, 1, 'the queue entry must reach the model at all');
+  return new Set(Object.keys(loaded.model.findings[0]));
+}
+
+// The declaration is PER PATH, because a field the plugin container emits may be structurally
+// absent from the queue container and vice versa. A single flat declaration would excuse a field
+// on BOTH paths as soon as either one lost it — a carve-out that widens itself.
+for (const [pathName, emittedFor] of [['plugin', emittedFields], ['queue', emittedFieldsFromQueue]]) {
+  test(`every field the delta CONSUMES is one the real loader EMITS on the ${pathName} path — or is declared absent FOR THAT PATH, with its disclosure`, async () => {
+    const emitted = await emittedFor();
+    const missing = CONSUMED_FINDING_FIELDS.filter((f) => !emitted.has(f));
+    for (const f of missing) {
+      const declared = DECLARED_ABSENT_FINDING_FIELDS[f];
+      assert.ok(declared, `the delta reads \`${f}\` and the loader does not emit it on the `
+        + `${pathName} path. Either thread it through report_inputs.mjs, or declare it absent WITH `
+        + 'the limit that discloses the gap — silently reading a field nobody produces is how '
+        + 'resource, plugin and control each shipped.');
+      assert.ok(declared.reason && declared.disclosedBy, `\`${f}\` is declared absent with no reason or disclosure`);
+      assert.ok(Array.isArray(declared.paths) && declared.paths.includes(pathName),
+        `\`${f}\` is absent on the ${pathName} path but its declaration names only `
+        + `[${(declared.paths ?? []).join(', ')}] — a declaration that does not name the path it `
+        + 'excuses is excusing every path.');
+    }
+  });
+}
+
+// ⚠️ AND THE DECLARATION MUST NOT OUTLIVE THE ABSENCE. A field that starts being emitted on a
+// path it is declared absent for would keep its carve-out for ever, which is the stale-pin shape
+// this repo keeps paying for. Equality, not subset, in both directions.
+test('a declaration whose field IS emitted on that path is STALE and fails', async () => {
+  const byPath = { plugin: await emittedFields(), queue: await emittedFieldsFromQueue() };
+  for (const [field, decl] of Object.entries(DECLARED_ABSENT_FINDING_FIELDS)) {
+    for (const p of decl.paths ?? []) {
+      assert.equal(byPath[p]?.has(field), false,
+        `\`${field}\` is declared absent on the ${p} path but the loader now emits it — retire the `
+        + 'declaration rather than leaving a carve-out over a gap that closed.');
+    }
   }
 });
 
@@ -58,6 +116,38 @@ test('a declared-absent field’s DISCLOSURE is actually emitted — the carve-o
   const d = buildScanDelta({ baseline: { record: rec, findings: [] }, current: { record: { ...rec, runId: 'S' }, findings: [] } });
   assert.ok(d.limits.includes(FRAMEWORK_MOVEMENT_NOT_EVALUATED),
     'the limit that excuses the missing field must actually reach the output');
+});
+
+// ⚠️ THE LEG ABOVE CHECKED ONE DECLARATION BY NAME, WHICH IS A CENSUS KEYED ON A HAND LIST. It
+// was written when `control` was the only entry; four queue-path entries then joined it claiming a
+// DIFFERENT limit, and nothing asked whether that limit reaches an output carrying a queue
+// finding. Every declaration's premise is now driven, and a new declaration naming an unreachable
+// limit fails by name.
+test('EVERY declared disclosure is REACHABLE on a delta carrying that path’s findings', () => {
+  const rec = (runId) => ({ schema: 1, runId, startedAt: 'x', tier: 'enterprise', eeVersion: '1.1.0',
+    hostsRequested: ['10.0.0.7'], hostsWritten: [{ host: '10.0.0.7', dir: 'd1' }],
+    pluginsRequested: ['010'], finishedAt: '2026-09-01T11:00:00.000Z' });
+  // A shaped QUEUE finding — `producerKind: 'agent'` is what the queue path stamps, and it is the
+  // condition AGENT_SCOPE_FROM_TIER is pushed on.
+  const agentRow = { host: '10.0.0.7', port: 5353, severity: 'INFO', title: 'a queue row',
+    plugin: 'intelligence_engine', pluginName: 'intelligence_engine', producerKind: 'agent',
+    evidenceGap: false, id: null };
+  const d = buildScanDelta({
+    baseline: { record: rec('R'), findings: [agentRow], integrity: 'chain-verified' },
+    current: { record: rec('S'), findings: [agentRow], integrity: 'chain-verified' },
+  });
+  const named = new Set(Object.values(DECLARED_ABSENT_FINDING_FIELDS).map((v) => v.disclosedBy));
+  for (const limitName of named) {
+    // ⚠️ RESOLVED THROUGH THE MODULE'S OWN EXPORTS, not a lookup table written here. `disclosedBy`
+    // names an exported constant; a hand-written name→text map in this file would be the second
+    // copy, and a declaration naming a constant that does not exist would read as covered.
+    const text = SD[limitName];
+    assert.ok(typeof text === 'string' && text.length > 0,
+      `\`${limitName}\` is named as a disclosure but scan_delta.mjs exports no such constant`);
+    assert.ok(d.limits.some((l) => l.startsWith(text.slice(0, 60))),
+      `\`${limitName}\` excuses a declared-absent field but does not reach the output of a delta `
+      + 'carrying that path\'s findings — an absence disclosed by a limit nobody emits is undisclosed.');
+  }
 });
 
 test('the CONSUMED declaration matches what the module actually reads — it cannot rot', () => {
