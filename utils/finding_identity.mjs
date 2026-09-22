@@ -37,7 +37,12 @@
  * and left that suffix decorating identity forever. A shape derived from a corpus that carries
  * one value is a shape nobody has tested.
  */
-const REGION_TOKEN = '[a-z]{2,4}(?:-[a-z]+){1,3}-\\d{1,2}';
+// ⚠️ EXPORTED so a consumer can assert against the SHAPE rather than against a region somebody
+// typed. Enterprise's MTTR gap-text canonicaliser has to preserve a region token while cutting
+// the volatile count beside it, and a fixture written from one remembered region is a fixture
+// that tests the memory — this comment's own history says so: the first draft of this shape was
+// derived from a single-region corpus and missed `eusc-de-east-1`.
+export const REGION_TOKEN = '[a-z]{2,4}(?:-[a-z]+){1,3}-\\d{1,2}';
 const TRAILING_REGION_DECORATION = new RegExp(`^(.*?) \\[(${REGION_TOKEN})\\]$`);
 
 /**
