@@ -735,6 +735,18 @@ export class PluginManager {
       tcpOpen: new Set(),
       udpOpen: new Set(),
       // guessedOs / pingOs / arpOs will be filled as plugins run
+      // ⚠️ WHAT EACH UPSTREAM ACTUALLY DID, so a LATE plugin can tell "scanned, nothing open"
+      // from "never scanned". Emptiness of `tcpOpen` is NOT that signal — it is the same value
+      // for both, which is why a consumer computing posture from `openPorts.length` emitted
+      // `Good segmentation` over a port scanner that had TIMED OUT, and the cross-run delta then
+      // reported a real exposure as RESOLVED.
+      //
+      // THREE STATES, and the third is ABSENCE: an entry reading `ran` means the surface was
+      // measured (an empty result is then genuinely empty); an entry reading `timeout` / `error`
+      // / `skipped` means requested and NOT measured, which is an evidence gap; NO ENTRY means
+      // the plugin was never requested in this run, which is not a gap at all — the surface was
+      // never in scope here, and the cross-run case is already `plugin-not-run` in the delta.
+      pluginRunStatus: new Map(),
     });
 
     // Sort by priority (stable)
@@ -811,6 +823,9 @@ export class PluginManager {
         reason,
         duration_ms,
       });
+      // Recorded from the SAME `status` the manifest reports, so the context and the run record
+      // cannot disagree about what an upstream did — a second derivation is a second thing to rot.
+      ctx.pluginRunStatus.set(String(mod.id || ''), status);
 
       for (const wrapped of wrappedRuns) {
         vlog(`${mod.name} Result:`, JSON.stringify(wrapped, null, 2));
