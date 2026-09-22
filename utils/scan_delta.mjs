@@ -266,12 +266,27 @@ function scopeNotScanned(f, mine, theirs) {
   // makes the guard load-bearing: a pre-fix pair with a regional finding now reaches it.
   const unitName = PROVIDER_SCOPE_UNIT[provider] ?? null;
   if (unitName === null) return null;              // a provider with no coverage unit of its own
-  // A region rides on the finding; a subscription or project is a property of the HOST, so the
-  // side's own recorded value stands in for every finding of that host.
-  const value = unitName === 'region'
-    ? (typeof f?.region === 'string' && f.region ? f.region : null)
-    : (mineEntry?.scanned?.[0] ?? theirEntry?.scanned?.[0] ?? null);
-  if (value === null) return null;                            // (2) this finding carries no unit
+  // ⚠️ THE UNIT COMES FROM THE FINDING'S OWN SIDE, NEVER BORROWED FROM THE OTHER — and borrowing
+  // was a live defect. A region RIDES ON the finding, so a finding's existence proves its own run
+  // covered that region and the only unknown is ever the OTHER side's coverage; that asymmetry is
+  // deliberate. A subscription or project rides on the HOST, so when the finding's own record
+  // carries no scope there is nothing to say WHICH subscription it belonged to. Reading
+  // `mineEntry ?? theirEntry` made `covered.has(value)` true by construction: measured, a baseline
+  // azure finding whose record lacked the field read RESOLVED against a current scoped to a
+  // DIFFERENT subscription — the first delta after upgrading, on a possibly different estate.
+  let value;
+  if (unitName === 'region') {
+    value = typeof f?.region === 'string' && f.region ? f.region : null;
+    if (value === null) return null;                          // (2) not a regional finding
+  } else if (!mineEntry) {
+    // Guard (1) already returned when NEITHER side knows, so the other side does know — and this
+    // finding's own run does not. Which unit it belongs to is unknowable, so it fails closed.
+    return `this run's record carries no ${unitName} scope, so which ${unitName} this finding `
+      + 'belongs to is not known — it cannot be called fixed or new against the other run';
+  } else {
+    value = mineEntry.scanned?.[0] ?? null;
+    if (value === null) return null;                          // (2) recorded an empty scope
+  }
 
   if (!theirEntry) {
     return `the other run's record carries no ${unitName} scope, so it is not known whether `

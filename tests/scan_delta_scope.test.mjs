@@ -107,6 +107,49 @@ test('a baseline with NO field and a current WITH one fails CLOSED for findings 
   assert.equal(d.notComparable[0].reason, 'scope-not-scanned');
 });
 
+test('a CURRENT-side finding against a baseline with NO field is not `new` — the other quadrant', () => {
+  // ⚠️ THIS LEG EXISTS BECAUSE A MUTANT SURVIVED THE ONE THAT NAMES THIS BRANCH. Deleting the
+  // `!theirEntry` fail-closed branch left all nine legs green: the leg titled "a baseline with NO
+  // field … fails CLOSED" puts its finding on the BASELINE side, so `theirs` is the CURRENT run,
+  // which HAS the field — the row goes not-comparable through the covered-set MISMATCH and the
+  // branch in the title is never reached. The branch's real quadrant is the mirror: a finding on
+  // the CURRENT side, with the BASELINE lacking the field. Was its region covered back then?
+  // Unknown — so it must not be reported as a new exposure.
+  const d = buildScanDelta({
+    baseline: { record: run('A'), findings: [], pluginStatus: [] },
+    current: { record: run('B', { scopeScanned: aws(['us-east-1', 'eu-west-1']) }),
+      findings: [f({ region: 'eu-west-1' })], pluginStatus: [] },
+  });
+  assert.deepEqual(d.newFindings, [],
+    'the baseline scope is unknown, so this cannot be called a NEW exposure');
+  assert.equal(d.notComparable[0].reason, 'scope-not-scanned');
+});
+
+test('a HOST-CARRIED unit is read from the finding\'s OWN side, never borrowed from the other', () => {
+  // ⚠️ A REAL DEFECT, found by an independent seat probing the code rather than the fixtures.
+  // For azure/gcp the unit is not on the finding, so it was taken as
+  // `mineEntry?.scanned?.[0] ?? theirEntry?.scanned?.[0]` — and when the finding's OWN run
+  // recorded no scope, the OTHER run's subscription was borrowed as this finding's unit, making
+  // `covered.has(value)` true BY CONSTRUCTION. Measured: a baseline azure finding whose record
+  // lacks the field, against a current scoped to `sub-BBB`, read `resolved = 1`. That is exactly
+  // the first delta after upgrading, and the baseline may have been a different subscription
+  // entirely.
+  const azureRun = (id, over = {}) => run(id, { hostsRequested: ['azure'],
+    hostsWritten: [{ host: 'azure', dir: 'd' }], pluginsRequested: ['1220'], ...over });
+  const d = buildScanDelta({
+    baseline: { record: azureRun('A'),
+      findings: [f({ host: 'azure', plugin: '1220', region: null, title: 'Storage allows Shared Key auth' })],
+      pluginStatus: [] },
+    current: { record: azureRun('B', { scopeScanned: { azure: { unit: 'subscription', scanned: ['sub-BBB'] } } }),
+      findings: [], pluginStatus: [] },
+  });
+  assert.deepEqual(d.resolved, [],
+    'the baseline recorded no subscription, so this finding cannot be matched against sub-BBB');
+  assert.equal(d.notComparable[0].reason, 'scope-not-scanned');
+  assert.match(d.notComparable[0].detail, /no subscription scope|not known/,
+    'the detail must say the finding\'s OWN side did not record the unit');
+});
+
 test('a finding with NO unit is untouched by the rule even when scopes differ', () => {
   // Account-wide findings (`resource: iam:account`, no region) are not regional; the rule must not
   // sweep them in, or a narrowed scope makes the whole account not-comparable.
