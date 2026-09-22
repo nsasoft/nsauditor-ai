@@ -27,8 +27,11 @@ SHA-256 chain, so an altered baseline REFUSES the comparison instead of producin
 tamper-EVIDENT against corruption, partial restore and unsophisticated edits, **not tamper-proof
 against host-level access and not non-repudiation**, and the report says so in the body. The delta
 renders into the client-facing HTML report, not only to stdout. Plugin counts UNCHANGED at 27
-Community + 29 Enterprise; every coverage matrix UNCHANGED; the Enterprise peer floor stays
-`>= 0.2.49`. The free last-vs-current webhook alerting delta is untouched and stays free.
+Community + 29 Enterprise; every coverage matrix UNCHANGED; **the Enterprise peer floor MOVES to
+`>= 0.2.55`, because Enterprise now CALLS this release's code** — the per-plugin run statuses this
+version publishes on the scan context, which EE plugin 1023 requires before it will assert a Zero
+Trust posture and the CPE mapper uses to tell an empty service set from one whose discovery never
+ran. The free last-vs-current webhook alerting delta is untouched and stays free.
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
