@@ -958,6 +958,12 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // `importEE` option elsewhere in this file — absent in every real invocation.
     ee = opts?.importEE ? await opts.importEE() : await import('@nsasoft/nsauditor-ai-ee');
   } catch { /* EE not installed — CE proceeds unchanged. The ONLY silent case. */ }
+  // ⚠️ HOISTED DELIBERATELY, and only this value. `eeEnrichment` is `const` INSIDE the try below,
+  // so reading it at the `appendHostWritten` call ~100 lines on is a ReferenceError — which the
+  // suite caught as 16 failures rather than one, because every history comparison swallowed it as
+  // "Failed to record/compare scan". Widening `eeEnrichment` itself would put the whole EE
+  // envelope in a scope that does not need it; one holder is the smaller contract.
+  let hostScopeScanned = null;
   try {
     const eeEnrichment = ee ? await ee.enrichScan(conclusion, {
       host,
@@ -977,6 +983,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       pluginStatus,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
     }) : null;
+    hostScopeScanned = eeEnrichment?.scopeScanned ?? null;
     // ⚠️ Read from `exploitIntel.stores`, NOT a top-level `exploit` key — measured against
     // EE's actual `enrichScan` return shape (`index.mjs`'s final `return { ... exploitIntel:
     // ctx.exploitIntel, ... }`), which nests the per-store `dataAsOf` at
@@ -1073,7 +1080,15 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     // that reintroduces the same bug for the run record.
     const runRecordRoot = resolveBaseOutDir();
     if (opts?.runId) {
-      hostAppended = await appendHostWritten(runRecordRoot, opts.runId, { host, dir: path.basename(outDir) });
+      // ⚠️ THE EFFECTIVE SCOPE THIS HOST'S SCAN COVERED, never the flag — EE's resolver reports
+      // what it actually resolved and CE records it per host, which is per PROVIDER on a cloud
+      // scan. `null` on a network host or a CE-only install, and `null` means UNKNOWN rather than
+      // "covered nothing": the delta stays silent when BOTH records lack it and fails closed when
+      // only one carries it.
+      hostAppended = await appendHostWritten(runRecordRoot, opts.runId, {
+        host, dir: path.basename(outDir),
+        scopeScanned: hostScopeScanned,
+      });
     }
 
     const services = conclusion?.result?.services ?? [];
