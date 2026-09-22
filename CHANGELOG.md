@@ -53,15 +53,37 @@ only when its host, plugin and scope were in scope in BOTH runs; otherwise it is
 COMPARABLE **with its reason**, never silently dropped, and every row that claims remediation
 carries the basis it rests on.
 
-**SEVEN ways a finding can vanish without being fixed. SIX are handled; the seventh is DECLARED,
-not handled, and the report says which.** The host was not scanned · the producing plugin did not
-run, errored, timed out, or cannot be identified · an evidence gap (AccessDenied, budget exceeded,
-incomplete region enumeration) · **the two runs COVERED DIFFERENT SCOPES — a narrower
-`--aws-region`, a different Azure subscription or GCP project — so the surface was not looked at
-rather than clean** · the two runs straddle a product boundary where a reported number
-changed meaning · the two runs ran at DIFFERENT LICENCE TIERS, so the set of producers that ran
-differs and a whole producer's findings would read as remediation — that one refuses the comparison
-outright. **The sixth is framework-enumeration movement, and this edition cannot evaluate it:** a
+**EIGHT ways a finding can vanish without being fixed. SEVEN are evaluated; the eighth is DECLARED,
+not evaluated, and the report says which.** ⚠️ **DERIVE THE LIST FROM `NOT_COMPARABLE_REASONS` IN
+`utils/scan_delta.mjs`, NEVER FROM THIS SENTENCE** — it has shipped a count that disagreed with the
+code before, which is why the constant exists and why `tests/scan_delta.test.mjs` holds it in
+equality with the codes the module actually emits. The sentence is prose; the constant is the
+authority. Named, in the order the engine evaluates them:
+
+`host-not-scanned` — the other run never wrote this host · `producer-unknown` — the finding carries
+no producer identity to adjudicate · `plugin-not-run` — the producing plugin was not requested in
+the other run · `evidence-gap` — a producer DECLARED it could not read the surface (AccessDenied,
+budget exceeded, incomplete region enumeration) · `plugin-not-measured` — it was attempted and
+errored, timed out or was skipped · `framework-enumeration-changed` — the eighth, below ·
+**`identity-basis-changed` — the producer changed WHAT IT NAMES between the two releases** ·
+**`scope-not-scanned` — the two runs COVERED DIFFERENT SCOPES (a narrower `--aws-region`, a
+different Azure subscription or GCP project), so the surface was not looked at rather than clean**.
+
+⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Ten
+producers in Enterprise 1.1.0 changed what they NAME as a finding's object — nine plugins that
+previously left `resource` empty or set it to the region, and, for the first time, an analysis
+AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE because a queue entry emits
+no resource at all). A straddling comparison refuses those rows rather than differencing them, so
+one surface under two keys is not reported as a fix plus a fresh exposure. The declaration is the
+`IDENTITY_BASIS_CHANGED_AT` table here in Community, one-directional — keyed on the baseline
+PREDATING the change, never on the two versions merely differing, which would declare on every
+upgrade for ever and quietly retire the feature.
+
+A ninth case is not in this list because it is not a per-finding verdict: two runs at DIFFERENT
+LICENCE TIERS have different producer sets, so a whole producer's findings would read as
+remediation — that REFUSES the comparison outright rather than labelling rows.
+
+**The eighth is framework-enumeration movement, and this edition cannot evaluate it:** a
 run record carries no framework enumeration, so if a control stopped being enumerated between two
 scans, findings mapped to it could appear as resolved. The report states that as a LIMIT on every
 comparison and the per-row basis says `framework enumeration: not evaluated` rather than claiming a
