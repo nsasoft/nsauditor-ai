@@ -34,6 +34,17 @@ export const SCAN_DELTA_SCHEMA = 1;
 // `tests/scan_delta.test.mjs` holds these in EQUALITY with the codes derived from this file's own
 // source: a new code that forgets the declaration fails, and so does a declaration whose code is
 // gone. The ORDER is the order the engine evaluates them, which is the order a reader meets them.
+//
+// ⚠️ CE 0.2.55 IS THE FIRST TARBALL THAT SHIPS THIS FILE, SO IT IS THE LAST RELEASE IN WHICH A
+// CODE HERE CAN BE RENAMED FOR FREE. Measured, both directions: `npm pack nsauditor-ai@0.2.54`
+// contains 87 entries, 47 under `utils/`, and NO `utils/scan_delta.mjs` (positive control:
+// `utils/report_inputs.mjs` is present); `npm pack --dry-run` at this version contains 92 entries
+// INCLUDING `scan_delta.mjs`, `scan_delta_view.mjs` and `executive_report.mjs`. That is why
+// `plugin-identity-basis-changed` could be renamed to `identity-basis-changed` this cycle rather
+// than papered over with a display label — zero published verdicts carried it. From the next
+// release on, a consumer can hold stored verdicts keyed on these strings, and a rename becomes a
+// schema change that must be versioned rather than an edit. Check the claim before relying on
+// either half of it: the question is what the PUBLISHED TARBALL contains, never what git says.
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
   'producer-unknown',              // the finding carries no producer identity to adjudicate
@@ -500,6 +511,20 @@ export const AGENT_SCOPE_FROM_TIER =
 // token matches the baseline scope line, which prints `pluginsRequested` — ids.
 const producerLabel = (f) => (f.pluginName && f.pluginName !== f.plugin ? `${f.pluginName} (${f.plugin})` : String(f.plugin));
 
+/**
+ * THE NOUN FOR A PRODUCER, KEYED ON ITS KIND AND NEVER ON ITS NAME.
+ *
+ * ⚠️ EXPORTED SO IT CAN BE PROVEN, because it CANNOT be driven. A reviewing seat's mutant re-keyed
+ * this from `producerKind` to `f.plugin === 'intelligence_engine'` and passed every leg in the
+ * declaration suite — with exactly ONE agent in `IDENTITY_BASIS_CHANGED_AT`, no fixture built from
+ * the corpus can tell agent-NESS from that one NAME, and the only branch that prints this noun
+ * requires a DECLARED producer. So the case that distinguishes the two implementations is not
+ * expressible through the shipped path today, and the day a second agent is declared the client
+ * cell would quietly call it a plugin. A helper that cannot be driven is exported and tested
+ * directly rather than left to be verified by a fixture that cannot reach it.
+ */
+export const producerNoun = (f) => (f?.producerKind === 'agent' ? 'producer' : 'plugin');
+
 // Why a finding present in ONE run cannot be compared against the other. Order matters only for
 // which reason is reported first; each is independently sufficient.
 function incomparabilityReason(f, mine, theirs) {
@@ -523,6 +548,11 @@ function incomparabilityReason(f, mine, theirs) {
   // so the agent set is identical on both. No per-finding agent check is written here, because a
   // check that cannot fail through the shipped path is dead code that reads as coverage.
   if (f.producerKind !== 'agent' && !theirs.plugins.has(f.plugin)) {
+    // ⚠️ THE NOUN HERE IS A LITERAL `plugin` AND THAT IS CORRECT — but only because of the
+    // `producerKind !== 'agent'` guard on this very line, which makes the branch unreachable for
+    // an agent. Delete that guard and this sentence starts calling agents plugins, which is the
+    // defect the identity branch below had to be repaired for. The coupling is written here
+    // because a reader deleting the guard is reading THIS line, not the sentence's test.
     return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
   }
   // ⚠️ THE PRODUCER CHANGED WHAT IT NAMES BETWEEN THESE TWO RELEASES, so its two keys for one
@@ -543,7 +573,7 @@ function incomparabilityReason(f, mine, theirs) {
       // happened, which is why the wording lands in the same commit as the declaration rather
       // than earlier: before this, no test could have driven it. Same class as the
       // "plugin undefined did not run in the other run" detail this engine already had to fix.
-      detail: `${f.producerKind === 'agent' ? 'producer' : 'plugin'} ${producerLabel(f)} `
+      detail: `${producerNoun(f)} ${producerLabel(f)} `
         + `changed what it names as a finding's object at EE ${at}; `
         + 'the two runs straddle that change, so this finding\'s identity is not comparable '
         + 'between them. It is NOT reported as fixed or as new — rescan to compare.' };

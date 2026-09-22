@@ -35,7 +35,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildScanDelta, NOT_COMPARABLE_REASONS, DECLARED_OUTCOMES,
-  IDENTITY_BASIS_CHANGED_AT, AGENT_PRODUCER_KEYS,
+  IDENTITY_BASIS_CHANGED_AT, AGENT_PRODUCER_KEYS, producerNoun,
 } from '../utils/scan_delta.mjs';
 import { renderExecutiveReport } from '../utils/executive_report.mjs';
 
@@ -179,4 +179,60 @@ test('FOURTH QUADRANT — the OLD spelling survives in no string literal anywher
   assert.deepEqual(hits.map((f) => path.relative(root, f)), [],
     'the old spelling survives as a LITERAL — either a declaration the rename missed or a '
     + 'consumer that will never match the code the engine now emits');
+});
+
+// ── THE NOUN IS A PROPERTY OF THE PRODUCER KIND, NOT OF ITS NAME ────────────────────────────
+//
+// ⚠️ A REVIEWING SEAT'S SURVIVING MUTANT, AND THE REASON IT SURVIVED IS STRUCTURAL. Re-keying the
+// wording from `producerKind === 'agent'` to `f.plugin === 'intelligence_engine'` passed every leg
+// in the declaration suite. With exactly ONE agent in `IDENTITY_BASIS_CHANGED_AT`, and with the
+// only branch that prints this noun requiring a DECLARED producer, the distinguishing case is NOT
+// EXPRESSIBLE through the shipped path: a second agent cannot reach the sentence at all. That is
+// why `producerNoun` is exported and asserted directly here rather than driven. A helper nothing
+// can drive is one nothing can refute, and "drive it, do not unit-test it" becomes a rule that
+// guarantees the defect rather than catching it.
+test('producerNoun is keyed on the KIND — a SECOND agent is not called a plugin either', () => {
+  assert.equal(producerNoun({ producerKind: 'agent', plugin: 'intelligence_engine' }), 'producer');
+  assert.equal(producerNoun({ producerKind: 'agent', plugin: 'crypto_agent' }), 'producer',
+    'a name-keyed implementation returns "plugin" here and passes every corpus fixture, because '
+    + 'no corpus fixture can contain a declared agent other than the one');
+  for (const k of AGENT_PRODUCER_KEYS) {
+    assert.equal(producerNoun({ producerKind: 'agent', plugin: k }), 'producer',
+      `${k} is a declared agent key; the noun must not depend on which one it is`);
+  }
+});
+
+test('FOURTH QUADRANT — producerNoun still says "plugin" for an actual plugin', () => {
+  assert.equal(producerNoun({ producerKind: 'plugin', plugin: '1170', pluginName: 'sg' }), 'plugin',
+    'dropping the noun for everything would satisfy the leg above and lose a true word');
+  assert.equal(producerNoun({ plugin: '1170' }), 'plugin',
+    'and an absent producerKind must default to the conservative reading, not to "producer" — a '
+    + 'record written by an older build carries no kind at all');
+});
+
+// ⚠️ THE NEIGHBOURING SENTENCE IS CORRECT, AND THIS PINS WHY. A first draft of this file asserted
+// that `plugin-not-run`'s `plugin ${label} did not run` is the same defect one branch over. It is
+// not: measured, that branch is guarded by `f.producerKind !== 'agent'`, so an agent can never
+// reach it and the literal noun is true of everything that does. The premise was false about the
+// code — the leg refused for want of a subject rather than passing, which is the guard working.
+// What IS worth pinning is the COUPLING: the sentence is only correct while the guard stands.
+test('an AGENT never reaches plugin-not-run, which is what makes that sentence\'s noun true', () => {
+  const requested = (ids) => ({ runId: 'r', schema: 1, tier: 'enterprise', eeVersion: '1.1.0',
+    startedAt: '2026-09-01T00:00:00Z', hostsWritten: [{ host: '127.0.0.1' }], pluginsRequested: ids });
+  const sideR = (ids, findings) => ({ record: requested(ids), findings, integrity: 'chain-verified',
+    pluginStatus: [{ host: '127.0.0.1', dir: 'd1', status: [], pluginStatusRecorded: true }] });
+  const agentRow = row({ plugin: 'crypto_agent', pluginName: 'crypto_agent', producerKind: 'agent' });
+  const d = buildScanDelta({
+    baseline: sideR(['003'], []),                       // the agent appears in NO plugin list here
+    current: sideR(['003'], [agentRow]),
+  });
+  const all = [...d.notComparable, ...d.newFindings, ...d.resolved, ...d.changed];
+  assert.ok(all.length > 0, 'the fixture produced no row at all, so nothing is being checked');
+  assert.equal(all.filter((r) => r.reason === 'plugin-not-run').length, 0,
+    'an agent bucketed as plugin-not-run would be reported that way for EVERY comparison for '
+    + 'ever — safe and useless — and would be described with a noun that is false of it');
+  for (const r of all) {
+    assert.doesNotMatch(String(r.detail ?? ''), /\bplugin crypto_agent\b/,
+      'no sentence on any branch may call this producer a plugin');
+  }
 });

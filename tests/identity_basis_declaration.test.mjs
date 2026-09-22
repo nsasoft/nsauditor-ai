@@ -237,12 +237,31 @@ test('FOURTH QUADRANT — a PLUGIN is still called a plugin', () => {
 // ⚠️ THE LEG THAT CATCHES AN INERT DECLARATION — the shape this cycle has shipped once and caught
 // twice. A key present in the table but never consulted passes every leg above that only asserts
 // an ABSENCE. This asserts the entry is REACHED, and that the vocabulary bounds it.
-test('AGENT — the declaration is REACHED, and its key is a member of the declared vocabulary', () => {
+// ⚠️ THIS LEG'S NAME USED TO CLAIM MORE THAN ITS ASSERTIONS CHECKED — "the declaration is
+// REACHED" over two statements about TABLE MEMBERSHIP, which are true of an entry nothing ever
+// consults. A reviewing seat's mutant coercing the lookup key to `Number(plugin)` reddened legs
+// 10, 11, 14 and 15 and left THIS one green: the leg named for reach was the one leg that could
+// not see reach being broken. The name is the claim a later seat reads when deciding what is
+// already covered, so the drive is moved IN rather than the name trimmed down.
+test('AGENT — the declaration is REACHED through the shipped path, under the key the finding carries', () => {
   assert.equal(IDENTITY_BASIS_CHANGED_AT[AGENT], '1.1.0',
     'the entry must exist under exactly the key a queue finding carries in `plugin`');
   assert.ok(AGENT_PRODUCER_KEYS.includes(AGENT),
     'and be a member of the enumerated vocabulary, so a typo cannot declare a producer that does '
     + 'not exist — a lookup that finds nothing leaves the REAL producer undeclared');
+  // The half the name promised: the entry is CONSULTED, by the engine, for a finding whose
+  // `plugin` is that key. Membership without this is an entry that exists and does nothing.
+  const d = buildScanDelta({
+    baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — before')]),
+    current: qside(QREC({ runId: 's', eeVersion: '1.1.0' }), [Q('[COVERAGE GAP] cpe_map_miss — after')]),
+  });
+  assert.ok(d.notComparable.length > 0 && d.notComparable.every((x) => x.reason === 'identity-basis-changed'),
+    'the straddle must be refused BY THE DECLARATION. If the lookup key stops matching what a '
+    + `finding carries, the table is intact and inert — got `
+    + `${JSON.stringify([...new Set(d.notComparable.map((x) => x.reason))])} with `
+    + `${d.resolved.length} resolved / ${d.newFindings.length} new`);
+  assert.equal(d.resolved.length + d.newFindings.length, 0,
+    'and nothing may be differenced across it');
 });
 
 // ⚠️ TWO OUTCOMES FROM ONE STRADDLE — and the first draft of this leg was leg 2 under another
