@@ -99,6 +99,19 @@ export const AGENT_PRODUCER_KEYS = Object.freeze([
 export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0', 1150: '1.1.0',
   1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',
+  // ⚠️ AN ANALYSIS AGENT, NOT A PLUGIN, AND THE FIRST NON-NUMERIC KEY THIS TABLE HAS HELD. A
+  // finding from Enterprise's finding QUEUE emits no resource, no region, no identity qualifier
+  // and no content digest, so `keyOf` reduces to `host · producer · port · TITLE` — the title IS
+  // what this producer names. EE 1.1.0 moved the coverage-gap title off `${program} ${version}`,
+  // a discovery fingerprint that changes when the scan does (measured: one service came back
+  // `DNS-SD/mDNS` in one run and `Unknown` in the next, same port, same host), and onto
+  // `${protocol}/${service}`. Same definition as the nine above, read off the field that carries
+  // the answer in this container.
+  //
+  // The key is bounded by `AGENT_PRODUCER_KEYS` and held in two-way equality with what Enterprise
+  // actually emits, because a key outside the vocabulary can never match a finding — and a
+  // declaration that matches nothing is SILENT while the real producer stays undeclared.
+  intelligence_engine: '1.1.0',
 });
 
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
@@ -501,7 +514,14 @@ function incomparabilityReason(f, mine, theirs) {
     || identityBasisChanged(f.plugin, theirs.eeVersion, mine.eeVersion)) {
     const at = IDENTITY_BASIS_CHANGED_AT[f.plugin];
     return { reason: 'plugin-identity-basis-changed',
-      detail: `plugin ${producerLabel(f)} changed what it names as a finding's object at EE ${at}; `
+      // ⚠️ "producer" FOR AN AGENT. This sentence renders into the client artifact's basis cell,
+      // and it hardcoded "plugin" — harmless while every declared producer WAS one, and false the
+      // moment an analysis agent joined the table. It was UNREACHABLE for an agent until that
+      // happened, which is why the wording lands in the same commit as the declaration rather
+      // than earlier: before this, no test could have driven it. Same class as the
+      // "plugin undefined did not run in the other run" detail this engine already had to fix.
+      detail: `${f.producerKind === 'agent' ? 'producer' : 'plugin'} ${producerLabel(f)} `
+        + `changed what it names as a finding's object at EE ${at}; `
         + 'the two runs straddle that change, so this finding\'s identity is not comparable '
         + 'between them. It is NOT reported as fixed or as new — rescan to compare.' };
   }

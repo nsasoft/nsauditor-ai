@@ -23,7 +23,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildScanDelta, NOT_COMPARABLE_REASONS, DECLARED_OUTCOMES, IDENTITY_BASIS_CHANGED_AT,
-  AGENT_PRODUCER_KEYS,
+  AGENT_PRODUCER_KEYS, identityBasisChanged,
 } from '../utils/scan_delta.mjs';
 
 // ⚠️ THE RUN RECORD CARRIES ITS SCOPE, and my first draft omitted it: with no `hostsWritten`
@@ -137,4 +137,151 @@ test('the TABLE is exported and every entry names a version the comparison can o
       + 'finding, so the declaration is silent and the producer it names stays undeclared');
     assert.match(version, /^\d+\.\d+\.\d+$/, `${plugin} declares ${version}, which cannot be ordered`);
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// THE AGENT DECLARATION — the same rule, on a producer that is not a plugin.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ WHY AN AGENT NEEDED DECLARING AT ALL. A finding from Enterprise's finding QUEUE emits no
+// resource, no region, no identity qualifier and no content digest, so `keyOf` reduces to
+// `host · producer · port · TITLE`. The title IS what that producer names. EE 1.1.0 moved the
+// coverage-gap title off `${program} ${version}` — a discovery fingerprint that changes when the
+// scan does — and onto `${protocol}/${service}`. That is an identity basis change by the same
+// definition the nine plugin entries use, read off the field that carries the answer in this
+// container.
+//
+// ⚠️ AND THE KEY TYPE WAS CHECKED, NOT ASSUMED. The table's numeric literals become STRING keys
+// (`Object.keys` → `["1020", …]`) and a plugin finding carries `String(id)`, so the existing
+// lookups work by coercion. An agent key is a string already. A declaration that is present but
+// never consulted is this cycle's own defect class — `AGENT_PRODUCER_KEYS` bounds the vocabulary
+// so a typo cannot create one, and the leg below proves the entry is REACHED.
+const AGENT = 'intelligence_engine';
+const QREC = (over = {}) => ({ runId: 'r', startedAt: '2026-09-01T00:00:00Z', schema: 1,
+  eeVersion: '1.1.0', ceVersion: '0.2.55', tier: 'enterprise',
+  hostsWritten: [{ host: '127.0.0.1' }], pluginsRequested: ['003'], ...over });
+// Shaped as the QUEUE path shapes it: a producer, no resource, no region, no qualifier, no digest.
+const Q = (title, over = {}) => ({ host: '127.0.0.1', plugin: AGENT, pluginName: AGENT,
+  producerKind: 'agent', port: 5353, title, severity: 'INFO', evidenceGap: false, ...over });
+const qside = (record, findings) => ({ record, findings, integrity: 'chain-verified',
+  pluginStatus: [{ host: '127.0.0.1', dir: 'd1', status: [], pluginStatusRecorded: true }] });
+
+// ── FOURTH QUADRANT FIRST ───────────────────────────────────────────────────────────────────
+// The leg an incident fixture omits: the NORMAL case. Every fixture born of this change straddles
+// the boundary, so the row that rots is the one where both runs are on the SAME side — and a
+// declaration that refuses there refuses for ever, silently, discarding real comparisons.
+
+test('AGENT — two runs BOTH at or after the change compare normally', () => {
+  const d = buildScanDelta({
+    baseline: qside(QREC(), [Q('[COVERAGE GAP] cpe_map_miss — udp/mdns')]),
+    current: qside(QREC({ runId: 's' }), []),
+  });
+  assert.equal(d.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+    'both runs are past the declared change, so there is nothing to declare — refusing here would '
+    + 'throw away every real comparison this producer can ever make');
+});
+
+test('AGENT — two runs BOTH before the change compare normally, because the rule is one-directional', () => {
+  const d = buildScanDelta({
+    baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)')]),
+    current: qside(QREC({ runId: 's', eeVersion: '1.0.0' }), []),
+  });
+  assert.equal(d.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+    'two pre-change runs share one basis; declaring on any version DIFFERENCE would declare for '
+    + 'ever and quietly retire the feature');
+});
+
+// ── THE DECLARATION ─────────────────────────────────────────────────────────────────────────
+
+test('AGENT — a pair STRADDLING the change is DECLARED, not reported as resolved + new', () => {
+  // The live shape: a 1.0.0 record carries `— mDNS/Bonjour Unknown (mdns)`, a post-change record
+  // carries `— udp/mdns`. One surface, two keys.
+  const d = buildScanDelta({
+    baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)')]),
+    current: qside(QREC({ runId: 's', eeVersion: '1.1.0' }), [Q('[COVERAGE GAP] cpe_map_miss — udp/mdns')]),
+  });
+  assert.equal(d.resolved.length, 0, 'the baseline row must NOT read as fixed');
+  assert.equal(d.newFindings.length, 0, 'and the current row must NOT read as a new exposure');
+  const codes = d.notComparable.map((x) => x.reason);
+  assert.ok(codes.includes('plugin-identity-basis-changed'),
+    `expected the basis declaration for the agent; got ${JSON.stringify(codes)}`);
+});
+
+// ⚠️ THE SENTENCE A CUSTOMER READS. This detail renders into the client artifact's basis cell, and
+// it hardcoded the word "plugin". It was UNREACHABLE for an agent until this declaration existed —
+// which is why the wording rides this commit and could not have been fixed earlier.
+test('AGENT — the refusal detail calls it a PRODUCER, not a plugin', () => {
+  const d = buildScanDelta({
+    baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('[COVERAGE GAP] cpe_map_miss — mDNS/Bonjour Unknown (mdns)')]),
+    current: qside(QREC({ runId: 's' }), [Q('[COVERAGE GAP] cpe_map_miss — udp/mdns')]),
+  });
+  const row = d.notComparable.find((x) => x.reason === 'plugin-identity-basis-changed');
+  assert.ok(row, 'the declaration must fire before its wording can be checked');
+  assert.doesNotMatch(row.detail, /\bplugin intelligence_engine\b/,
+    'an analysis agent is not a plugin, and this sentence reaches a client deliverable — the same '
+    + 'class as the "plugin undefined did not run" detail this engine already had to fix');
+  assert.match(row.detail, new RegExp(AGENT), 'it must still NAME the producer');
+});
+
+test('FOURTH QUADRANT — a PLUGIN is still called a plugin', () => {
+  // The wording fix must not rename what was already correct.
+  const d = buildScanDelta({
+    baseline: side(REC({ eeVersion: '1.0.0' }), [F({ resource: null })]),
+    current: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-0def2fbb3db67eae5' })]),
+  });
+  const row = d.notComparable.find((x) => x.reason === 'plugin-identity-basis-changed');
+  assert.ok(row);
+  assert.match(row.detail, /plugin /, 'a plugin finding must keep the noun it always had');
+});
+
+// ⚠️ THE LEG THAT CATCHES AN INERT DECLARATION — the shape this cycle has shipped once and caught
+// twice. A key present in the table but never consulted passes every leg above that only asserts
+// an ABSENCE. This asserts the entry is REACHED, and that the vocabulary bounds it.
+test('AGENT — the declaration is REACHED, and its key is a member of the declared vocabulary', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT[AGENT], '1.1.0',
+    'the entry must exist under exactly the key a queue finding carries in `plugin`');
+  assert.ok(AGENT_PRODUCER_KEYS.includes(AGENT),
+    'and be a member of the enumerated vocabulary, so a typo cannot declare a producer that does '
+    + 'not exist — a lookup that finds nothing leaves the REAL producer undeclared');
+});
+
+// ⚠️ TWO OUTCOMES FROM ONE STRADDLE — and the first draft of this leg was leg 2 under another
+// name. Asserting "the straddle is refused" proves only that SOMETHING refused it; it cannot tell
+// the DECLARATION apart from agent-ness, from the straddle itself, or from any other rule that
+// happens to fire on the same pair. The discriminating question is what changes when the only
+// thing that differs is whether the producer is DECLARED.
+//
+// `crypto_agent` is the control: same container, same `producerKind`, a MEMBER of
+// `AGENT_PRODUCER_KEYS`, and deliberately NOT in the table. Same straddle, same shapes, opposite
+// verdict — so the refusal belongs to the declaration and to nothing else.
+test('AGENT — the refusal is the DECLARATION\'s: an undeclared agent straddles the same boundary and compares', () => {
+  const straddleFor = (producer) => buildScanDelta({
+    baseline: qside(QREC({ eeVersion: '1.0.0' }), [Q('a title', { plugin: producer, pluginName: producer })]),
+    current: qside(QREC({ runId: 's' }), [Q('a different title', { plugin: producer, pluginName: producer })]),
+  });
+
+  const declared = straddleFor(AGENT);
+  assert.ok(declared.notComparable.some((x) => x.reason === 'plugin-identity-basis-changed'),
+    'the declared producer must be refused — otherwise the entry is present but never consulted, '
+    + 'which is the inert-declaration class this cycle has already shipped once');
+
+  const undeclared = straddleFor('crypto_agent');
+  assert.equal(undeclared.notComparable.filter((x) => x.reason === 'plugin-identity-basis-changed').length, 0,
+    '`crypto_agent` is an agent, is in the vocabulary, and straddles the SAME boundary — if it is '
+    + 'refused too then the refusal is not the declaration\'s, and the leg above proves nothing '
+    + 'about the table');
+  assert.equal(undeclared.resolved.length + undeclared.newFindings.length, 2,
+    'and it must actually be COMPARED — one vanished, one appeared — or it was refused for some '
+    + 'other reason and the contrast is illusory');
+});
+
+test('AGENT — the lookup key resolves, checked by COERCION and not by eye', () => {
+  // The table's numeric literals become STRING keys and a plugin finding carries `String(id)`, so
+  // the existing entries work by coercion. An agent key is a string already — but a declaration
+  // that is present and never resolves is silent, so it is driven rather than read.
+  assert.equal(identityBasisChanged(AGENT, '1.0.0', '1.1.0'), true, 'straddling → declared');
+  assert.equal(identityBasisChanged(AGENT, '1.1.0', '1.1.0'), false, 'both after → not declared');
+  assert.equal(identityBasisChanged(AGENT, '1.0.0', '1.0.0'), false, 'both before → not declared');
+  assert.equal(identityBasisChanged('crypto_agent', '1.0.0', '1.1.0'), false,
+    'and an undeclared producer is never declared, whatever it straddles');
 });
