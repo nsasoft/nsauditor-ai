@@ -970,6 +970,11 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       complianceHistoryRoot: opts.complianceHistoryRoot,
       slaPolicy:             opts.slaPolicy,
       results,
+      // ⚠️ WHAT EACH UPSTREAM DID, forwarded so EE can tell "nothing to map" from "my inputs
+      // never ran". Without it the CPE mapper returns a silently empty result when discovery
+      // times out, and the DISAPPEARANCE of its own coverage-gap records reads to the cross-run
+      // delta as findings RESOLVED — measured on a live run, three such rows.
+      pluginStatus,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
     }) : null;
     // ⚠️ Read from `exploitIntel.stores`, NOT a top-level `exploit` key — measured against
