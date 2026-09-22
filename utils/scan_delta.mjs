@@ -72,6 +72,30 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
  * now name the real one; 1020 / 1024 / 1025 / 1030 / 1200 / 1210 named nothing and now name an
  * object or their scope. `null → a value` moves a key exactly as `region → object id` does.
  */
+/**
+ * THE NON-NUMERIC PRODUCERS A DECLARATION MAY NAME.
+ *
+ * ⚠️ THE TABLE BELOW WAS KEYED ON PLUGIN IDS AND PINNED `/^\d{3,4}$/`, because every declared
+ * producer was a plugin. Enterprise's ANALYSIS AGENTS are producers too — a finding out of the
+ * finding QUEUE carries `evidence.source` as its identity, never an id — and one of them changes
+ * what it names at EE 1.1.0. So the vocabulary has to widen, and widening it to "any string" is
+ * not an option: a typo would declare a producer that does not exist, `identityBasisChanged` would
+ * find nothing on lookup, and the REAL producer would stay undeclared and fabricate churn. That is
+ * the defect the table exists to prevent, arriving through the table's own key.
+ *
+ * ⚠️ IT IS DECLARED HERE AND DERIVED THERE. Community cannot see Enterprise's agent registry, and
+ * Enterprise cannot edit this file — so a hand list in either repo is a copy that rots when the
+ * other side moves. `tests/agent_producer_vocabulary.test.mjs` in EE holds this set in TWO-WAY
+ * equality with the set derived from EE's own registry and its mapper's exported source constant:
+ * a member here that EE does not emit fails, and a source EE emits that is missing here fails too.
+ * A subset check in either direction would be a superset guard, structurally unable to catch the
+ * other side's omission.
+ */
+export const AGENT_PRODUCER_KEYS = Object.freeze([
+  'auth_agent', 'crypto_agent', 'config_agent', 'service_agent', 'exposure_agent',
+  'intelligence_engine',
+]);
+
 export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0', 1150: '1.1.0',
   1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',

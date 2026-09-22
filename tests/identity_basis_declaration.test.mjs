@@ -23,6 +23,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildScanDelta, NOT_COMPARABLE_REASONS, DECLARED_OUTCOMES, IDENTITY_BASIS_CHANGED_AT,
+  AGENT_PRODUCER_KEYS,
 } from '../utils/scan_delta.mjs';
 
 // ⚠️ THE RUN RECORD CARRIES ITS SCOPE, and my first draft omitted it: with no `hostsWritten`
@@ -121,8 +122,19 @@ test('the TABLE is exported and every entry names a version the comparison can o
   assert.ok(IDENTITY_BASIS_CHANGED_AT && typeof IDENTITY_BASIS_CHANGED_AT === 'object');
   const entries = Object.entries(IDENTITY_BASIS_CHANGED_AT);
   assert.ok(entries.length > 0, 'an empty table would make every leg above vacuous');
+  // ⚠️ NUMERIC **OR** A DECLARED AGENT SOURCE, AND THE SECOND HALF IS AN ENUMERATED VOCABULARY
+  // RATHER THAN "any string". A finding out of the finding QUEUE carries `evidence.source` as its
+  // producer identity, never a plugin id, and EE 1.1.0 declares one. Accepting any string would
+  // let a typo declare a producer that does not exist — and that failure is SILENT: the lookup
+  // finds nothing, so the real producer stays undeclared and fabricates churn, which is the exact
+  // defect this table exists to prevent. `AGENT_PRODUCER_KEYS` is held in two-way equality with
+  // what Enterprise actually emits by `tests/agent_producer_vocabulary.test.mjs` over there.
+  const agents = new Set(AGENT_PRODUCER_KEYS);
   for (const [plugin, version] of entries) {
-    assert.match(plugin, /^\d{3,4}$/, `plugin id ${plugin} is not an id`);
+    assert.ok(/^\d{3,4}$/.test(plugin) || agents.has(plugin),
+      `\`${plugin}\` is neither a plugin id nor a declared agent producer `
+      + `(${AGENT_PRODUCER_KEYS.join(', ')}) — a key outside the vocabulary can never match a `
+      + 'finding, so the declaration is silent and the producer it names stays undeclared');
     assert.match(version, /^\d+\.\d+\.\d+$/, `${plugin} declares ${version}, which cannot be ordered`);
   }
 });
