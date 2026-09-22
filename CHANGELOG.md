@@ -44,10 +44,12 @@ only when its host, plugin and scope were in scope in BOTH runs; otherwise it is
 COMPARABLE **with its reason**, never silently dropped, and every row that claims remediation
 carries the basis it rests on.
 
-**SIX ways a finding can vanish without being fixed. FIVE are handled; the sixth is DECLARED, not
-handled, and the report says which.** The host was not scanned · the producing plugin did not run,
-errored, timed out, or cannot be identified · an evidence gap (AccessDenied, budget exceeded,
-incomplete region enumeration) · the two runs straddle a product boundary where a reported number
+**SEVEN ways a finding can vanish without being fixed. SIX are handled; the seventh is DECLARED,
+not handled, and the report says which.** The host was not scanned · the producing plugin did not
+run, errored, timed out, or cannot be identified · an evidence gap (AccessDenied, budget exceeded,
+incomplete region enumeration) · **the two runs COVERED DIFFERENT SCOPES — a narrower
+`--aws-region`, a different Azure subscription or GCP project — so the surface was not looked at
+rather than clean** · the two runs straddle a product boundary where a reported number
 changed meaning · the two runs ran at DIFFERENT LICENCE TIERS, so the set of producers that ran
 differs and a whole producer's findings would read as remediation — that one refuses the comparison
 outright. **The sixth is framework-enumeration movement, and this edition cannot evaluate it:** a

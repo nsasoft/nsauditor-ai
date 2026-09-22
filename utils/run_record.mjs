@@ -187,12 +187,25 @@ function withRunLock(runId, fn) {
 // scanned" on a client's cover — FALSE, because they WERE scanned; only the record was never
 // finalized. A false "not scanned" over scanned hosts is the exact false clean this record exists
 // to prevent, inverted.
-export async function appendHostWritten(outRoot, runId, { host, dir }) {
+export async function appendHostWritten(outRoot, runId, { host, dir, scopeScanned = null }) {
   return withRunLock(runId, async () => {
     const existing = await readRunRecord(outRoot, runId);
     if (!existing) return false;
+    const normalised = normaliseHost(host);
     existing.hostsWritten = [...(existing.hostsWritten ?? []),
-      { host: normaliseHost(host), dir: path.basename(String(dir ?? '')) }];
+      { host: normalised, dir: path.basename(String(dir ?? '')) }];
+    // ⚠️ WHAT THIS HOST ACTUALLY COVERED, recorded HERE and not at writeRunStart — because at
+    // START nothing has resolved yet, and the flag is not the answer. `--aws-region` is often
+    // omitted, and the set the scan then discovers and uses is the only honest subject. The host
+    // IS the provider on a cloud scan, so a per-host append is a per-provider record for free.
+    //
+    // ⚠️ MEASURED CONSEQUENCE OF NOT HAVING THIS: two live AWS passes differing only in
+    // `--aws-region` reported EIGHT unremediated `eu-west-1` findings as RESOLVED — GuardDuty
+    // NOT ENABLED, Inspector2 DISABLED, default EBS encryption DISABLED. Narrowing a follow-up
+    // scan is a normal operator action, and nothing in the record could tell it from a fix.
+    if (scopeScanned && typeof scopeScanned === 'object') {
+      existing.scopeScanned = { ...(existing.scopeScanned ?? {}), [normalised]: scopeScanned };
+    }
     return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'host append'));
   });
 }

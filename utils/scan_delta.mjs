@@ -42,6 +42,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
   'plugin-identity-basis-changed', // the producer changed WHAT IT NAMES between the two releases
+  'scope-not-scanned',             // the finding's coverage unit was outside the OTHER run's recorded scope
 ]);
 
 /**
@@ -232,6 +233,62 @@ const NOT_MEASURED_STATUS = new Set(['error', 'timeout', 'skipped']);
 // key `undefined|1170` against a lookup keyed `<host>|<id>`. Leaving a second unreachable path
 // beside the repaired one is the F5 mistake this module already records at the framework leg —
 // dead code that reads as coverage.
+/**
+ * The COVERAGE UNIT a finding sits in, per provider, and whether the OTHER run recorded covering
+ * it. Returns a detail string when the finding is outside that run's recorded scope, else null.
+ *
+ * Each provider resolves a different unit, so the unit is read per provider rather than assumed:
+ *   aws    → REGION,       carried per finding as `f.region`
+ *   azure  → SUBSCRIPTION, carried by the HOST (every finding of that host shares it)
+ *   gcp    → PROJECT,      likewise
+ *
+ * ⚠️ THREE SILENCES, EACH DELIBERATE. (1) BOTH sides unknown → silent: every record written
+ * before this field existed lacks it, and firing there would turn every historical comparison
+ * into a wall of rows. (2) A finding with NO unit (`iam:account`, no region) is not scoped by
+ * that unit and is untouched — otherwise a narrowed region makes the whole account
+ * not-comparable. (3) A side that DISAGREED with itself about its coverage is UNKNOWN, not
+ * covered: the resolver memo is keyed on the credential fingerprint, so two keys resolving
+ * different sets inside one host's scan means the run has no single coverage to difference.
+ */
+const PROVIDER_SCOPE_UNIT = Object.freeze({ aws: 'region', azure: 'subscription', gcp: 'project' });
+
+function scopeNotScanned(f, mine, theirs) {
+  const provider = String(f?.host ?? '');
+  const mineEntry = mine?.scopeScanned?.[provider] ?? null;
+  const theirEntry = theirs?.scopeScanned?.[provider] ?? null;
+  if (!mineEntry && !theirEntry) return null;                 // (1) neither side knows
+
+  // ⚠️ THE UNIT IS A PROPERTY OF THE PROVIDER, NEVER OF THE RECORD ENTRY — and the first draft
+  // had it the other way round, which made the both-sides-unknown guard DEAD CODE: with no entry
+  // on either side the unit fell back to a literal that is not 'region', so the value lookup
+  // returned null and the guard below caught every case first. A mutant deleting guard (1)
+  // survived the whole fixture set, which is how it was found. Reading the unit from the provider
+  // makes the guard load-bearing: a pre-fix pair with a regional finding now reaches it.
+  const unitName = PROVIDER_SCOPE_UNIT[provider] ?? null;
+  if (unitName === null) return null;              // a provider with no coverage unit of its own
+  // A region rides on the finding; a subscription or project is a property of the HOST, so the
+  // side's own recorded value stands in for every finding of that host.
+  const value = unitName === 'region'
+    ? (typeof f?.region === 'string' && f.region ? f.region : null)
+    : (mineEntry?.scanned?.[0] ?? theirEntry?.scanned?.[0] ?? null);
+  if (value === null) return null;                            // (2) this finding carries no unit
+
+  if (!theirEntry) {
+    return `the other run's record carries no ${unitName} scope, so it is not known whether `
+      + `${unitName} ${value} was covered there — this finding cannot be called fixed or new `
+      + 'against an unknown scope';
+  }
+  if (theirEntry.disagreed === true || mineEntry?.disagreed === true) {
+    return `a run disagreed with itself about which ${unitName}s it covered, so its scope is `   // (3)
+      + `unknown; ${unitName} ${value} cannot be differenced against it`;
+  }
+  const covered = new Set(Array.isArray(theirEntry.scanned) ? theirEntry.scanned : []);
+  if (covered.has(value)) return null;                        // genuinely comparable
+  return `${unitName} ${value} was outside the other run's recorded scope `
+    + `(${[...covered].join(', ') || 'none recorded'}) — the surface was not looked at there, `
+    + 'which is not the same as the finding being fixed';
+}
+
 const scopeOf = (side) => {
   const rec = side?.record ?? {};
   const hosts = new Set((rec.hostsWritten ?? []).map((h) => h?.host).filter(Boolean));
@@ -265,6 +322,11 @@ const scopeOf = (side) => {
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
     eeVersion: rec.eeVersion ?? null,
+    // ⚠️ WHAT THE RUN ACTUALLY COVERED, per provider — never the FLAG. `undefined` means the
+    // record predates this field and the scope is UNKNOWN, which is not the same as "covered
+    // nothing": the rule below fails closed on unknown and stays silent when BOTH sides are
+    // unknown, because every record written before this change lacks it.
+    scopeScanned: rec.scopeScanned ?? null,
     // ⚠️ AN ABSENT ORACLE IS NOT A CLEAN ONE. `[]` means "measured, no gaps"; MISSING means
     // nothing was measured, and the two must not render alike. Declared in `limits`, never
     // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
@@ -340,6 +402,18 @@ function incomparabilityReason(f, mine, theirs) {
         + 'the two runs straddle that change, so this finding\'s identity is not comparable '
         + 'between them. It is NOT reported as fixed or as new — rescan to compare.' };
   }
+  // ⚠️ DID THE OTHER RUN EVEN LOOK THERE? Placed after plugin-not-run and the identity
+  // declaration — those are statements about the PRODUCER and the COMPARISON — and before the
+  // gap legs, because "the surface was outside the scan's scope" is more precise than "no gap was
+  // recorded for it": a region nobody scanned records no gap by construction.
+  //
+  // ⚠️ MEASURED, NOT HYPOTHETICAL. Two live AWS passes differing only in `--aws-region` reported
+  // EIGHT unremediated `eu-west-1` findings as RESOLVED — GuardDuty NOT ENABLED, Inspector2
+  // DISABLED, default EBS encryption DISABLED — because narrowing a follow-up scan is a normal
+  // operator action and nothing in the record could tell it from remediation.
+  const scopeMiss = scopeNotScanned(f, mine, theirs);
+  if (scopeMiss) return { reason: 'scope-not-scanned', detail: scopeMiss };
+
   const gap = theirs.gaps.get(`${f.host}|${f.plugin}`) ?? mine.gaps.get(`${f.host}|${f.plugin}`);
   if (gap) {
     return gap.kind === 'recorded-gap'

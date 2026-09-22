@@ -52,12 +52,13 @@ function writeHostDir(outRoot, dir, runId, findings, { status = 'ran', omitResul
 
 async function mkRun(outRoot, { startedAt, findings = [], seal = true, tier = 'pro',
   eeVersion = '1.1.0', ceVersion = '0.2.55', plugins = ['010'], host = '10.0.0.7',
-  status, omitResult, queue, omitPluginStatus, prevDigest, pluginId, pluginName } = {}) {
+  status, omitResult, queue, omitPluginStatus, prevDigest, pluginId, pluginName,
+  scopeScanned } = {}) {
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [host],
     pluginsRequested: plugins, portsRequested: '443', tier, ceVersion, eeVersion, prevDigest });
   writeHostDir(outRoot, `d-${runId}`, runId, findings, { status, omitResult, queue, omitPluginStatus, host, pluginId, pluginName });
-  await appendHostWritten(outRoot, runId, { host, dir: `d-${runId}` });
+  await appendHostWritten(outRoot, runId, { host, dir: `d-${runId}`, scopeScanned });
   await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
   if (seal) await sealRunRecord(outRoot, runId);
   return runId;
@@ -117,6 +118,20 @@ const PRODUCERS = {
     const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });
     const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z',
       findings: [s3('bucket-a', 'INFO', { details: { evidenceGap: true } })] });
+    return drive(outRoot, current, baseline);
+  },
+  'scope-not-scanned': async () => {
+    // ⚠️ THE LIVE ROW, DRIVEN THROUGH THE SHIPPED ENTRY POINT. Two AWS passes differing only in
+    // `--aws-region`: the baseline covered eu-west-1 and found GuardDuty disabled there; the
+    // current covered us-east-1 only. Without the recorded scope the delta calls that RESOLVED —
+    // measured on the real estate, eight such rows in one pair.
+    const outRoot = tmp('scope');
+    const gd = { severity: 'HIGH', title: "AWS GuardDuty is NOT ENABLED in region 'eu-west-1'",
+      resource: 'guardduty:account', region: 'eu-west-1' };
+    const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', host: 'aws',
+      findings: [gd], scopeScanned: { unit: 'region', scanned: ['us-east-1', 'eu-west-1'] } });
+    const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', host: 'aws',
+      findings: [], scopeScanned: { unit: 'region', scanned: ['us-east-1'] } });
     return drive(outRoot, current, baseline);
   },
   'plugin-identity-basis-changed': async () => {
