@@ -222,3 +222,54 @@ test('…and the refusals that DO depend on the other side are untouched', () =>
   assert.equal(appeared.notComparable.find((r) => /cpe_map_miss/.test(String(r.title ?? '')))?.reason,
     'evidence-gap');
 });
+
+// ── THE DISCLOSURE A READER ACTUALLY MEETS MUST BE THE ONE THAT DISCLOSES ───────────────────
+//
+// ⚠️ FOUR QUEUE-PATH FIELDS ARE DECLARED ABSENT AGAINST `AGENT_SCOPE_FROM_TIER`, AND THAT LIMIT
+// SAID NOTHING ABOUT THEM. Its text disclosed how an agent's SCOPE is derived; the absences it
+// excuses are about IDENTITY — `contentDigest`, `identityQualifier`, `resource` and `region` are
+// all missing on this path, so a queue row is identified by host, producer, port and TITLE and by
+// nothing else. A reader of the limits block was never told that. A carve-out is only disclosed if
+// the sentence that reaches the reader is the sentence that discloses it.
+//
+// ⚠️ AND THE ABSENCE HAS A LIVE OCCUPANT, WHICH IS WHY THE SENTENCE NAMES THE CONSEQUENCE. On the
+// real `192.168.1.1` record, TWENTY CVE rows share host, port, protocol, service, program and
+// version — `{port: 53, protocol: 'udp', service: 'dns', program: 'dnsmasq', version: '2.78'}` —
+// and are separated only by their titles (20 rows, 20 distinct titles). With no digest on this
+// path, one edit to that title template would collapse all twenty into a single identity, and the
+// delta's own IDENTITY_COLLAPSE limit is the only thing that would say so, after the fact.
+// ⚠️ THE FIGURE WAS 21 IN MY FIRST REPORT AND IT WAS WRONG — derived, it is 20. The class did not
+// depend on the number, which is exactly why an unchecked number rides along unnoticed.
+test('the agent limit discloses the IDENTITY composition, not only the scope', () => {
+  const d = buildScanDelta({
+    baseline: side(shaped([queueFinding('a queue row')]), { runId: 'b' }),
+    current: side(shaped([queueFinding('a queue row')]), { runId: 'c' }),
+  });
+  const limit = d.limits.find((l) => l.startsWith('Agent-produced findings'));
+  assert.ok(limit, 'the limit must reach the output for any of this to be a disclosure');
+  for (const [what, re] of [['the fields it is keyed on', /host/i], ['the producer', /producer/i],
+    ['the port', /port/i], ['the title', /title/i]]) {
+    assert.match(limit, re, `the disclosure must name ${what}`);
+  }
+  assert.match(limit, /no (object|resource)|without a (resource|digest)|neither|nor/i,
+    'and must say what it is NOT keyed on — an absence a reader cannot infer from a list');
+  assert.match(limit, /digest/i,
+    'the missing content digest is the one whose absence can MASK a finding; naming it is the point');
+});
+
+test('…and the declared-absent queue fields all point at that limit, so the sentence is load-bearing', async () => {
+  const { DECLARED_ABSENT_FINDING_FIELDS } = await import('../utils/scan_delta.mjs');
+  // ⚠️ QUEUE-ONLY, and my first draft got this wrong. `control` is absent on BOTH paths and is
+  // disclosed by FRAMEWORK_MOVEMENT_NOT_EVALUATED — correctly, because it is absent for an
+  // entirely different reason (Community ships no compliance data). Demanding that every
+  // queue-path absence point at the agent limit would have forced a true declaration to name a
+  // limit that does not describe it, which is the opposite of what this leg is for.
+  const queueAbsent = Object.entries(DECLARED_ABSENT_FINDING_FIELDS)
+    .filter(([, v]) => (v.paths ?? []).length === 1 && v.paths[0] === 'queue');
+  assert.ok(queueAbsent.length >= 4, 'the four queue-path absences must still be declared');
+  for (const [field, decl] of queueAbsent) {
+    assert.equal(decl.disclosedBy, 'AGENT_SCOPE_FROM_TIER',
+      `${field} is excused by a limit this leg does not check; either point it here or give it a `
+      + 'leg of its own — an unchecked disclosure is not a disclosure');
+  }
+});

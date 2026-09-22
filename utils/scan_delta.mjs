@@ -409,11 +409,30 @@ export const SCOPE_NOT_EVALUATED =
   + 'reported as resolved here may instead be one the scanner could not read. Re-run the '
   + 'comparison against a run recorded by this release or later before treating any row as remediation.';
 
+// ⚠️ THE SECOND HALF WAS ADDED BECAUSE FOUR DECLARED ABSENCES POINT AT THIS SENTENCE AND IT SAID
+// NOTHING ABOUT THEM. `contentDigest`, `identityQualifier`, `resource` and `region` are all absent
+// on the queue path and each is excused HERE — but the text disclosed only how an agent's SCOPE is
+// derived, while what those absences change is IDENTITY. A carve-out is disclosed only if the
+// sentence a reader actually meets is the sentence that discloses it.
+//
+// The consequence is not theoretical: on a real 192.168.1.1 record, TWENTY CVE rows share host,
+// port, protocol, service, program and version — `53/udp/dns`, `dnsmasq 2.78` — and are separated
+// by their titles alone (20 rows, 20 distinct titles, derived; a first count of 21 was mine and
+// was wrong). With no digest on this path, one edit to that title template collapses all twenty
+// into a single identity, and IDENTITY_COLLAPSE is the only thing that would say so — after the
+// fact. The 1.1.1 repair must hash STABLE content (for a CVE row, `evidence.cve[]` sorted plus
+// the service key) and NEVER `description`, which carries the program name identity is moving
+// away from — a digest over volatile prose reintroduces the volatility through the digest.
 export const AGENT_SCOPE_FROM_TIER =
   'Agent-produced findings: their scope is derived from the run TIER, not from a per-agent run '
   + 'record — this edition persists no per-agent status, and the agent set is a function of the '
   + 'licensed capabilities. The two runs carry the same tier, which is what makes them comparable; '
-  + 'a tier difference refuses the comparison outright rather than narrowing it.';
+  + 'a tier difference refuses the comparison outright rather than narrowing it. '
+  + 'Their IDENTITY is also narrower than a plugin finding\'s: an agent finding is keyed on host, '
+  + 'producer, port and title, and on nothing else — it carries no object (resource), no region, '
+  + 'no rule qualifier and NO CONTENT DIGEST. So two agent findings that differ only in text the '
+  + 'title does not carry share one identity, and one of them can be masked by the other; where '
+  + 'that happens it is named individually under the identity-collapse limit.';
 
 // The producer as a READER should see it. `plugin` is an id because that is the vocabulary the
 // run record can be checked against; the id alone is not a sentence, and this string is rendered
