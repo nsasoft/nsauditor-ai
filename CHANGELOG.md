@@ -8,6 +8,15 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## 0.2.55 (⏳ PRE-PUBLISH — opened 2026-09-18, NOT YET ON npm) — *what changed since the last scan*, and the three fields that made it honest
 
+⚠️ **ENTERPRISE 1.1.0 RAISES ITS PEER FLOOR TO COMMUNITY `>= 0.2.55` BECAUSE IT CALLS THIS
+RELEASE'S CODE.** Two surfaces added here are read by Enterprise, not merely shipped beside it:
+the per-plugin run statuses on the scan context (`ctx.pluginRunStatus`), which EE plugin 1023
+requires before it will assert a Zero Trust posture and which the CPE mapper uses to tell an empty
+service set from one whose discovery never ran; and the run-record fields the cross-run delta
+compares. Enterprise builds pinned below this version get NOT ASSESSED where they used to get a
+posture — which is the honest answer, not a regression.
+
+
 ### ⚠️ CORRECTION — `scan_history.jsonl`'s `findingsCount` KEEPS ITS NAME AND CHANGES ITS VALUE
 
 **It was wrong for a whole class of host and it is a comparison channel, so the wrongness compounded.**
