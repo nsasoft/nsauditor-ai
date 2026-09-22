@@ -275,6 +275,24 @@ const PRODUCERS = {
 
 const probeOf = (code) => DECLARED_OUTCOMES[code].probe;
 
+// ⚠️ TOKEN-ANCHORED, NOT A SUBSTRING — and the reviewing seat's R2 mutant is why. Printing
+// `plugin-${f.reason}` on the operator's NOT COMPARABLE line left LEG 2 GREEN, because
+// `identity-basis-changed` is a SUBSTRING of `plugin-identity-basis-changed`. The seam was still
+// covered — LEG 1c tokenises stdout and went red — but the leg NAMED for "reaches BOTH stdout and
+// the client artifact" was not the one covering it. That is the name-versus-assertion class this
+// round has now hit three times, and the third instance is in a leg I wrote to close the first two.
+// Driven: mutant applied, LEG 1c red / LEG 2 green before this; LEG 2 red after.
+//
+// `\b` cannot express it: the codes are kebab-case, and between the `-` of `plugin-` and the `i`
+// of `identity` there IS a word boundary. The boundary has to exclude the hyphen explicitly.
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// ⚠️ THE RIGHT BOUNDARY IS SPECIES-DEPENDENT AND THAT IS NOT A CONVENIENCE. A limit's probe is
+// `text.slice(0, OUTCOME_PROBE_CHARS)` — an arbitrary CHARACTER cut of a sentence, so it routinely
+// ends mid-word and the sentinel legitimately continues past it. Demanding a right boundary there
+// would fail on correct output. A code's probe is a whole token, so it gets both sides.
+const tokenIn = (hay, probe, species) => new RegExp(
+  `(?<![\\w-])${escapeRe(probe)}${species === 'limit' ? '' : '(?![\\w-])'}`).test(hay);
+
 // ── SELF-CHECK. A census whose probes collide reports on the wrong outcome, and it would do so
 // silently. Written before the legs that depend on it.
 test('CENSUS SELF-CHECK — every declared probe is distinct and non-trivial', () => {
@@ -405,9 +423,10 @@ test('LEG 2 — every outcome that must reach a human reaches BOTH stdout and th
     if (DECLARED_UNREACHABLE_OUTCOMES[code]) continue;
     const r = await PRODUCERS[code]();
     const p = probeOf(code);
-    if (!r.stdout.includes(p)) failures.push(`${code}: absent from STDOUT`);
+    const sp = o.species;
+    if (!tokenIn(r.stdout, p, sp)) failures.push(`${code}: absent from STDOUT`);
     if (r.html === null) failures.push(`${code}: NO client artifact was written at all`);
-    else if (!r.html.includes(escapeHtml(p)) && !r.html.includes(p)) failures.push(`${code}: absent from the CLIENT ARTIFACT`);
+    else if (!tokenIn(r.html, escapeHtml(p), sp) && !tokenIn(r.html, p, sp)) failures.push(`${code}: absent from the CLIENT ARTIFACT`);
   }
   assert.deepEqual(failures, [], failures.join('\n'));
 });
