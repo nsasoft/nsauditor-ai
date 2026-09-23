@@ -11,9 +11,17 @@
 // (run_record_kev_epss alone: 7).
 //
 // ⚠️ THE LAST THREE WERE MISSED BY THE FIRST ATTRIBUTION, FOR THE REASON THIS ITEM IS ABOUT.
-// They were invisible to a shim that found its own log path through an ENV VAR — the spawned child
-// got a rebuilt env, the shim died before logging — which is the same process-boundary blindness,
-// arriving in the instrument. They were also invisible to running each file ALONE. What FOUND them
+// They were invisible to a REPLACEMENT shim: one that stands in for `security` and answers every
+// read itself. Answering "not found" (or a fake value) starves the spawned CLI of a valid licence,
+// so it never reaches `_writeLicenseState` and never writes — and the call site vanishes from the
+// measurement along with the write. **A replacement shim measures the code under the keychain it
+// invents, not under the operator's.** The nine that WERE seen load the licence by a path that
+// shim did not starve. The instrument for "what does this suite do to the operator's keychain" is
+// a PASS-THROUGH logger — log, then `exec /usr/bin/security` — which is what found these.
+// (An earlier miss in the same lane DID have the env-var cause — a shim whose log path came from
+// an env var, dying inside a child with a rebuilt env — and it is a different defect; this comment
+// named that one until the reviewing seat corrected it from their own transcript.)
+// They were also invisible to running each file ALONE. What FOUND them
 // was the acceptance check itself: after folding the nine, `NSAUDITOR_LICENSE_ID`'s modification
 // time STILL MOVED across a full suite run (000117Z → 000537Z), and the writers were then
 // attributed by logging the GRANDPARENT process of every `add-generic-password`.
