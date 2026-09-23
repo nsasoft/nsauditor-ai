@@ -70,6 +70,35 @@ test('a producer that GAINED an identity is DECLARED, not reported as resolved +
 // A finding present in the BASELINE and absent from the CURRENT run is the shape that forces the
 // question: it must be reported RESOLVED, and it reaches the incomparability chain on its way
 // there, so a rule that declares too widely swallows a real remediation.
+// ── 1110: THE THIRD KIND — a TEXT correction, not an object or a region (CFN-3) ─────────────────
+// Driven with the two real HIGH sentences' shape: same host, plugin, resource and title prefix, a
+// different content digest because the evidence-layer sentence was corrected.
+const H1110 = (over = {}) => F({ plugin: '1110', pluginName: 'iam-decrypt', resource: 'iam:user:alice',
+  title: "IAM principal 'alice' (user) has effective kms:Decrypt on Resource:*", severity: 'HIGH', ...over });
+const side1110 = (record, findings) => ({ ...side(record, findings),
+  pluginStatus: [{ host: 'aws', plugin: '1110', status: 'ran' }] });
+test('1110 — a 1.0.0 HIGH whose TEXT was corrected at 1.1.0 is IDENTITY-BASIS-CHANGED, never resolved', () => {
+  const d = buildScanDelta({
+    baseline: side1110(REC({ eeVersion: '1.0.0' }), [H1110({ contentDigest: 'says-the-downgrade-contract-ran' })]),
+    current: side1110(REC({ eeVersion: '1.1.0' }), [H1110({ contentDigest: 'says-the-downgrade-never-runs' })]),
+  });
+  assert.equal(d.resolved.length, 0, 'the HIGH did not go away — its sentence was corrected');
+  assert.equal(d.newFindings.length, 0);
+  // Both sides are declared — the corrected HIGH and its pre-correction twin — as the object-naming
+  // producers' straddles are.
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
+  for (const nc of d.notComparable) assert.match(nc.detail, /1110/);
+});
+
+test('1110, FOURTH QUADRANT — both runs at 1.1.0: a vanished HIGH IS resolved', () => {
+  const d = buildScanDelta({
+    baseline: side1110(REC({ eeVersion: '1.1.0' }), [H1110({ contentDigest: 'says-the-downgrade-never-runs' })]),
+    current: side1110(REC({ eeVersion: '1.1.0' }), []),
+  });
+  assert.equal(d.resolved.length, 1);
+  assert.equal(d.notComparable.length, 0);
+});
+
 test('FOURTH QUADRANT — across the SAME version a vanished finding is RESOLVED, not declared', () => {
   const d = buildScanDelta({
     baseline: side(REC({ eeVersion: '1.1.0' }), [F({ resource: 'sg-abc' })]),
@@ -318,7 +347,9 @@ test('AGENT — the lookup key resolves, checked by COERCION and not by eye', ()
 test('the DECLARED SET is exactly this, and a deletion fails as loudly as an addition', () => {
   // MOVED DELIBERATELY at EE 1.1.0 build 5: 1040 ADDED — its rows gained a region (CFN-2), which
   // changes what they are, exactly as 1120's stamp did. Twelve producers: eleven plugins, one agent.
-  const EXPECTED = ['1020', '1024', '1025', '1030', '1040', '1120', '1150', '1170', '1190', '1200', '1210',
+  // MOVED AGAIN, same build: 1110 ADDED — its HIGH row's TEXT was corrected (CFN-3), which changes
+  // its content digest and so its identity. Thirteen producers: twelve plugins, one agent.
+  const EXPECTED = ['1020', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), [...EXPECTED].sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '

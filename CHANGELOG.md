@@ -78,12 +78,13 @@ alternative — trusting the other rows from a producer that just told you it wa
 is the false-remediation class this whole engine exists to prevent. Per-finding precision needs the
 producing plugin stamped on each service record, which this release does not do.
 
-⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Twelve
-producers in Enterprise 1.1.0 changed what they NAME as a finding's object — eleven plugins, nine
-that previously left `resource` empty or set it to the region and two (1120 and 1040) that
-recorded no region this engine could read, and, for the first time, an analysis
-AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE because a queue entry emits
-no resource at all). A straddling comparison refuses those rows rather than differencing them, so
+⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Thirteen
+producers in Enterprise 1.1.0 changed what identifies a finding — twelve plugins: nine that
+previously left `resource` empty or set it to the region, two (1120 and 1040) that recorded no
+region this engine could read, and one (1110, the effective-decrypt auditor) whose HIGH finding's
+TEXT was corrected, because it described a KMS cross-reference that no longer runs — and, for the
+first time, an analysis AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE
+because a queue entry emits no resource at all). A straddling comparison refuses those rows rather than differencing them, so
 one surface under two keys is not reported as a fix plus a fresh exposure. The declaration is the
 `IDENTITY_BASIS_CHANGED_AT` table here in Community, one-directional — keyed on the baseline
 PREDATING the change, never on the two versions merely differing, which would declare on every

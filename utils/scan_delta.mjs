@@ -130,6 +130,14 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // config.region for the alarm and Config checks). That puts `region` into `keyOf` and CHANGES WHAT
   // THOSE FINDINGS ARE, so the straddle is declared exactly as 1120's was.
   1040: '1.1.0',
+  // ⚠️ 1110 IS A THIRD KIND: A TEXT CORRECTION, NOT A RENAMED OBJECT OR A NEW REGION. Its HIGH row
+  // (kms:Decrypt on Resource:*) told the reader the KMS key-policy and grant layers had been
+  // cross-referenced under a HIGH→INFO downgrade contract — and from EE 1.1.0 build 5 that downgrade
+  // runs on no shipped path, because a one-region read cannot establish that no key trusts a
+  // principal (CFN-3). The corrected sentence changes the row's content digest, which is part of
+  // `keyOf`, so every such HIGH straddling the upgrade would read as one finding resolved and a new
+  // one appearing. Declared for the same reason as the rest: what identifies the finding changed.
+  1110: '1.1.0',
   // ⚠️ 1120 JOINS AT THE STAMP, NOT AT THE RENAME. Its replication and lifecycle rows recorded
   // their region as `details.sourceBucketRegion` and carried NO top-level `region`, so in this
   // engine's frame they were non-regional: `scopeNotScanned` skipped them and narrowing a later
