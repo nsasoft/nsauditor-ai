@@ -56,6 +56,9 @@ export const IDENTITY_BASIS_CHANGED_REASON = 'identity-basis-changed';
 // unchanged, so no stored verdict changes meaning.
 export const PLUGIN_NOT_RUN_REASON = 'plugin-not-run';
 export const PLUGIN_NOT_MEASURED_REASON = 'plugin-not-measured';
+// And the COVERAGE reason: Enterprise's MTTR engine refuses to call a prior regional row remediated
+// when its region lay outside the current scan's recorded scope — the delta's own verdict, same name.
+export const SCOPE_NOT_SCANNED_REASON = 'scope-not-scanned';
 
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
@@ -65,7 +68,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   PLUGIN_NOT_MEASURED_REASON,      // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
   IDENTITY_BASIS_CHANGED_REASON,   // the producer changed WHAT IT NAMES between the two releases
-  'scope-not-scanned',             // the finding's coverage unit was outside the OTHER run's recorded scope
+  SCOPE_NOT_SCANNED_REASON,        // the finding's coverage unit was outside the OTHER run's recorded scope
 ]);
 
 /**
@@ -637,7 +640,7 @@ function incomparabilityReason(f, mine, theirs) {
   // DISABLED, default EBS encryption DISABLED — because narrowing a follow-up scan is a normal
   // operator action and nothing in the record could tell it from remediation.
   const scopeMiss = scopeNotScanned(f, mine, theirs);
-  if (scopeMiss) return { reason: 'scope-not-scanned', detail: scopeMiss };
+  if (scopeMiss) return { reason: SCOPE_NOT_SCANNED_REASON, detail: scopeMiss };
 
   // ⚠️ `theirs` ONLY, AND THE `?? mine.gaps` THAT USED TO SIT HERE WAS WRONG IN BOTH HALVES.
   // A gap says "this run could not read that surface", so it explains what a run is MISSING —
