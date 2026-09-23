@@ -50,13 +50,19 @@ export const SCAN_DELTA_SCHEMA = 1;
 // must not disagree about what counts as the same finding, so the second one IMPORTS the value
 // rather than typing it. Same value as before, so no stored verdict changes meaning.
 export const IDENTITY_BASIS_CHANGED_REASON = 'identity-basis-changed';
+// The same rule for the two PLUGIN-scope reasons: Enterprise's MTTR engine withholds a prior row's
+// closure when its plugin did not run (or ran and was not measured) in the current scan — the
+// delta's own two verdicts — so it imports these names rather than typing the strings. Values
+// unchanged, so no stored verdict changes meaning.
+export const PLUGIN_NOT_RUN_REASON = 'plugin-not-run';
+export const PLUGIN_NOT_MEASURED_REASON = 'plugin-not-measured';
 
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
   'producer-unknown',              // the finding carries no producer identity to adjudicate
-  'plugin-not-run',                // the producing plugin was not requested in the other run
+  PLUGIN_NOT_RUN_REASON,           // the producing plugin was not requested in the other run
   'evidence-gap',                  // a producer DECLARED it could not read the surface
-  'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
+  PLUGIN_NOT_MEASURED_REASON,      // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
   IDENTITY_BASIS_CHANGED_REASON,   // the producer changed WHAT IT NAMES between the two releases
   'scope-not-scanned',             // the finding's coverage unit was outside the OTHER run's recorded scope
@@ -342,7 +348,13 @@ const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-',
 
 // A plugin status that means THE SURFACE WAS NOT READ. `ran` is the only status that licenses a
 // comparison; the rest are the machine saying so itself.
-const NOT_MEASURED_STATUS = new Set(['error', 'timeout', 'skipped']);
+// ⚠️ EXPORTED AS A FROZEN LIST, NOT AS THE SET. Enterprise's MTTR engine reads the same vocabulary
+// (a prior row whose plugin was not measured now is not closed), and a shared Set is one any
+// importer could `add` to. The vocabulary is CLOSED: `tests/scan_delta.test.mjs` holds every
+// status literal the plugin manager assigns inside MEASURED_STATUS ∪ NOT_MEASURED_STATUSES.
+export const MEASURED_STATUS = 'ran';
+export const NOT_MEASURED_STATUSES = Object.freeze(['error', 'timeout', 'skipped']);
+const NOT_MEASURED_STATUS = new Set(NOT_MEASURED_STATUSES);
 
 // ⚠️ SCOPE IS WHAT A RUN MEASURED, WHICH IS NARROWER THAN WHAT IT REQUESTED IN THREE WAYS, and
 // every one of them was fail-open here until 2026-09-20 — each produced a `resolved` row in a
@@ -590,7 +602,7 @@ function incomparabilityReason(f, mine, theirs) {
     // an agent. Delete that guard and this sentence starts calling agents plugins, which is the
     // defect the identity branch below had to be repaired for. The coupling is written here
     // because a reader deleting the guard is reading THIS line, not the sentence's test.
-    return { reason: 'plugin-not-run', detail: `plugin ${producerLabel(f)} did not run in the other run` };
+    return { reason: PLUGIN_NOT_RUN_REASON, detail: `plugin ${producerLabel(f)} did not run in the other run` };
   }
   // ⚠️ THE PRODUCER CHANGED WHAT IT NAMES BETWEEN THESE TWO RELEASES, so its two keys for one
   // object cannot be matched and must not be DIFFERENCED either. Checked here, before the
@@ -648,7 +660,7 @@ function incomparabilityReason(f, mine, theirs) {
     return gap.kind === 'recorded-gap'
       ? { reason: 'evidence-gap',
         detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap.reason}` }
-      : { reason: 'plugin-not-measured',
+      : { reason: PLUGIN_NOT_MEASURED_REASON,
         detail: `${f.host}/${producerLabel(f)} was not measured in the other run — ${gap.reason}` };
   }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&

@@ -314,6 +314,25 @@ test('the declared outcome vocabulary is exactly what the module produces — it
     `the derivation found ${produced.length} reasons and ${refusals.length} refusals — too few to be believable; the patterns have drifted from the source`);
 });
 
+// ── THE PLUGIN-STATUS VOCABULARY IS CLOSED ──────────────────────────────────────────────────
+// The delta treats every status outside NOT_MEASURED_STATUSES as measured, and Enterprise's MTTR
+// engine treats one outside MEASURED_STATUS ∪ NOT_MEASURED_STATUSES as UNKNOWN (never closed). Both
+// are only safe while the plugin manager assigns no fifth status — so the set it assigns is DERIVED
+// from its source and held inside the exported vocabulary, and a new status fails here before
+// either consumer silently files it.
+test('every status the plugin manager assigns is in the exported vocabulary', async () => {
+  const { MEASURED_STATUS, NOT_MEASURED_STATUSES } = await import('../utils/scan_delta.mjs');
+  const src = fs.readFileSync(new URL('../plugin_manager.mjs', import.meta.url), 'utf8');
+  const assigned = new Set([...src.matchAll(/\bstatus(?: =|:) '([a-z]+)'/g)].map((m) => m[1]));
+  const known = new Set([MEASURED_STATUS, ...NOT_MEASURED_STATUSES]);
+  assert.deepEqual([...assigned].filter((s) => !known.has(s)), [],
+    'the plugin manager assigns a status no consumer knows — add it to the vocabulary and decide what it means');
+  // Fourth quadrant: a derivation that finds nothing is vacuously inside any vocabulary.
+  assert.deepEqual([...assigned].sort(), [...known].sort(),
+    'the derivation no longer finds every status in the vocabulary — the pattern has drifted from the source');
+  assert.ok(Object.isFrozen(NOT_MEASURED_STATUSES), 'a shared vocabulary must not be mutable by an importer');
+});
+
 // The same discipline for the VIEW's own refusals, added with C9. `VIEW_REFUSAL_REASONS` exists
 // so the equality above can stay EXACT rather than being relaxed to a subset check — but a second
 // constant is a second thing that can rot, so it gets its own derivation rather than a promise.
