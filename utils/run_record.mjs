@@ -149,6 +149,9 @@ export async function writeRunStart(outRoot, rec) {
       kevSnapshot: rec.kevSnapshot ?? null,
       epssLoaded: Boolean(rec.epssLoaded),
       epssSnapshot: rec.epssSnapshot ?? null,
+      // Additive (Enterprise 1.1.0 build 5, board item 23): WHERE the NVD store and response cache
+      // this run read live, and what the cache held when the run found it. Set at finalize.
+      nvdCache: rec.nvdCache ?? null,
     };
     return await writeJsonSafe(runRecordPath(outRoot, record.runId), record, 'run start');
   } catch (e) {
@@ -234,6 +237,7 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     if ('kevSnapshot' in opts) existing.kevSnapshot = opts.kevSnapshot ?? null;
     if ('epssLoaded' in opts) existing.epssLoaded = Boolean(opts.epssLoaded);
     if ('epssSnapshot' in opts) existing.epssSnapshot = opts.epssSnapshot ?? null;
+    if ('nvdCache' in opts) existing.nvdCache = opts.nvdCache ?? null;
     // ⚠️ SEAL THE EVIDENCE, NOT ONLY THE INDEX — and do it HERE, before the record is written, so
     // the digests are inside the bytes that `sealRunRecord` then covers. Sealing them afterwards
     // would leave them vouched for by nothing, which is the defect one level up: a digest nobody
@@ -280,4 +284,40 @@ export async function pruneRunRecordsForCE(outRoot, now = Date.now()) {
     try { await fsp.unlink(runRecordPath(outRoot, rec.runId)); removed += 1; } catch { /* already gone */ }
   }
   return removed;
+}
+
+/**
+ * THE NVD LOCATION A RUN READ, aggregated across its written hosts (Enterprise 1.1.0 build 5, board
+ * item 23). The CVE set a scan reports depends on which NVD store and response cache it consulted, and
+ * that was a hidden, cwd-relative input nothing recorded. Enterprise now reports it per host
+ * (`nvdStore.path` · `source` · `state` · `responseCache`); this is the run-level claim, and it is
+ * ALL-OR-NOTHING for the same reason `aggregateStoreLoad` is: a location true for some hosts and wrong
+ * for others is worse than none.
+ *   · no host reported one (Community alone, or enrichment never ran) → null, and nothing to say;
+ *   · some hosts did and some did not → null, with a warning naming the counts;
+ *   · the hosts disagree on path or source → null, with a warning naming them;
+ *   · they agree → the location, with `state` and `responseCache` from the FIRST written host: the
+ *     cache as this run found it, before any host of the run wrote to it.
+ * @param {Array<object|null>} perHost - each written host's reported NVD location, in written order
+ * @returns {{ value: object|null, warning: string|null }}
+ */
+export function aggregateNvdCache(perHost) {
+  const all = Array.isArray(perHost) ? perHost : [];
+  const reported = all.filter((v) => v && typeof v.path === 'string' && v.path.length > 0);
+  if (reported.length === 0) return { value: null, warning: null };
+  if (reported.length < all.length) {
+    return { value: null, warning: `NVD location was reported for only ${reported.length} of ${all.length} `
+      + 'written host(s) — recording it as unknown for this run.' };
+  }
+  const distinct = [...new Set(reported.map((v) => `${v.path} (${v.source ?? 'unknown'})`))];
+  if (distinct.length > 1) {
+    return { value: null, warning: `NVD location disagreed across written hosts (${distinct.join(', ')}) — `
+      + 'recording it as unknown for this run.' };
+  }
+  const first = reported[0];
+  return {
+    value: { path: first.path, source: first.source ?? null, state: first.state ?? null,
+      responseCache: first.responseCache ?? null },
+    warning: null,
+  };
 }

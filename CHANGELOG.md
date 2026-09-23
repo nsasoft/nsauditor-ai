@@ -97,6 +97,12 @@ another new. It is now set aside before pairing, like an evidence gap, and each 
 declared boundaries are listed under `coverage.scopeStatementsInBaseline` / `InCurrent`. A row
 flagged as both a gap and a boundary is treated as a gap.
 
+**The run record now says which NVD store and response cache the run read** (`nvdCache`: path, what
+set it, whether an offline store was there, and the cache's contents as the run found them). With
+Enterprise 1.1.0 the CVE set depends on a location you can see instead of the directory the scan was
+started from; the value is recorded only when every written host reported the same location, and is
+`null` otherwise (and always `null` without Enterprise). `feed import` now prints where the store went.
+
 **`scan_history.jsonl`'s `findingsCount` leaves those boundaries out too, and its basis moves to
 `loader-shaped-v2`.** The count is defined as what the delta pairs, and the delta no longer pairs
 a boundary, so the history count drops by the number of boundary rows a run carried — measured

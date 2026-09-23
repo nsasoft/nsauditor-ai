@@ -31,7 +31,7 @@ import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
 import { deriveFindingsCount } from './utils/report_inputs.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
-import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE } from './utils/run_record.mjs';
+import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE, aggregateNvdCache } from './utils/run_record.mjs';
 import { buildSinceView } from './utils/scan_delta_view.mjs';
 import { loadRun } from './utils/report_inputs.mjs';
 import { loadBrand } from './utils/brand.mjs';
@@ -953,6 +953,8 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // claim about the whole run, not a single host).
   let kevDataAsOf = null;
   let epssDataAsOf = null;
+  // Enterprise's report of WHERE the NVD store/cache it read lives (board item 23) — null without EE.
+  let nvdCache = null;
   try {
     // `opts.importEE`: test-only injection seam, mirroring `preflightNsauditorPosture`'s
     // `importEE` option elsewhere in this file — absent in every real invocation.
@@ -995,6 +997,10 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     const stores = eeEnrichment?.exploitIntel?.stores;
     kevDataAsOf = stores?.kev?.dataAsOf ?? null;
     epssDataAsOf = stores?.epss?.dataAsOf ?? null;
+    const nvd = eeEnrichment?.nvdStore;
+    nvdCache = (nvd && typeof nvd.path === 'string')
+      ? { path: nvd.path, source: nvd.source ?? null, state: nvd.state ?? null, responseCache: nvd.responseCache ?? null }
+      : null;
     if (eeEnrichment?.enrichedPrompt) {
       conclusion.result = conclusion.result || {};
       conclusion.result.eeEnrichment = eeEnrichment;
@@ -1185,7 +1191,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   return {
     host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff,
     // Additive, consumed only by main()'s top-level KEV/EPSS aggregation for the run record.
-    hostAppended, kevDataAsOf, epssDataAsOf,
+    hostAppended, kevDataAsOf, epssDataAsOf, nvdCache,
   };
 }
 
@@ -2848,6 +2854,9 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
             extrasDir: F.extrasDir || undefined,
           });
           console.log(`imported ${out.imported} CVE(s), skipped ${out.skipped}, errors ${out.errors}`);
+          // WHERE it went — the same location every scan reads, from any directory (Enterprise 1.1.0).
+          // Printed because an import into a place the operator did not expect is an import nobody uses.
+          if (out.store?.path) console.log(`  store: ${out.store.path} (${out.store.source})`);
           // ⚠️ THE SKIP SPLIT PRINTS HERE BECAUSE THE DATA-LOSS TICKET ORIGINATES HERE.
           // On a real NVD year file ~24% of records are skipped (measured on the 2024 feed:
           // 39,219 in, 29,866 imported, 9,353 skipped). An operator reading a bare "skipped 9353"
@@ -3354,10 +3363,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     const writtenOutputs = scanOutputs.filter((o) => o && o.hostAppended === true);
     const kevAgg = aggregateStoreLoad(writtenOutputs, 'kevDataAsOf', 'KEV');
     const epssAgg = aggregateStoreLoad(writtenOutputs, 'epssDataAsOf', 'EPSS');
+    const nvdAgg = aggregateNvdCache(writtenOutputs.map((o) => o.nvdCache ?? null));
+    if (nvdAgg.warning) console.warn(`[RunRecord] ${nvdAgg.warning}`);
     await finalizeRunRecord(outRoot, runId, {
       finishedAt: new Date().toISOString(),
       kevLoaded: kevAgg.loaded, kevSnapshot: kevAgg.snapshot,
       epssLoaded: epssAgg.loaded, epssSnapshot: epssAgg.snapshot,
+      nvdCache: nvdAgg.value,
     });
     if (getTierFromEnv() === 'ce') await pruneRunRecordsForCE(outRoot);
   } catch (err) {
