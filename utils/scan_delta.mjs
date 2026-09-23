@@ -298,7 +298,10 @@ export const CHAIN_ASSURANCE_LABEL =
   'unsophisticated edits. It is NOT tamper-proof against an attacker with host-level access, ' +
   'and it is not non-repudiation: the chain carries no signature and names no author.';
 
-const cmpVersion = (a, b) => {
+// EXPORTED so a consumer that asks "was this written before release X?" asks it with THIS
+// comparator — Enterprise's MTTR loader gates its region-identity warning on it (item 26). The "no
+// second comparator" rule above holds across the two packages, not only within this file.
+export const cmpVersion = (a, b) => {
   const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
   const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i += 1) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
