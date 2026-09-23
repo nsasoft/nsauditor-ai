@@ -45,6 +45,12 @@ export const SCAN_DELTA_SCHEMA = 1;
 // release on, a consumer can hold stored verdicts keyed on these strings, and a rename becomes a
 // schema change that must be versioned rather than an edit. Check the claim before relying on
 // either half of it: the question is what the PUBLISHED TARBALL contains, never what git says.
+// ⚠️ ONE NAME, TWO CONSUMERS. The delta refuses a straddling row with this reason, and Enterprise's
+// MTTR engine withholds the same row's CLOSURE with the same reason (EE build 5, F1(b)) — the two
+// must not disagree about what counts as the same finding, so the second one IMPORTS the value
+// rather than typing it. Same value as before, so no stored verdict changes meaning.
+export const IDENTITY_BASIS_CHANGED_REASON = 'identity-basis-changed';
+
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
   'producer-unknown',              // the finding carries no producer identity to adjudicate
@@ -52,7 +58,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   'evidence-gap',                  // a producer DECLARED it could not read the surface
   'plugin-not-measured',           // the plugin was attempted on the host and errored / timed out / was skipped
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
-  'identity-basis-changed',        // the producer changed WHAT IT NAMES between the two releases
+  IDENTITY_BASIS_CHANGED_REASON,   // the producer changed WHAT IT NAMES between the two releases
   'scope-not-scanned',             // the finding's coverage unit was outside the OTHER run's recorded scope
 ]);
 
@@ -597,7 +603,7 @@ function incomparabilityReason(f, mine, theirs) {
   if (identityBasisChanged(f.plugin, mine.eeVersion, theirs.eeVersion)
     || identityBasisChanged(f.plugin, theirs.eeVersion, mine.eeVersion)) {
     const at = IDENTITY_BASIS_CHANGED_AT[f.plugin];
-    return { reason: 'identity-basis-changed',
+    return { reason: IDENTITY_BASIS_CHANGED_REASON,
       // ⚠️ "producer" FOR AN AGENT. This sentence renders into the client artifact's basis cell,
       // and it hardcoded "plugin" — harmless while every declared producer WAS one, and false the
       // moment an analysis agent joined the table. It was UNREACHABLE for an agent until that

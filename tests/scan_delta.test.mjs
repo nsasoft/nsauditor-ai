@@ -290,9 +290,18 @@ test('the plugin-not-run detail names the plugin readably AND by the id the reco
 // it in EQUALITY with the declaration — a new code that forgets the constant fails, and a code
 // deleted from the constant while still produced fails too.
 test('the declared outcome vocabulary is exactly what the module produces — it cannot rot', async () => {
-  const { NOT_COMPARABLE_REASONS, REFUSAL_REASONS } = await import('../utils/scan_delta.mjs');
+  const mod = await import('../utils/scan_delta.mjs');
+  const { NOT_COMPARABLE_REASONS, REFUSAL_REASONS } = mod;
   const src = fs.readFileSync(new URL('../utils/scan_delta.mjs', import.meta.url), 'utf8');
-  const produced = [...src.matchAll(/reason: '([a-z][a-z0-9-]*)'/g)].map((m) => m[1]);
+  // A reason is emitted either as a literal or as a NAMED EXPORT (`reason: IDENTITY_BASIS_CHANGED_REASON`,
+  // exported so Enterprise's MTTR engine uses the same value instead of typing it). A named reason
+  // is resolved through the module itself — and an identifier that resolves to no string FAILS,
+  // because a census that cannot read the source reports on its own blind spot, not on the code.
+  const literal = [...src.matchAll(/reason: '([a-z][a-z0-9-]*)'/g)].map((m) => m[1]);
+  const named = [...src.matchAll(/reason: ([A-Z][A-Z0-9_]*)\b/g)].map((m) => m[1]);
+  const unresolved = named.filter((id) => typeof mod[id] !== 'string');
+  assert.deepEqual(unresolved, [], `reason identifiers that resolve to no exported string: ${unresolved.join(', ')}`);
+  const produced = [...literal, ...named.map((id) => mod[id])];
   const refusals = [...src.matchAll(/refuse\('([a-z][a-z0-9-]*)'/g)].map((m) => m[1]);
 
   assert.deepEqual([...new Set(produced)].sort(), [...NOT_COMPARABLE_REASONS].sort(),
