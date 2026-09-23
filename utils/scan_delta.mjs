@@ -414,7 +414,30 @@ function scopeNotScanned(f, mine, theirs) {
       + `unknown; ${unitName} ${value} cannot be differenced against it`;
   }
   const covered = new Set(Array.isArray(theirEntry.scanned) ? theirEntry.scanned : []);
-  if (covered.has(value)) return null;                        // genuinely comparable
+  if (covered.has(value)) {
+    // ⚠️ THE RUN-LEVEL SET IS A UNION, AND A UNION IS NOT A STATEMENT ABOUT ONE PRODUCER. It is
+    // every region ANY producer resolved in that run, so a record saying `[us-east-1, eu-west-1]`
+    // can contain a producer that only ever looked at `us-east-1` — 1200 resolves regions ONLY
+    // under an explicit `awsRegionIntent`, and several plugins iterate no regions at all. Without
+    // this refinement the check answers "eu-west-1 WAS covered", the finding is differenced, and a
+    // surface that producer never examined reads as REMEDIATED: the same defect `scope-not-scanned`
+    // exists for, one level of granularity down.
+    //
+    // ⚠️ A MISSING ENTRY IS NOT A NEGATIVE, and that asymmetry is the rule. `byPlugin` refines
+    // only where it SPEAKS: no map at all is every record written before the field shipped, and a
+    // map without THIS producer means the run made no statement about it — a producer that earns
+    // no entry because it resolves no regions is the BACKSTOP's subject, adjudicated on its own
+    // terms. Reading either silence as "covered nothing" would fire on the ABSENCE of information
+    // and refuse every archived comparison at once.
+    const perProducer = theirEntry.byPlugin?.[String(f?.plugin)];
+    if (Array.isArray(perProducer) && !perProducer.includes(value)) {
+      return `${unitName} ${value} is inside the other run's overall scope, but producer `
+        + `${f.plugin} only covered ${perProducer.join(', ') || 'no ' + unitName + 's'} there — `
+        + 'the run-level set is the union across producers, so this surface was not looked at by '
+        + 'the producer that would have found it, which is not the same as the finding being fixed';
+    }
+    return null;                                              // genuinely comparable
+  }
   return `${unitName} ${value} was outside the other run's recorded scope `
     + `(${[...covered].join(', ') || 'none recorded'}) — the surface was not looked at there, `
     + 'which is not the same as the finding being fixed';
