@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildScanDelta } from '../utils/scan_delta.mjs';
 import { writeRunStart, appendHostWritten, finalizeRunRecord, newRunId } from '../utils/run_record.mjs';
-import { loadRun } from '../utils/report_inputs.mjs';
+import { loadRun, shapeHostFindings } from '../utils/report_inputs.mjs';
 
 const run = (id) => ({
   schema: 1, runId: id, startedAt: '2026-09-21T00:00:00Z', finishedAt: '2026-09-21T01:00:00Z',
@@ -69,16 +69,47 @@ test('THE REAL LOADER carries the flag from `details.deferredScope` — the delt
     fs.mkdirSync(path.join(outRoot, 'd1'), { recursive: true });
     fs.writeFileSync(path.join(outRoot, 'd1', 'scan_conclusion_raw.json'), JSON.stringify({
       runId, pluginStatus: [{ id: '1110', name: 'x', status: 'ran', reason: null }],
+      // ⚠️ The statement carries NO 1110 category and the ordinary row BORROWS 1110's scope
+      // category without the marker (architect F2): a normaliser keyed on the category passed this
+      // leg while the only statement carried it. The marker decides, never the category.
       results: [{ id: '1110', name: 'x', result: { up: true, findings: [
-        { severity: 'INFO', title: OLD, resource: 'iam:scope', details: { category: 'iam-decrypt-scope-deferred-v1', deferredScope: true } },
+        { severity: 'INFO', title: OLD, resource: 'iam:scope', details: { category: 'some-other-producers-scope-row', deferredScope: true } },
         { severity: 'HIGH', title: 'decrypt on *', resource: 'iam:user:a', details: { category: 'x' } },
+        { severity: 'INFO', title: 'borrows the name', resource: 'iam:scope', details: { category: 'iam-decrypt-scope-deferred-v1' } },
       ] } }],
     }));
     await appendHostWritten(outRoot, runId, { host: 'aws', dir: 'd1' });
     await finalizeRunRecord(outRoot, runId, { finishedAt: '2026-09-23T11:00:00.000Z' });
     const loaded = await loadRun(outRoot, { runId, allowPartial: false }, { tier: 'enterprise' });
     assert.equal(loaded.ok, true, loaded.message);
-    const flags = loaded.model.findings.map((f) => f.deferredScope).sort();
-    assert.deepEqual(flags, [false, true], 'one scope row, one ordinary finding');
+    // By TITLE, never a sorted flag list: a normaliser that flags the name-borrower INSTEAD of the
+    // statement yields the same sorted [false, false, true] — found by the fold's own mutant.
+    const flags = Object.fromEntries(loaded.model.findings.map((f) => [f.title, f.deferredScope]));
+    assert.deepEqual(flags, { [OLD]: true, 'decrypt on *': false, 'borrows the name': false },
+      'the statement is flagged; the ordinary finding and the name-borrower are findings');
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
+});
+
+// ── THE QUEUE PATH (architect F3) — shape parity with the envelope, pinned in BOTH directions ────
+// No queue producer emits a boundary today (measured on the build-4 corpus), so this read was pinned
+// by nothing: replaced by the constant `false` it survived every leg above. A queue entry declaring
+// one must be set aside like an envelope row, and one that does not must still pair.
+const qe = (title, raw) => ({ id: `F-${title}`, title, severity: 'LOW', evidence: { source: 'intelligence_engine', ...(raw ? { raw } : {}) } });
+test('THE QUEUE — an entry with `evidence.raw.deferredScope: true` is set aside; one without it pairs', () => {
+  const shaped = shapeHostFindings('aws', { results: [] }, [qe('queue boundary', { deferredScope: true }), qe('queue finding')]);
+  assert.deepEqual(shaped.map((f) => [f.title, f.deferredScope]).sort(), [['queue boundary', true], ['queue finding', false]]);
+  const d = delta(shaped, []);
+  assert.deepEqual(d.coverage.scopeStatementsInBaseline.map((x) => x.title), ['queue boundary']);
+  const paired = JSON.stringify([d.resolved, d.newFindings, d.notComparable ?? [], d.severityChanged ?? []]);
+  assert.ok(paired.includes('queue finding'), 'the ordinary queue entry went through pairing');
+  assert.ok(!paired.includes('queue boundary'), 'the declared boundary did not');
+});
+
+test('THE QUEUE — a boundary declared at the WRONG depth (top-level, or under `details`) is not read as one', () => {
+  const shaped = shapeHostFindings('aws', { results: [] }, [
+    { ...qe('top-level flag'), deferredScope: true },
+    { ...qe('details flag'), details: { deferredScope: true } },
+    qe('truthy but not true', { deferredScope: 'yes' }),
+  ]);
+  assert.deepEqual(shaped.map((f) => f.deferredScope), [false, false, false], 'the queue\'s vocabulary is evidence.raw, exactly true');
 });

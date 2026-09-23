@@ -96,6 +96,14 @@ another new. It is now set aside before pairing, like an evidence gap, and each 
 declared boundaries are listed under `coverage.scopeStatementsInBaseline` / `InCurrent`. A row
 flagged as both a gap and a boundary is treated as a gap.
 
+**`scan_history.jsonl`'s `findingsCount` leaves those boundaries out too, and its basis moves to
+`loader-shaped-v2`.** The count is defined as what the delta pairs, and the delta no longer pairs
+a boundary, so the history count drops by the number of boundary rows a run carried — measured
+on the test estate: **12 on AWS (205 → 193), 4 on Azure, 3 on GCP, 0 on the network host**. (Enterprise's compliance report and its *Findings analyzed* figure are
+a different consumer and do not move.) A line counted before this change carries `loader-shaped-v1` and is
+declared not comparable with a newer line, exactly as the correction above describes; nothing is
+recomputed.
+
 A ninth case is not in this list because it is not a per-finding verdict: two runs at DIFFERENT
 LICENCE TIERS have different producer sets, so a whole producer's findings would read as
 remediation — that REFUSES the comparison outright rather than labelling rows.

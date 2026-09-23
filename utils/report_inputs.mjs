@@ -324,7 +324,11 @@ function shapeQueueEntry(host, q) {
     // Exactly `true`, never merely truthy: a producer writing something else has a bug, and
     // reading it as a declaration would make that producer's whole output un-differenceable.
     evidenceGap: q?.evidence?.raw?.evidenceGap === true,
-    // The same declaration in the queue's vocabulary — exactly `true`, as above.
+    // ⚠️ NO QUEUE PRODUCER EMITS ONE TODAY — measured on the build-4 corpus, the only queue (38
+    // entries, intelligence_engine 33 + crypto_agent 5) carries no `deferredScope` at either depth,
+    // and `evidence.raw` there is an intel record, not a finding. This read is SHAPE PARITY with the
+    // envelope path, so a queue producer that starts declaring a boundary is set aside on the day it
+    // does, rather than paired. Exactly `true`, as above; pinned in both directions by test.
     deferredScope: q?.evidence?.raw?.deferredScope === true,
     id: q?.id ?? null,
   };
@@ -361,8 +365,13 @@ function shapeQueueEntry(host, q) {
 // A GAP IS SCOPE, NOT A FINDING, and is excluded — exactly as the delta excludes gaps from its
 // buckets. Counting one would make an AccessDenied look like a vulnerability appearing and a
 // fixed permission look like a remediation.
+// ⚠️ AND SO IS A DECLARED SCOPE STATEMENT (`deferredScope`), since the delta began setting those
+// aside before pairing (CE 0.2.55, CFN-3). Leaving them in this count would make the sentence
+// above false the day that landed: the delta and the history would disagree about the 12 scope
+// rows of the test estate's aws run. A row carrying both flags is a gap and is excluded either way.
 export function countHostFindings(host, raw, queue = []) {
-  return shapeHostFindings(host, raw, queue).filter((f) => f?.evidenceGap !== true).length;
+  return shapeHostFindings(host, raw, queue)
+    .filter((f) => f?.evidenceGap !== true && f?.deferredScope !== true).length;
 }
 
 // ⚠️ THE VALUE CHANGED UNDER AN UNCHANGED KEY, which contract-v1 §5.3 records as the shape that
@@ -370,7 +379,10 @@ export function countHostFindings(host, raw, queue = []) {
 // counted the old way; one written after counts the new way, and subtracting across them would
 // report a fabricated "+N new" on the first scan after an upgrade. The basis rides the line so
 // `computeDiff` can REFUSE the comparison instead of computing it.
-export const FINDINGS_COUNT_BASIS = 'loader-shaped-v1';
+// `loader-shaped-v2` (CE 0.2.55): scope statements left the count. A v1 line and a v2 line are
+// refused like any basis change — the number moved under the same key again, by the number of
+// scope statements the run carried.
+export const FINDINGS_COUNT_BASIS = 'loader-shaped-v2';
 
 // ⚠️ THE COUNT AND ITS BASIS COME FROM ONE CALL, DELIBERATELY. They were two statements, and a
 // mutant that reverted the COUNT to the old per-producer sum kept the BASIS stamp — so the

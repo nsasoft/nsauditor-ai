@@ -54,7 +54,7 @@ test('the count IS the loader shaping — not a third sum beside it', () => {
   // it enumerates, which is how this channel came to be wrong twice. Deriving from the shaping
   // `report --since` already uses is what makes ONE definition, so the two channels cannot drift.
   const shaped = shapeHostFindings('192.168.1.1', rawNetworkHost, queueWithCves)
-    .filter((f) => f.evidenceGap !== true);
+    .filter((f) => f.evidenceGap !== true && f.deferredScope !== true);
   assert.equal(countHostFindings('192.168.1.1', rawNetworkHost, queueWithCves), shaped.length);
 });
 
@@ -72,6 +72,33 @@ test('an EVIDENCE GAP is scope, not a finding — excluded, exactly as the delta
   };
   assert.equal(countHostFindings('10.0.0.7', withGap, []), 1,
     'the real finding counts; the gap does not');
+});
+
+// ── CFN-3 (architect F4): a DECLARED SCOPE STATEMENT leaves the count, as it left the delta ─────
+// The count's own comment says it and the delta are "incapable of drifting apart". The delta began
+// setting `deferredScope` rows aside before pairing, so this count must too — or the history and
+// the delta disagree about the 12 scope rows of the test estate's AWS run.
+test('one gap, one statement, one both-flags row and one finding count ONE', () => {
+  const mixed = {
+    ...rawNetworkHost,
+    results: [{ id: '1110', name: 'iam', result: { up: true, findings: [
+      { severity: 'HIGH', title: 'decrypt on *', resource: 'iam:user:a' },
+      { severity: 'INFO', title: 'ListKeys denied', resource: 'account', details: { evidenceGap: true } },
+      { severity: 'INFO', title: 'what this plugin does not examine', resource: 'iam:scope', details: { deferredScope: true } },
+      { severity: 'INFO', title: 'gap and boundary', resource: 'iam:scope', details: { evidenceGap: true, deferredScope: true } },
+    ] } }],
+  };
+  assert.equal(countHostFindings('aws', mixed, []), 1);
+});
+
+test('the basis MOVED with the definition, and a v1 line is refused against a v2 line', () => {
+  assert.equal(FINDINGS_COUNT_BASIS, 'loader-shaped-v2',
+    'scope statements left the count under the same key — a line counted before that is a different basis');
+  const d = computeDiff({ host: 'h', findingsCount: 193, findingsCountBasis: FINDINGS_COUNT_BASIS, services: [] },
+                        { host: 'h', findingsCount: 205, findingsCountBasis: 'loader-shaped-v1', services: [] });
+  assert.equal(d.findingsNotComparable, true);
+  assert.equal(d.newFindings, null, 'a fabricated "-12 resolved" is exactly what the refusal prevents');
+  assert.equal(d.findingsNotComparableReason, 'basis-changed');
 });
 
 test('the count is stamped with its BASIS — the value changed under an unchanged name', () => {
