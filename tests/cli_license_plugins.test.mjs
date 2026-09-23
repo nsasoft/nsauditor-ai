@@ -18,6 +18,7 @@
 // discovery + tier resolution.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

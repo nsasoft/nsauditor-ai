@@ -26,6 +26,7 @@
 // top-level `exploit.kev.dataAsOf` as an earlier message described. Confirmed by reading
 // `index.mjs` directly before writing `cli.mjs`'s extraction code or these fixtures; the
 // injected fakes below return the MEASURED shape.
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

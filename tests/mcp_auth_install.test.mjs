@@ -21,12 +21,49 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 
 const CLI_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   'cli.mjs',
 );
+
+// ⚠️ THE `security` STUB, AND WHY IT IS ON PATH RATHER THAN INJECTED.
+//
+// Every test below spawns the REAL CLI under a TEMP HOME. On macOS `persistMcpAuthKey` then takes
+// the Keychain branch (the child gets no `_platform`, so it reads the real one) and `security`
+// hits `errSecNoDefaultKeychain` — because under a temp HOME the login keychain is neither the
+// default nor searchable. Measured: `security default-keychain` → "A default keychain could not be
+// found", `find-generic-password` → exit 44. That raised a MODAL on the operator's screen
+// ("Keychain Not Found — A keychain cannot be found to store NSA_MCP_AUTH_KEY_CREATED") on every
+// full suite run, 9 spawned CLIs × 4 keychain calls, while the suite stayed GREEN.
+//
+// ⚠️ IT CANNOT BE FIXED WITH A SEAM, AND THAT IS THE WHOLE POINT. This file is the careful one —
+// every IN-PROCESS `darwin` call to `persistMcpAuthKey` across the CE suite injects `_keychainSet`.
+// But a seam is an ARGUMENT and an argument cannot cross a process boundary, so the one path that
+// bypasses all of them is the one that SPAWNS — and it bypasses them precisely BECAUSE it is the
+// more realistic test. `keychain.mjs` invokes `exec('security', […])` by BARE NAME, resolved
+// through PATH, and this helper already hands the child a PATH: so the interception belongs there.
+// No product change; an in-code "disable the keychain" env would put a documented way to downgrade
+// secret storage into the shipped CLI for a test's benefit.
+//
+// ⚠️ THE STUB MUST FAIL, AND THAT CONSTRAINT IS ASSERTED BELOW RATHER THAN COMMENTED. A stub that
+// EXITS 0 without storing anything makes `persistMcpAuthKey` report Keychain success while the
+// follow-on `mcp status` finds nothing — measured at 10 pass / 6 fail. Failing is what makes the
+// file-storage fallback DETERMINISTIC, which is what these tests are written against; today that
+// fallback is reached by accident, via whatever the runner's Keychain happens to do.
+//
+// Consequence, stated: the Keychain branch of `persistMcpAuthKey` is NEVER exercised on this path.
+// That is the same coverage as before — it was never reliably exercised here — now honest instead
+// of environmental. The in-process suites own that branch, with their seams.
+function securityStubDir(mode = 'fail') {
+  const dir = mkdtempSync(join(tmpdir(), `nsauditor-security-stub-${mode}-`));
+  const bin = join(dir, 'security');
+  writeFileSync(bin, `#!/bin/sh\nexit ${mode === 'succeed' ? 0 : 1}\n`);
+  chmodSync(bin, 0o755);
+  return dir;
+}
 
 // Helper: run cli.mjs with isolated HOME + sanitized env.
 async function runCli(args, opts = {}) {
@@ -36,8 +73,9 @@ async function runCli(args, opts = {}) {
   // Clean env: drop NSA_MCP_AUTH_KEY/NSAUDITOR_LICENSE_KEY/etc. so the
   // CLI exercises the file-based fallback. Override HOME so the file
   // path resolves into the tmp dir.
+  const stubDir = securityStubDir(opts.securityStub);
   const env = {
-    PATH: process.env.PATH,
+    PATH: `${stubDir}:${process.env.PATH}`,
     NODE_PATH: process.env.NODE_PATH ?? '',
     HOME: tmpHome,
     USERPROFILE: tmpHome, // Windows
@@ -57,6 +95,8 @@ async function runCli(args, opts = {}) {
     status: result.status,
     cleanup,
     tmpHome,
+    stubDir,
+    env,
   };
 }
 
@@ -401,4 +441,50 @@ test('Thread K: install-key without a license configured emits an "install licen
     assert.ok(r.stdout.includes('nsauditor-ai license install'),
       'output must include the exact command to install a license');
   } finally { await r.cleanup(); }
+});
+
+// ── THE STUB'S OWN CONTROLS ─────────────────────────────────────────────────────────────────
+//
+// ⚠️ WITHOUT THESE TWO LEGS THE STUB IS A COMMENT. The whole file passes whether or not the stub
+// is resolved — it passed BEFORE the stub existed, with the real `security` failing under a temp
+// HOME and raising a modal. So "the stub is intercepting" and "the stub must fail" are both claims
+// about behaviour that nothing here checked, which is the decoration shape this repo names.
+
+test('CONTROL — the stub is what a SPAWNED CHILD resolves as `security`', async () => {
+  const r = await runCli(['mcp', 'tier']);
+  try {
+    // Resolved in a child with the EXACT env runCli builds — not with this process's PATH, which
+    // is the whole question: a seam set in the parent would not be here at all.
+    const probe = spawnSync('/bin/sh', ['-c', 'command -v security'],
+      { env: r.env, encoding: 'utf8' });
+    assert.equal(probe.status, 0, '`security` did not resolve at all inside the child');
+    assert.ok(probe.stdout.trim().startsWith(r.stubDir),
+      `the child resolved ${probe.stdout.trim()}, not the stub in ${r.stubDir} — the interception `
+      + 'is not happening and every keychain call in this file is reaching the real binary');
+  } finally { await r.cleanup(); }
+});
+
+test('FOURTH QUADRANT — the stub must FAIL: a SUCCEEDING one changes what the CLI does', async () => {
+  // ⚠️ THIS IS THE CONSTRAINT, ASSERTED. A stub that exits 0 without storing anything makes
+  // `persistMcpAuthKey` report Keychain success while nothing was written — the state that
+  // measured 10 pass / 6 fail across this file, because each follow-on lookup then finds no key.
+  // Pinning the DIVERGENCE is what stops someone "simplifying" the stub to `exit 0` later.
+  const failing = await runCli(['mcp', 'install-key']);
+  try {
+    assert.match(failing.stdout + failing.stderr, /fell back to file storage/,
+      'the default stub must FAIL, so the file-storage fallback these tests assert against is '
+      + 'reached deterministically rather than by whatever the runner\'s Keychain happens to do');
+    assert.doesNotMatch(failing.stdout, /Stored at: macOS Keychain/,
+      'and the Keychain must NOT be reported as the storage location on this path');
+  } finally { await failing.cleanup(); }
+
+  const succeeding = await runCli(['mcp', 'install-key'], { securityStub: 'succeed' });
+  try {
+    assert.match(succeeding.stdout, /Stored at: macOS Keychain/,
+      'a succeeding stub takes the Keychain branch — which is what makes it the WRONG stub here: '
+      + 'it reports a store that did not happen. If this assertion ever fails, the two modes have '
+      + 'stopped diverging and the failing-stub requirement above has become unfalsifiable.');
+    assert.doesNotMatch(succeeding.stdout + succeeding.stderr, /fell back to file storage/,
+      'the two modes must be genuinely different, or this leg proves nothing about either');
+  } finally { await succeeding.cleanup(); }
 });

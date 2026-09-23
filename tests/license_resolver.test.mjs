@@ -13,6 +13,7 @@
 // the smoke section against process.env.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fsp } from 'node:fs';

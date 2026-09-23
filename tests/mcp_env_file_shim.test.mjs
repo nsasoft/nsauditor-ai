@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';

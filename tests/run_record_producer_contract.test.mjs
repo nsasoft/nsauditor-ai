@@ -13,6 +13,7 @@
 // *ran-and-found-nothing*. Without `status`/`reason`, "no findings" over an estate whose
 // cloud plugins never loaded is indistinguishable from a clean estate — the false clean
 // handed to a paying client.
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

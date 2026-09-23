@@ -16,6 +16,7 @@
 // Driven through `main()` — the real entry point, with the real `--out` flag — because the whole
 // class is a call site that bypassed the shared helper. A unit test of the helper passes either
 // way and would have proven nothing.
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

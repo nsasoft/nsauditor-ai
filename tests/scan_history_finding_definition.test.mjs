@@ -18,6 +18,7 @@
 // cloud plugins recorded 0 over a 201-finding scan. The queue was never added. A repair enumerated
 // PER PRODUCER closes only the producers it enumerates — which is how this channel came to be
 // wrong twice. So the count is DERIVED from the same shaping the delta uses, not summed again.
+import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { countHostFindings, FINDINGS_COUNT_BASIS, shapeHostFindings } from '../utils/report_inputs.mjs';
