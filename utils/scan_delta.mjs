@@ -124,6 +124,12 @@ export const AGENT_PRODUCER_KEYS = Object.freeze([
 
 export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0',
+  // ⚠️ 1040 JOINS AT THE STAMP, LIKE 1120 BELOW. Every CloudTrail-auditor row carried NO region at all
+  // (20 of 20 on build 4's pack), so `scopeNotScanned` read each as account-wide; EE build 5 stamps
+  // the region of the object a row is about (a trail's home region, a trail bucket's own location,
+  // config.region for the alarm and Config checks). That puts `region` into `keyOf` and CHANGES WHAT
+  // THOSE FINDINGS ARE, so the straddle is declared exactly as 1120's was.
+  1040: '1.1.0',
   // ⚠️ 1120 JOINS AT THE STAMP, NOT AT THE RENAME. Its replication and lifecycle rows recorded
   // their region as `details.sourceBucketRegion` and carried NO top-level `region`, so in this
   // engine's frame they were non-regional: `scopeNotScanned` skipped them and narrowing a later

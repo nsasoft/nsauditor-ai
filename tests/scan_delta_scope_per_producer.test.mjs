@@ -177,3 +177,33 @@ test('COUPLING FOURTH QUADRANT — without `disagreed` the same record DOES reac
   assert.match(d.notComparable[0].detail, /1200/,
     'the per-producer reason, reached only because `disagreed` was absent');
 });
+
+// ── "COVERED NOTHING" IS A STATEMENT, AND IT IS NOT A MISSING ENTRY (EE 1.1.0 build 5, F3) ─────
+// Enterprise's 1040 and 1210 now declare the regions they COMPLETED, and when nothing completed they
+// declare an EMPTY list: `byPlugin[id] = []`. That must read as "this producer covered no region" —
+// refusing every regional row it made — and NOT as the missing entry above, which is "no statement"
+// and defers to the run-level union. The two silences look alike and mean opposite things.
+test('COVERED NONE — byPlugin[id] = [] refuses that producer\'s regional rows; a MISSING entry still defers', () => {
+  const none = delta(aws(BOTH, { 1200: BOTH }), [f({ region: 'eu-west-1' })], aws(BOTH, { 1200: [] }), []);
+  assert.equal(none.resolved.length, 0, 'a producer that covered nothing cannot have fixed anything');
+  assert.deepEqual(none.notComparable.map((x) => x.reason), ['scope-not-scanned']);
+  const missing = delta(aws(BOTH, { 1200: BOTH }), [f({ region: 'eu-west-1' })], aws(BOTH, { 1020: BOTH }), []);
+  assert.equal(missing.resolved.length, 1, 'no entry is no statement — the run-level union decides, and it covered eu-west-1');
+});
+
+test('COVERED NONE survives the run record\'s persistence — the empty array is written and read back', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { writeRunStart, appendHostWritten, readRunRecord, newRunId } = await import('../utils/run_record.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-empty-scope-'));
+  try {
+    const runId = newRunId();
+    await writeRunStart(outRoot, { runId, startedAt: '2026-09-23T00:00:00.000Z', hostsRequested: ['aws'], pluginsRequested: ['1040'] });
+    const scope = { unit: 'region', scanned: ['us-east-1'], byPlugin: { 1040: [], 1200: ['us-east-1'] } };
+    assert.equal(await appendHostWritten(outRoot, runId, { host: 'aws', dir: 'aws_1', scopeScanned: scope }), true);
+    const back = await readRunRecord(outRoot, runId);
+    assert.ok(Object.hasOwn(back.scopeScanned.aws.byPlugin, '1040'), 'the empty entry vanished on persistence — it would read as no statement');
+    assert.deepEqual(back.scopeScanned.aws.byPlugin['1040'], []);
+  } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
+});

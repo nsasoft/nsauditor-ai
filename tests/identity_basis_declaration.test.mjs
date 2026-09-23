@@ -316,7 +316,9 @@ test('AGENT — the lookup key resolves, checked by COERCION and not by eye', ()
 // producer is genuinely declared or a release retires the table, edit both and say why in the
 // commit. A pin nobody may move becomes a pin somebody deletes.
 test('the DECLARED SET is exactly this, and a deletion fails as loudly as an addition', () => {
-  const EXPECTED = ['1020', '1024', '1025', '1030', '1120', '1150', '1170', '1190', '1200', '1210',
+  // MOVED DELIBERATELY at EE 1.1.0 build 5: 1040 ADDED — its rows gained a region (CFN-2), which
+  // changes what they are, exactly as 1120's stamp did. Twelve producers: eleven plugins, one agent.
+  const EXPECTED = ['1020', '1024', '1025', '1030', '1040', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), [...EXPECTED].sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
