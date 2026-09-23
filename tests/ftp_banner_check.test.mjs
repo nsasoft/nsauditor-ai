@@ -77,6 +77,24 @@ test("FTP banner: Pure-FTPd multiline welcome", async () => {
   }
 });
 
+// Recovered from tests/ftp_banner_check.test.verified.mjs (board item 20), which the bare `node --test`
+// never discovered: its other two tests were byte-identical to this file's, and this one alone differed —
+// the banner arrives after a delay, the case a read-once banner grab gets wrong.
+test("FTP banner: Pure-FTPd multiline welcome, arriving 50 ms LATE", async () => {
+  const multiline =
+    "220---------- Welcome to Pure-FTPd [privsep] [TLS] ----------\r\n" +
+    "220-You are user number 1 of 50 allowed.\r\n" +
+    "220 Local time is now 13:37. Server port: 21.\r\n";
+  const { server, port } = await startFakeFtp({ banner: multiline, delayMs: 50 });
+  try {
+    const res = await ftp.run("127.0.0.1", port);
+    assert.equal(res.up, true);
+    assert.ok(res.data[0].response_banner.startsWith("220"));
+  } finally {
+    server.close();
+  }
+});
+
 test("FTP banner: connection refused => up true but closed", async () => {
   // Bind-and-close to get a free port that's closed
   const temp = net.createServer();

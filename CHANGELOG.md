@@ -103,6 +103,13 @@ Enterprise 1.1.0 the CVE set depends on a location you can see instead of the di
 started from; the value is recorded only when every written host reported the same location, and is
 `null` otherwise (and always `null` without Enterprise). `feed import` now prints where the store went.
 
+**Every file in the published package is readable by the user who installs it, and a test now
+checks it.** Earlier packages shipped `config/services.json` readable by its owner only, so after a
+root-owned global install a non-root user's scanner could not read its own port list (fixed earlier in
+this release; the new check reads the modes `npm pack` will publish and fails on any entry others cannot
+read). For contributors: `npm test` now states its file pattern (`tests/**/*.test.mjs`) — the bare
+command never ran one test file, whose single unique case now lives in the file that runs.
+
 **A scan that stops partway now closes its run record honestly.** A scan refused after it began — a
 private address without `NSA_ALLOW_ALL_HOSTS`, for example — used to leave its run record open and
 unsealed, and every later report then called that run's link `chain-unreadable`, the same verdict a

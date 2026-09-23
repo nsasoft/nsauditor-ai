@@ -6,7 +6,7 @@
   "private": false,
   "scripts": {
     "start": "node cli.mjs",
-    "test": "node --test",
+    "test": "node --test 'tests/**/*.test.mjs'",
     "mcp": "node mcp_server.mjs"
   },
   "bin": {
