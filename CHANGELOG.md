@@ -70,7 +70,7 @@ errored, timed out or was skipped · `framework-enumeration-changed` — the eig
 different Azure subscription or GCP project), so the surface was not looked at rather than clean**.
 
 ⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Ten
-producers in Enterprise 1.1.0 changed what they NAME as a finding's object — nine plugins that
+producers in Enterprise 1.1.0 changed what they NAME as a finding's object — ten plugins that
 previously left `resource` empty or set it to the region, and, for the first time, an analysis
 AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE because a queue entry emits
 no resource at all). A straddling comparison refuses those rows rather than differencing them, so
