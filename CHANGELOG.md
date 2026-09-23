@@ -126,6 +126,16 @@ derives both sides of that seam so a fourth instance fails by name; it caught `t
 run. Community carries no compliance data, so where a control id genuinely cannot exist the report
 DECLARES that coverage-matrix movement was not evaluated rather than skipping the check silently.
 
+**`config/services.json` now ships world-readable (0644).** Since the first published version,
+0.1.0, the tarball carried it `0600`, a mode git does not track (every version sampled from the
+registry, 0.1.0 through 0.2.54, carries it as the single owner-only entry). npm normalises modes on
+install, so npm, Marketplace-image and air-gap installs were never affected. A manual `tar -x`
+preserved it, and a scanner run by a user other than the extracting one got an unreadable default
+port list, which `port_scanner` reads as an empty sweep and reports as `up:false` — the false-clean
+shape its own comment records. Driven on the pre-fix tarball: floor unreadable → `up:false`, 0 ports
+probed; floor readable → 50 probed. The reader still swallows an unreadable package floor; a refusal
+is boarded for 1.1.1.
+
 `utils/delta_reporter.mjs` — the free last-vs-current webhook alerting delta — is untouched, its
 signatures unmoved and un-gated. This is a second engine beside it.
 
