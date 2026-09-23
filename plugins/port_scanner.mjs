@@ -72,8 +72,14 @@ export function parsePortsSpec(spec) {
  * That is a FALSE CLEAN shipped to every npm customer: an empty sweep is indistinguishable
  * from a host with nothing listening, and downstream every plugin gated on `tcp_open` is then
  * skipped silently. cwd is still tried FIRST so an operator can override the port set by
- * placing their own `config/services.json` beside them — the documented behaviour — but the
- * package copy is the floor, and a scan can no longer fall through to nothing.
+ * placing their own `config/services.json` beside them — the documented behaviour — and the
+ * package copy is the floor.
+ *
+ * ⚠️ AND THE FLOOR ITSELF CAN BE EMPTY, WHICH THIS COMMENT USED TO DENY (board item 18). It said "a
+ * scan can no longer fall through to nothing" — true only while the package copy yields ports. An
+ * unreadable floor (every published tarball carried it mode 0600 until 0.2.55), a missing one or an
+ * empty one fell through to the same `up:false` over zero probes. The scan now REFUSES instead: `run()`
+ * throws, the plugin manager records status `error`, and every consumer reads that as "not measured".
  */
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -115,10 +121,10 @@ async function readPortSet(fp) {
  * A non-empty override REPLACES rather than merges — an operator narrowing the sweep on
  * purpose must not silently get the full set back.
  */
-async function loadConfigPortsFromServicesJson(cwd = process.cwd()) {
+export async function loadConfigPortsFromServicesJson(cwd = process.cwd(), pkgRoot = PKG_ROOT) {
   const override = await readPortSet(path.join(cwd, "config", "services.json"));
-  if (override.tcp.length || override.udp.length) return override;
-  return readPortSet(path.join(PKG_ROOT, "config", "services.json"));
+  if (override.tcp.length || override.udp.length) return { ...override, source: "override" };
+  return { ...(await readPortSet(path.join(pkgRoot, "config", "services.json"))), source: "package" };
 }
 
 function classifyTcpError(err) {
@@ -263,9 +269,24 @@ export default {
     let udpPorts = Array.isArray(opts.udpPorts) ? uniqInts(opts.udpPorts) : [];
 
     if (!tcpPorts.length && !udpPorts.length) {
-      const cfg = await loadConfigPortsFromServicesJson();
+      // `_servicesCwd` / `_servicesFloorRoot`: test seams, absent in every real invocation.
+      const cwd = opts._servicesCwd ?? process.cwd();
+      const floorRoot = opts._servicesFloorRoot ?? PKG_ROOT;
+      const cfg = await loadConfigPortsFromServicesJson(cwd, floorRoot);
       tcpPorts = cfg.tcp;
       udpPorts = cfg.udp;
+      // ⚠️ REFUSE, NEVER FALL THROUGH (board item 18). An empty DEFAULT set means neither the
+      // caller's override nor the package's own floor could be read — the surface cannot be
+      // measured. Returning `up:false` over zero probes reads, downstream, exactly like a host with
+      // nothing listening. `--ports` extras do not rescue it: they ADD to the default sweep, and the
+      // default sweep the operator asked for was not possible.
+      if (!tcpPorts.length && !udpPorts.length) {
+        throw new Error(`port scanner refused: the default port set is empty — neither `
+          + `${path.join(cwd, "config", "services.json")} nor the package's own `
+          + `${path.join(floorRoot, "config", "services.json")} yielded a port. An empty port set means `
+          + `the surface cannot be measured, not that nothing is listening. Check that the file is `
+          + `readable (it ships mode 0644), or pass the ports explicitly.`);
+      }
     }
 
     // Additive merge of CLI --ports flag (string spec)
@@ -275,23 +296,6 @@ export default {
       udpPorts = uniqInts([...udpPorts, ...extra.udp]);
     }
 
-    // If still nothing, just return empty structure
-    if (!tcpPorts.length && !udpPorts.length) {
-      return {
-        up: false,
-        program: "Unknown",
-        version: "Unknown",
-        os: null,
-        type: "port-scan",
-        tcpOpen: [],
-        tcpClosed: [],
-        tcpFiltered: [],
-        udpOpen: [],
-        udpClosed: [],
-        udpNoResponse: [],
-        data: [],
-      };
-    }
 
     const data = [];
 

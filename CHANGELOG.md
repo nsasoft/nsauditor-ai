@@ -103,6 +103,15 @@ Enterprise 1.1.0 the CVE set depends on a location you can see instead of the di
 started from; the value is recorded only when every written host reported the same location, and is
 `null` otherwise (and always `null` without Enterprise). `feed import` now prints where the store went.
 
+**The port scanner refuses rather than reporting an empty host when it cannot build its port list.**
+If neither a `config/services.json` beside you nor the package's own copy yields a port — an unreadable
+file (every earlier tarball shipped it mode 0600), a missing one, an empty one — it used to return
+"host down" over zero probes, which reads exactly like a host with nothing listening. It now stops with
+an error naming both files, and the scan records the port scanner as not having measured anything.
+Ports passed with `--ports` do not paper over this: they add to the default sweep, and the default
+sweep was not possible. An explicit port list, or a `services.json` of your own that yields ports, is
+used as before.
+
 **`scan_history.jsonl`'s `findingsCount` leaves those boundaries out too, and its basis moves to
 `loader-shaped-v2`.** The count is defined as what the delta pairs, and the delta no longer pairs
 a boundary, so the history count drops by the number of boundary rows a run carried — measured
