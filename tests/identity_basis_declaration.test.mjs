@@ -304,3 +304,26 @@ test('AGENT — the lookup key resolves, checked by COERCION and not by eye', ()
   assert.equal(identityBasisChanged('crypto_agent', '1.0.0', '1.1.0'), false,
     'and an undeclared producer is never declared, whatever it straddles');
 });
+
+// ⚠️ THE DECLARED SET IS PINNED INDEPENDENTLY, BECAUSE A DELETION IS SILENT. Adding 1120 to the
+// table, I replaced a two-line literal and DROPPED 1190 in the same edit — and the full CE suite
+// passed 1904/1904. Nothing here reads the table except through itself, so a producer quietly
+// losing its declaration is invisible: its straddling rows simply start being differenced again,
+// and the first symptom is a customer's report calling an unfixed finding REMEDIATED.
+//
+// The pin is a second statement of the set, held independently of the data, so changing either one
+// alone fails — the `framework_universe_pin` shape. It is meant to be MOVED DELIBERATELY: when a
+// producer is genuinely declared or a release retires the table, edit both and say why in the
+// commit. A pin nobody may move becomes a pin somebody deletes.
+test('the DECLARED SET is exactly this, and a deletion fails as loudly as an addition', () => {
+  const EXPECTED = ['1020', '1024', '1025', '1030', '1120', '1150', '1170', '1190', '1200', '1210',
+    'intelligence_engine'];
+  assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), [...EXPECTED].sort(),
+    'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
+    + 'REMOVED, stop: every finding that straddles its change silently becomes comparable again, '
+    + 'which is the false-remediation class this whole table exists to prevent.');
+  for (const k of EXPECTED) {
+    assert.equal(IDENTITY_BASIS_CHANGED_AT[k], '1.1.0',
+      `${k} is declared at a version other than the one this release ships`);
+  }
+});

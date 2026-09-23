@@ -108,8 +108,16 @@ export const AGENT_PRODUCER_KEYS = Object.freeze([
 ]);
 
 export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
-  1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0', 1150: '1.1.0',
-  1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',
+  1020: '1.1.0', 1024: '1.1.0', 1025: '1.1.0', 1030: '1.1.0',
+  // ⚠️ 1120 JOINS AT THE STAMP, NOT AT THE RENAME. Its replication and lifecycle rows recorded
+  // their region as `details.sourceBucketRegion` and carried NO top-level `region`, so in this
+  // engine's frame they were non-regional: `scopeNotScanned` skipped them and narrowing a later
+  // scan away from the source region read them as REMEDIATED. Stamping the field the loader
+  // actually reads puts `region` into `keyOf`, which CHANGES WHAT THOSE FINDINGS ARE — 36 of its
+  // 297 archived rows gain one — so the straddle must be declared like any other basis change.
+  // 1200 and 1210 take the same stamp and are already declared above; only 1120 was new.
+  1120: '1.1.0',
+  1150: '1.1.0', 1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',
   // ⚠️ AN ANALYSIS AGENT, NOT A PLUGIN, AND THE FIRST NON-NUMERIC KEY THIS TABLE HAS HELD. A
   // finding from Enterprise's finding QUEUE emits no resource, no region, no identity qualifier
   // and no content digest, so `keyOf` reduces to `host · producer · port · TITLE` — the title IS
