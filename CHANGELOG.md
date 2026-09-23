@@ -103,6 +103,17 @@ Enterprise 1.1.0 the CVE set depends on a location you can see instead of the di
 started from; the value is recorded only when every written host reported the same location, and is
 `null` otherwise (and always `null` without Enterprise). `feed import` now prints where the store went.
 
+**A scan that stops partway now closes its run record honestly.** A scan refused after it began — a
+private address without `NSA_ALLOW_ALL_HOSTS`, for example — used to leave its run record open and
+unsealed, and every later report then called that run's link `chain-unreadable`, the same verdict a
+record whose seal had been stripped receives. The record is now finalised and sealed with
+`status: "aborted"` and the reason (an error code and message, never a stack), and the scan still fails
+exactly as before; a completed scan is recorded as `finished`, and a record from an earlier version,
+which has no status, is read as finished. `report` refuses an aborted run by name and names the nearest
+finished run before it, so you can pass that one explicitly; `--since prior` still selects the aborted
+run rather than silently comparing against an older one. A process killed outright still leaves its
+record open — nothing can finish writing from a process that is no longer running.
+
 **The port scanner refuses rather than reporting an empty host when it cannot build its port list.**
 If neither a `config/services.json` beside you nor the package's own copy yields a port — an unreadable
 file (every earlier tarball shipped it mode 0600), a missing one, an empty one — it used to return

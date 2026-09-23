@@ -612,6 +612,25 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
   const incomplete = !rec.finishedAt;
   const anyMissing = missingNamed.length > 0 || missingUnparseable > 0;
 
+  // ⚠️ AN ABORTED RUN IS REFUSED BY NAME, WITH ITS RECORDED REASON (board item 2). It is finalised and
+  // sealed now, so `finishedAt` is set and the incomplete check below would pass it — and the partial-
+  // hosts message would say what is missing without saying the scan was stopped. Checked before both.
+  // Refused, never skipped: `--since prior` still selects it ("disclose, never substitute").
+  if (rec.status === 'aborted' && !allowPartial) {
+    // Disclose, never substitute — and never leave the user without the fix: name the nearest FINISHED
+    // run before it, so it can be passed explicitly. A record with no `status` predates the field and
+    // is a finished run, never an aborted one.
+    const prior = (await listRunRecords(outRoot))
+      .filter((r) => r?.runId !== rec.runId && r?.finishedAt && r?.status !== 'aborted' && String(r?.startedAt) < String(rec.startedAt))
+      .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))[0] ?? null;
+    return refuse('aborted-run',
+      `Refusing to report: this run was ABORTED before it completed (${rec.abortReason ?? 'no reason was recorded'}). `
+      + `${written} of ${requested} requested hosts were written. `
+      + (prior ? `The nearest finished run before it is \`${prior.runId}\` — pass it with \`--run\` or \`--since\` to use it explicitly. `
+        : 'No finished run precedes it. ')
+      + 'Re-run the scan, or pass `--allow-partial` to report on what was recorded.');
+  }
+
   // ORDER MATTERS (mutant-proven — see the task report): the incomplete case is checked FIRST.
   // A crash after the LAST host directory is written leaves hostsWritten === hostsRequested with
   // no finishedAt, so `anyMissing` is false and the partial-hosts message below would be FALSE —

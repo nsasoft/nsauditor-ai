@@ -1480,7 +1480,7 @@ export async function runReport(args, caps) {
     { tier: tierLabelFromCaps(caps) });
   if (!loaded.ok) {
     logErr(loaded.message);
-    // MAP BY REASON, not by "loadRun said no" — an EXHAUSTIVE switch over the ten documented
+    // MAP BY REASON, not by "loadRun said no" — an EXHAUSTIVE switch over the eleven documented
     // reasons, with a loud default. `no-run` and `record-unreadable` are COMMAND/environment
     // problems (fix the invocation or the filesystem); every other reason is a RUN problem the
     // operator fixes by re-scanning.
@@ -1488,6 +1488,7 @@ export async function runReport(args, caps) {
       case 'no-run':
       case 'record-unreadable':
         return finish(2);
+      case 'aborted-run':
       case 'ambiguous-run':
       case 'binding-mismatch':
       case 'incomplete-run':
@@ -3311,6 +3312,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // Collect all scan outputs for post-processing
   const scanOutputs = [];
 
+  // ⚠️ AN ABORT MUST STILL FINALISE THE RUN RECORD (board item 2). A host that throws — the SSRF guard
+  // refusing a private address is the measured case — used to escape straight past the finalize block
+  // below, leaving an open, unsealed record that every later report called `chain-unreadable`. The
+  // error is held, the record is finalised and sealed as `aborted` with its reason, and the error is
+  // then re-thrown so the scan's exit is exactly what it was.
+  let scanAbort = null;
+  try {
   // Single host — preserve original behaviour (flat output)
   if (hosts.length === 1) {
     const out = await scanSingleHost(pm, hosts[0], plugins, opts, promptMode);
@@ -3355,6 +3363,9 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     };
     console.log(JSON.stringify(out, null, 2));
   }
+  } catch (err) {
+    scanAbort = err;
+  }
 
   // ── Run record: FINALIZE, after every host has completed (or failed) ───────
   // Wrapped for the same reason the START block is: a malformed argument here must
@@ -3365,16 +3376,25 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     const epssAgg = aggregateStoreLoad(writtenOutputs, 'epssDataAsOf', 'EPSS');
     const nvdAgg = aggregateNvdCache(writtenOutputs.map((o) => o.nvdCache ?? null));
     if (nvdAgg.warning) console.warn(`[RunRecord] ${nvdAgg.warning}`);
-    await finalizeRunRecord(outRoot, runId, {
+    // `testHooks._finalizeRunRecord`: a test seam, absent in every real invocation — it lets a leg prove
+    // that a finalize which itself fails never replaces the scan's own error.
+    await (testHooks?._finalizeRunRecord ?? finalizeRunRecord)(outRoot, runId, {
       finishedAt: new Date().toISOString(),
       kevLoaded: kevAgg.loaded, kevSnapshot: kevAgg.snapshot,
       epssLoaded: epssAgg.loaded, epssSnapshot: epssAgg.snapshot,
       nvdCache: nvdAgg.value,
+      status: scanAbort ? 'aborted' : 'finished',
+      // A CODE plus the error's MESSAGE (first line), never a stack: a stack carries local paths.
+      abortReason: scanAbort
+        ? `${scanAbort?.code ?? scanAbort?.name ?? 'Error'}: ${String(scanAbort?.message ?? scanAbort).split('\n')[0].slice(0, 300)}`
+        : null,
     });
     if (getTierFromEnv() === 'ce') await pruneRunRecordsForCE(outRoot);
   } catch (err) {
     console.warn('[RunRecord] Failed to finalize/prune run record:', err?.message || err);
   }
+  // The record is sealed; now the abort takes its original course.
+  if (scanAbort) throw scanAbort;
 
   // --- SARIF output ---
   const wantSarif = outputFormat && String(outputFormat).toLowerCase().includes('sarif');

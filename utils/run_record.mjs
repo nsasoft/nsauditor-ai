@@ -238,6 +238,14 @@ export async function finalizeRunRecord(outRoot, runId, opts = {}) {
     if ('epssLoaded' in opts) existing.epssLoaded = Boolean(opts.epssLoaded);
     if ('epssSnapshot' in opts) existing.epssSnapshot = opts.epssSnapshot ?? null;
     if ('nvdCache' in opts) existing.nvdCache = opts.nvdCache ?? null;
+    // ⚠️ AN ABORTED RUN IS FINALISED AND SEALED TOO, WITH A STATUS (board item 2, CE 0.2.55). A scan
+    // that threw after its start record was written — the SSRF guard refusing an RFC1918 host is the
+    // measured instance — used to leave `finishedAt: null` and no sidecar, and every later report then
+    // labelled that honest refusal `chain-unreadable`: the verdict a STRIPPED sidecar earns. `status`
+    // is `finished` or `aborted`, and an aborted run records WHY. A true crash still leaves the record
+    // open; nothing can finalise from inside a process that no longer runs.
+    if ('status' in opts) existing.status = opts.status ?? null;
+    if ('abortReason' in opts) existing.abortReason = opts.abortReason ?? null;
     // ⚠️ SEAL THE EVIDENCE, NOT ONLY THE INDEX — and do it HERE, before the record is written, so
     // the digests are inside the bytes that `sealRunRecord` then covers. Sealing them afterwards
     // would leave them vouched for by nothing, which is the defect one level up: a digest nobody
