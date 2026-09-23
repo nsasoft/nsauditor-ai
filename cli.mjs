@@ -31,7 +31,7 @@ import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir } from './utils/output_dir.mjs';
 import { deriveFindingsCount } from './utils/report_inputs.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
-import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE, aggregateNvdCache } from './utils/run_record.mjs';
+import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE, aggregateNvdCache, abortReasonOf } from './utils/run_record.mjs';
 import { buildSinceView } from './utils/scan_delta_view.mjs';
 import { loadRun } from './utils/report_inputs.mjs';
 import { loadBrand } from './utils/brand.mjs';
@@ -3385,9 +3385,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       nvdCache: nvdAgg.value,
       status: scanAbort ? 'aborted' : 'finished',
       // A CODE plus the error's MESSAGE (first line), never a stack: a stack carries local paths.
-      abortReason: scanAbort
-        ? `${scanAbort?.code ?? scanAbort?.name ?? 'Error'}: ${String(scanAbort?.message ?? scanAbort).split('\n')[0].slice(0, 300)}`
-        : null,
+      abortReason: scanAbort ? abortReasonOf(scanAbort) : null,
     });
     if (getTierFromEnv() === 'ce') await pruneRunRecordsForCE(outRoot);
   } catch (err) {

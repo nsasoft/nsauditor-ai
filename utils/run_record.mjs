@@ -329,3 +329,13 @@ export function aggregateNvdCache(perHost) {
     warning: null,
   };
 }
+
+/**
+ * The reason an aborted run records: the error's code (else its name) and the FIRST line of its
+ * message, capped at 300 characters — never a stack, which carries local paths (board item 2 (iv)).
+ */
+export function abortReasonOf(err) {
+  const code = err?.code ?? err?.name ?? 'Error';
+  const first = String(err?.message ?? err).split('\n')[0].slice(0, 300);
+  return `${code}: ${first}`;
+}

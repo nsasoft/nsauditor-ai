@@ -15,7 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { main } from '../cli.mjs';
-import { listRunRecords } from '../utils/run_record.mjs';
+import { listRunRecords, abortReasonOf } from '../utils/run_record.mjs';
 import { verifyRunChain, chainDigestPath } from '../utils/run_chain.mjs';
 import { loadRun } from '../utils/report_inputs.mjs';
 
@@ -167,6 +167,13 @@ test('(iii) the refusal names the nearest FINISHED run before the aborted one, s
     const c = await newest(outRoot);
     const r3 = await loadRun(outRoot, { runId: c.runId, allowPartial: false }, { tier: 'enterprise' });
     assert.ok(r3.message.includes(a.runId) && !r3.message.includes(b.runId), `C must point past the aborted B to A: ${r3.message}`);
+    // F12b — a FINISHED run AFTER the aborted one is never offered as "the nearest finished run BEFORE it".
+    await new Promise((res) => setTimeout(res, 1100));
+    await scan(outRoot, '127.0.0.1', { allowAll: true });
+    const d = await newest(outRoot);
+    assert.equal(d.status, 'finished');
+    const r4 = await loadRun(outRoot, { runId: c.runId, allowPartial: false }, { tier: 'enterprise' });
+    assert.ok(r4.message.includes(a.runId) && !r4.message.includes(d.runId), `a later run was offered as an earlier one: ${r4.message}`);
     // With no finished run before it, it says so.
     const lone = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-abort-lone-'));
     try {
@@ -176,4 +183,13 @@ test('(iii) the refusal names the nearest FINISHED run before the aborted one, s
       assert.match(r2.message, /No finished run precedes it/);
     } finally { fs.rmSync(lone, { recursive: true, force: true }); }
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
+});
+
+test('F12a — the recorded reason is BOUNDED: code + first line, at most 300 characters of message', () => {
+  const long = new Error(`${'x'.repeat(500)}\nsecond line /Users/someone/secret/path.mjs:12:3`);
+  const r = abortReasonOf(long);
+  assert.equal(r, `Error: ${'x'.repeat(300)}`);
+  const coded = Object.assign(new Error('refused'), { code: 'ECONNREFUSED' });
+  assert.equal(abortReasonOf(coded), 'ECONNREFUSED: refused');
+  assert.equal(abortReasonOf('plain string'), 'Error: plain string');
 });
