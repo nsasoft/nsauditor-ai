@@ -76,6 +76,44 @@ test('ACCEPT — byPlugin present for ANOTHER producer, none for this one: falls
   assert.deepEqual(d.notComparable, []);
 });
 
+// ⚠️ THE MIXED RECORD IS THE ACTUAL UPGRADE SHAPE, and neither leg above is it. Both of those
+// have the SAME map-presence on both sides. The first comparison anyone runs across this release
+// has a baseline written BEFORE the field existed against a current written after — so the
+// fallback has to hold ASYMMETRICALLY, per side, or (iii) declares every regional finding
+// not-comparable across the 1.1.0 boundary. That would be the identity declaration's blast radius
+// repeated one release later, for a field that is only a REFINEMENT.
+test('ACCEPT — pre-(iii) baseline vs post-(iii) current: falls back per side, still comparable', () => {
+  const d = delta(
+    aws(BOTH), [f({ region: 'eu-west-1' })],          // baseline: no byPlugin, as every 1.0.0 record
+    aws(BOTH, { 1200: BOTH }), []);                   // current: refined, and it DID cover the region
+  assert.equal(d.resolved.length, 1,
+    'the current run\'s producer covered eu-west-1, so the finding going away is a fix; the '
+    + 'baseline having no refinement to offer must not make the pair incomparable');
+  assert.deepEqual(d.notComparable, []);
+});
+
+test('ACCEPT — and the OTHER asymmetry: refined baseline, pre-(iii) current', () => {
+  const d = delta(
+    aws(BOTH, { 1200: BOTH }), [f({ region: 'eu-west-1' })],
+    aws(BOTH), []);                                   // current: no map, so no statement to make
+  assert.equal(d.resolved.length, 1,
+    'the check reads the OTHER side\'s map, and that side has none — falling back to the '
+    + 'run-level union is the only honest reading');
+  assert.deepEqual(d.notComparable, []);
+});
+
+test('the mixed record still REFUSES when the side that speaks says the producer missed it', () => {
+  // The compatibility fallback must not become a blanket exemption: where the other side DOES
+  // carry an entry and it lacks the region, the refusal stands regardless of what this side has.
+  const d = delta(
+    aws(BOTH), [f({ region: 'eu-west-1' })],          // baseline: no map
+    aws(BOTH, { 1200: ['us-east-1'] }), []);          // current: speaks, and says it missed it
+  assert.equal(d.resolved.length, 0,
+    'a fallback keyed on THIS side\'s silence would swallow the other side\'s statement');
+  assert.equal(d.notComparable.length, 1);
+  assert.match(d.notComparable[0].detail, /1200/);
+});
+
 // ── THE DEFECT ──────────────────────────────────────────────────────────────────────────────
 
 test('the OTHER run covered the region, but THIS PRODUCER did not look there', () => {
@@ -106,4 +144,36 @@ test('the same refinement in the OTHER direction — a new finding is not a new 
     'the baseline producer never looked at eu-west-1, so a finding appearing there is not new — '
     + 'the symmetric half, and the one an incident fixture never exercises');
   assert.equal(d.notComparable.length, 1);
+});
+
+// ── THE CROSS-REPO COUPLING, PINNED ON THE SIDE THAT COULD BREAK IT ─────────────────────────
+//
+// ⚠️ EE's multi-provider merge (`index.mjs`:370-374) DROPS `byPlugin` when two providers report
+// inside one host's scan, keeping only `unit` / `scanned` / `disagreed: true`. That field loss is
+// harmless ONLY because this consumer checks `disagreed` BEFORE it reads `byPlugin`, so the
+// dropped data is never consulted. A coupling that keeps a field loss harmless has to be pinned
+// on the side that could break it: if this ORDER ever moves, a record with no `byPlugin` would be
+// read as "no statement about this producer" and every such finding would silently start
+// comparing again. EE pins the other half (the merge carries `disagreed: true`); this is the half
+// that lives here, and if either moves the failure names the other.
+test('COUPLING — `disagreed` is checked BEFORE `byPlugin`, so a dropped map cannot start comparing', () => {
+  const d = delta(
+    { aws: { unit: 'region', scanned: BOTH, disagreed: true } }, [f({ region: 'eu-west-1' })],
+    { aws: { unit: 'region', scanned: BOTH, disagreed: true } }, []);
+  assert.equal(d.resolved.length, 0, 'a run that disagreed with itself has no usable scope');
+  assert.equal(d.notComparable.length, 1);
+  assert.match(d.notComparable[0].detail, /disagreed with itself/i,
+    'and the reason must be the DISAGREEMENT, not a per-producer verdict derived from a map that '
+    + 'the multi-provider merge did not carry');
+});
+
+test('COUPLING FOURTH QUADRANT — without `disagreed` the same record DOES reach the per-producer rule', () => {
+  // The control: if this leg ever passes for the same reason as the one above, the order is no
+  // longer what makes the first one true and the pin has stopped measuring anything.
+  const d = delta(
+    aws(BOTH, { 1200: BOTH }), [f({ region: 'eu-west-1' })],
+    aws(BOTH, { 1200: ['us-east-1'] }), []);
+  assert.equal(d.notComparable.length, 1);
+  assert.match(d.notComparable[0].detail, /1200/,
+    'the per-producer reason, reached only because `disagreed` was absent');
 });
