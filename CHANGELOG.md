@@ -89,6 +89,13 @@ one surface under two keys is not reported as a fix plus a fresh exposure. The d
 PREDATING the change, never on the two versions merely differing, which would declare on every
 upgrade for ever and quietly retire the feature.
 
+**A producer's declared scope boundary is not a finding either.** Several Enterprise plugins emit
+one informational row stating what they do NOT examine. It routes to no control and is not an
+exposure, but the delta paired it like one, so rewording it read as one finding resolved and
+another new. It is now set aside before pairing, like an evidence gap, and each run's
+declared boundaries are listed under `coverage.scopeStatementsInBaseline` / `InCurrent`. A row
+flagged as both a gap and a boundary is treated as a gap.
+
 A ninth case is not in this list because it is not a per-finding verdict: two runs at DIFFERENT
 LICENCE TIERS have different producer sets, so a whole producer's findings would read as
 remediation — that REFUSES the comparison outright rather than labelling rows.

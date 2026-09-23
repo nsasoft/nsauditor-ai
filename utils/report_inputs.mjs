@@ -219,6 +219,12 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // on 7 AWS and 3 Azure findings of the real 1.1.0 run), which means the READ side needs no
     // writer change to see it.
     evidenceGap: f?.details?.evidenceGap === true,
+    // ⚠️ A DECLARED SCOPE BOUNDARY IS NOT A FINDING EITHER (EE 1.1.0 build 5, CFN-3's consumer-first
+    // route). Seventeen plugins emit one INFO row stating what they do NOT examine, flagged
+    // `details.deferredScope`; it routes to no control and is not an exposure. Paired like a finding,
+    // a correction to its WORDING read as one finding resolved and another appearing. Carried on the
+    // finding for the same reason as `evidenceGap`: that is where the producer already writes it.
+    deferredScope: f?.details?.deferredScope === true,
     // ⚠️ IDENTITY MUST NEVER BE COMPUTED OVER A TRUNCATED STRING, and these two exist because it
     // was. Plugin 1170 emits no `title`, so one is synthesised from `issues` and CUT AT 160 CHARS
     // — and on a live estate three ingress rules on ONE security group (PostgreSQL 5432, SSH 22,
@@ -318,6 +324,8 @@ function shapeQueueEntry(host, q) {
     // Exactly `true`, never merely truthy: a producer writing something else has a bug, and
     // reading it as a declaration would make that producer's whole output un-differenceable.
     evidenceGap: q?.evidence?.raw?.evidenceGap === true,
+    // The same declaration in the queue's vocabulary — exactly `true`, as above.
+    deferredScope: q?.evidence?.raw?.deferredScope === true,
     id: q?.id ?? null,
   };
 }

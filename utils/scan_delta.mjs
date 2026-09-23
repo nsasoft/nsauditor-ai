@@ -225,7 +225,7 @@ export const VIEW_REFUSAL_REASONS = Object.freeze([
 // verified only against fixtures the author constructs is verified against the author's idea of
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
-export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap',
+export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap', 'deferredScope',
   'contentDigest', 'identityQualifier', 'resource', 'region', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
@@ -490,6 +490,17 @@ const scopeOf = (side) => {
         { kind: 'recorded-gap', reason: fi.title ?? fi.detail ?? 'an evidence gap was recorded' });
     }
   }
+  // ⚠️ SCOPE STATEMENTS — a producer's own declaration of what it does NOT examine
+  // (`details.deferredScope`). Not an exposure and not a gap: set aside here, beside the gaps, so the
+  // pairing below never sees them and a reworded boundary cannot read as a fix plus a new finding.
+  // A row carrying BOTH flags is a GAP: "could not read" outranks "does not examine".
+  const statements = new Map();
+  for (const fi of side?.findings ?? []) {
+    if (fi?.deferredScope === true && fi?.evidenceGap !== true && fi.plugin != null) {
+      const k = `${fi.host}|${fi.plugin}`;
+      statements.set(k, [...(statements.get(k) ?? []), fi.title ?? '']);
+    }
+  }
   // And as the ENGINE records them: a plugin the host never successfully ran.
   for (const h of (Array.isArray(side?.pluginStatus) ? side.pluginStatus : [])) {
     for (const ps of (h?.status ?? [])) {
@@ -506,7 +517,7 @@ const scopeOf = (side) => {
     }
   }
   return {
-    hosts, plugins, gaps,
+    hosts, plugins, gaps, statements,
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -788,6 +799,11 @@ function frameworkEnumerationEvaluable(mine, theirs) {
   return Boolean(mine?.frameworks && theirs?.frameworks);
 }
 
+const statementList = (scope) => [...scope.statements.entries()].flatMap(([k, titles]) => {
+  const i = k.indexOf('|');
+  return titles.map((title) => ({ host: k.slice(0, i), plugin: k.slice(i + 1), title }));
+});
+
 const gapList = (scope) => [...scope.gaps.entries()].map(([k, g]) => {
   const i = k.indexOf('|');
   return { host: k.slice(0, i), plugin: k.slice(i + 1), kind: g.kind, reason: g.reason };
@@ -876,8 +892,11 @@ export function buildScanDelta({ baseline, current }) {
   // it explains why its neighbours are not comparable. Measured before the exclusion: the
   // `gap-leg` scenario read `1 new · 1 resolved` where the honest answer is `0 new · 0 resolved`.
   const isGap = (f) => f.evidenceGap === true;
-  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f));
-  const cFind = (current?.findings ?? []).filter((f) => !isGap(f));
+  // A declared scope boundary is set aside the same way (read into `scopeOf` as a statement); a row
+  // flagged as both is a gap, which the line above already removes.
+  const isScopeStatement = (f) => f.deferredScope === true;
+  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
+  const cFind = (current?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
   if ((baseline?.findings ?? []).some(isGap) || (current?.findings ?? []).some(isGap)) {
     // ⚠️ THE WORDING AVOIDS THE LITERAL BUCKET NAME ON PURPOSE. `scripts/board_probe_delta_driver.mjs`
     // harvests reasons by matching that phrase against every output line, so a LIMIT containing it
@@ -964,6 +983,10 @@ export function buildScanDelta({ baseline, current }) {
       // find out WHICH surface was unreadable without reading the raw envelope.
       gapsInBaseline: gapList(bScope),
       gapsInCurrent: gapList(cScope),
+      // And the boundaries each run DECLARED — named, never paired: what a producer says it does not
+      // examine is a fact about its scope, not a finding that can be fixed or appear.
+      scopeStatementsInBaseline: statementList(bScope),
+      scopeStatementsInCurrent: statementList(cScope),
     },
   };
 }
