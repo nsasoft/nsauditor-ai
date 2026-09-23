@@ -69,6 +69,15 @@ errored, timed out or was skipped · `framework-enumeration-changed` — the eig
 **`scope-not-scanned` — the two runs COVERED DIFFERENT SCOPES (a narrower `--aws-region`, a
 different Azure subscription or GCP project), so the surface was not looked at rather than clean**.
 
+⚠️ **A LIMIT ON `evidence-gap`, STATED HERE BECAUSE IT DECIDES WHAT A CLEAN ROW MEANS.** The gap
+map is keyed on HOST × PRODUCER, not on the individual finding. So when a producer declares it
+could not read a surface on a host, NO row from that producer on that host is called `resolved` in
+that comparison — **including one that really was fixed**. That is deliberate and it fails in the
+safe direction: a genuine remediation reported as not-comparable costs a re-scan, while the
+alternative — trusting the other rows from a producer that just told you it was reading blind —
+is the false-remediation class this whole engine exists to prevent. Per-finding precision needs the
+producing plugin stamped on each service record, which this release does not do.
+
 ⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Ten
 producers in Enterprise 1.1.0 changed what they NAME as a finding's object — ten plugins that
 previously left `resource` empty or set it to the region, and, for the first time, an analysis
