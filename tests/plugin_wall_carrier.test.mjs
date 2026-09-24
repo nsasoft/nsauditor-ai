@@ -105,24 +105,37 @@ test('the cloud wall (CLOUD_PLUGIN_TIMEOUT_MS) still binds a declared cloud plug
 });
 
 // ── THE MCP TOOLS PASS THE OPERATOR'S OWN BUDGET AS THE WALL ─────────────────────────────────────
+// ⚠️ THE ENVIRONMENT IS CHANGED AFTER THE MANAGER IS IMPORTED, ON PURPOSE (architect fold F20). The
+// wall must be the manager's EXPORTED constant — the value every undeclared plugin actually gets —
+// not a fresh `process.env.PLUGIN_TIMEOUT_MS || 30000` at call time, which carries a second copy of
+// the default and can disagree with the manager. With the environment untouched the two read the
+// same, so a re-read survived every leg until the environment was made to differ.
+const divergeEnv = (t) => {
+  const prior = process.env.PLUGIN_TIMEOUT_MS;
+  process.env.PLUGIN_TIMEOUT_MS = String(PLUGIN_TIMEOUT_MS + 12345);
+  t.after(() => { if (prior === undefined) delete process.env.PLUGIN_TIMEOUT_MS; else process.env.PLUGIN_TIMEOUT_MS = prior; });
+};
 test('scan_host passes the effective PLUGIN_TIMEOUT_MS on the carrier — so a declaration never outruns it on Desktop', async (t) => {
   const got = {};
+  divergeEnv(t);
   _setValidateHost(async (h) => h);
   _setPluginManager({ run: async (host, spec, opts) => { got.opts = opts; return { host, conclusion: null, manifest: [], results: [] }; } });
   t.after(() => { _setPluginManager(null); _setValidateHost(null); });
   await handleScanHost({ host: HOST });
-  assert.equal(got.opts?.[PLUGIN_WALL_KEY], PLUGIN_TIMEOUT_MS);
+  assert.equal(got.opts?.[PLUGIN_WALL_KEY], PLUGIN_TIMEOUT_MS, 'the wall must be the manager\'s exported constant, not a re-read of the environment');
+  assert.notEqual(got.opts?.[PLUGIN_WALL_KEY], Number(process.env.PLUGIN_TIMEOUT_MS), 'precondition: the environment was made to differ');
   assert.ok(Number.isFinite(PLUGIN_TIMEOUT_MS) && PLUGIN_TIMEOUT_MS > 0);
 });
 
 test('probe_service passes the same wall to its single plugin', async (t) => {
   const got = {};
   const plugin = { id: '9209', name: 'Probed', run: async () => ({}) };
+  divergeEnv(t);
   _setValidateHost(async (h) => h);
   _setPluginManager({ findPlugin: () => plugin, _runOne: async (p, h, port, opts) => { got.opts = opts; return { id: p.id, result: {} }; } });
   t.after(() => { _setPluginManager(null); _setValidateHost(null); });
   await handleProbeService({ host: HOST, port: 80, pluginName: 'Probed' });
-  assert.equal(got.opts?.[PLUGIN_WALL_KEY], PLUGIN_TIMEOUT_MS);
+  assert.equal(got.opts?.[PLUGIN_WALL_KEY], PLUGIN_TIMEOUT_MS, 'the exported constant, not a re-read of the environment');
   assert.equal(got.opts?.hostKind, 'network');
 });
 
