@@ -218,7 +218,8 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 > `scan_cloud` runs the requested clouds' plugins **concurrently** (default up to 20 at once, 25s per-plugin
 > timeout) so a full multi-service cloud audit completes within Claude Desktop's ~60s tool-call limit. Tune with
 > `CLOUD_SCAN_CONCURRENCY` (default 20) and `CLOUD_PLUGIN_TIMEOUT_MS` (default 25000) in the server env. The
-> network `PLUGIN_TIMEOUT_MS` still governs `scan_host` / network scans. Read the result's **`findingsSummary`**
+> network `PLUGIN_TIMEOUT_MS` governs `scan_host` and `probe_service`, and binds every plugin there — including
+> one that declares a longer budget of its own. Read the result's **`findingsSummary`**
 > (per-provider severity counts + a CRITICAL/HIGH list) for the findings; `audited:false` / `notes` / `pluginsRan:0`
 > still mean a cloud was NOT audited (never a clean pass). Pass `providers:["aws"]` to audit only the cloud named.
 
@@ -228,7 +229,8 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 > timeout for it. Keep `CLOUD_PLUGIN_TIMEOUT_MS` **under** Desktop's ~60s tool-call cap (default `25000`; raise to
 > ~`45000` only for very large accounts — a higher per-plugin cap can let one plugin run past Desktop's wall and
 > cause a hard timeout). For unbounded multi-region scans use the **CLI** (`nsauditor-ai scan … --aws-region all`),
-> which has no MCP tool-call cap — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely.
+> which has no MCP tool-call cap — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely. On the CLI a
+> plugin that declares its own budget already gets it; `PLUGIN_TIMEOUT_CEILING_MS` caps those.
 
 Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
 
@@ -312,7 +314,8 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
-- `PLUGIN_TIMEOUT_MS=5000` — reduces per-plugin timeout to 5s so the full scan completes within Claude Desktop's 60s MCP limit
+- `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times, and fits inside Claude Desktop's ~60 s tool-call limit only when most of them finish quickly. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
+- `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
 - `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
 - `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`). Keep it **under** Desktop's ~60s tool-call cap (raise to ~`45000` only for very large accounts); full all-region coverage is delivered by automatic region-batching, so it needs **no** timeout increase.
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results

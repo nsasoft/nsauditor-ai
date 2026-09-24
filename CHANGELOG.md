@@ -44,6 +44,24 @@ cost is linear in the ports a target offers: ten ports on the test gateway is 10
 at the 30 s default on every network scan in the evidence. A declared budget buys time only where the
 work needs it; exceeding it still reads not-measured, and a caller's own time limit still binds.
 
+⚠️ **A DECLARED BUDGET NEVER REACHES CLAUDE DESKTOP'S `scan_host` OR `probe_service`.** Those two tools
+now pass the operator's own `PLUGIN_TIMEOUT_MS` as a wall that binds every plugin, declared or not. On
+Desktop, every budget is exactly what it was before declarations existed. Without the wall, an
+operator who set `PLUGIN_TIMEOUT_MS=5000` to keep a scan inside Desktop's ~60 s limit would have
+seen 028 run 18 s and 070 up to 100 s, and could have lost a disclosed partial result to a killed
+call. The CLI, which writes the evidence, names no wall and gets the declarations.
+`PLUGIN_TIMEOUT_CEILING_MS` bounds a declaration everywhere. `scan_host` also advertised a
+per-call `timeout` input it never read, and it is removed. A test now holds every MCP tool to "an
+advertised input is read by its handler".
+
+⚠️ **FOR CODE THAT DRIVES `PluginManager` DIRECTLY: `opts.timeoutMs` IS NO LONGER A WALL.** It
+belongs to the plugins. Twelve network plugins read it as their own discovery window or per-probe
+timeout, and the manager forwards the caller's opts into every run, so the same key could not also
+be the manager's wall. A caller's wall is now `pluginWallMs` (exported as `PLUGIN_WALL_KEY`). The
+manager reads it and strips it before any plugin sees it. `scan_cloud` moved to it too: it used to
+inject its 25 s wall as `timeoutMs` into every cloud plugin's opts. No shipped caller passed
+`timeoutMs` as a wall. An embedder that did should pass `pluginWallMs` instead.
+
 
 ### ⚠️ CORRECTION — `scan_history.jsonl`'s `findingsCount` KEEPS ITS NAME AND CHANGES ITS VALUE
 

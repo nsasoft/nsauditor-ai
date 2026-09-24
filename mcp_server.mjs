@@ -248,10 +248,6 @@ export const TOOLS = [
           type: 'string',
           description: 'Target hostname or IP address to scan',
         },
-        timeout: {
-          type: 'number',
-          description: 'Per-plugin timeout in milliseconds (default: 30000)',
-        },
       },
       required: ['host'],
     },
@@ -434,9 +430,16 @@ export async function handleScanHost(args) {
   const host = await _validateHostFn(args.host);
 
   const pm = await getPluginManager();
-  // Note: timeout is controlled via PLUGIN_TIMEOUT_MS env var at startup.
-  // Runtime override is not supported to avoid process-global state mutation.
-  const output = await pm.run(host, 'all');
+  // ⚠️ EVERY PLUGIN GETS THE OPERATOR'S OWN BUDGET HERE, DECLARED OR NOT (EE 1.1.0 build 6). The wall
+  // is the effective PLUGIN_TIMEOUT_MS, passed on the manager's `pluginWallMs` carrier, which no plugin
+  // ever receives. Without it a plugin's declared budget (60 s, 100 s) outranks PLUGIN_TIMEOUT_MS, so
+  // an operator who set it to keep this call inside Claude Desktop's ~60 s limit would lose the
+  // disclosed partial to a killed call. With it this tool's budgets are exactly what they were before
+  // declarations existed; the CLI, which names no wall, gets the declarations. A plugin over the wall
+  // reads `timeout` in `manifest`. (This tool used to advertise a `timeout` input it never read; it was
+  // removed rather than wired, because a per-call override would have to travel on this same carrier.)
+  const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
+  const output = await pm.run(host, 'all', { [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS });
 
   // Render a Markdown summary of the scan so AI assistants get a ready-to-quote
   // report alongside the structured fields. Failure to render must not break the
@@ -653,7 +656,10 @@ export async function handleProbeService(args) {
     );
   }
   const hostKind = isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network';
-  const result = await pm._runOne(plugin, host, args.port, { hostKind });
+  // The same wall as scan_host, for the same reason: this is a Desktop tool, and a declared budget
+  // must not outrun the operator's PLUGIN_TIMEOUT_MS here.
+  const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
+  const result = await pm._runOne(plugin, host, args.port, { hostKind, [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS });
   return result;
 }
 

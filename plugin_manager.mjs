@@ -26,7 +26,25 @@ import { mapLimit } from './utils/concurrency.mjs';
 const __filename = fileURLToPath(import.meta.url);
 
 const VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NSA_VERBOSE || ''));
-const PLUGIN_TIMEOUT_MS = Number(process.env.PLUGIN_TIMEOUT_MS || 30000);
+// Exported so a caller that must bind every plugin to the operator's own budget (MCP `scan_host`,
+// `probe_service`) passes THIS value as its wall — never a re-read of the environment or a retyped number.
+export const PLUGIN_TIMEOUT_MS = Number(process.env.PLUGIN_TIMEOUT_MS || 30000);
+
+// ── A CALLER'S WALL TRAVELS ON ITS OWN KEY, AND NO PLUGIN EVER RECEIVES IT (EE 1.1.0 build 6) ─────
+// `opts.timeoutMs` belongs to the PLUGINS: twelve network plugins read it as their own discovery
+// window or per-probe timeout (port_scanner, ping_checker, 028, 070 …), and the caller's opts are
+// forwarded into every run. Through CE 0.2.54 the manager ALSO read that key as the caller's wall, so
+// one name meant two things — the cloud path injected its 25 s wall there, harmless only because no
+// cloud plugin reads it, and a wall carried that way on the network path would have become
+// port_scanner's per-probe timeout. The wall is `pluginWallMs` now: the manager reads it here and
+// STRIPS it before any plugin's opts are built. `opts.timeoutMs` is forwarded untouched and is no
+// longer a wall for anyone.
+export const PLUGIN_WALL_KEY = 'pluginWallMs';
+function splitWall(opts) {
+  if (!opts || typeof opts !== 'object') return { wallMs: undefined, forwarded: {} };
+  const { [PLUGIN_WALL_KEY]: wallMs, ...forwarded } = opts;
+  return { wallMs, forwarded };
+}
 
 // ── O1(b): A PLUGIN MAY DECLARE ITS OWN TIME BUDGET, BOUNDED BY THIS CEILING ────────────────
 // A plugin whose cost is LINEAR in what the account holds cannot be budgeted by a single global
@@ -45,10 +63,12 @@ export const PLUGIN_TIMEOUT_CEILING_MS = Number(process.env.PLUGIN_TIMEOUT_CEILI
  * WALL and always binds: `min(declared, ceiling, callerWall)`.
  *
  * ⚠️ DO NOT RE-INVERT THIS — a declaration outranking the caller reads reasonable from the
- * PLUGIN's frame and is wrong in the CONSUMER's. The only caller that names a budget is the
- * cloud path (`_runCloudPluginsParallel`, `CLOUD_PLUGIN_TIMEOUT_MS || 25000`), whose single
- * consumer is the `scan_cloud` MCP tool — and CLAUDE DESKTOP HARD-KILLS AN MCP TOOL CALL AT
- * ABOUT 60 s. Measured live 2026-06-01: a 45,000 ms budget returned 15 of 20 plugins with an
+ * PLUGIN's frame and is wrong in the CONSUMER's. The callers that name a wall are the three MCP
+ * tools that run plugins, all on the `pluginWallMs` carrier: `scan_cloud` (via
+ * `_runCloudPluginsParallel`, `CLOUD_PLUGIN_TIMEOUT_MS || 25000`), and `scan_host` / `probe_service`
+ * (the effective `PLUGIN_TIMEOUT_MS`, so on those two a declaration never reaches Desktop and every
+ * plugin gets exactly the budget it had before declarations existed) — and CLAUDE DESKTOP HARD-KILLS
+ * AN MCP TOOL CALL AT ABOUT 60 s. Measured live 2026-06-01: a 45,000 ms budget returned 15 of 20 plugins with an
  * honest "5 incomplete"; 90,000 ms returned NOTHING AT ALL. So letting a 90 s declaration
  * override a 25 s wall does not buy that plugin more time — it converts a DISCLOSED PARTIAL
  * into a killed call with no result, which is strictly worse than the timeout it was meant to
@@ -57,7 +77,7 @@ export const PLUGIN_TIMEOUT_CEILING_MS = Number(process.env.PLUGIN_TIMEOUT_CEILI
  * CONSEQUENCE, STATED: on the Desktop path a large-estate S3 audit still reads not-measured
  * unless the operator raises `CLOUD_PLUGIN_TIMEOUT_MS` toward 45-55 s. The CLI — which is the
  * compliance path, and the one that writes evidence — names no caller budget and therefore gets
- * the full declared budget.
+ * the full declared budget. `PLUGIN_TIMEOUT_CEILING_MS` bounds a declaration on every path.
  */
 export function resolvePluginTimeoutMs(mod, callerTimeoutMs, globalMs = PLUGIN_TIMEOUT_MS) {
   const caller = Number(callerTimeoutMs);
@@ -185,7 +205,8 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
   // Hoisted: the resolved budget does not depend on the port, and the failure branch below
   // reports it OUTSIDE runWithCtx's scope — printing the global constant there was false the
   // moment any plugin declared its own.
-  const resolvedTimeoutMs = resolvePluginTimeoutMs(mod, cliOpts && cliOpts.timeoutMs);
+  const { wallMs, forwarded: pluginOpts } = splitWall(cliOpts);
+  const resolvedTimeoutMs = resolvePluginTimeoutMs(mod, wallMs);
 
   const runWithCtx = (port) => {
     const extra = isOsDetector && Array.isArray(priorOutputs) ? { results: priorOutputs } : {};
@@ -195,10 +216,10 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     // Promise.resolve().then(...) so a plugin that throws SYNCHRONOUSLY (before its
     // first await) becomes a rejected promise the race below catches, instead of
     // propagating out of callPlugin and aborting the whole (sequential or parallel) batch.
-    const pluginPromise = Promise.resolve().then(() => mod.run(host, port, { ...cliOpts, context: withBaseContext(ctx), ...extra }));
+    const pluginPromise = Promise.resolve().then(() => mod.run(host, port, { ...pluginOpts, context: withBaseContext(ctx), ...extra }));
 
-    // Honor a per-run timeout (cloud path) but clamp to a positive number; an
-    // undefined (network path) or non-positive value falls back to PLUGIN_TIMEOUT_MS.
+    // A caller's wall (the MCP tools) binds; with none (the CLI) a declared budget outranks
+    // PLUGIN_TIMEOUT_MS, and a plugin that declares nothing gets PLUGIN_TIMEOUT_MS.
     const timeoutMs = resolvedTimeoutMs;
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
@@ -552,8 +573,9 @@ export class PluginManager {
 
   async _runOne(plugin, host, port, opts = {}) {
     // Same resolver as callPlugin — the env read stays the GLOBAL floor, not the whole answer.
+    const { wallMs, forwarded } = splitWall(opts);
     const timeoutMs = resolvePluginTimeoutMs(
-      plugin, opts && opts.timeoutMs,
+      plugin, wallMs,
       parseInt(process.env.PLUGIN_TIMEOUT_MS, 10) || PLUGIN_TIMEOUT_MS,
     );
     let timer;
@@ -563,7 +585,7 @@ export class PluginManager {
     try {
       vlog(`Running ${plugin.name} on ${host}:${port}`);
       // Ensure every run gets the BASE_CTX helpers merged into opts.context
-      const mergedOpts = { ...opts, context: withBaseContext(opts?.context || {}) };
+      const mergedOpts = { ...forwarded, context: withBaseContext(forwarded.context || {}) };
       const raw = await Promise.race([
         plugin.run(host, port, mergedOpts),
         timeoutPromise,
@@ -801,7 +823,7 @@ export class PluginManager {
       for (const wrapped of wrappedRuns) {
         if (wrapped.result?.timedOut) {
           status = 'timeout';
-          reason = wrapped.result.error || `timed out after ${resolvePluginTimeoutMs(mod, opts && opts.timeoutMs)}ms`;
+          reason = wrapped.result.error || `timed out after ${resolvePluginTimeoutMs(mod, opts && opts[PLUGIN_WALL_KEY])}ms`;
         } else if (wrapped.result?.error && status !== 'timeout') {
           status = 'error';
           reason = wrapped.result.error;
@@ -1049,7 +1071,7 @@ export class PluginManager {
         // the defense-in-depth signal is present on EVERY cloud dispatch route
         // (selection here is already scoped to each plugin's cloudProvider).
         const cloudHostKind = mod.cloudProvider ? `cloud:${mod.cloudProvider}` : opts.hostKind;
-        const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, timeoutMs, hostKind: cloudHostKind });
+        const wrappedRuns = await callPlugin(mod, host, ctx, [], { ...opts, [PLUGIN_WALL_KEY]: timeoutMs, hostKind: cloudHostKind });
         const duration_ms = Date.now() - startMs;
         // Same classifier as _runOrchestrated: a gate-skip envelope
         // ({ up:false, skipped:true, ... }) → 'skipped' (not 'ran') iff nothing ran
@@ -1064,7 +1086,7 @@ export class PluginManager {
         let sawRealRun = false;
         let skipReason = null;
         for (const w of wrappedRuns) {
-          if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${timeoutMs}ms`; }
+          if (w.result?.timedOut) { status = 'timeout'; reason = w.result.error || `timed out after ${resolvePluginTimeoutMs(mod, timeoutMs)}ms`; }
           else if (w.result?.error && status !== 'timeout') { status = 'error'; reason = w.result.error; }
           else if (w.result?.skipped === true) { skipReason = w.result.reason || w.result.skipReason || 'skipped by plugin gate'; }
           else { sawRealRun = true; }
