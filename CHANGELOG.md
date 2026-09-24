@@ -112,7 +112,7 @@ flagged as both a gap and a boundary is treated as a gap.
 set it, whether an offline store was there, and the cache's contents as the run found them). With
 Enterprise 1.1.0 the CVE set depends on a location you can see instead of the directory the scan was
 started from; the value is recorded only when every written host reported the same location, and is
-`null` otherwise (and always `null` without Enterprise). `feed import` now prints where the store went.
+`null` otherwise (and always `null` without Enterprise). `feed import`, run on a bundle built from NVD feeds you downloaded, now prints where the store went.
 
 **Every file in the published package is readable by the user who installs it, and a test now
 checks it.** Earlier packages shipped `config/services.json` readable by its owner only, so after a
