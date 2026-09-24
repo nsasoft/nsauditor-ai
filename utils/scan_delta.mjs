@@ -59,6 +59,17 @@ export const PLUGIN_NOT_MEASURED_REASON = 'plugin-not-measured';
 // And the COVERAGE reason: Enterprise's MTTR engine refuses to call a prior regional row remediated
 // when its region lay outside the current scan's recorded scope — the delta's own verdict, same name.
 export const SCOPE_NOT_SCANNED_REASON = 'scope-not-scanned';
+// And the PORT reason (EE 1.1.0 build 9, F6). A probe RAN on a port the port scanner saw open and did not
+// complete its connection there (a reset, a timeout, a handshake that never finished), so that port was
+// not measured in the run. Enterprise records it as a service-set INPUT GAP carrying the port. A baseline
+// row on that port that is absent now was not fixed — nobody looked. Measured on a live acceptance run:
+// the router's 443 answered the port scanner and then reset the HTTPS probe; crypto_agent's row about 443
+// could not be produced, and this engine reported it RESOLVED. Enterprise's MTTR engine applies the same
+// reason to a prior row's CLOSURE and imports both names from here, so the two channels cannot disagree.
+export const PROBE_NOT_MEASURED_REASON = 'probe-not-measured';
+// The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
+// the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
+export const INPUT_GAP_CLASS = 'input_gap';
 
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
@@ -69,6 +80,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   'framework-enumeration-changed', // the control left or joined the enumeration between the runs
   IDENTITY_BASIS_CHANGED_REASON,   // the producer changed WHAT IT NAMES between the two releases
   SCOPE_NOT_SCANNED_REASON,        // the finding's coverage unit was outside the OTHER run's recorded scope
+  PROBE_NOT_MEASURED_REASON,       // a probe ran on the finding's port, open per the port scanner, and did not complete there
 ]);
 
 /**
@@ -233,7 +245,7 @@ export const VIEW_REFUSAL_REASONS = Object.freeze([
 // verified only against fixtures the author constructs is verified against the author's idea of
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
-export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap', 'deferredScope',
+export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap', 'gapClass', 'deferredScope',
   'contentDigest', 'identityQualifier', 'resource', 'region', 'port', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
@@ -415,6 +427,24 @@ const NOT_MEASURED_STATUS = new Set(NOT_MEASURED_STATUSES);
 // its host set from THIS map's keys, so adding a provider is one edit in one file.
 import { PROVIDER_SCOPE_UNIT, canonicalHost, hostKey } from './cloud_providers.mjs';
 
+// ── A PORT THE RUN COULD NOT MEASURE (EE 1.1.0 build 9, F6) — one decision, shared with Enterprise's MTTR ──
+/** A port-scoped input gap: Enterprise's record that a probe could not complete on this port. */
+// Written as plain `f.` reads so the boundary contract's derivation SEES them (it reads `f.<field>`; an
+// optional chain is invisible to it, and `gapClass` would read as consumed-but-undeclared).
+export const isPortInputGap = (f) => f != null && f.evidenceGap === true && f.gapClass === INPUT_GAP_CLASS && Number(f.port) > 0;
+/** The key a port gap is looked up by — `hostKey`, so a host typed in two cases is one host. */
+export const portGapKey = (host, port) => `${hostKey(host)}|${Number(port)}`;
+/** Every port a run could not measure: `portGapKey` → the gap's title (what the reader is told). */
+export function portsNotMeasured(findings) {
+  const out = new Map();
+  for (const f of Array.isArray(findings) ? findings : []) {
+    if (!isPortInputGap(f)) continue;
+    const k = portGapKey(f.host, f.port);
+    if (!out.has(k)) out.set(k, f.title ?? 'an input gap was recorded on this port');
+  }
+  return out;
+}
+
 function scopeNotScanned(f, mine, theirs) {
   const provider = hostKey(f?.host);
   const mineEntry = mine?.scopeScanned?.[provider] ?? null;
@@ -508,8 +538,12 @@ const scopeOf = (side) => {
   const plugins = new Set(rec.pluginsRequested ?? []);
   const gaps = new Map();
   // Gaps as the PRODUCER records them — on the finding, where they already ride.
+  // ⚠️ EXCEPT A PORT-SCOPED INPUT GAP (EE 1.1.0 build 9). Enterprise emits one per analysis agent for each
+  // port a probe could not measure, so keyed here by PRODUCER it would set aside that agent's rows on EVERY
+  // port of the host, and a genuine fix on a port that WAS measured would stop reading resolved. It is
+  // scoped to its port, in `portGaps`, and nowhere else.
   for (const fi of side?.findings ?? []) {
-    if (fi?.evidenceGap === true && fi.plugin != null) {
+    if (fi?.evidenceGap === true && fi.plugin != null && !isPortInputGap(fi)) {
       gaps.set(`${keyHost(fi.host)}|${fi.plugin}`,
         { kind: 'recorded-gap', reason: fi.title ?? fi.detail ?? 'an evidence gap was recorded' });
     }
@@ -542,6 +576,8 @@ const scopeOf = (side) => {
   }
   return {
     hosts, hostNames, plugins, gaps, statements,
+    // The ports this side could not measure, keyed `hostKey|port` (EE 1.1.0 build 9).
+    portGaps: portsNotMeasured(side?.findings),
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -708,6 +744,15 @@ function incomparabilityReason(f, mine, theirs) {
         detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap.reason}` }
       : { reason: PLUGIN_NOT_MEASURED_REASON,
         detail: `${f.host}/${producerLabel(f)} was not measured in the other run — ${gap.reason}` };
+  }
+  // ⚠️ THE FINDING'S PORT WAS NOT MEASURED IN THE OTHER RUN (EE 1.1.0 build 9, F6). Any producer's row: a
+  // probe that could not complete on an OPEN port starves every consumer of that port's service. Placed
+  // AFTER the producer-wide legs, so a verdict they already give does not move. `theirs` only, as above.
+  const portGap = f.port != null && Number(f.port) > 0 ? theirs.portGaps?.get(portGapKey(f.host, f.port)) : null;
+  if (portGap) {
+    return { reason: PROBE_NOT_MEASURED_REASON,
+      detail: `port ${f.port} on ${f.host} was not measured in the other run — a probe ran there and did not `
+        + `complete its connection (${portGap}). It is NOT reported as fixed or as new — rescan to compare.` };
   }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
   // f.control`, and all three are absent through the shipped path — so the leg returned null and

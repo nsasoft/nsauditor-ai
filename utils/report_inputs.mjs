@@ -220,6 +220,9 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // on 7 AWS and 3 Azure findings of the real 1.1.0 run), which means the READ side needs no
     // writer change to see it.
     evidenceGap: f?.details?.evidenceGap === true,
+    // WHICH gap, when the producer names one (EE 1.1.0 build 9). The delta scopes an `input_gap` that
+    // carries a PORT to that port alone (`probe-not-measured`); every other gap stays producer-wide.
+    gapClass: typeof f?.details?.gapClass === 'string' ? f.details.gapClass : null,
     // ⚠️ A DECLARED SCOPE BOUNDARY IS NOT A FINDING EITHER (EE 1.1.0 build 5, CFN-3's consumer-first
     // route). Seventeen plugins emit one INFO row stating what they do NOT examine, flagged
     // `details.deferredScope`; it routes to no control and is not an exposure. Paired like a finding,
@@ -325,6 +328,12 @@ function shapeQueueEntry(host, q) {
     // Exactly `true`, never merely truthy: a producer writing something else has a bug, and
     // reading it as a declaration would make that producer's whole output un-differenceable.
     evidenceGap: q?.evidence?.raw?.evidenceGap === true,
+    // WHICH gap (EE 1.1.0 build 9). EE's service-set input gap names the port a probe could not
+    // measure: a probe that RAN on a port the port scanner saw open and did not complete its connection
+    // there. The delta reads `input_gap` + a port as "that port was not measured in this run", so a
+    // baseline row on it reads `probe-not-measured`, never RESOLVED. Carried verbatim; the queue's
+    // vocabulary is `evidence.raw`, as for `evidenceGap`.
+    gapClass: typeof q?.evidence?.raw?.gapClass === 'string' ? q.evidence.raw.gapClass : null,
     // ⚠️ NO QUEUE PRODUCER EMITS ONE TODAY — measured on the build-4 corpus, the only queue (38
     // entries, intelligence_engine 33 + crypto_agent 5) carries no `deferredScope` at either depth,
     // and `evidence.raw` there is an intel record, not a finding. This read is SHAPE PARITY with the

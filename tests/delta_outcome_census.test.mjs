@@ -113,6 +113,20 @@ const PRODUCERS = {
     const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], status: 'error', omitResult: true });
     return drive(outRoot, current, baseline);
   },
+  'probe-not-measured': async () => {
+    // ⚠️ THE LIVE ROW (EE 1.1.0 build 8's acceptance run). The port scanner saw 443 open; the HTTPS probe's
+    // handshake there was RESET, so crypto_agent's row about 443 could not be produced, and without this
+    // reason the delta called it RESOLVED. Enterprise now records the port as not measured: an input gap
+    // carrying port 443. The baseline row on that port must read not-comparable.
+    const outRoot = tmp('ppm');
+    const row = { id: 'F-443', severity: 'HIGH', title: 'No transport encryption: http on port 443',
+      target: { port: 443 }, evidence: { source: 'crypto_agent' } };
+    const gap = { id: 'F-G443', severity: 'INFO', title: '[COVERAGE GAP] INPUT GAP — port 443 was not measured',
+      target: { port: 443 }, evidence: { source: 'crypto_agent', raw: { evidenceGap: true, gapClass: 'input_gap' } } };
+    const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [], queue: [row] });
+    const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], queue: [gap] });
+    return drive(outRoot, current, baseline);
+  },
   'evidence-gap': async () => {
     const outRoot = tmp('gap');
     const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')] });

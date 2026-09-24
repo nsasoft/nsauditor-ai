@@ -85,6 +85,15 @@ call. The CLI, which writes the evidence, names no wall and gets the declaration
 per-call `timeout` input it never read, and it is removed. A test now holds every MCP tool to "an
 advertised input is read by its handler".
 
+⚠️ **"SINCE LAST SCAN" COULD CALL A FINDING FIXED WHEN THE SCAN SIMPLY COULD NOT REACH IT.** On a release
+acceptance run, the port scanner saw the test gateway's port 443 open. The HTTPS check there was then cut off
+mid-handshake, so the finding about 443 could not be produced this time, and the comparison with the previous
+scan listed it as **resolved**. Nothing had been fixed; that port was not measured. Enterprise now records a
+port it could not measure (a check that ran on an open port and could not complete its connection), and the
+comparison reports a finding on that port as not comparable, `probe-not-measured`, with the port named: never
+fixed, never new. A finding on a port that was measured still resolves exactly as before. Enterprise's time-to-
+remediate (MTTR) figures apply the same rule.
+
 **Every plugin is now told the time budget it actually has**, as `context.effectiveTimeoutMs`. It is the
 same number the manager times the plugin out on: its declaration, bounded by the ceiling and by any
 caller's wall, or the global default when it declares nothing. A plugin that paces its own work (stop
