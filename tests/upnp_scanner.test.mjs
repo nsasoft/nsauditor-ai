@@ -29,9 +29,15 @@ function makeUpnpFake() {
     }
   ];
 
+  // The fake keeps node-upnp-utils' OWN contract: the window is `wait`, whole seconds 1..120, and
+  // anything else is refused as the library refuses it. It used to take `({ timeout })` and sleep on
+  // it — the plugin's shape, not the library's — which is how a call the library ignores survived.
   return {
-    discover: async ({ timeout }) => {
-      await new Promise(resolve => setTimeout(resolve, Math.min(timeout, 50)));
+    discover: async ({ wait }) => {
+      if (typeof wait !== 'number' || wait % 1 !== 0 || wait < 1 || wait > 120) {
+        throw new Error('The `wait` must be an itenger in the range of 1 to 120.');
+      }
+      await new Promise(resolve => setTimeout(resolve, 5));
       return devices;
     }
   };

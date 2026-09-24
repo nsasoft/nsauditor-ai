@@ -343,6 +343,18 @@ function buildFindings({ host, port, detection }) {
 
 export default {
   id: '070',
+  // ── O1(b) DECLARED BUDGET (CE 0.2.55, EE 1.1.0 build 6) — the STRUCTURAL bound ───────────────
+  // Measured maximum 44 512 ms at Gate 2 build 5 (pack 192.168.1.1_20260923_182912), and a timeout at
+  // the 30 s default on every other network scan in the evidence since EE 0.44.0. The cost is
+  // STRUCTURAL and linear: candidate ports are probed one after another — MCP_CANDIDATE_PORTS plus
+  // every open TCP port in 3000–9000 — and each port tries every MCP_PROBE_PATHS entry in turn, each
+  // bounded by the probe timeout (MCP_PROBE_TIMEOUT_MS, 2 s by default): 10 s a port with no MCP
+  // server, up to 3 s more on the port that finds one (the SSE check ≤ 1 s, tools/list ≤ 2 s). The test
+  // gateway offered 10 candidate ports → 100 s, above 1.5 × the measured maximum (66 768 ms), so the
+  // structural bound wins (architect ruling, build 6): a declaration a known worst case exceeds fails
+  // closed on a foreseeable input. A target with more candidate ports exceeds any fixed budget and
+  // reads not-measured — a budget buys TIME, never a pass — and a caller wall still binds.
+  timeoutMs: 100_000,
   name: 'MCP Scanner',
   description: 'Detects HTTP/SSE-transport MCP (Model Context Protocol) servers and audits them for cleartext transport, missing authentication, deprecated protocol versions, and Inspector exposure.',
   priority: 70,

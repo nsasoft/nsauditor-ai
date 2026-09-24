@@ -21,6 +21,20 @@ const SEARCH_TARGETS = [
   'urn:schemas-wifialliance-org:device:WFADevice:1'
 ];
 
+// ⚠️ node-upnp-utils' discover() takes its window as `wait`, in WHOLE SECONDS from 1 to 120 (default 5),
+// and reads no other key for it (lib/upnp-utils.js, discover: `const sec = params.wait || 5`). Through
+// CE 0.2.54 this passed `timeout` in milliseconds, which the library never read: every one of the seven
+// searches waited the 5 s default whatever NSA_UPNP_TIMEOUT_MS said, a scan cost ~39 s — over the 30 s
+// plugin default on every network scan in the evidence — and the pack recorded a `timeout` window that
+// was never applied. The fake the unit tests used accepted any key, which is how it survived.
+// A window that is not a positive number falls back to the 15 s default rather than reaching the
+// library as NaN, which it rejects — and a rejected search is swallowed below as zero devices.
+export const DEFAULT_UPNP_WINDOW_MS = 15000;
+export function perTargetWaitSec(windowMs) {
+  const ms = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : DEFAULT_UPNP_WINDOW_MS;
+  return Math.min(120, Math.max(1, Math.round(ms / SEARCH_TARGETS.length / 1000)));
+}
+
 function ipMatches(target, address) {
   const t = String(target || "").trim();
   const a = String(address || "").trim();
@@ -228,10 +242,7 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
     for (const searchTarget of SEARCH_TARGETS) {
       try {
         dlog(`Searching for ${searchTarget}`);
-        const devices = await upnp.discover({ 
-          timeout: Math.floor(timeoutMs / SEARCH_TARGETS.length),
-          st: searchTarget 
-        });
+        const devices = await upnp.discover({ wait: perTargetWaitSec(timeoutMs), st: searchTarget });
         allDevices.push(...devices);
         dlog(`Found ${devices.length} devices for ${searchTarget}`);
       } catch (e) {
@@ -348,6 +359,17 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
 
 export default {
   id: "028",
+  // ── O1(b) DECLARED BUDGET (CE 0.2.55, EE 1.1.0 build 6) ──────────────────────────────────────
+  // Two bases, both named. PRE-FIX: 39 320 ms measured at Gate 2 build 5 (pack
+  // 192.168.1.1_20260923_182912), and a timeout at the 30 s default on every network scan in the
+  // evidence since EE 0.44.0 — seven searches at the library's 5 s default, the `wait` defect above.
+  // POST-FIX: seven searches at `perTargetWaitSec` (2 s at the default window) plus ~0.6 s of send
+  // overhead each, ~18 s with no device to describe, and up to 3 s more per matching device's
+  // description fetch; Gate 2 build 6 records the measured figure. Rule of record (architect ruling,
+  // build 6): ≥ 1.5 × the measured maximum, ≤ the 120 000 ceiling — 60 000 (1.53× the pre-fix
+  // maximum). A budget buys TIME, never a pass: an exceeded declared budget still fails closed to
+  // not-measured, and a caller wall still binds.
+  timeoutMs: 60_000,
   name: "Enhanced UPnP Scanner",
   description: "Comprehensive UPnP/SSDP discovery with active M-SEARCH probing, detailed header analysis, and enhanced device fingerprinting. Returns only instances matching the target host IP by default.",
   priority: 346,
@@ -357,7 +379,7 @@ export default {
   runStrategy: "single",
 
   async run(host, _port = 1900, opts = {}) {
-    const timeoutMs = Number(opts.timeoutMs ?? process.env.NSA_UPNP_TIMEOUT_MS ?? 15000); // Increased timeout
+    const timeoutMs = Number(opts.timeoutMs ?? process.env.NSA_UPNP_TIMEOUT_MS ?? DEFAULT_UPNP_WINDOW_MS);
     const data = [];
 
     if (!isPrivateLike(host)) {
@@ -388,6 +410,7 @@ export default {
         response_banner: JSON.stringify({
           searchTargets: SEARCH_TARGETS,
           timeout: timeoutMs,
+          waitPerTargetSec: perTargetWaitSec(timeoutMs),
           reason: "No responses received"
         })
       });
@@ -435,6 +458,7 @@ export default {
       type: "upnp",
       deviceCount: rows.length,
       searchTargets: SEARCH_TARGETS,
+      waitPerTargetSec: perTargetWaitSec(timeoutMs),
       data
     };
   }

@@ -27,6 +27,23 @@ its evidence-gap map, and which Enterprise's SLA / MTTR history uses too, so the
 disagree. Run records already on disk that say `AWS` are read as `aws`. Reports show each host as it
 was recorded.
 
+⚠️ **THE UPnP SCANNER (028) NEVER USED ITS OWN DISCOVERY WINDOW, AND TIMED OUT ON EVERY DEFAULT
+NETWORK SCAN.** It passed its window to `node-upnp-utils` as `timeout`, in milliseconds; the library
+reads `wait`, in whole seconds, and nothing else. So through 0.2.54 each of the seven M-SEARCH
+discoveries waited the library's 5 s default whatever `NSA_UPNP_TIMEOUT_MS` said — that setting was
+inert — a scan spent ~39 s in discovery alone, over the 30 s per-plugin default on every network scan
+in the evidence, and the scanner read NOT MEASURED. Its record said a 15 s window had been applied; it
+had not. The window now reaches the library as `wait` (15 s across seven targets is 2 s each, clamped to
+the library's 1–120 s), and the result records the per-target wait it was actually given
+(`waitPerTargetSec`) beside the requested window. The unit tests' stand-in for the library accepted any
+key, which is how a call the library ignores survived; a new test drives the real library.
+
+**028 and 070 now declare their own time budgets** (60 s and 100 s), the mechanism plugin 1020 already
+uses. The MCP scanner (070) probes each candidate port on up to five paths with a 2 s timeout each, so its
+cost is linear in the ports a target offers: ten ports on the test gateway is 100 s, and it too timed out
+at the 30 s default on every network scan in the evidence. A declared budget buys time only where the
+work needs it; exceeding it still reads not-measured, and a caller's own time limit still binds.
+
 
 ### ⚠️ CORRECTION — `scan_history.jsonl`'s `findingsCount` KEEPS ITS NAME AND CHANGES ITS VALUE
 
