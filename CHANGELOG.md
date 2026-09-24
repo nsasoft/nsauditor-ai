@@ -60,6 +60,21 @@ its answer arrives, before any of this can fail, and the scanner fetches the des
 reports itself. The search also asks devices to answer within its own window (`MX`), where the library's
 default gave them longer than the scanner waited.
 
+⚠️ **THE TLS CERTIFICATE AUDITOR (040) SAID NOTHING WHEN ITS AUDIT DID NOT HAPPEN.** When the port scanner
+saw a TLS port open but 040's handshake then failed (reset, timed out), the only record was an
+informational service row that the report never shows. The certificate section of the report read clean,
+by omission. Measured on a release acceptance run: 443 open, its handshake reset, and the plugin reported
+`pass`. 040 now emits a `[COVERAGE GAP] TLS certificate audit could not complete on <port> (<error>)`
+finding. The report shows it as a coverage gap and does not count it as a finding. The rule is keyed on
+what the port scanner saw, not on the error:
+- A port the scanner saw open is a gap whatever the error, including a refusal, since it was open moments
+  earlier.
+- A port it did not see open is not a gap. The test gateway answers `ENETDOWN` on 993 and 995 on every run,
+  and a rule keyed on the error would have put a gap on every scan.
+- With no port-scanner evidence (a single-plugin call, or a scanner that did not finish), any failure
+  except a refusal is a gap, on the named port only when the call names one. The finding says
+  `openness: 'unknown'`.
+
 ⚠️ **A DECLARED BUDGET NEVER REACHES CLAUDE DESKTOP'S `scan_host` OR `probe_service`.** Those two tools
 now pass the operator's own `PLUGIN_TIMEOUT_MS` as a wall that binds every plugin, declared or not. On
 Desktop, every budget is exactly what it was before declarations existed. Without the wall, an

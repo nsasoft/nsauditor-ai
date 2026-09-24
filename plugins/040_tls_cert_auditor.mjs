@@ -535,6 +535,51 @@ async function auditPort(host, port, config) {
   };
 }
 
+// ── A certificate audit that did not happen is SAID, where the reader looks ────
+// Through CE 0.2.55 a failed handshake reached only the INFO `tls-not-responding` service row,
+// which the report loader never shapes. EE 1.1.0 build 6's Gate-2 run had 443 OPEN per the port
+// scanner, and 040's handshake there was RESET (`ECONNRESET`): `totalIssues 0`, `overallSeverity:
+// "pass"`. The executive report said nothing about a certificate audit that never happened.
+//
+// ⚠️ KEYED ON WHAT THE PORT SCANNER SAW, NOT ON THE ERROR. The test estate's router answers
+// ENETDOWN on 993/995 in every run since 0.34.0, and the port scanner reads the same, so those ports
+// were never open. A rule keyed on "any error but ECONNREFUSED" would have put a gap on every scan
+// (measured over the evidence tree before this was written).
+//   · WITH port-scanner evidence (`context.tcpOpen` is a Set AND 003 ran): a failed port is a gap iff
+//     003 saw it open — with ANY error, a refusal included, since it was open moments earlier.
+//   · WITHOUT it (a direct call, or 003 not measured): every failure except ECONNREFUSED is a gap,
+//     restricted to the NAMED port when the call names one. It is stated as `openness: 'unknown'`.
+// The gap is a FINDING in `result.findings`, the container the loader reads, flagged
+// `details.evidenceGap`: it is shown AS a gap and excluded from the finding count. The INFO row stays.
+export function tlsCoverageGap(failedPorts, context, namedPort) {
+  const failed = Array.isArray(failedPorts) ? failedPorts : [];
+  const tcpOpen = context?.tcpOpen instanceof Set ? context.tcpOpen : null;
+  const scannerRan = context?.pluginRunStatus instanceof Map && context.pluginRunStatus.get("003") === "ran";
+  const evidence = tcpOpen !== null && scannerRan;
+  const named = Number(namedPort) > 0 ? Number(namedPort) : null;
+  const gaps = evidence
+    ? failed.filter((f) => tcpOpen.has(Number(f.port)))
+    : failed.filter((f) => f.error !== "ECONNREFUSED" && (named === null || Number(f.port) === named));
+  if (gaps.length === 0) return null;
+  const list = gaps.map((f) => `${f.port} (${f.error})`).join(", ");
+  return {
+    severity: SEVERITY.INFO,
+    check: "tls_audit_incomplete",
+    title: `[COVERAGE GAP] TLS certificate audit could not complete on ${list}`,
+    detail: evidence
+      ? `The port scanner saw ${gaps.length === 1 ? "this port" : "these ports"} open, and the TLS handshake failed: ` +
+        "the certificate, chain, cipher and protocol checks did not run there. This is not a pass."
+      : "The TLS handshake failed, and this run holds no port-scanner evidence of whether the port was open: " +
+        "the certificate, chain, cipher and protocol checks did not run there. This is not a pass.",
+    port: gaps.length === 1 ? Number(gaps[0].port) : null,
+    details: {
+      evidenceGap: true,
+      openness: evidence ? "open-per-port-scanner" : "unknown",
+      failedPorts: gaps,
+    },
+  };
+}
+
 // ── Plugin Export ─────────────────────────────────────────────────────────────
 
 export default {
@@ -607,6 +652,8 @@ export default {
       info:     allIssues.filter((i) => i.severity === SEVERITY.INFO).length,
     };
 
+    const coverageGap = tlsCoverageGap(failedPorts, opts.context, port);
+
     return {
       up: activeResults.length > 0,
       audit_type: "tls_certificate",
@@ -616,6 +663,7 @@ export default {
       summary,
       portResults: activeResults,
       failedPorts,
+      ...(coverageGap ? { findings: [coverageGap] } : {}),
     };
   },
 
