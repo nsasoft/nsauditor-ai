@@ -85,6 +85,13 @@ call. The CLI, which writes the evidence, names no wall and gets the declaration
 per-call `timeout` input it never read, and it is removed. A test now holds every MCP tool to "an
 advertised input is read by its handler".
 
+**Every plugin is now told the time budget it actually has**, as `context.effectiveTimeoutMs`. It is the
+same number the manager times the plugin out on: its declaration, bounded by the ceiling and by any
+caller's wall, or the global default when it declares nothing. A plugin that paces its own work (stop
+early, emit a partial-evidence row, finish cleanly) can now pace against its real budget, not a guess
+read from the environment. The EE CloudTrail auditor (1040) had declared 60 s and still stopped itself
+at 24 s (0.8 × the 30 s default), dropping to weaker evidence on a slow network with 36 s unused.
+
 ⚠️ **FOR CODE THAT DRIVES `PluginManager` DIRECTLY: `opts.timeoutMs` IS NO LONGER A WALL.** It
 belongs to the plugins. Twelve network plugins read it as their own discovery window or per-probe
 timeout, and the manager forwards the caller's opts into every run, so the same key could not also

@@ -216,7 +216,12 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     // Promise.resolve().then(...) so a plugin that throws SYNCHRONOUSLY (before its
     // first await) becomes a rejected promise the race below catches, instead of
     // propagating out of callPlugin and aborting the whole (sequential or parallel) batch.
-    const pluginPromise = Promise.resolve().then(() => mod.run(host, port, { ...pluginOpts, context: withBaseContext(ctx), ...extra }));
+    // `effectiveTimeoutMs` IS the number raced below — the plugin reads its budget, it does not re-derive
+    // one. EE 1.1.0 build 7's Gate 2: plugin 1040 declared 60 s and capped itself at 0.8 × the 30 s
+    // environment default, because nothing told it what the manager actually allowed.
+    const pluginPromise = Promise.resolve().then(() => mod.run(host, port, {
+      ...pluginOpts, context: { ...withBaseContext(ctx), effectiveTimeoutMs: resolvedTimeoutMs }, ...extra,
+    }));
 
     // A caller's wall (the MCP tools) binds; with none (the CLI) a declared budget outranks
     // PLUGIN_TIMEOUT_MS, and a plugin that declares nothing gets PLUGIN_TIMEOUT_MS.
@@ -584,8 +589,9 @@ export class PluginManager {
     });
     try {
       vlog(`Running ${plugin.name} on ${host}:${port}`);
-      // Ensure every run gets the BASE_CTX helpers merged into opts.context
-      const mergedOpts = { ...forwarded, context: withBaseContext(forwarded.context || {}) };
+      // Ensure every run gets the BASE_CTX helpers merged into opts.context — and the budget raced below,
+      // LAST, so a caller's context cannot name a budget the manager is not enforcing.
+      const mergedOpts = { ...forwarded, context: { ...withBaseContext(forwarded.context || {}), effectiveTimeoutMs: timeoutMs } };
       const raw = await Promise.race([
         plugin.run(host, port, mergedOpts),
         timeoutPromise,
