@@ -48,6 +48,14 @@ test('an evidence gap of ANOTHER class carrying a port stays producer-wide, as b
   assert.equal(d.notComparable[0]?.reason, 'evidence-gap');
 });
 
+// The ORDER is a property, and the audit seat's mutant E3 (the port leg moved AHEAD of the producer-wide legs)
+// passed every other leg: a row under BOTH a host-wide producer gap and a port gap keeps today's verdict.
+test('a row under BOTH a producer-wide gap and a port gap keeps today\'s evidence-gap — the producer leg wins', () => {
+  const d = delta([row(443, 'No transport encryption: http on port 443')], [portGap(0), portGap(443)]);
+  assert.equal(d.notComparable.length, 1);
+  assert.equal(d.notComparable[0].reason, 'evidence-gap');
+});
+
 test('a port gap on ANOTHER HOST does not reach this host\'s row', () => {
   const d = delta([row(443, 'No transport encryption: http on port 443')], [portGap(443, { host: '192.0.2.99' })]);
   assert.equal(d.resolved.length, 1);
