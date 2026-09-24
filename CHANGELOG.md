@@ -44,6 +44,22 @@ cost is linear in the ports a target offers: ten ports on the test gateway is 10
 at the 30 s default on every network scan in the evidence. A declared budget buys time only where the
 work needs it; exceeding it still reads not-measured, and a caller's own time limit still binds.
 
+⚠️ **ONE MISBEHAVING UPnP DEVICE ON THE LAN COULD CRASH A NETWORK SCAN — IN EVERY RELEASE SINCE THE UPnP
+SCANNER (028) SHIPPED.** The UPnP library it uses (`node-upnp-utils` 1.0.3, the latest published) handles each
+answer in an async function it never catches, so a rejection there ends the whole process. Two ways, both
+reproduced on the library itself:
+- An answer with no `LOCATION`, or one that is not a URL, fails at `new URL(...)`. One device is enough, and
+  no timing is involved.
+- A second way appeared with the discovery-window fix above. An answer whose description is still being
+  fetched when the next search starts reads a device table the library has just cleared. Measured on a
+  gateway LAN: 30 such answers in one scan, and the release acceptance run died of it.
+
+The scanner now catches the library's rejections, and counts them in its result as `upnpLibraryErrors` (and
+by error name), with one warning. A caught answer is not a missing device: the library lists a device when
+its answer arrives, before any of this can fail, and the scanner fetches the description of every device it
+reports itself. The search also asks devices to answer within its own window (`MX`), where the library's
+default gave them longer than the scanner waited.
+
 ⚠️ **A DECLARED BUDGET NEVER REACHES CLAUDE DESKTOP'S `scan_host` OR `probe_service`.** Those two tools
 now pass the operator's own `PLUGIN_TIMEOUT_MS` as a wall that binds every plugin, declared or not. On
 Desktop, every budget is exactly what it was before declarations existed. Without the wall, an

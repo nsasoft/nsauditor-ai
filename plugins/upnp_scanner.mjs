@@ -34,6 +34,53 @@ export function perTargetWaitSec(windowMs) {
   const ms = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : DEFAULT_UPNP_WINDOW_MS;
   return Math.min(120, Math.max(1, Math.round(ms / SEARCH_TARGETS.length / 1000)));
 }
+// The M-SEARCH MX header tells devices how long they may take to answer; the library's default is 3 s.
+// An MX longer than the wait loses every device that answers after the window closes, so it sits
+// INSIDE the window, leaving a second for the description fetch each answer starts.
+export function perTargetMx(waitSec) {
+  return Math.max(1, waitSec - 1);
+}
+
+// ⚠️ THE LIBRARY'S PACKET HANDLER CAN REJECT, AND NOTHING CATCHES IT (EE 1.1.0 build 6, Gate 2).
+// node-upnp-utils 1.0.3 — the latest published — calls its async `_receivePacket` from the socket handler
+// without a catch, so any rejection is unhandled and ends the WHOLE process. Two ways, both measured on the
+// real library: (1) an answer whose description fetch is still in flight when the NEXT search's
+// `startDiscovery()` resets the device table reads an entry that no longer exists
+// (`SyntaxError: "undefined" is not valid JSON`) — the shorter per-search wait made that likely; (2) an
+// answer with no LOCATION, or one that is not a URL (`TypeError: Invalid URL`) — one misbehaving device on
+// the LAN, in every release. The guard catches the rejection on the module's single instance, once, and
+// COUNTS it by error, and the plugin reports the count and warns. MEASURED, not assumed: the library lists a
+// device the moment its answer arrives, BEFORE it fetches the description, so a caught answer is still in
+// its search's result — what fails is the library's own description, which 028 does not depend on: it
+// fetches the description of every device it reports itself. The original is called SYNCHRONOUSLY, so the
+// device is listed exactly when it would have been; only its promise is caught.
+const RECEIVE_GUARD = Symbol.for('nsauditor.upnp.receivePacketGuard');
+const DROPPED = Symbol.for('nsauditor.upnp.droppedResponses');
+export function guardReceivePacket(upnp) {
+  if (!upnp || typeof upnp._receivePacket !== 'function' || upnp[RECEIVE_GUARD]) return upnp;
+  const original = upnp._receivePacket;
+  upnp[DROPPED] = {};
+  const count = (err) => {
+    const name = err?.name || 'Error';
+    upnp[DROPPED][name] = (upnp[DROPPED][name] ?? 0) + 1;
+  };
+  upnp._receivePacket = function guardedReceivePacket(...args) {
+    let p;
+    try { p = original.apply(this, args); } catch (err) { count(err); return Promise.resolve(); }
+    return Promise.resolve(p).catch(count);
+  };
+  upnp[RECEIVE_GUARD] = true;
+  return upnp;
+}
+/** Library errors caught so far on this instance, by error name. */
+export function droppedResponses(upnp) {
+  return { ...(upnp?.[DROPPED] ?? {}) };
+}
+const droppedSince = (upnp, before) => {
+  const now = droppedResponses(upnp); const out = {};
+  for (const [k, v] of Object.entries(now)) if (v - (before[k] ?? 0) > 0) out[k] = v - (before[k] ?? 0);
+  return out;
+};
 
 function ipMatches(target, address) {
   const t = String(target || "").trim();
@@ -230,8 +277,9 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
     upnp = globalThis.__upnpFakeFactory();
   } else {
     const { default: upnpModule } = await import('node-upnp-utils');
-    upnp = upnpModule;
+    upnp = guardReceivePacket(upnpModule);
   }
+  const droppedBefore = droppedResponses(upnp);
 
   const allDevices = [];
   let matched = false;
@@ -242,7 +290,8 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
     for (const searchTarget of SEARCH_TARGETS) {
       try {
         dlog(`Searching for ${searchTarget}`);
-        const devices = await upnp.discover({ wait: perTargetWaitSec(timeoutMs), st: searchTarget });
+        const wait = perTargetWaitSec(timeoutMs);
+        const devices = await upnp.discover({ wait, mx: perTargetMx(wait), st: searchTarget });
         allDevices.push(...devices);
         dlog(`Found ${devices.length} devices for ${searchTarget}`);
       } catch (e) {
@@ -349,11 +398,11 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
       }
     }
 
-    return { rows, matched };
+    return { rows, matched, dropped: droppedSince(upnp, droppedBefore) };
     
   } catch (e) {
     dlog("UPnP discovery error:", e?.message || e);
-    return { rows: [], matched: false };
+    return { rows: [], matched: false, dropped: droppedSince(upnp, droppedBefore) };
   }
 }
 
@@ -399,8 +448,12 @@ export default {
       };
     }
 
-    const { rows, matched } = await runWithUpnp(host, timeoutMs, opts);
+    const { rows, matched, dropped } = await runWithUpnp(host, timeoutMs, opts);
     dlog(`Discovery complete: matched=${matched}, rows.length=${rows.length}`);
+    const upnpLibraryErrors = Object.values(dropped).reduce((a, b) => a + b, 0);
+    if (upnpLibraryErrors > 0) {
+      console.warn(`[upnp-scanner] ${upnpLibraryErrors} UPnP answer(s) failed inside the UPnP library and were caught (${Object.entries(dropped).map(([k, v]) => `${k} ×${v}`).join(', ')}); each device is still listed from its answer, and this scanner fetches the description of every device it reports itself`);
+    }
 
     if (rows.length === 0) {
       data.push({
@@ -459,6 +512,8 @@ export default {
       deviceCount: rows.length,
       searchTargets: SEARCH_TARGETS,
       waitPerTargetSec: perTargetWaitSec(timeoutMs),
+      upnpLibraryErrors,
+      upnpLibraryErrorsByName: dropped,
       data
     };
   }

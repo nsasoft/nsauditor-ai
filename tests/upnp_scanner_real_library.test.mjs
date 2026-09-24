@@ -44,6 +44,8 @@ test('028 at the DEFAULT window gives the library seven 2 s waits, not seven 5 s
   assert.equal(calls.start.length, 7, 'one discovery per search target');
   assert.deepEqual(calls.wait, Array(7).fill(2000), '15 s across 7 targets rounds to 2 s each');
   assert.ok(calls.start.every((p) => p.wait === 2 && !('timeout' in p)), 'the call carries `wait`, never `timeout`');
+  assert.ok(calls.start.every((p) => p.mx === 1), 'MX sits inside the 2 s window — the library default of 3 would lose late answers');
+  assert.equal(out.upnpLibraryErrors, 0, 'nothing was caught on a drive with no answers');
   assert.equal(out.waitPerTargetSec, 2, 'the result records the wait the library was actually given');
   const banner = JSON.parse(out.data.find((r) => /No UPnP\/SSDP devices/.test(r.probe_info)).response_banner);
   assert.deepEqual([banner.timeout, banner.waitPerTargetSec], [15000, 2], 'the no-response row names the requested window AND the wait applied');
