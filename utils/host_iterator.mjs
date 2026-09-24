@@ -3,6 +3,7 @@
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { canonicalHost } from './cloud_providers.mjs';
 
 /**
  * Parse a dotted-quad IPv4 string into a 32-bit unsigned integer.
@@ -95,7 +96,8 @@ export async function parseHostFile(filePath) {
         return false;
       }
       return true;
-    });
+    })
+    .map(canonicalHost); // a provider named in a host file is recorded as the provider, whatever its case
 }
 
 /**
@@ -172,15 +174,16 @@ export async function parseHostArg(arg) {
   }
 
   // Path traversal guard: reject absolute paths and paths resolving outside cwd
-  if (path.isAbsolute(arg)) return [arg]; // treat as hostname, not file
+  if (path.isAbsolute(arg)) return [canonicalHost(arg)]; // treat as hostname, not file
   const resolved = path.resolve(arg);
-  if (!resolved.startsWith(process.cwd() + path.sep)) return [arg]; // outside CWD = hostname
+  if (!resolved.startsWith(process.cwd() + path.sep)) return [canonicalHost(arg)]; // outside CWD = hostname
 
   try {
     await fsp.access(arg);
     return parseHostFile(arg);
   } catch {
-    // Not a file — treat as single host
-    return [arg];
+    // Not a file — treat as single host. `--host AWS` is the provider: recorded as `aws`
+    // (see `canonicalHost`), so the record and every later comparison agree on it.
+    return [canonicalHost(arg)];
   }
 }

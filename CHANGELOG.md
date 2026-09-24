@@ -16,6 +16,17 @@ service set from one whose discovery never ran; and the run-record fields the cr
 compares. Enterprise builds pinned below this version get NOT ASSESSED where they used to get a
 posture — which is the honest answer, not a regression.
 
+⚠️ **ONE HOST IS ONE HOST, WHATEVER CASE IT WAS TYPED IN.** `--host AWS` was accepted and recorded as
+typed, and the cross-run delta compared hosts as exact strings, so a baseline scanned as `AWS` beside a
+current scanned as `aws` — or a network host typed `MyHost.local` and later `myhost.local` — read every
+finding as host-not-scanned. The three provider names (`aws`, `azure`, `gcp`) are now recorded in their
+own spelling from `--host` and from a host file; a network host is recorded exactly as typed. Whether
+two runs saw the same host is answered by one comparison key, `hostKey` in `utils/cloud_providers.mjs`
+(case-insensitive — DNS names have no case), which the delta uses for its host set, its identity key and
+its evidence-gap map, and which Enterprise's SLA / MTTR history uses too, so the two can no longer
+disagree. Run records already on disk that say `AWS` are read as `aws`. Reports show each host as it
+was recorded.
+
 
 ### ⚠️ CORRECTION — `scan_history.jsonl`'s `findingsCount` KEEPS ITS NAME AND CHANGES ITS VALUE
 

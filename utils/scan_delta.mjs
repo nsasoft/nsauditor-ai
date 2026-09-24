@@ -363,7 +363,8 @@ export const cmpVersion = (a, b) => {
 // one key and reported N-1 of them as removed. It is taken from the finding's own FIELD, which
 // both sides of any comparison recompute identically, so unlike a suffix it fabricates nothing
 // across an upgrade.
-const keyOf = (f) => [f.host, f.plugin, f.resource ?? '-', f.port ?? '-',
+// The host is compared by `hostKey` (census G6): one host is one host whatever case it was typed in.
+const keyOf = (f) => [hostKey(f.host), f.plugin, f.resource ?? '-', f.port ?? '-',
   f.region ?? '-', f.identityQualifier ?? '-', f.title, f.contentDigest ?? '-'].join('|');
 
 // A plugin status that means THE SURFACE WAS NOT READ. `ran` is the only status that licenses a
@@ -412,10 +413,10 @@ const NOT_MEASURED_STATUS = new Set(NOT_MEASURED_STATUSES);
 // second copy. Enterprise's CPE mapper needs the same provider list to know that a cloud host
 // has no service-feeding upstreams; `utils/cloud_providers.mjs` is the single home and derives
 // its host set from THIS map's keys, so adding a provider is one edit in one file.
-import { PROVIDER_SCOPE_UNIT } from './cloud_providers.mjs';
+import { PROVIDER_SCOPE_UNIT, canonicalHost, hostKey } from './cloud_providers.mjs';
 
 function scopeNotScanned(f, mine, theirs) {
-  const provider = String(f?.host ?? '');
+  const provider = hostKey(f?.host);
   const mineEntry = mine?.scopeScanned?.[provider] ?? null;
   const theirEntry = theirs?.scopeScanned?.[provider] ?? null;
   if (!mineEntry && !theirEntry) return null;                 // (1) neither side knows
@@ -491,13 +492,25 @@ function scopeNotScanned(f, mine, theirs) {
 
 const scopeOf = (side) => {
   const rec = side?.record ?? {};
-  const hosts = new Set((rec.hostsWritten ?? []).map((h) => h?.host).filter(Boolean));
+  // ⚠️ EVERY HOST HERE IS A `hostKey` (census G6). This set and `scopeScanned` below come from the RAW
+  // record, not the loader's model, so a record written as `AWS` before the parse-time fold — or a host
+  // typed `MyHost.local` in one run and `myhost.local` in the next — must be keyed HERE, or the pair
+  // reads host-not-scanned. And the gap and statement maps are keyed the same way: a host set that paired
+  // across case while the gap map did not would lose the other run's gap and call its finding RESOLVED.
+  // What a reader is SHOWN keeps the recorded spelling (`hostNames`).
+  const hostNames = new Map();
+  const keyHost = (h) => {
+    const k = hostKey(h);
+    if (k && !hostNames.has(k)) hostNames.set(k, canonicalHost(h));
+    return k;
+  };
+  const hosts = new Set((rec.hostsWritten ?? []).map((h) => keyHost(h?.host)).filter(Boolean));
   const plugins = new Set(rec.pluginsRequested ?? []);
   const gaps = new Map();
   // Gaps as the PRODUCER records them — on the finding, where they already ride.
   for (const fi of side?.findings ?? []) {
     if (fi?.evidenceGap === true && fi.plugin != null) {
-      gaps.set(`${fi.host}|${fi.plugin}`,
+      gaps.set(`${keyHost(fi.host)}|${fi.plugin}`,
         { kind: 'recorded-gap', reason: fi.title ?? fi.detail ?? 'an evidence gap was recorded' });
     }
   }
@@ -508,7 +521,7 @@ const scopeOf = (side) => {
   const statements = new Map();
   for (const fi of side?.findings ?? []) {
     if (fi?.deferredScope === true && fi?.evidenceGap !== true && fi.plugin != null) {
-      const k = `${fi.host}|${fi.plugin}`;
+      const k = `${keyHost(fi.host)}|${fi.plugin}`;
       statements.set(k, [...(statements.get(k) ?? []), fi.title ?? '']);
     }
   }
@@ -523,12 +536,12 @@ const scopeOf = (side) => {
       // recorded an evidence gap … the plugin's status on that host was error". The other run
       // recorded nothing of the sort. That sentence renders into the client's basis cell, which
       // is the surface this whole engine exists to keep honest.
-      gaps.set(`${h.host}|${String(ps.id)}`, { kind: 'not-measured',
+      gaps.set(`${keyHost(h.host)}|${String(ps.id)}`, { kind: 'not-measured',
         reason: `the plugin's status on that host was "${ps.status}"${ps.reason ? `: ${ps.reason}` : ''}` });
     }
   }
   return {
-    hosts, plugins, gaps, statements,
+    hosts, hostNames, plugins, gaps, statements,
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -537,7 +550,9 @@ const scopeOf = (side) => {
     // record predates this field and the scope is UNKNOWN, which is not the same as "covered
     // nothing": the rule below fails closed on unknown and stays silent when BOTH sides are
     // unknown, because every record written before this change lacks it.
-    scopeScanned: rec.scopeScanned ?? null,
+    scopeScanned: rec.scopeScanned
+      ? Object.fromEntries(Object.entries(rec.scopeScanned).map(([h, v]) => [hostKey(h), v]))
+      : null,
     // ⚠️ AN ABSENT ORACLE IS NOT A CLEAN ONE. `[]` means "measured, no gaps"; MISSING means
     // nothing was measured, and the two must not render alike. Declared in `limits`, never
     // absorbed here — gate:cascade's LEG (ii) is this repo's precedent for the distinction.
@@ -608,7 +623,7 @@ export const producerNoun = (f) => (f?.producerKind === 'agent' ? 'producer' : '
 // Why a finding present in ONE run cannot be compared against the other. Order matters only for
 // which reason is reported first; each is independently sufficient.
 function incomparabilityReason(f, mine, theirs) {
-  if (!theirs.hosts.has(f.host)) return { reason: 'host-not-scanned', detail: `host ${f.host} was not scanned in the other run` };
+  if (!theirs.hosts.has(hostKey(f.host))) return { reason: 'host-not-scanned', detail: `host ${f.host} was not scanned in the other run` };
   // ⚠️ A NULL IDENTITY MAY NEVER SATISFY A SCOPE CHECK, and it may never be DESCRIBED as one
   // either. Before this leg a finding with no producer fell into `plugin-not-run` and reported
   // "plugin null did not run in the other run" — a sentence that is false about the run, about a
@@ -686,7 +701,7 @@ function incomparabilityReason(f, mine, theirs) {
   // came back `new = 0` and `not-comparable · evidence-gap` — a suppressed new exposure, explained
   // by the detail below, which says "the OTHER run recorded an evidence gap" and was false about
   // the baseline. Narrowing to `theirs` is what makes that sentence unconditionally true.
-  const gap = theirs.gaps.get(`${f.host}|${f.plugin}`);
+  const gap = theirs.gaps.get(`${hostKey(f.host)}|${f.plugin}`);
   if (gap) {
     return gap.kind === 'recorded-gap'
       ? { reason: 'evidence-gap',
@@ -810,14 +825,17 @@ function frameworkEnumerationEvaluable(mine, theirs) {
   return Boolean(mine?.frameworks && theirs?.frameworks);
 }
 
+// Hosts are SHOWN as recorded: the maps are keyed by `hostKey`, and `hostNames` carries the spelling.
+const shownHost = (scope, k) => scope.hostNames?.get(k) ?? k;
+
 const statementList = (scope) => [...scope.statements.entries()].flatMap(([k, titles]) => {
   const i = k.indexOf('|');
-  return titles.map((title) => ({ host: k.slice(0, i), plugin: k.slice(i + 1), title }));
+  return titles.map((title) => ({ host: shownHost(scope, k.slice(0, i)), plugin: k.slice(i + 1), title }));
 });
 
 const gapList = (scope) => [...scope.gaps.entries()].map(([k, g]) => {
   const i = k.indexOf('|');
-  return { host: k.slice(0, i), plugin: k.slice(i + 1), kind: g.kind, reason: g.reason };
+  return { host: shownHost(scope, k.slice(0, i)), plugin: k.slice(i + 1), kind: g.kind, reason: g.reason };
 });
 
 export function buildScanDelta({ baseline, current }) {
@@ -986,8 +1004,8 @@ export function buildScanDelta({ baseline, current }) {
     newFindings, resolved, unchanged, changed, notComparable,
     baselineIntegrity, currentIntegrity, limits,
     coverage: {
-      hostsOnlyInBaseline: [...bScope.hosts].filter((h) => !cScope.hosts.has(h)),
-      hostsOnlyInCurrent: [...cScope.hosts].filter((h) => !bScope.hosts.has(h)),
+      hostsOnlyInBaseline: [...bScope.hosts].filter((h) => !cScope.hosts.has(h)).map((h) => shownHost(bScope, h)),
+      hostsOnlyInCurrent: [...cScope.hosts].filter((h) => !bScope.hosts.has(h)).map((h) => shownHost(cScope, h)),
       pluginsOnlyInBaseline: [...bScope.plugins].filter((p) => !cScope.plugins.has(p)),
       pluginsOnlyInCurrent: [...cScope.plugins].filter((p) => !bScope.plugins.has(p)),
       // The gaps themselves, named. A reader who sees a NOT-COMPARABLE row needs to be able to

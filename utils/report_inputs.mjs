@@ -24,6 +24,7 @@ import {
   RUN_RECORD_SCHEMA, UNPARSEABLE, runRecordPath, listRunRecords, readRunRecord,
 } from './run_record.mjs';
 import { CE_RETENTION_MS } from './scan_history.mjs';
+import { canonicalHost } from './cloud_providers.mjs';
 
 const refuse = (reason, message) => ({ ok: false, reason, message });
 
@@ -559,7 +560,10 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
 
   const hosts = [];
   const unreadByHost = [];
-  for (const { host, dir } of rec.hostsWritten ?? []) {
+  // ⚠️ THE HOST IS READ CANONICAL (census G6, CE half): a record written before the parse-time fold
+  // carries `AWS` as typed, and a model that kept it would compare unequal to a later `aws` run.
+  for (const { host: recordedHost, dir } of rec.hostsWritten ?? []) {
+    const host = canonicalHost(recordedHost);
     const rawPath = path.join(outRoot, dir, 'scan_conclusion_raw.json');
     let raw;
     try { raw = JSON.parse(await fsp.readFile(rawPath, 'utf8')); }
@@ -608,7 +612,7 @@ async function finishLoadingRecord(outRoot, rec, allowPartial) {
 
   const requested = (rec.hostsRequested ?? []).length;
   const written = hosts.length;
-  const { missingNamed, missingUnparseable } = computeMissing(rec.hostsRequested ?? [], hosts.map((h) => h.host));
+  const { missingNamed, missingUnparseable } = computeMissing((rec.hostsRequested ?? []).map(canonicalHost), hosts.map((h) => h.host));
   const incomplete = !rec.finishedAt;
   const anyMissing = missingNamed.length > 0 || missingUnparseable > 0;
 
