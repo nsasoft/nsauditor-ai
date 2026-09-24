@@ -223,7 +223,7 @@ export function incompleteCoverageAdvisory(scanScope) {
     return {
       severity: 'info',
       kind: 'incomplete-region-coverage',
-      text: `Incomplete region coverage — ${unscanned.length} enabled region(s) not scanned (${unscanned.join(', ')}). Re-run with --aws-region all (or set AWS_REGION) for full coverage.`,
+      text: `Incomplete region coverage — ${unscanned.length} enabled region(s) not scanned by the auditors that take their region from the client (${unscanned.join(', ')}); the auditors that enumerate their own region list report their own coverage. Re-run with --aws-region all (or set AWS_REGION) for full coverage.`,
     };
   }
   if (scanScope.resolveError) {

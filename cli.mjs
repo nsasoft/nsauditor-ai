@@ -864,6 +864,22 @@ export async function parseArgs(argv) {
   return args;
 }
 
+/**
+ * The LAST refusal main() makes before it resolves hosts, as a value: an unknown command, then a `scan` with
+ * neither --host nor --host-file. The earlier flag, env, posture, GRC and region refusals are not modelled here. `null` means the command gets past both. main() prints `message` and exits
+ * with `code`; the documented-command census (EE) drives the same function over every `nsauditor-ai scan` the
+ * product teaches, so a documented command is judged by the code that would refuse it rather than by a copy
+ * of its condition. A positional target is not a target (parseArgs reads the host only from a flag).
+ * ⚠️ A value-less `--host` parses to `true` and passes here; main() then fails in parseHostArg (boarded).
+ * @param {{ cmd?: string, host?: string|true, hostFile?: string }} args  parseArgs' result
+ * @returns {{ message: string, code: number }|null}
+ */
+export function scanTargetRefusal({ cmd, host, hostFile } = {}) {
+  if (cmd !== 'scan') return { message: `Unknown command: ${cmd}`, code: 2 };
+  if (!hostFile && !host) return { message: 'Fatal: --host or --host-file is required', code: 2 };
+  return null;
+}
+
 // EE-0.3.2.5 (CE side): cloud-provider sentinel hosts ('aws' / 'gcp' /
 // 'azure', case-insensitive) are NOT real DNS names — they're scoping
 // tokens that EE cloud-scanner plugins (020/021/022/023/030) interpret
@@ -1661,8 +1677,10 @@ Scan options:
   --aws-profile <name>         Use a named profile from the OS-default ~/.aws/credentials.
                                Implies CLOUD_PROVIDER=aws; overrides explicit AWS_* keys.
   --aws-region <r>             AWS region scope: one (us-east-1), CSV (us-east-1,eu-west-1),
-                               or 'all' (every account-enabled region). Default: AWS_REGION
-                               if set, else a single region with an incomplete-coverage notice.
+                               or 'all' (every account-enabled region). Default: no intent —
+                               region-scoped checks use AWS_REGION, else one region (with an
+                               incomplete-coverage notice); CloudTrail trail discovery,
+                               GuardDuty/Inspector and EC2 instances attempt every region.
   --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
   --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
   --out <dir>                  Output directory for scan artifacts
@@ -3112,23 +3130,21 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     process.exit(code);
   }
 
-  if (cmd !== 'scan') {
-    console.error(`Unknown command: ${cmd}`);
-    process.exit(2);
+  const targetRefusal = scanTargetRefusal({ cmd, host, hostFile });
+  if (targetRefusal) {
+    console.error(targetRefusal.message);
+    process.exit(targetRefusal.code);
   }
 
-  // Resolve host list
+  // Resolve host list — scanTargetRefusal has established that hostFile or host is set.
   let hosts;
   if (hostFile) {
     // Reuse the up-front resolution done for the CLOUD_PROVIDER reconcile (avoids a
     // second parse + duplicate suspicious-line warnings); re-parse only if that was
     // skipped/failed so a genuine host-file error still surfaces here as before.
     hosts = resolvedHosts ?? await parseHostFile(hostFile);
-  } else if (host) {
-    hosts = await parseHostArg(host);
   } else {
-    console.error('Fatal: --host or --host-file is required');
-    process.exit(2);
+    hosts = await parseHostArg(host);
   }
 
   if (!hosts || hosts.length === 0) {

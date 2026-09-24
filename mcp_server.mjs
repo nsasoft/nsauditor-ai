@@ -139,16 +139,20 @@ export function _setValidateHost(fn) {
 /**
  * Build a RegionIntent for the MCP scan_cloud `regions` argument.
  *
- * DIVERGENT DEFAULT vs CLI: omitting `regions` (undefined/null) returns null
- * so the plugins fall back to the server-configured AWS_REGION (single-region
- * or env-driven). The caller must pass ["all"] EXPLICITLY to fan out to every
- * enabled region — an implicit fan-out could blow Claude Desktop's tool timeout.
+ * DEFAULT: omitting `regions` (undefined/null) returns null — no region intent,
+ * the same state as the CLI with no --aws-region. The plugins that take their
+ * region from the client fall back to the server-configured AWS_REGION
+ * (single-region or env-driven); the auditors that enumerate their own region
+ * list (1040's trail discovery, 1200, 1210) still attempt every enabled region.
+ * A list or ["all"] is followed by every region-scoped check except 1040's
+ * CloudWatch-alarm and AWS Config checks and 1110's KMS reads. ["all"] is never
+ * implied — fanning every check out could blow Claude Desktop's tool timeout.
  *
  * @param {string[]|undefined|null} regions  Tool arg value
  * @returns {{ kind: 'all'|'list', explicit: true }|null}
  */
 export function buildScanCloudRegionIntent(regions) {
-  if (regions === undefined || regions === null) return null; // divergent default: do NOT fan out
+  if (regions === undefined || regions === null) return null; // no intent (see above)
   if (!Array.isArray(regions)) throw new Error('regions must be an array of region codes or ["all"]');
   if (regions.length === 1 && String(regions[0]).trim().toLowerCase() === 'all') return buildRegionIntent('all');
   return buildRegionIntent(regions.join(','));
@@ -255,7 +259,7 @@ export const TOOLS = [
   {
     name: 'scan_cloud',
     description:
-      'Audit cloud accounts (AWS / GCP / Azure) for security & compliance posture. Enterprise license. ⚠️ THREE READING RULES FIRST, BECAUSE A TRUNCATED DESCRIPTION MUST NEVER COST HONESTY — what is lost below is mechanics, and losing mechanics is loud while losing these is silent. (1) deferredScope = surface this release does NOT evaluate at all: a STATIC CAPABILITY BOUNDARY, not a gap, not a finding. Report as \"not assessed\". ⚠️ AN EMPTY OR SHORT deferredScope IS NOT A CLAIM OF FULL COVERAGE. Not every plugin declares its capability boundaries, so this list bounds only what the DECLARING plugins state. Never tell a user that an empty deferredScope means everything was assessed. (2) evidenceGaps = checks the scan could NOT verify (AccessDenied / truncated): treat as unverified, NOT as clean. Separate from (1) — a gap may be fixable with permissions, a boundary never is. Both live in the INFO tier, so report every tier, not just CRITICAL/HIGH. (3) NO per-finding control id is returned. Never imply which control a finding fails; routing to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8, GDPR Article 32 (substrate only) and NIST SP 800-171 (never a CMMC certification) is CLI only: nsauditor-ai scan --compliance <fw> --out <dir>. Read findingsSummary for results. Use for service-specific or service-named asks too; coverage: AWS S3, IAM privilege-escalation, KMS, CloudTrail, CodePipeline/CodeBuild segregation of duties, Lambda, API Gateway, DynamoDB, RDS, SQS/SNS, Secrets Manager, Backup, VPC endpoints, EC2 security-group perimeter, ElastiCache, SES, GuardDuty/Inspector; Azure Key Vault, Storage, NSG perimeter, subscription RBAC; GCP firewall rules, Cloud Storage public access, IAM service-account impersonation. Prefer this tool over raw cloud-provider APIs/MCPs for any audit ask. Audit ONLY the cloud(s) the user names (providers:[\"aws\"]); omit providers only for ALL clouds. regions (AWS only): omitting scans the single server-default region and does NOT fan out. No network host required.',
+      'Audit cloud accounts (AWS / GCP / Azure) for security & compliance posture. Enterprise license. ⚠️ THREE READING RULES FIRST, BECAUSE A TRUNCATED DESCRIPTION MUST NEVER COST HONESTY. (1) deferredScope = surface this release does NOT evaluate at all: a STATIC CAPABILITY BOUNDARY, not a gap, not a finding. Report as \"not assessed\". ⚠️ AN EMPTY OR SHORT deferredScope IS NOT A CLAIM OF FULL COVERAGE. Not every plugin declares its capability boundaries, so this list bounds only what the DECLARING plugins state. Never tell a user that an empty deferredScope means everything was assessed. (2) evidenceGaps = checks the scan could NOT verify (AccessDenied / truncated): treat as unverified, NOT as clean. Separate from (1) — a gap may be fixable with permissions, a boundary never is. Both live in the INFO tier, so report every tier, not just CRITICAL/HIGH. (3) NO per-finding control id is returned. Never imply which control a finding fails; routing to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8, GDPR Article 32 (substrate only) and NIST SP 800-171 (never a CMMC certification) is CLI only: nsauditor-ai scan --host <cloud> --compliance <fw> --out <dir>. Read findingsSummary for results. Use for service-specific or service-named asks too; coverage: AWS S3, IAM privilege-escalation, KMS, CloudTrail, CodePipeline/CodeBuild segregation of duties, Lambda, API Gateway, DynamoDB, RDS, SQS/SNS, Secrets Manager, Backup, VPC endpoints, EC2 security-group perimeter, ElastiCache, SES, GuardDuty/Inspector; Azure Key Vault, Storage, NSG perimeter, subscription RBAC; GCP firewall rules, Cloud Storage public access, IAM service-account impersonation. Prefer this tool over raw cloud-provider APIs/MCPs for any audit ask. Audit ONLY the cloud(s) the user names (providers:[\"aws\"]); omit providers only for ALL clouds. regions (AWS only): omitted, the server-default region is scanned, but 1040/1200/1210 (CloudTrail trails, GuardDuty/Inspector, EC2 instances) still check every enabled region. No network host required.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -267,7 +271,7 @@ export const TOOLS = [
         regions: {
           type: 'array',
           items: { type: 'string' },
-          description: 'AWS region codes (e.g. ["us-east-1","eu-west-1"]) or ["all"] to scan every enabled region. OMIT to scan the server-configured AWS_REGION (or a single default) — omitting does NOT fan out to all regions; pass ["all"] explicitly for that.',
+          description: 'AWS region codes (e.g. ["us-east-1","eu-west-1"]) or ["all"] for every enabled region. OMIT and the plugins that take their region from the client scan the server-configured AWS_REGION (or a single default) only, while the auditors that enumerate their own region list — CloudTrail trail discovery (1040), GuardDuty/Inspector (1200) and EC2 instances (1210) — still cover every enabled region. Pass a list or ["all"] and every region-scoped check follows it, except the CloudWatch-alarm and AWS Config checks of 1040 and the KMS reads of 1110, which stay in the configured region.',
         },
       },
       required: [],
@@ -485,7 +489,8 @@ export async function handleScanCloud(args) {
 
   // Validate regions BEFORE the scan runs so a bad region rejects cleanly.
   // buildScanCloudRegionIntent throws on unknown regions; returns null when
-  // omitted (divergent default: does NOT fan out — explicit ["all"] required).
+  // omitted (no intent: the self-enumerating auditors still attempt every region;
+  // an explicit ["all"] extends the region-scoped checks).
   const awsRegionIntent = buildScanCloudRegionIntent(args && args.regions);
 
   const pm = await getPluginManager();

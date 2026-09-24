@@ -83,7 +83,7 @@ nsauditor-ai scan --host aws --plugins 1130 --compliance soc2
 
 ### Scoping the AWS audit to regions — `--aws-region`
 
-By default an AWS audit runs against a single region (`AWS_REGION`, else `us-east-1`). The `--aws-region <one|csv|all>` flag controls which regions the **regional** plugins (security groups, EC2, RDS, KMS, Lambda, Secrets Manager, DynamoDB, CodePipeline/CodeBuild, Backup, SQS/SNS, VPC endpoints, ElastiCache, SES, Inspector/GuardDuty, CloudTrail) audit — each now audits *every in-scope region*, not just the configured one:
+By default (no region intent) the region-scoped checks run against a single region (`AWS_REGION`, else `us-east-1`), while CloudTrail trail discovery, GuardDuty/Inspector and EC2 instances enumerate their own region list and attempt every enabled region. The `--aws-region <one|csv|all>` flag controls which regions the **regional** plugins (security groups, EC2, RDS, KMS, Lambda, Secrets Manager, DynamoDB, CodePipeline/CodeBuild, Backup, SQS/SNS, VPC endpoints, ElastiCache, SES, Inspector/GuardDuty, CloudTrail) audit — each now audits *every in-scope region*, not just the configured one:
 
 ```bash
 # A single region
@@ -96,11 +96,11 @@ nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region us-eas
 nsauditor-ai scan --host aws --plugins all --compliance soc2 --aws-region all
 ```
 
-- **Precedence:** `--aws-region` flag › `AWS_REGION` (shell / `--env` file) › single-region default.
-- **Default (no flag, no `AWS_REGION`):** scans one region and adds an informational *"incomplete region coverage"* note listing the enabled regions that were **not** scanned. It maps to no compliance control (a disclosure, not a finding — your posture is unchanged); pass `--aws-region all` for full coverage.
+- **Precedence:** `--aws-region` flag › `AWS_REGION` (shell / `--env` file) › the default (no intent).
+- **Default (no flag, no `AWS_REGION`):** the region-scoped checks scan one region (CloudTrail trail discovery, GuardDuty/Inspector and EC2 instances still attempt every enabled region), and the run adds an informational *"incomplete region coverage"* note listing the enabled regions that were **not** scanned. It maps to no compliance control (a disclosure, not a finding — your posture is unchanged); pass `--aws-region all` for full coverage.
 - **Unknown region:** the explicit flag **fails fast** on an unrecognized region code (set `NSA_AWS_REGION_ALLOW_UNKNOWN=1` to permit a brand-new region); an `AWS_REGION`-derived value warns and proceeds.
 - **Global services** (IAM, account-level S3 enumeration) are audited once regardless of `--aws-region`; the S3 auditors resolve **each bucket's own region** and skip + disclose buckets outside the scoped set (closing latent cross-region false-cleans).
-- **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it to scan the server-configured `AWS_REGION`, or pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) to fan out. Omitting does **not** fan out, so a single tool-call stays within Desktop's timeout.
+- **MCP `scan_cloud` (Claude Desktop / Claude Code):** the same scoping is a `regions` argument — *omit* it and the auditors that take their region from the client scan the server-configured `AWS_REGION` only, while the auditors that enumerate their own region list (CloudTrail trail discovery, GuardDuty/Inspector, EC2 instances) still cover every enabled region; pass `["all"]` (or a region-code list like `["us-east-1","eu-west-1"]`) and every region-scoped check follows it, except 1040's CloudWatch-alarm and AWS Config checks and 1110's KMS reads, which stay in the configured region. The default keeps a single tool-call within Desktop's timeout.
 
 The auditor evidence pack is emitted under `out/` — cover-page Scope Attestation, SHA-256 chain-of-custody sidecars, the suppression workflow and approver identity verification, plus opt-in RFC 3161 trusted-timestamps (`NSAUDITOR_TSA_URL`), exercised against a live TSA on both the npm path and the `:0.33.0` container image. Ed25519 suppression SIGNING is reachable from EE 0.35.0 and PROVEN at EE 0.36.0, verified per approver holding **key material**. EE is available at [`www.nsauditor.com/ai/pricing`](https://www.nsauditor.com/ai/pricing).
 

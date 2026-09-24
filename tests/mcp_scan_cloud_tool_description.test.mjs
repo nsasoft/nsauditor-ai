@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOLS } from '../mcp_server.mjs';
+import { parseArgs, scanTargetRefusal } from '../cli.mjs';
 
 // The scan_cloud tool description is a ROUTING surface: a Desktop agent decides
 // whether a user request maps to this tool by reading it. The 0.19.2 Desktop MCP
@@ -94,7 +95,52 @@ test('scan_cloud input schema is unchanged (providers enum + regions semantics)'
   assert.deepEqual(s.required, []);
   assert.deepEqual(s.properties.providers.items.enum, ['aws', 'gcp', 'azure']);
   assert.match(s.properties.regions.description, /\["all"\]/);
-  assert.match(s.properties.regions.description, /does NOT fan out/);
+  // ⚠️ THIS PINNED A FALSE SENTENCE UNTIL EE 1.1.0 build 10: `/does NOT fan out/`. Omitting `regions` sets no
+  // intent, and the auditors that enumerate their OWN region list (CloudTrail, GuardDuty/Inspector, EC2 instances)
+  // still cover every enabled region — measured on a Desktop run, where the assistant relayed the pinned sentence
+  // as "only the default region was audited". EE derives that set from the plugins and holds both sentences to it.
+  assert.doesNotMatch(s.properties.regions.description, /does NOT fan out/i);
+  assert.match(s.properties.regions.description, /server-configured AWS_REGION/);
+  assert.match(s.properties.regions.description, /enumerate their own region list/);
+  assert.doesNotMatch(t.description, /does NOT fan out|single server-default region/i);
+});
+
+// EVERY CLI COMMAND A TOOL DESCRIPTION TEACHES MUST GET PAST THE CLI'S OWN TARGET REFUSAL (EE 1.1.0 build 10).
+// The scan_cloud description taught `nsauditor-ai scan --compliance <fw> --out <dir>` — relayed verbatim to the
+// operator by the assistant, and exit 2 as written ("Fatal: --host or --host-file is required"). Judged here by
+// the REAL parser and the REAL refusal, never by a copy of the condition. EE runs the same census over every
+// other surface that documents a command (READMEs, docs, the agent-skill).
+const PLACEHOLDER = { '<cloud>': 'aws', '<fw>': 'soc2', '<dir>': 'evidence', '<target>': '192.0.2.10' };
+function commandsIn(text) {
+  return [...String(text).matchAll(/(?:nsauditor-ai(?:@[^\s`]+)?|cli\.mjs)[ \t]+scan(?:\s+[^\s.`'"]+|\.\S)*/g)].map((m) => m[0].replace(/\.$/, ''));
+}
+test('FOURTH QUADRANT FIRST — the census extracts, normalises and REFUSES the retired host-less command', async () => {
+  const [cmd] = commandsIn('routing is CLI only: nsauditor-ai scan --compliance <fw> --out <dir>. Read findingsSummary');
+  assert.equal(cmd, 'nsauditor-ai scan --compliance <fw> --out <dir>');
+  const argv = cmd.split(/\s+/).slice(1).map((t) => PLACEHOLDER[t] ?? t);
+  const saved = process.env.SCAN_OUT_PATH;
+  try {
+    assert.deepEqual(scanTargetRefusal(await parseArgs(['node', 'nsauditor-ai', ...argv])),
+      { message: 'Fatal: --host or --host-file is required', code: 2 });
+  } finally { if (saved === undefined) delete process.env.SCAN_OUT_PATH; else process.env.SCAN_OUT_PATH = saved; }
+});
+test('every `nsauditor-ai scan` in any tool description gets past the CLI\'s target refusal', async () => {
+  const found = TOOLS.flatMap((t) => commandsIn(`${t.description} ${JSON.stringify(t.inputSchema ?? {})}`)
+    .map((cmd) => ({ tool: t.name, cmd })));
+  assert.ok(found.length >= 1, 'no tool description teaches a scan command — the census read nothing');
+  const saved = process.env.SCAN_OUT_PATH;
+  try {
+    for (const { tool, cmd } of found) {
+      const argv = cmd.split(/\s+/).slice(1).map((t) => PLACEHOLDER[t] ?? t);
+      const unknown = argv.filter((t) => /^<[^>]+>$/.test(t));
+      assert.deepEqual(unknown, [], `${tool}: "${cmd}" carries a placeholder this census has no value for`);
+      const a = await parseArgs(['node', 'nsauditor-ai', ...argv]);
+      const refusal = scanTargetRefusal(a);
+      assert.equal(refusal, null, `${tool} teaches "${cmd}", which the CLI refuses: ${refusal?.message}`);
+      assert.ok(typeof a.host === 'string' || typeof a.hostFile === 'string',
+        `${tool} teaches "${cmd}", whose target has no value (host: ${JSON.stringify(a.host)}) — main() would crash on it`);
+    }
+  } finally { if (saved === undefined) delete process.env.SCAN_OUT_PATH; else process.env.SCAN_OUT_PATH = saved; }
 });
 
 test('scan_cloud description steers agents away from raw cloud MCPs', () => {

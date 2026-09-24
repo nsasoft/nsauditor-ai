@@ -94,6 +94,20 @@ comparison reports a finding on that port as not comparable, `probe-not-measured
 fixed, never new. A finding on a port that was measured still resolves exactly as before. Enterprise's time-to-
 remediate (MTTR) figures apply the same rule.
 
+**The `scan_cloud` tool description stopped giving two wrong instructions** (both also in 0.2.54). It told
+assistants to produce an evidence pack with `nsauditor-ai scan --compliance <fw> --out <dir>`, which exits 2
+before any scan (`Fatal: --host or --host-file is required`); it now reads
+`nsauditor-ai scan --host <cloud> --compliance <fw> --out <dir>`. It also said that omitting `regions` "scans
+the single server-default region and does NOT fan out". That is false for the three auditors that enumerate
+their own region list: with no region intent, CloudTrail trail discovery (1040), GuardDuty/Inspector (1200) and
+EC2 instances (1210) still attempt every enabled region, and with a list their region-scoped checks follow it.
+The description, the `regions` parameter, the CLI's `--aws-region` help (the CLI default is the same no-intent
+state) and the "incomplete region coverage" advisory now say so. Both wrong sentences reached a Claude Desktop
+reply word for word. The last check the CLI makes before it resolves a target is now one exported function,
+`scanTargetRefusal`; `main()` calls it in the same place, with the same messages and exit codes, so every
+command the product documents can be checked against that refusal (unknown command, missing --host/--host-file)
+by the code that makes it.
+
 **Every plugin is now told the time budget it actually has**, as `context.effectiveTimeoutMs`. It is the
 same number the manager times the plugin out on: its declaration, bounded by the ceiling and by any
 caller's wall, or the global default when it declares nothing. A plugin that paces its own work (stop
