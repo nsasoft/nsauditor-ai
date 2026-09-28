@@ -20,7 +20,7 @@ import { buildMarkdownReport } from './utils/report_md.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
-import { resolveCapabilities, hasCapability, inferRequiredTier } from './utils/capabilities.mjs';
+import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
@@ -2061,17 +2061,19 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         for (const plugin of sorted) {
           const required = Array.isArray(plugin.requiredCapabilities) ? plugin.requiredCapabilities : [];
           const allMet = required.length === 0 || required.every((c) => Boolean(caps[c]));
-          // Reviewer M2 fold: derive the required tier from the unmet
-          // capability set so the "requires: …" label is accurate even
-          // when the plugin doesn't declare a `tier` field. EE plugins
-          // 021/022/023 (no `tier` declaration) require `cloudScanners`
-          // which is enterprise-gated — pre-fold they showed
-          // "requires: pro" misleadingly. Now they show "requires:
-          // enterprise" via inferRequiredTier(). plugin.tier is the
-          // operator-declared override; fall back to inference.
-          const inferredTier = inferRequiredTier(required);
-          const requiresLabel = plugin.tier ?? inferredTier ?? 'pro';
-          const status = allMet ? '✓ active' : `✗ requires: ${requiresLabel}`;
+          // The label is the tier the GATE enforces, derived from `requiredCapabilities` alone — the
+          // list the plugin manager checks before it runs a plugin. A manifest's `tier` word is NOT
+          // read: until 0.2.55 it outranked the derivation, and EE 1020 / 1030 declared `tier: "pro"`
+          // over `cloudScanners`, so at Community tier this list said Pro unlocks two plugins Pro does
+          // not. (Before that, EE 1021 / 1022 / 1023 declared no capabilities at all and this line
+          // showed them `✓ active` at every tier.) A capability the registry does not define is
+          // granted by no licence — the plugin never loads — so it is NAMED rather than labelled
+          // with a tier; `inferRequiredTier` skips unknown names and would print "requires: ce".
+          // Reachable only when allMet is false, i.e. `required` is non-empty.
+          const unknown = required.filter((c) => !Object.hasOwn(CAPABILITIES, c));
+          const status = allMet ? '✓ active'
+            : unknown.length > 0 ? `✗ requires a capability no licence grants: ${unknown.join(', ')}`
+            : `✗ requires: ${inferRequiredTier(required)}`;
           // Layout matches the EE README example:
           //   "  003 SSH Scanner            ✓ active"
           const idStr = String(plugin.id ?? '?').padEnd(3);

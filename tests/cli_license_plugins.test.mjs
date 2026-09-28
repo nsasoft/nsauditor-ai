@@ -24,6 +24,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -35,7 +38,9 @@ function runCli(args, env = {}) {
     XDG_CONFIG_HOME: '/nonexistent-cli-license-plugins-test',
     ...env,
   };
-  delete cleanEnv.NSAUDITOR_LICENSE_KEY;
+  // A caller that passes a key keeps it (the M2 leg passes one that does not verify, to pin the tier
+  // to Community); otherwise the key is removed as before.
+  if (!Object.hasOwn(env, 'NSAUDITOR_LICENSE_KEY')) delete cleanEnv.NSAUDITOR_LICENSE_KEY;
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
     env: cleanEnv,
@@ -188,40 +193,41 @@ test('CE-0.1.30.3 reviewer M1: --plugins stdout has no startup chatter on a clea
   assert.doesNotMatch(r.stdout, /\[oui\.mjs\]/, 'stdout should not contain [oui.mjs] chatter');
 });
 
-test('CE-0.1.30.3 reviewer M2: capability-gated plugins show the CORRECT tier (not just plugin.tier)', () => {
-  // Real bug pre-fold: EE plugins like 021/022/023 declare
-  // `requiredCapabilities: ['cloudScanners']` but no `tier` field.
-  // cloudScanners is enterprise-gated. Pre-fold the CLI showed
-  // "✗ requires: pro" (misleading — operator would buy a Pro license
-  // and still not get the plugin).
-  //
-  // The fix uses inferRequiredTier() to derive the tier from the unmet
-  // capability set. We assert that no `requires:` line says `pro` for
-  // a plugin that requires an enterprise-gated capability.
-  //
-  // This is environment-dependent: only meaningful when EE is installed
-  // AND the current tier is below enterprise. On the dev box current
-  // tier is enterprise (license active), so we strip the env to force
-  // CE tier.
-  const r = runCli(['license', '--plugins'], { XDG_CONFIG_HOME: '/nonexistent-test' });
-  if (!/EE plugins/.test(r.stdout)) return;  // EE not installed; nothing to assert
-  // Find any "requires: pro" line and verify the plugin id is NOT one
-  // of the known enterprise-gated ones. EE plugins 020/021/022/023/030
-  // ALL require cloudScanners (enterprise) — none should ever show
-  // "requires: pro".
-  const lines = r.stdout.split('\n');
-  for (const line of lines) {
-    const m = line.match(/^\s+(\d+)\s+\S.*\s+✗ requires:\s+(\w+)/);
-    if (!m) continue;
-    const [, id, tier] = m;
-    // 020/021/022/023/030 require cloudScanners (enterprise).
-    if (['020', '021', '022', '023', '030'].includes(id)) {
-      assert.equal(
-        tier, 'enterprise',
-        `plugin ${id} requires cloudScanners (enterprise) but CLI shows "requires: ${tier}". inferRequiredTier() should derive 'enterprise' from the unmet capability.`
-      );
-    }
+test('CE-0.1.30.3 reviewer M2 (re-keyed 0.2.55): every EE row\'s status is what Community\'s own gate decides at Community tier', async (t) => {
+  // ⚠️ THIS LEG WAS VACUOUS TWICE OVER UNTIL 0.2.55, AND PASSED OVER THE DEFECT IT WAS WRITTEN FOR.
+  // It keyed on the ids 020 / 021 / 022 / 023 / 030; EE's ids are 1020… since the renumbering, so no
+  // line matched. And it removed the licence key without replacing it, so on a box where the
+  // operator's licence resolves the tier is enterprise and no `✗ requires:` line exists at all. Measured
+  // 2026-09-28: at Community tier 1020 and 1030 printed "requires: pro" (Pro does not grant
+  // cloudScanners) and 1021 / 1022 / 1023 / 1220 / 1221 / 1222 printed "✓ active" (they declared no
+  // capability) — the leg was green throughout. Now: a key that does not verify pins the tier, and
+  // EVERY EE row is judged against `PluginManager.prototype._hasCapabilities` over
+  // `resolveCapabilities(tier)`, derived here — no id is listed.
+  let eeRoot;
+  try { eeRoot = dirname(createRequire(import.meta.url).resolve('@nsasoft/nsauditor-ai-ee/package.json')); }
+  catch { t.skip('@nsasoft/nsauditor-ai-ee is not resolvable from this tree — there are no EE rows to judge'); return; }
+  const r = runCli(['license', '--plugins'], { NSAUDITOR_LICENSE_KEY: 'not-a-licence', XDG_CONFIG_HOME: '/nonexistent-test' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /current tier:\s*ce\b/, 'the tier must be Community, or no row can be refused');
+  const { PluginManager } = await import('../plugin_manager.mjs');
+  const { resolveCapabilities, CAPABILITIES } = await import('../utils/capabilities.mjs');
+  const gate = (p, tier) => PluginManager.prototype._hasCapabilities.call(Object.create(PluginManager.prototype), p, resolveCapabilities(tier));
+  const expected = {};
+  for (const f of readdirSync(join(eeRoot, 'plugins')).filter((x) => x.endsWith('.mjs'))) {
+    const p = (await import(pathToFileURL(join(eeRoot, 'plugins', f)).href)).default;
+    if (!p?.id || !p?.name || typeof p.run !== 'function') continue;
+    const req = Array.isArray(p.requiredCapabilities) ? p.requiredCapabilities : [];
+    const unknown = req.filter((c) => !Object.hasOwn(CAPABILITIES, c));
+    const lowest = ['ce', 'pro', 'enterprise'].find((tier) => gate(p, tier));
+    expected[String(p.id)] = lowest === 'ce' ? '✓ active'
+      : unknown.length ? `✗ requires a capability no licence grants: ${unknown.join(', ')}` : `✗ requires: ${lowest}`;
   }
+  const block = (r.stdout.split('EE plugins (from @nsasoft/nsauditor-ai-ee):')[1] ?? '').split(/\n\s*\n/)[0];
+  const printed = {};
+  for (const m of block.matchAll(/^\s+(\S+)\s.*?\s((?:✓|✗)\s.*?)\s*$/gm)) printed[m[1]] = m[2];
+  t.diagnostic(`EE at ${eeRoot} · rows printed ${Object.keys(printed).length} · plugins derived ${Object.keys(expected).length}`);
+  assert.ok(Object.keys(expected).length > 0, 'no EE plugin was loaded — the oracle judged nothing');
+  assert.deepEqual(printed, expected);
 });
 
 test('CE-0.1.30.3: plugins within a group are sorted by id (stable order)', () => {

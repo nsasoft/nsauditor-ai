@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOLS } from '../mcp_server.mjs';
 import { parseArgs, scanTargetRefusal } from '../cli.mjs';
+import { summarizeCloudFindings } from '../utils/cloud_finding_summary.mjs';
 
 // The scan_cloud tool description is a ROUTING surface: a Desktop agent decides
 // whether a user request maps to this tool by reading it. The 0.19.2 Desktop MCP
@@ -146,4 +147,24 @@ test('every `nsauditor-ai scan` in any tool description gets past the CLI\'s tar
 test('scan_cloud description steers agents away from raw cloud MCPs', () => {
   const tool = TOOLS.find((t) => t.name === 'scan_cloud');
   assert.match(tool.description, /prefer this tool over raw cloud/i);
+});
+
+// ── The tier sentence is a claim about the summarizer, so the summarizer is its oracle ─────────────────────
+// Gate 3-A on build 10, P5 (2026-09-28): the reply relayed "the INFO tier holds both evidence gaps and parts of
+// the account the scan didn't cover" — this description's reading rule (2), which said "Both live in the INFO
+// tier". It was false for gaps: the sealed evidence tree's gaps are INFO 578 · LOW 497 · MEDIUM 169 · HIGH 4,
+// while all 999 deferred-scope rows are INFO. The CONCLUSION (report every tier) was right; the premise was not.
+test('the tier sentence is true of the summarizer: a MEDIUM gap stays MEDIUM in evidenceGaps, a deferred row is INFO', () => {
+  const results = [{ id: '1999', result: { findings: [
+    { severity: 'MEDIUM', title: 'vault networkAcls block absent', issues: ['could not read networkAcls'], details: { evidenceGap: true } },
+    { severity: 'INFO', title: 'Deferred scope: Managed HSM', issues: ['not evaluated in this release'], details: { deferredScope: true, deferredScopeId: 'x' } },
+  ] } }];
+  const s = summarizeCloudFindings(results, () => 'azure').azure;
+  assert.deepEqual(s.evidenceGaps.map((g) => g.severity), ['MEDIUM'], 'a gap keeps its own finding\'s severity in the evidenceGaps channel');
+  assert.equal(s.deferredScope.length, 1);
+  assert.equal(s.counts.MEDIUM, 1, 'the gap is counted in its own tier');
+  assert.equal(s.counts.INFO, 1, 'the boundary is counted as INFO');
+  const d = scanCloudTool().description;
+  assert.match(d, /deferredScope: INFO; a gap has its finding's severity: report every tier\./, 'the description states what the summarizer does');
+  assert.doesNotMatch(d, /live in the INFO tier/i, 'the retired premise is gone');
 });

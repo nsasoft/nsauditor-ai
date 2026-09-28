@@ -42,7 +42,7 @@ export const CAPABILITIES = {
   // Enterprise
   cloudScanners:      { tier: 'enterprise', desc: 'AWS / Azure / GCP cloud posture audit plugins (Enterprise plugin pack).' },
   zeroTrust:          { tier: 'enterprise', desc: 'Zero-trust posture checks over collected identity and network evidence.' },
-  complianceEngine:   { tier: 'enterprise', desc: 'Maps findings to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8 and GDPR Art. 32 controls, and renders the report artifacts.' },
+  complianceEngine:   { tier: 'enterprise', desc: 'Maps findings to SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS v8, GDPR Art. 32 and NIST SP 800-171 Rev 2 controls, and renders the report artifacts.' },
   enterpriseMCP:      { tier: 'enterprise', desc: 'MCP tools scan_cloud and get_findings.' },
   airGapped:          { tier: 'enterprise', desc: 'Offline OPERATION: licence validation is local (ES256 against an embedded key, no callback, no phone-home) and CVE matching runs against a local feed. This describes how the software RUNS, not how it is delivered or installed.' },
   // Removed 2026-07-21 (capability claim audit): verificationEngine / brandedReports /
@@ -75,15 +75,17 @@ export function hasCapability(capabilities, cap) {
   return Boolean(capabilities?.[cap]);
 }
 
-// CE-0.1.30.3 reviewer M2 fold: derive the highest tier among a plugin's
-// required capabilities. Used by `license --plugins` to render
-// "✗ requires: <tier>" accurately when a plugin doesn't declare a `tier`
-// field. Pre-fold the CLI fell back to `'pro'` for plugins like 021/022/023
-// (no `tier` field, but require `cloudScanners` which is enterprise-gated)
-// — which misled customers about what license they needed.
+// Derive the highest tier among a plugin's required capabilities — the tier the
+// plugin manager's gate enforces. `license --plugins` renders "✗ requires: <tier>"
+// from this ALONE since 0.2.55; before that a manifest's own `tier` word outranked it,
+// and EE 1020 / 1030 declared "pro" over `cloudScanners`, so the list told a Community
+// user that Pro unlocks them. (An earlier version of this comment said EE 021/022/023
+// "require cloudScanners"; they declared no capability at all until EE 1.1.0.)
 //
 // Returns 'ce' / 'pro' / 'enterprise' (the highest tier among all required
-// caps), or null when the plugin has no requiredCapabilities.
+// caps), or null when the plugin has no requiredCapabilities. A capability the
+// registry does not define is SKIPPED here — the CLI names such a capability
+// rather than printing this function's answer for it.
 const _TIER_RANK = { ce: 0, pro: 1, enterprise: 2 };
 const _RANK_TO_TIER = ['ce', 'pro', 'enterprise'];
 

@@ -108,6 +108,22 @@ reply word for word. The last check the CLI makes before it resolves a target is
 command the product documents can be checked against that refusal (unknown command, missing --host/--host-file)
 by the code that makes it.
 
+**The `scan_cloud` description no longer says evidence gaps live in the INFO tier.** Its second reading rule said
+evidence gaps and deferred-scope boundaries "both live in the INFO tier". Deferred-scope boundaries are INFO; an
+evidence gap carries its own finding's severity, which can be any tier up to HIGH. A Claude Desktop reply repeated
+the old sentence. The rule now reads "deferredScope: INFO; a gap has its finding's severity: report every tier",
+at the same byte length.
+
+**`license --plugins` names the licence the gate enforces.** At Community tier the plugin list told a user that a
+Pro licence unlocks Enterprise plugins 1020 (AWS S3) and 1030 (AWS IAM); Pro does not, because both require the
+Enterprise `cloudScanners` capability. The `✗ requires:` label read the plugin's own `tier` word first, and those
+two declared "pro". The label now derives from the capabilities the plugin manager checks before it runs a plugin,
+and the `tier` word is not read. A capability no licence defines is now printed by name rather than as
+"requires: ce". The earlier test for this label listed ids that EE no longer uses, so it matched no line; it now
+judges every Enterprise row against the gate. Enterprise 1.1.0 carries the matching manifest fix.
+`license --capabilities` described the Enterprise compliance engine as mapping findings to seven frameworks; it
+maps to eight, and the description now names NIST SP 800-171 Rev 2 as well.
+
 **Every plugin is now told the time budget it actually has**, as `context.effectiveTimeoutMs`. It is the
 same number the manager times the plugin out on: its declaration, bounded by the ceiling and by any
 caller's wall, or the global default when it declares nothing. A plugin that paces its own work (stop
