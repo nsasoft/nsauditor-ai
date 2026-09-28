@@ -114,6 +114,18 @@ evidence gap carries its own finding's severity, which can be any tier up to HIG
 the old sentence. The rule now reads "deferredScope: INFO; a gap has its finding's severity: report every tier",
 at the same byte length.
 
+**The delta no longer calls a finding RESOLVED on a port that stopped answering.** In an acceptance run of this
+release the gateway answered nothing on ports 21 and 80 for three minutes. The port scanner ran and recorded both
+ports as neither open nor closed, and `report --since` called three findings on those ports RESOLVED. Five minutes
+later both ports were open again. A new not-comparable reason, `port-not-measured`, now covers that case: the finding's
+TCP port was open in the run that holds the finding, and the other run's port scanner recorded it neither open nor
+closed (no answer inside its timeout, or not probed). Such a row is reported as neither fixed nor new. A port recorded
+closed was measured, and a finding there still reads resolved. The report loader now carries each host's port-scanner
+result so both runs can be compared. Enterprise plugin 1023 now attaches the port to findings it raises because one
+port is open, and its open-port-exposure finding no longer carries a count in its title. Those two changes alter what
+identifies 1023's findings, so a comparison across the 1.1.0 boundary reports 1023's rows as not comparable. Limit:
+when the other run's port scanner did not run on the host, this rule does not apply and the existing rules decide.
+
 **`license --plugins` names the licence the gate enforces.** At Community tier the plugin list told a user that a
 Pro licence unlocks Enterprise plugins 1020 (AWS S3) and 1030 (AWS IAM); Pro does not, because both require the
 Enterprise `cloudScanners` capability. The `✗ requires:` label read the plugin's own `tier` word first, and those

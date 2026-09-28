@@ -67,6 +67,13 @@ export const SCOPE_NOT_SCANNED_REASON = 'scope-not-scanned';
 // could not be produced, and this engine reported it RESOLVED. Enterprise's MTTR engine applies the same
 // reason to a prior row's CLOSURE and imports both names from here, so the two channels cannot disagree.
 export const PROBE_NOT_MEASURED_REASON = 'probe-not-measured';
+// And the port that STOPPED ANSWERING (EE 1.1.0 build 12). The port scanner saw it OPEN in the run that holds
+// the finding, and in the other run it RAN and recorded the port neither open nor closed — no answer inside its
+// timeout (filtered), or not probed at all. Nothing was measured there, so a row on that port neither vanished nor
+// appeared. Measured on Gate 2 of build 11: the gateway filtered 21 and 80 for three minutes, and three findings on
+// those ports read RESOLVED in the client's delta; five minutes later both ports were open again. A port in the
+// other run's tcpClosed WAS measured, and RESOLVED there stays legitimate. Enterprise's MTTR imports this name.
+export const PORT_NOT_MEASURED_REASON = 'port-not-measured';
 // The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
 // the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
 export const INPUT_GAP_CLASS = 'input_gap';
@@ -81,6 +88,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   IDENTITY_BASIS_CHANGED_REASON,   // the producer changed WHAT IT NAMES between the two releases
   SCOPE_NOT_SCANNED_REASON,        // the finding's coverage unit was outside the OTHER run's recorded scope
   PROBE_NOT_MEASURED_REASON,       // a probe ran on the finding's port, open per the port scanner, and did not complete there
+  PORT_NOT_MEASURED_REASON,        // the finding's port was open in its run and neither open nor closed in the other (filtered / unprobed)
 ]);
 
 /**
@@ -159,6 +167,14 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // 1200 and 1210 take the same stamp and are already declared above; only 1120 was new.
   1120: '1.1.0',
   1150: '1.1.0', 1170: '1.1.0', 1190: '1.1.0', 1200: '1.1.0', 1210: '1.1.0',
+  // ⚠️ 1023 JOINS AT BUILD 12, BATCHED WITH THE SIX ABOVE SO CUSTOMERS TAKE ONE 1023 STRADDLE, NEVER TWO. Two of the
+  // four rows the build-11 delta called RESOLVED were 1023's and no port rule could reach them: "FTP port open —
+  // verify no anonymous or default credentials" is emitted BECAUSE 21 is open yet carried no port, and the exposure
+  // row carried its COUNT in the title, so 16 → 15 open ports read as a fix plus a new finding. Build 12 attaches the
+  // gating port to every row emitted because one port is open (21 · 22 · 23 · 3389 · 5900) and gives the exposure
+  // rows one count-free title with the count in details. Both put new values into `keyOf` — `port`, `title` — which
+  // CHANGES WHAT THOSE FINDINGS ARE, so the straddle is declared like 1040's region stamp.
+  1023: '1.1.0',
   // ⚠️ AN ANALYSIS AGENT, NOT A PLUGIN, AND THE FIRST NON-NUMERIC KEY THIS TABLE HAS HELD. A
   // finding from Enterprise's finding QUEUE emits no resource, no region, no identity qualifier
   // and no content digest, so `keyOf` reduces to `host · producer · port · TITLE` — the title IS
@@ -445,6 +461,26 @@ export function portsNotMeasured(findings) {
   return out;
 }
 
+/**
+ * Per host, what the port scanner recorded: `hostKey` → { open: Set, closed: Set }. Read from the loader's
+ * `portScan`, which it sets only where 003 RAN and carried both lists. Two directories naming one host whose scans
+ * DISAGREE about a port are resolved conservatively: a port counts as open if either saw it open and as closed only
+ * if some scan closed it — the verdict below needs "open on one side" AND "in neither list on the other".
+ */
+function portStateOf(byHost) {
+  const out = new Map();
+  for (const h of Array.isArray(byHost) ? byHost : []) {
+    const ps = h?.portScan;
+    if (!ps || !Array.isArray(ps.tcpOpen) || !Array.isArray(ps.tcpClosed)) continue;
+    const k = hostKey(h.host);
+    const e = out.get(k) ?? { open: new Set(), closed: new Set() };
+    for (const p of ps.tcpOpen) if (Number(p) > 0) e.open.add(Number(p));
+    for (const p of ps.tcpClosed) if (Number(p) > 0) e.closed.add(Number(p));
+    out.set(k, e);
+  }
+  return out;
+}
+
 function scopeNotScanned(f, mine, theirs) {
   const provider = hostKey(f?.host);
   const mineEntry = mine?.scopeScanned?.[provider] ?? null;
@@ -578,6 +614,9 @@ const scopeOf = (side) => {
     hosts, hostNames, plugins, gaps, statements,
     // The ports this side could not measure, keyed `hostKey|port` (EE 1.1.0 build 9).
     portGaps: portsNotMeasured(side?.findings),
+    // What this side's PORT SCANNER recorded, per host (EE 1.1.0 build 12): present only where 003 RAN and wrote
+    // both lists (the loader's `portScan`), so an absent entry means "no oracle", never "nothing open".
+    portState: portStateOf(side?.pluginStatus),
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -753,6 +792,23 @@ function incomparabilityReason(f, mine, theirs) {
     return { reason: PROBE_NOT_MEASURED_REASON,
       detail: `port ${f.port} on ${f.host} was not measured in the other run — a probe ran there and did not `
         + `complete its connection (${portGap}). It is NOT reported as fixed or as new — rescan to compare.` };
+  }
+  // ⚠️ THE FINDING'S PORT STOPPED ANSWERING (EE 1.1.0 build 12). Open in the run that HOLDS the finding, and in the
+  // other run the port scanner ran and put it in NEITHER list: no answer inside its timeout, or not probed. After
+  // F6, so a probe-not-measured verdict does not move. Keyed on the HOLDING run's tcpOpen, so a UDP service or a
+  // port no TCP list ever named is untouched; and only where the other run's scanner RAN on this host — with no
+  // oracle there the rule is silent and the legs above govern (a stated limit, not an inference).
+  const port = Number(f.port);
+  if (port > 0) {
+    const held = mine.portState?.get(hostKey(f.host));
+    const other = theirs.portState?.get(hostKey(f.host));
+    if (held?.open.has(port) && other && !other.open.has(port) && !other.closed.has(port)) {
+      return { reason: PORT_NOT_MEASURED_REASON,
+        detail: `port ${port} on ${f.host} was open in the run that holds this finding, and the other run's port `
+          + 'scanner recorded it neither open nor closed — no answer inside its timeout (filtered), or not probed — so '
+          + 'the port was not measured there. It is NOT reported as fixed or as new — rescan to compare. (This rule '
+          + 'reads TCP ports the port scanner saw open; UDP-only and host-wide findings are not judged by it.)' };
+    }
   }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
   // f.control`, and all three are absent through the shipped path — so the leg returned null and

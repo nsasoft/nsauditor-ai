@@ -491,6 +491,18 @@ export function shapeHostFindings(host, raw, queue = []) {
   return out;
 }
 
+// What the PORT SCANNER recorded on this host (EE 1.1.0 build 12) — the delta's port-state oracle. Present only when
+// 003's status on the host reads exactly `ran` AND its result carries both TCP lists; otherwise null, which the delta
+// reads as "no oracle", never as "nothing open". tcpFiltered is not carried: the delta's rule is "neither open nor
+// closed", which a filtered port and an unprobed port satisfy alike.
+export function portScanOf(raw) {
+  const st = (Array.isArray(raw?.pluginStatus) ? raw.pluginStatus : []).find((p) => String(p?.id) === '003');
+  const res = (Array.isArray(raw?.results) ? raw.results : []).find((e) => String(e?.id) === '003')?.result;
+  if (st?.status !== 'ran' || !Array.isArray(res?.tcpOpen) || !Array.isArray(res?.tcpClosed)) return null;
+  const ports = (l) => l.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return { tcpOpen: ports(res.tcpOpen), tcpClosed: ports(res.tcpClosed) };
+}
+
 function shapeHost(host, dir, raw) {
   const envelopes = Array.isArray(raw.results) ? raw.results : [];
   const up = envelopes.some((e) => e?.result?.up === true);
@@ -507,6 +519,7 @@ function shapeHost(host, dir, raw) {
     // `plugin` / `resource` / `control` fields: the distinction was preserved in the consumer and
     // destroyed here, before the consumer ever saw it.
     pluginStatusRecorded: Array.isArray(raw.pluginStatus),
+    portScan: portScanOf(raw),
   };
 }
 
@@ -524,7 +537,7 @@ function buildModel(rec, hosts, counts) {
     // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
     // silently drops every same-named host's own plugin table but the final one's.
     plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus,
-      pluginStatusRecorded: h.pluginStatusRecorded });
+      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;

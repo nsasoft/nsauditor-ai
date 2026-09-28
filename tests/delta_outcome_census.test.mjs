@@ -41,10 +41,15 @@ const s3 = (resource, severity = 'HIGH', extra = {}) =>
 // tell a working comparison from one that can never match on a real record.
 function writeHostDir(outRoot, dir, runId, findings, { status = 'ran', omitResult = false,
   queue = null, omitPluginStatus = false, host = '10.0.0.7', pluginId = '010',
-  pluginName = 'aws-s3' } = {}) {
+  pluginName = 'aws-s3', portScan = null } = {}) {
   fs.mkdirSync(path.join(outRoot, dir), { recursive: true });
   const env = { runId, results: omitResult ? [] : [{ id: pluginId, name: pluginName, result: { up: true, findings } }] };
   if (!omitPluginStatus) env.pluginStatus = [{ id: pluginId, name: pluginName, status, reason: status === 'ran' ? null : 'credential expired' }];
+  // The port scanner's own record (EE 1.1.0 build 12), as 003 writes it — the delta's port-state oracle.
+  if (portScan) {
+    env.results.push({ id: '003', name: 'Port Scanner', result: { up: true, ...portScan } });
+    env.pluginStatus = [...(env.pluginStatus ?? []), { id: '003', name: 'Port Scanner', status: 'ran', reason: null }];
+  }
   fs.writeFileSync(path.join(outRoot, dir, 'scan_conclusion_raw.json'), JSON.stringify(env), 'utf8');
   if (queue) fs.writeFileSync(path.join(outRoot, dir, 'scan_finding_queue.json'), JSON.stringify(queue), 'utf8');
   return host;
@@ -53,11 +58,11 @@ function writeHostDir(outRoot, dir, runId, findings, { status = 'ran', omitResul
 async function mkRun(outRoot, { startedAt, findings = [], seal = true, tier = 'pro',
   eeVersion = '1.1.0', ceVersion = '0.2.55', plugins = ['010'], host = '10.0.0.7',
   status, omitResult, queue, omitPluginStatus, prevDigest, pluginId, pluginName,
-  scopeScanned } = {}) {
+  scopeScanned, portScan } = {}) {
   const runId = newRunId();
   await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [host],
     pluginsRequested: plugins, portsRequested: '443', tier, ceVersion, eeVersion, prevDigest });
-  writeHostDir(outRoot, `d-${runId}`, runId, findings, { status, omitResult, queue, omitPluginStatus, host, pluginId, pluginName });
+  writeHostDir(outRoot, `d-${runId}`, runId, findings, { status, omitResult, queue, omitPluginStatus, host, pluginId, pluginName, portScan });
   await appendHostWritten(outRoot, runId, { host, dir: `d-${runId}`, scopeScanned });
   await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
   if (seal) await sealRunRecord(outRoot, runId);
@@ -125,6 +130,19 @@ const PRODUCERS = {
       target: { port: 443 }, evidence: { source: 'crypto_agent', raw: { evidenceGap: true, gapClass: 'input_gap' } } };
     const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [], queue: [row] });
     const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], queue: [gap] });
+    return drive(outRoot, current, baseline);
+  },
+  'port-not-measured': async () => {
+    // ⚠️ THE LIVE ROWS (Gate 2 on build 11). The gateway answered nothing on 21 for three minutes: the port scanner
+    // RAN and classified it FILTERED, and the delta called "No transport encryption: ftp on port 21" RESOLVED. Both
+    // runs' port scans are the oracle: 21 open in the baseline, in neither list now.
+    const outRoot = tmp('portnm');
+    const row = { id: 'F-21', severity: 'MEDIUM', title: 'No transport encryption: ftp on port 21',
+      target: { port: 21 }, evidence: { source: 'crypto_agent' } };
+    const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [], queue: [row],
+      portScan: { tcpOpen: [21, 443], tcpClosed: [22], tcpFiltered: [] } });
+    const current = await mkRun(outRoot, { startedAt: '2026-09-08T10:00:00.000Z', findings: [], queue: [],
+      portScan: { tcpOpen: [443], tcpClosed: [22], tcpFiltered: [21] } });
     return drive(outRoot, current, baseline);
   },
   'evidence-gap': async () => {

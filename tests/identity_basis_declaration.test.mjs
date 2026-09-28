@@ -349,7 +349,10 @@ test('the DECLARED SET is exactly this, and a deletion fails as loudly as an add
   // changes what they are, exactly as 1120's stamp did. Twelve producers: eleven plugins, one agent.
   // MOVED AGAIN, same build: 1110 ADDED — its HIGH row's TEXT was corrected (CFN-3), which changes
   // its content digest and so its identity. Thirteen producers: twelve plugins, one agent.
-  const EXPECTED = ['1020', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
+  // MOVED DELIBERATELY at EE 1.1.0 build 12: 1023 ADDED — its port-gated rows gained `port` and its exposure rows lost
+  // the count from their title, both components of `keyOf` (audit seat ruling (B), batched with the rest at 1.1.0 so
+  // 1023 takes ONE straddle). Fourteen producers: thirteen plugins, one agent.
+  const EXPECTED = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), [...EXPECTED].sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
