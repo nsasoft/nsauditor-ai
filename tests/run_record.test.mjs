@@ -262,8 +262,9 @@ test('a started run is readable, and finalizing adds completion without losing t
 test('the record contains no absolute path, no userinfo and no account-shaped id', async () => {
   const outRoot = tmp();
   const runId = newRunId();
+  const startedAt = new Date().toISOString();
   await writeRunStart(outRoot, {
-    runId, startedAt: new Date().toISOString(),
+    runId, startedAt,
     hostsRequested: ['user:pass@10.0.0.7', 'https://db01.internal:8443/x', 'user:pa/ss@10.0.0.9',
       'admin:1234/56@10.0.0.1', 'root:0000/abc@10.0.0.2', 'user/name:pa@10.0.0.3',
       'user:p@ss/wd@10.0.0.4', 'user:p@ssword123/junk@10.0.0.5',
@@ -275,35 +276,42 @@ test('the record contains no absolute path, no userinfo and no account-shaped id
     kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null,
   });
   const raw = fs.readFileSync(runRecordPath(outRoot, runId), 'utf8');
-  assert.ok(!raw.includes('@'),            'userinfo or an email reached the record');
+  // ⚠️ THE CLOCK IS IN THIS RECORD, and the token legs below are SUBSTRING checks. `runId` carries HHMMSS plus six random
+  // hex, `startedAt` the ISO time: a run at HH:00:00, HH:12:34 or 12:34:xx UTC — or a suffix like `a1234f` — put '0000'
+  // or '1234' in the record with no credential anywhere, and this leg read "numeric password" red in a suite run that
+  // crossed HH:00:00 — a pinned clock reproduces it at each of those times. The legs read the record with the two
+  // values THIS test supplied replaced — EXACT strings, so a fragment anywhere else still fails.
+  assert.ok(raw.includes(runId) && raw.includes(startedAt), 'runId and startedAt are in the record verbatim — else the replacement below does nothing');
+  const body = raw.split(runId).join('<runId>').split(startedAt).join('<startedAt>');
+  assert.ok(!body.includes('@'),           'userinfo or an email reached the record');
   // A token list only catches the credentials someone thought to plant (measured: a token list
   // built from other fixtures missed `ssword123` entirely). Kept as a SECOND, independent check
   // — it guards the rest of the file (paths, keys, ids), while the structural oracle in the
   // table test above is what actually guards normaliseHost's own output.
-  assert.ok(!raw.includes('user'),         'a credential fragment (username) reached the record');
-  assert.ok(!raw.includes('pass'),         'a credential fragment (password) reached the record');
+  assert.ok(!body.includes('user'),        'a credential fragment (username) reached the record');
+  assert.ok(!body.includes('pass'),        'a credential fragment (password) reached the record');
   // NOT checked as a raw substring: bare "pa" is ALSO a false-positive trap, for the same
   // reason as "ss" below — the refusal sentinel `<unparseable-host>` (a CORRECT value for the
-  // three refused rows) contains "pa" (`un-pa-rseable`), so `!raw.includes('pa')` would fail on
+  // three refused rows) contains "pa" (`un-pa-rseable`), so `!body.includes('pa')` would fail on
   // every record that correctly refused a row. Found by running this exact assertion, not by
   // inspection. The exact parsed-array equality below covers a leaked `pa`-fragment instead.
-  assert.ok(!raw.includes('admin'),        'a credential fragment (admin username) reached the record');
-  assert.ok(!raw.includes('1234'),         'a credential fragment (numeric password) reached the record');
-  assert.ok(!raw.includes('root'),         'a credential fragment (root username) reached the record');
-  assert.ok(!raw.includes('0000'),         'a credential fragment (numeric password) reached the record');
-  assert.ok(!raw.includes('ssword'),       'a credential fragment (password) reached the record');
-  assert.ok(!raw.includes('SECRET123'),    'a query-string or fragment credential token reached the record');
-  assert.ok(!raw.includes('s3cret'),       'a percent-encoded-separator credential fragment reached the record');
-  assert.ok(!raw.includes('pass%40'),      'a percent-encoded separator survived unstripped — the whole credential leaked');
-  assert.ok(!raw.includes('%2540'),        'a double-encoded separator survived unstripped');
-  assert.ok(!raw.includes('＠'),            'a fullwidth @-lookalike survived unstripped');
+  assert.ok(!body.includes('admin'),       'a credential fragment (admin username) reached the record');
+  assert.ok(!body.includes('1234'),        'a credential fragment (numeric password) reached the record');
+  assert.ok(!body.includes('root'),        'a credential fragment (root username) reached the record');
+  assert.ok(!body.includes('0000'),        'a credential fragment (numeric password) reached the record');
+  assert.ok(!body.includes('ssword'),      'a credential fragment (password) reached the record');
+  assert.ok(!body.includes('SECRET123'),   'a query-string or fragment credential token reached the record');
+  assert.ok(!body.includes('s3cret'),      'a percent-encoded-separator credential fragment reached the record');
+  assert.ok(!body.includes('pass%40'),     'a percent-encoded separator survived unstripped — the whole credential leaked');
+  assert.ok(!body.includes('%2540'),       'a double-encoded separator survived unstripped');
+  assert.ok(!body.includes('＠'),           'a fullwidth @-lookalike survived unstripped');
   // NOT checked as a raw substring: bare "ss" is a false-positive trap here — the field name
   // `epssSnapshot` (always present as a JSON key, regardless of any real leak) already contains
-  // it, so `!raw.includes('ss')` would fail on every record. The exact parsed-array equality
+  // it, so `!body.includes('ss')` would fail on every record. The exact parsed-array equality
   // below proves no `ss`-shaped fragment survived in a HOST value instead.
-  assert.ok(!/"\/(?:Users|home|var|etc|tmp|opt|root|Volumes)\//.test(raw), 'an absolute path reached the record');
-  assert.ok(!/\bAKIA[0-9A-Z]{16}\b/.test(raw), 'an access key reached the record');
-  assert.ok(!/\b\d{12}\b/.test(raw),       'a 12-digit account id reached the record');
+  assert.ok(!/"\/(?:Users|home|var|etc|tmp|opt|root|Volumes)\//.test(body), 'an absolute path reached the record');
+  assert.ok(!/\bAKIA[0-9A-Z]{16}\b/.test(body), 'an access key reached the record');
+  assert.ok(!/\b\d{12}\b/.test(body),      'a 12-digit account id reached the record');
   const rec = JSON.parse(raw);
   assert.deepEqual(rec.hostsRequested,
     ['10.0.0.7', 'db01.internal:8443', '10.0.0.9', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5',
