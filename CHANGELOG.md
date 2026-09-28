@@ -229,12 +229,13 @@ concurrent jobs against one host are the realistic triggers. The earlier release
 directories the same way and overwrote silently. The fix — an exclusive create with a suffix, plus a
 warning naming the collision — is scheduled for the next release.
 
-⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Thirteen
-producers in Enterprise 1.1.0 changed what identifies a finding — twelve plugins: nine that
+⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Fourteen
+producers in Enterprise 1.1.0 changed what identifies a finding — thirteen plugins: nine that
 previously left `resource` empty or set it to the region, two (1120 and 1040) that recorded no
 region this engine could read, and one (1110, the effective-decrypt auditor) whose HIGH finding's
-TEXT was corrected, because it described a KMS cross-reference that no longer runs — and, for the
-first time, an analysis AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE
+TEXT was corrected, because it described a KMS cross-reference that no longer runs, and one (1023, the Zero
+Trust checker) that now names the port a port-specific finding is about and keeps its open-port count
+out of the title — and, for the first time, an analysis AGENT (`intelligence_engine`, whose queue rows are keyed on their TITLE
 because a queue entry emits no resource at all). A straddling comparison refuses those rows rather than differencing them, so
 one surface under two keys is not reported as a fix plus a fresh exposure. The declaration is the
 `IDENTITY_BASIS_CHANGED_AT` table here in Community, one-directional — keyed on the baseline
