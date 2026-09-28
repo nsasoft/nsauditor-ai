@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.55 (⏳ PRE-PUBLISH — opened 2026-09-18, NOT YET ON npm) — *what changed since the last scan*, and the three fields that made it honest
+## 0.2.55 (2026-09-28) — *what changed since the last scan*, and the three fields that made it honest
 
 ⚠️ **ENTERPRISE 1.1.0 RAISES ITS PEER FLOOR TO COMMUNITY `>= 0.2.55` BECAUSE IT CALLS THIS
 RELEASE'S CODE.** Two surfaces added here are read by Enterprise, not merely shipped beside it:
