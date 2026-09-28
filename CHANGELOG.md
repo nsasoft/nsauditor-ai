@@ -213,6 +213,22 @@ alternative — trusting the other rows from a producer that just told you it wa
 is the false-remediation class this whole engine exists to prevent. Per-finding precision needs the
 producing plugin stamped on each service record, which this release does not do.
 
+⚠️ **KNOWN LIMIT: TWO SCANS OF ONE HOST THAT FINISH IN THE SAME SECOND SHARE ONE EVIDENCE DIRECTORY.**
+The per-host directory is named from the host and a timestamp at whole-second granularity (local
+time), taken when the plugins finish. It is created without an existence check. So two scans of the
+same host, into the same `--out`, that reach that point within one second write the SAME directory,
+and the later run's files replace the earlier run's.
+
+This release DETECTS it when you report on those runs, and refuses rather than misattributing:
+- `report --since` rejects the overwritten run as a `chain-broken` baseline, because its sealed
+  findings digest no longer matches the file on disk;
+- `report --run <that run>` exits 1, because the directory names the other run.
+
+**The scan that overwrote it exits 0 and prints no warning.** Scripted back-to-back scans and
+concurrent jobs against one host are the realistic triggers. The earlier release (0.2.54) named
+directories the same way and overwrote silently. The fix — an exclusive create with a suffix, plus a
+warning naming the collision — is scheduled for the next release.
+
 ⚠️ **`identity-basis-changed` IS NEW THIS CYCLE AND IT IS THE ONE AN UPGRADING READER NEEDS.** Thirteen
 producers in Enterprise 1.1.0 changed what identifies a finding — twelve plugins: nine that
 previously left `resource` empty or set it to the region, two (1120 and 1040) that recorded no
