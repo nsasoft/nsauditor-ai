@@ -17,22 +17,18 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.55 + Enterprise 1.1.0 — *what changed since the last scan*.**
-`nsauditor-ai report --from <dir> --format executive --since <runId|prior>` (Pro/Enterprise) compares two scan runs:
-what is new, what is resolved, what changed severity — and, above all, **what could NOT be compared
-and why**. "Resolved" is the dangerous verdict: a finding that disappeared because the host was not
-scanned, the plugin did not run, the scanner lost permission, or the port stopped answering is
-reported as NOT COMPARABLE **with its reason**, never as remediation — and framework-enumeration
-movement is stated as NOT EVALUATED on every comparison. Run records are sealed with a
-SHA-256 chain, so an altered baseline REFUSES the comparison instead of producing verdicts from it —
-tamper-EVIDENT against corruption, partial restore and unsophisticated edits, **not tamper-proof
-against host-level access and not non-repudiation**, and the report says so in the body. The delta
-renders into the client-facing HTML report, not only to stdout. Plugin counts UNCHANGED at 27
-Community + 29 Enterprise; every coverage matrix UNCHANGED; **the Enterprise peer floor MOVES to
-`>= 0.2.55`, because Enterprise now CALLS this release's code** — the per-plugin run statuses this
-version publishes on the scan context, which EE plugin 1023 requires before it will assert a Zero
-Trust posture and the CPE mapper uses to tell an empty service set from one whose discovery never
-ran. The free last-vs-current webhook alerting delta is untouched and stays free.
+**Latest: CE 0.2.56 + Enterprise 1.2.0 — *a finding the other scan did not measure is never called resolved or new*.**
+The Pro/Enterprise `report --since` delta (introduced in CE 0.2.55) now refuses four more ways a
+finding could read as fixed when nothing was looked at: a UDP service that did not answer in the
+other run (`port-not-measured`, listed as `<port>/udp`), a CVE row whose lookup failed there, a
+finding of an analysis agent that did not run, and — new in this release — **an Enterprise package
+that failed to load**, which used to leave the scan running as Community without a word. It is now
+named on stderr and recorded on the scan's conclusion, and the delta refuses that host's agent and
+CVE-mapper rows as `evidence-gap`. Every reason's detail names its run absolutely ("this run", "the
+baseline run"), and two scans started in the same second get distinct directories. Plugin counts
+UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
+requires this release** (`nsauditor-ai >= 0.2.56`). The free last-vs-current webhook alerting delta
+is untouched and stays free.
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
