@@ -52,7 +52,9 @@ const TCP_ONLY_SENTENCE = /reads TCP ports the port scanner saw open/;
 // ── THE VOCABULARY ────────────────────────────────────────────────────────────────────────────────────
 test('no new token: the UDP rule reuses port-not-measured, and the declared reason set is unchanged in size', () => {
   assert.equal(PORT_NOT_MEASURED_REASON, 'port-not-measured');
-  assert.equal(NOT_COMPARABLE_REASONS.length, 10, 'NOT_COMPARABLE_REASONS is append-only under schema 1 — this rule adds nothing to it');
+  // 11 since 1.2.0 build 2, which APPENDED `vulnerability-data-changed` (its own test file); the UDP rule itself still adds nothing.
+  assert.equal(NOT_COMPARABLE_REASONS.length, 11, 'NOT_COMPARABLE_REASONS is append-only under schema 1 — this rule adds nothing to it');
+  assert.equal(NOT_COMPARABLE_REASONS.at(-1), 'vulnerability-data-changed', 'the one reason added since this rule landed, appended last');
   assert.ok(!NOT_COMPARABLE_REASONS.some((r) => /udp/i.test(r)));
 });
 

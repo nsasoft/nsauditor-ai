@@ -25,7 +25,7 @@ import {
 } from './run_record.mjs';
 import { CE_RETENTION_MS } from './scan_history.mjs';
 import { canonicalHost } from './cloud_providers.mjs';
-import { isUdpTransport } from './scan_delta.mjs';
+import { isUdpTransport, TRANSPORT_OF_LABEL } from './scan_delta.mjs';
 
 const refuse = (reason, message) => ({ ok: false, reason, message });
 
@@ -534,6 +534,24 @@ export function udpServicesOf(raw) {
   return out.sort((a, b) => a.port - b.port);
 }
 
+// Every transport's service identity (1.2.0 build 2) — the oracle for `serviceIdentityAt` in scan_delta.mjs, which the
+// delta and Enterprise's MTTR both call to decide whether a CVE row vanished while the SAME program and version still
+// answered. Read from the concluder's service set, the set the CVE mapper attributes from; port > 0 and a TCP or UDP
+// transport only. Null when the raw carries no service set: no oracle, never "nothing answered".
+export function servicesOf(raw) {
+  const services = raw?.conclusion?.result?.services;
+  if (!Array.isArray(services)) return null;
+  const out = [];
+  for (const s of services) {
+    const port = Number(s?.port);
+    const t = typeof s?.protocol === 'string' ? TRANSPORT_OF_LABEL[s.protocol.toLowerCase()] : null;
+    if (!Number.isInteger(port) || port <= 0 || (t !== 'tcp' && t !== 'udp')) continue;
+    out.push({ port, protocol: String(s.protocol).toLowerCase(), service: s?.service ?? null, status: s?.status ?? null,
+      program: s?.program ?? null, version: s?.version ?? null });
+  }
+  return out.sort((a, b) => a.port - b.port || a.protocol.localeCompare(b.protocol));
+}
+
 // WHETHER ENTERPRISE'S STAGE RAN ON THIS HOST (1.1.1 — the audit seat's T1-c ruling). The scan writes
 // `conclusion.result.eeLoadError` when the installed Enterprise package failed to LOAD (utils/ee_load.mjs) and
 // `conclusion.result.eeEnrichmentError` when its enrichment THREW; either way its analysis agents and CVE mapper produced
@@ -563,6 +581,7 @@ function shapeHost(host, dir, raw) {
     pluginStatusRecorded: Array.isArray(raw.pluginStatus),
     portScan: portScanOf(raw),
     udpServices: udpServicesOf(raw),
+    services: servicesOf(raw),
     eeStage: eeStageOf(raw),
   };
 }
@@ -581,7 +600,7 @@ function buildModel(rec, hosts, counts) {
     // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
     // silently drops every same-named host's own plugin table but the final one's.
     plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus,
-      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan, udpServices: h.udpServices, eeStage: h.eeStage });
+      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan, udpServices: h.udpServices, services: h.services, eeStage: h.eeStage });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;

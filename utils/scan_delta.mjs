@@ -151,6 +151,56 @@ export function udpPortMeasurement(port, producer, services, runName = 'the othe
   const who = identified(s.program) ? ` · ${s.program}${s.version ? ` ${s.version}` : ''}` : '';
   return { measured: true, basis: `${port}/udp answered in ${runName} (${s.service ?? s.protocol} open${who})` };
 }
+// ⚠️ A CVE ROW THAT VANISHED WHILE THE SAME PROGRAM AND VERSION STILL ANSWER WAS NOT FIXED (1.2.0 build 2 — the audit
+// seat's ruling on the build-1 smoke). The CVE mapper attributes a CVE on (program, version) alone, so a row present in
+// one run only while the IDENTIFIED program AND version at that host:port:transport are the same in both runs cannot
+// be a remediation: the vulnerability DATA moved — NVD's answer, the age of a cached answer, an offline store. MEASURED:
+// five dnsmasq 2.78 CVEs NVD stopped matching (all "Awaiting Analysis", no configurations) read RESOLVED across the
+// published 1.1.0 run and 1.2.0 build 1, with `dns · dnsmasq · 2.78 · open` on 53/udp in both. APPEND-ONLY.
+export const VULNERABILITY_DATA_CHANGED_REASON = 'vulnerability-data-changed';
+
+const transportOf = (label) => (typeof label === 'string' ? TRANSPORT_OF_LABEL[label.toLowerCase()] ?? null : null);
+/** An identity the CVE mapper could have matched on: a program AND a version, neither absent nor the `Unknown` placeholder. */
+export function identityOf(program, version) {
+  return identified(program) && identified(version) ? { program: String(program).trim(), version: String(version).trim() } : null;
+}
+/**
+ * THE SERVICE IDENTITY AT host:port:transport IN ONE RUN — the ONE decision both the delta and Enterprise's MTTR call.
+ * `services` is that run's service set, every transport (the loader's `servicesOf`); the row's `protocol` is an
+ * application LABEL, mapped to its transport by `TRANSPORT_OF_LABEL` on both sides. Only an OPEN, IDENTIFIED service
+ * counts; two different identities on one port and transport are AMBIGUOUS and return null, so the rule stays silent
+ * rather than choose one. Null also when no set was recorded — no oracle, never "nothing answered".
+ */
+export function serviceIdentityAt(services, port, protocol) {
+  const t = transportOf(protocol);
+  if (!Array.isArray(services) || !(Number(port) > 0) || (t !== 'tcp' && t !== 'udp')) return null;
+  const ids = new Map();
+  for (const s of services) {
+    if (Number(s?.port) !== Number(port) || transportOf(s?.protocol) !== t || s?.status !== 'open') continue;
+    const id = identityOf(s.program, s.version);
+    if (id) ids.set(`${id.program.toLowerCase()}|${id.version}`, { ...id, port: Number(port), transport: t });
+  }
+  return ids.size === 1 ? [...ids.values()][0] : null;
+}
+/** The same identified program AND version — both present. Program is compared case-insensitively, version exactly. */
+export const sameServiceIdentity = (a, b) => a != null && b != null
+  && a.program.toLowerCase() === b.program.toLowerCase() && a.version === b.version;
+/**
+ * WHERE A RUN'S VULNERABILITY DATA CAME FROM, in words, from its run record's `nvdCache` — never a local path, which
+ * would carry the operator's directory layout into a client artifact. `state` is the offline store's (`absent` means
+ * none was imported, so the NVD API answered, through the response cache when it held the entry).
+ */
+export function vulnerabilityDataSource(nvdCache) {
+  if (!nvdCache || typeof nvdCache !== 'object') return 'not recorded';
+  if (['fresh', 'stale', 'undated'].includes(nvdCache.state)) return `an offline NVD store (${nvdCache.state})`;
+  const rc = nvdCache.responseCache;
+  const day = (t) => (typeof t === 'string' ? t.slice(0, 10) : null);
+  if (rc?.present === true && day(rc.oldestAt)) {
+    const a = day(rc.oldestAt); const b = day(rc.newestAt) ?? a;
+    return `NVD answers cached up to ${rc.ttlDays} days, fetched ${a === b ? a : `${a} to ${b}`}`;
+  }
+  return 'the NVD API, asked live';
+}
 // The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
 // the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
 export const INPUT_GAP_CLASS = 'input_gap';
@@ -176,6 +226,7 @@ export const NOT_COMPARABLE_REASONS = Object.freeze([
   SCOPE_NOT_SCANNED_REASON,        // the finding's coverage unit was outside the OTHER run's recorded scope
   PROBE_NOT_MEASURED_REASON,       // a probe ran on the finding's port, open per the port scanner, and did not complete there
   PORT_NOT_MEASURED_REASON,        // the finding's port was open in its run and neither open nor closed in the other (filtered / unprobed)
+  VULNERABILITY_DATA_CHANGED_REASON, // a CVE row in one run only, the same program AND version identified on its port in both
 ]);
 
 /**
@@ -573,6 +624,12 @@ function portStateOf(byHost) {
       e.udpServices = [...(e.udpServices ?? []), ...h.udpServices];
       out.set(k, e);
     }
+    // Every transport's service identities (1.2.0 build 2) — the loader's `servicesOf`, for `serviceIdentityAt`.
+    if (Array.isArray(h?.services)) {
+      const e = out.get(k) ?? {};
+      e.services = [...(e.services ?? []), ...h.services];
+      out.set(k, e);
+    }
   }
   return out;
 }
@@ -722,6 +779,8 @@ const scopeOf = (side) => {
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
     eeVersion: rec.eeVersion ?? null,
+    // Where this run's vulnerability data came from (1.2.0 build 2) — the run record's `nvdCache`, rendered in words.
+    nvdCache: rec.nvdCache ?? null,
     // ⚠️ WHAT THE RUN ACTUALLY COVERED, per provider — never the FLAG. `undefined` means the
     // record predates this field and the scope is UNKNOWN, which is not the same as "covered
     // nothing": the rule below fails closed on unknown and stays silent when BOTH sides are
@@ -981,6 +1040,22 @@ function incomparabilityReason(f, mine, theirs, names) {
         detail: `${port}/udp on ${f.host} (${f.protocol}) carries a finding in only one of the two runs, and ${m.why}. ${why}` };
     }
   }
+  // ⚠️ THE SAME PROGRAM AND VERSION ANSWERED IN BOTH RUNS, AND ONE OF THEM HOLDS A CVE ROW THE OTHER DOES NOT (1.2.0
+  // build 2). DISAPPEARED only: a newly attributed CVE is new knowledge about an exposure that is real now, so it stays
+  // NEW and carries a basis note instead (`withNewBasis`). After the port and UDP legs, so a port that was not measured
+  // keeps its own reason; the mapper's CVE rows only — its gap and note rows carry a `gapClass` and are not attributions.
+  if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && port > 0 && names.mine === RUN_NAMES.baseline) {
+    const was = serviceIdentityAt(mine.portState?.get(hostKey(f.host))?.services, port, f.protocol);
+    const now = serviceIdentityAt(theirs.portState?.get(hostKey(f.host))?.services, port, f.protocol);
+    if (sameServiceIdentity(was, now)) {
+      return { reason: VULNERABILITY_DATA_CHANGED_REASON,
+        detail: `the same ${now.program} ${now.version} answered on ${port}/${now.transport} on ${f.host} in both runs, and `
+          + 'the CVE mapper attributes a CVE on the program and version alone — so this row\'s absence is a change in the '
+          + 'vulnerability data it was matched against, not a remediation. Vulnerability data — '
+          + `${names.mine}: ${vulnerabilityDataSource(mine.nvdCache)}; ${names.theirs}: ${vulnerabilityDataSource(theirs.nvdCache)}. `
+          + 'It is NOT reported as fixed — confirm against the vendor\'s advisory.' };
+    }
+  }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
   // f.control`, and all three are absent through the shipped path — so the leg returned null and
   // the finding fell through to `resolved`. That is FAIL-OPEN, the opposite of the `plugin` gap:
@@ -1043,6 +1118,22 @@ function withUdpBasis(f, theirs, theirName) {
   if (!(port > 0) || !isUdpTransport(f.protocol)) return f;
   const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null, theirName);
   return m.measured ? { ...f, basisNote: m.basis } : f;
+}
+
+// A CVE row that APPEARED on a service identified the same in both runs (1.2.0 build 2 — MANDATORY, the audit seat's
+// ruling): it stays NEW, and says the service did not change, because "new exposure on my estate" and "new knowledge
+// about an old service" route to different work. A changed or unidentified service keeps today's basis.
+function withNewBasis(f, mine, theirs) {
+  const port = Number(f.port);
+  if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && port > 0) {
+    const now = serviceIdentityAt(mine.portState?.get(hostKey(f.host))?.services, port, f.protocol);
+    const was = serviceIdentityAt(theirs.portState?.get(hostKey(f.host))?.services, port, f.protocol);
+    if (sameServiceIdentity(was, now)) {
+      return { ...f, basisNote: `newly attributed — the same ${was.program} ${was.version} answered on ${port}/${was.transport} `
+        + `in ${RUN_NAMES.baseline}; the service is unchanged, the vulnerability data is not` };
+    }
+  }
+  return withUdpBasis(f, theirs, RUN_NAMES.baseline);
 }
 
 // The oracle test, separated from the per-finding check so its ABSENCE has somewhere to be
@@ -1318,7 +1409,7 @@ export function buildScanDelta({ baseline, current }) {
     // plugin was out of scope last time is NEW COVERAGE, not a new exposure.
     const why = incomparabilityReason(f, cScope, bScope, FRAME_APPEARED);
     if (why) notComparable.push({ ...f, direction: 'appeared', ...why });
-    else newFindings.push(withUdpBasis(f, bScope, RUN_NAMES.baseline));
+    else newFindings.push(withNewBasis(f, cScope, bScope));
   }
 
   return {

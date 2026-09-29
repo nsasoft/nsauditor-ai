@@ -8,9 +8,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## 0.2.56 (⏳ PRE-PUBLISH — opened 2026-09-29, NOT YET ON npm) — a finding the other scan did not measure is never called resolved or new; paired with Enterprise 1.2.0
 
-**The release:** the Pro delta refuses four more ways a finding could read as fixed when nothing looked: a UDP service
-that stopped answering, a CVE lookup that failed, an analysis agent that did not run (Enterprise's new record), and an
-Enterprise package that failed to load — which this Community now names instead of treating as "not installed". Every
+**The release:** the Pro delta refuses five more ways a finding could read as fixed without being fixed: a UDP service
+that stopped answering, a CVE lookup that failed, an analysis agent that did not run (Enterprise's new record), an
+Enterprise package that failed to load — which this Community now names instead of treating as "not installed" — and a
+CVE the vulnerability data stopped attributing while the same program and version still answered (a new reason). Every
 not-comparable row names its run absolutely, and two scans of one host in one second no longer share a directory.
 **Enterprise 1.2.0 requires this release** (`nsauditor-ai >= 0.2.56`): it imports names that first ship here.
 
@@ -34,6 +35,22 @@ not-comparable row names its run absolutely, and two scans of one host in one se
   its port `closed`; a TCP port-53 zone-transfer finding labelled `dns` over-refuses the same way; a portless UDP row
   (`mdns` on port 0) is outside the rule, as a host-wide finding is; findings from plugin envelopes carry no transport.
   No new reason token: `NOT_COMPARABLE_REASONS` is unchanged.
+- **A CVE row that vanished while the same program and version still answer is NOT COMPARABLE — `vulnerability-data-changed`,
+  a new reason (build 2).** The CVE mapper attributes a CVE on a service's program and version alone, so a CVE row present
+  in one run only while the SAME identified program AND version answer at that host, port and transport in both runs was
+  not remediated: only the vulnerability data moved — NVD's answer, the age of a cached answer, an offline store. Measured
+  on the 1.2.0 build-1 smoke: NVD stopped matching five "Awaiting Analysis" CVEs to dnsmasq 2.78 (they carry no
+  configurations), and against the published 1.1.0 run — whose NVD answers came from a 30-day cache filled 2026-09-18 —
+  this delta read "0 new · 5 resolved" while both runs identified `dns · dnsmasq · 2.78 · open` on 53/udp. Such a row now
+  reads not comparable under `vulnerability-data-changed`, APPENDED to `NOT_COMPARABLE_REASONS` (eleven members), with a
+  detail naming the unchanged service and each run's vulnerability-data source from its run record, never a local path.
+  The identity is read from each run's service set — the set the mapper attributes from — so the loader now carries every
+  transport's service identity (`servicesOf`), and a TCP row is judged like a UDP one. The decision is exported
+  (`serviceIdentityAt`, `sameServiceIdentity`, `identityOf`) so Enterprise's MTTR applies the same one. A CVE row that
+  APPEARED on an unchanged service stays NEW — it is new knowledge about an exposure that is real now — and carries a basis
+  note: *"newly attributed — the same dnsmasq 2.78 answered on 53/udp in the baseline run; the service is unchanged, the
+  vulnerability data is not"*. **Stated limits:** a port with two different identified services, or a run with no service
+  set, keeps today's verdict; the mapper's coverage-note rows are outside the rule.
 - **A CVE row whose lookup failed in the other scan is no longer reported RESOLVED — TCP and UDP alike.** Enterprise's
   intelligence engine records a service it could not look up (the NVD lookup failed or returned a non-array, the
   offline store could not be read or held no entry for the CPE, the program has no CPE alias, or the banner carried no
