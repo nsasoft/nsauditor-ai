@@ -28,6 +28,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   its port `closed`; a TCP port-53 zone-transfer finding labelled `dns` over-refuses the same way; a portless UDP row
   (`mdns` on port 0) is outside the rule, as a host-wide finding is; findings from plugin envelopes carry no transport.
   No new reason token: `NOT_COMPARABLE_REASONS` is unchanged.
+- **A CVE row whose lookup failed in the other scan is no longer reported RESOLVED — TCP and UDP alike.** Enterprise's
+  intelligence engine records a service it could not look up (the NVD lookup failed or returned a non-array, the
+  offline store could not be read or held no entry for the CPE, the program has no CPE alias, or the banner carried no
+  version) as a `[COVERAGE GAP] <class> — <protocol>/<service>` row with no evidence-gap flag, so since 0.2.55 a failed
+  lookup made the baseline's CVE rows on that service read resolved, with one NEW gap row as the only trace. Those
+  rows are now read as PORT-SCOPED gaps — keyed on host, port and transport, so a TCP-53 failure never reaches a UDP-53
+  row — and the CVE mapper's rows on that port are NOT COMPARABLE (`evidence-gap`) in both directions, naming the
+  class. The gap row itself is scope: it is never new and never resolved. Every gap class the engine declares is
+  classified (Enterprise's test holds the table equal to the engine's list); a coverage NOTE is not a lookup failure.
+  This completes the UDP rule's exemption for the CVE mapper, which is sound only where the lookup worked.
 - **The client report shows a not-comparable row's direction on the row.** Every not-comparable detail sentence is
   direction-neutral by construction, and the executive HTML printed no direction, so a client could not tell a
   finding that APPEARED (a new-exposure candidate the scan could not confirm) from one that VANISHED. Each such row now

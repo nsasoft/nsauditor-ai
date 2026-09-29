@@ -703,6 +703,7 @@ const scopeOf = (side) => {
     // What this side's PORT SCANNER recorded, per host (EE 1.1.0 build 12): present only where 003 RAN and wrote
     // both lists (the loader's `portScan`), so an absent entry means "no oracle", never "nothing open".
     portState: portStateOf(side?.pluginStatus),
+    engineLookupGaps: engineLookupGapsOf(side?.findings),
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -879,6 +880,18 @@ function incomparabilityReason(f, mine, theirs) {
       detail: `port ${f.port} on ${f.host} was not measured in the other run — a probe ran there and did not `
         + `complete its connection (${portGap}). It is NOT reported as fixed or as new — rescan to compare.` };
   }
+  // ⚠️ THE CVE MAPPER COULD NOT LOOK THIS SERVICE UP IN THE OTHER RUN (1.1.1, T1b). Its own lookup gap on the same
+  // (host, port, transport) says the CVE rows were not looked for, whatever the port's state — so it answers before
+  // the port rules, and before the UDP exemption, whose "answered and identified" cannot say the lookup worked.
+  if (f.plugin === CVE_MAPPER_PRODUCER && Number(f.port) > 0) {
+    const lookupGap = theirs.engineLookupGaps?.get(engineLookupGapKey(f.host, f.port, f.protocol));
+    if (lookupGap) {
+      return { reason: 'evidence-gap',
+        detail: `the CVE mapper recorded in the other run that it could not look up the service on ${f.port}/`
+          + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol} on ${f.host} (${lookupGap}), so its CVE `
+          + 'rows there were not looked for. It is NOT reported as fixed or as new — rescan once the lookup succeeds.' };
+    }
+  }
   // ⚠️ THE FINDING'S PORT STOPPED ANSWERING (EE 1.1.0 build 12). Open in the run that HOLDS the finding, and in the
   // other run the port scanner ran and put it in NEITHER list: no answer inside its timeout, or not probed. After
   // F6, so a probe-not-measured verdict does not move. Keyed on the HOLDING run's tcpOpen, so a UDP service or a
@@ -941,6 +954,43 @@ function incomparabilityReason(f, mine, theirs) {
     }
   }
   return null;
+}
+
+// ── THE CVE MAPPER'S OWN LOOKUP GAPS, PORT-SCOPED (1.1.1, T1b) ────────────────────────────────────────────────────
+// Enterprise's intelligence engine records a service it could not look up — the NVD lookup failed, the response was
+// not an array, the offline store could not be read or held no entry for the CPE, the program has no CPE alias, the
+// banner carried no version — as `[COVERAGE GAP] <gapClass> — <protocol>/<service>` with a `gapClass` and NO
+// `evidenceGap` flag. So since 0.2.55 a failed lookup made the baseline's CVE rows on that service read RESOLVED (TCP
+// and UDP alike). Flagging the record `evidenceGap` would not do: the recorded-gap leg keys PRODUCER-wide, so one
+// cpe_map_miss — every run has some — would set aside every engine row on the host. So it is PORT-SCOPED, on
+// (host, port, transport) from the gap record's own target, and it applies to the CVE mapper's rows alone.
+//
+// ⚠️ THE TABLE CLASSIFIES EVERY GAP CLASS THE ENGINE DECLARES, and Enterprise's test holds it in two-way equality with
+// the engine's GAP_CLASSES, so a class the engine adds and nobody classified fails the build — incompleteness costs
+// noise, never silence. `offline_store_no_match` is a lookup failure too: a CPE absent from the store is
+// indistinguishable from an incomplete store, and a baseline that HAD rows for that CPE means the store moved.
+export const ENGINE_GAP_CLASS_KIND = Object.freeze({
+  nvd_lookup_failure: 'lookup-failed',
+  nvd_response_not_array: 'lookup-failed',
+  offline_store_read_error: 'lookup-failed',
+  offline_store_no_match: 'lookup-failed',
+  cpe_map_miss: 'lookup-failed',
+  no_version_detected: 'lookup-failed',
+  truncated_low_severity_cves: 'note',      // a COVERAGE NOTE: the lookup worked and some LOW rows were folded
+  input_gap: 'input-gap',                   // the engine's input gap — an evidence gap, handled by the recorded-gap leg
+});
+/** A CVE-mapper lookup-gap row, port-scoped. Written as plain `f.` reads so the boundary contract sees them. */
+export const isEngineLookupGap = (f) => f != null && f.plugin === CVE_MAPPER_PRODUCER
+  && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'lookup-failed' && Number(f.port) > 0;
+/** The key a lookup gap and the CVE rows it covers share: host (as `hostKey`), port, and the TRANSPORT of the label. */
+export const engineLookupGapKey = (host, port, protocol) =>
+  `${hostKey(host)}|${Number(port)}|${TRANSPORT_OF_LABEL[String(protocol ?? '').toLowerCase()] ?? `label:${String(protocol ?? '').toLowerCase()}`}`;
+function engineLookupGapsOf(findings) {
+  const out = new Map();
+  for (const f of Array.isArray(findings) ? findings : []) {
+    if (isEngineLookupGap(f)) out.set(engineLookupGapKey(f.host, f.port, f.protocol), f.gapClass);
+  }
+  return out;
 }
 
 // A UDP row that RESOLVED or APPEARED did so because the other run MEASURED its port (1.1.1) — so the row shows that
@@ -1152,8 +1202,10 @@ export function buildScanDelta({ baseline, current }) {
   // A declared scope boundary is set aside the same way (read into `scopeOf` as a statement); a row
   // flagged as both is a gap, which the line above already removes.
   const isScopeStatement = (f) => f.deferredScope === true;
-  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
-  const cFind = (current?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
+  // ⚠️ AND THE CVE MAPPER'S LOOKUP GAPS (1.1.1, T1b): read into `scopeOf` above, port-scoped. Paired like findings, one
+  // that vanished read RESOLVED and one that appeared read NEW — a gap is scope, never a finding.
+  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f) && !isEngineLookupGap(f));
+  const cFind = (current?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f) && !isEngineLookupGap(f));
   if ((baseline?.findings ?? []).some(isGap) || (current?.findings ?? []).some(isGap)) {
     // ⚠️ THE WORDING AVOIDS THE LITERAL BUCKET NAME ON PURPOSE. `scripts/board_probe_delta_driver.mjs`
     // harvests reasons by matching that phrase against every output line, so a LIMIT containing it
