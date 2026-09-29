@@ -120,7 +120,7 @@ test('(a) open in the baseline, FILTERED now → NOT COMPARABLE port-not-measure
     assert.equal(nc.reason, PORT_NOT_MEASURED_REASON);
     assert.equal(nc.direction, 'disappeared');
   }
-  assert.match(d.notComparable[0].detail, /port 21 on 192\.0\.2\.1 was open in the run that holds this finding/);
+  assert.match(d.notComparable[0].detail, /port 21 on 192\.0\.2\.1 was open in the baseline run, and this run's port scanner recorded it neither open nor closed/);
   assert.match(d.notComparable[0].detail, /NOT reported as fixed or as new/);
 });
 

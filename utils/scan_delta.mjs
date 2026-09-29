@@ -123,18 +123,18 @@ const identified = (program) => typeof program === 'string' && program.trim() !=
  *
  * @returns {{measured: true, basis: string} | {measured: false, kind: 'no-oracle'|'not-answered'|'unidentified', why: string}}
  */
-export function udpPortMeasurement(port, producer, services) {
+export function udpPortMeasurement(port, producer, services, runName = 'the other run') {
   if (!Array.isArray(services)) {
-    return { measured: false, kind: 'no-oracle', why: 'the other run recorded no service set, so nothing says whether a UDP service answered there' };
+    return { measured: false, kind: 'no-oracle', why: `${runName} recorded no service set, so nothing says whether a UDP service answered there` };
   }
   const here = services.filter((s) => Number(s?.port) === Number(port));
   const closed = here.find((s) => s?.status === 'closed');
-  if (closed) return { measured: true, basis: `${port}/udp closed in the other run (${closed.service ?? closed.protocol} closed)` };
+  if (closed) return { measured: true, basis: `${port}/udp closed in ${runName} (${closed.service ?? closed.protocol} closed)` };
   const open = here.filter((s) => s?.status === 'open');
   if (open.length === 0) {
     return { measured: false, kind: 'not-answered', why: here.length
-      ? `in the other run no UDP service answered on that port (${here.map((s) => `${s.service ?? s.protocol} ${s.status ?? 'no status'}`).join(', ')})`
-      : 'the other run\'s service set holds no UDP service on that port' };
+      ? `in ${runName} no UDP service answered on that port (${here.map((s) => `${s.service ?? s.protocol} ${s.status ?? 'no status'}`).join(', ')})`
+      : `${runName}'s service set holds no UDP service on that port` };
   }
   if (producer === CVE_MAPPER_PRODUCER) {
     // ⚠️ A VERSION, NOT A PLACEHOLDER: the producers write an absent version as the literal `Unknown`, and the mapper
@@ -142,18 +142,28 @@ export function udpPortMeasurement(port, producer, services) {
     const id = open.find((s) => identified(s.program) && identified(s.version));
     if (!id) {
       const s = open[0];
-      return { measured: false, kind: 'unidentified', why: `in the other run the UDP service answered but was not identified (program `
+      return { measured: false, kind: 'unidentified', why: `in ${runName} the UDP service answered but was not identified (program `
         + `${identified(s.program) ? s.program : (s.program ?? 'absent')}, version ${identified(s.version) ? s.version : (s.version ?? 'absent')}), so the CVE mapper could not have matched it` };
     }
-    return { measured: true, basis: `${port}/udp answered in the other run (${id.service ?? id.protocol} open · ${id.program} ${id.version})` };
+    return { measured: true, basis: `${port}/udp answered in ${runName} (${id.service ?? id.protocol} open · ${id.program} ${id.version})` };
   }
   const s = open[0];
   const who = identified(s.program) ? ` · ${s.program}${s.version ? ` ${s.version}` : ''}` : '';
-  return { measured: true, basis: `${port}/udp answered in the other run (${s.service ?? s.protocol} open${who})` };
+  return { measured: true, basis: `${port}/udp answered in ${runName} (${s.service ?? s.protocol} open${who})` };
 }
 // The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
 // the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
 export const INPUT_GAP_CLASS = 'input_gap';
+
+// ⚠️ RUNS ARE NAMED ABSOLUTELY IN EVERY DETAIL (1.1.1 — the audit seat's T1-c fold 1). The executive page prefixes a
+// not-comparable row with its direction in absolute terms ("absent from this run" / "appeared in this run", this run =
+// the CURRENT run), and the details used to name runs RELATIVE to the side holding the row ("in the other run") — which
+// for a row that DISAPPEARED is also the current run, so the assembled line placed a current-run failure in the
+// baseline. The call site knows the frame and passes it; `udpPortMeasurement` keeps "the other run" only as its DEFAULT,
+// because Enterprise's MTTR rewords that phrase for its own frame.
+export const RUN_NAMES = Object.freeze({ current: 'this run', baseline: 'the baseline run' });
+const FRAME_DISAPPEARED = Object.freeze({ mine: RUN_NAMES.baseline, theirs: RUN_NAMES.current });
+const FRAME_APPEARED = Object.freeze({ mine: RUN_NAMES.current, theirs: RUN_NAMES.baseline });
 
 export const NOT_COMPARABLE_REASONS = Object.freeze([
   'host-not-scanned',              // the other run never wrote this host
@@ -567,7 +577,7 @@ function portStateOf(byHost) {
   return out;
 }
 
-function scopeNotScanned(f, mine, theirs) {
+function scopeNotScanned(f, mine, theirs, names) {
   const provider = hostKey(f?.host);
   const mineEntry = mine?.scopeScanned?.[provider] ?? null;
   const theirEntry = theirs?.scopeScanned?.[provider] ?? null;
@@ -596,15 +606,15 @@ function scopeNotScanned(f, mine, theirs) {
   } else if (!mineEntry) {
     // Guard (1) already returned when NEITHER side knows, so the other side does know — and this
     // finding's own run does not. Which unit it belongs to is unknowable, so it fails closed.
-    return `this run's record carries no ${unitName} scope, so which ${unitName} this finding `
-      + 'belongs to is not known — it cannot be called fixed or new against the other run';
+    return `${names.mine}'s record carries no ${unitName} scope, so which ${unitName} this finding `
+      + `belongs to is not known — it cannot be called fixed or new against ${names.theirs}`;
   } else {
     value = mineEntry.scanned?.[0] ?? null;
     if (value === null) return null;                          // (2) recorded an empty scope
   }
 
   if (!theirEntry) {
-    return `the other run's record carries no ${unitName} scope, so it is not known whether `
+    return `${names.theirs}'s record carries no ${unitName} scope, so it is not known whether `
       + `${unitName} ${value} was covered there — this finding cannot be called fixed or new `
       + 'against an unknown scope';
   }
@@ -630,14 +640,14 @@ function scopeNotScanned(f, mine, theirs) {
     // and refuse every archived comparison at once.
     const perProducer = theirEntry.byPlugin?.[String(f?.plugin)];
     if (Array.isArray(perProducer) && !perProducer.includes(value)) {
-      return `${unitName} ${value} is inside the other run's overall scope, but producer `
+      return `${unitName} ${value} is inside ${names.theirs}'s overall scope, but producer `
         + `${f.plugin} only covered ${perProducer.join(', ') || 'no ' + unitName + 's'} there — `
         + 'the run-level set is the union across producers, so this surface was not looked at by '
         + 'the producer that would have found it, which is not the same as the finding being fixed';
     }
     return null;                                              // genuinely comparable
   }
-  return `${unitName} ${value} was outside the other run's recorded scope `
+  return `${unitName} ${value} was outside ${names.theirs}'s recorded scope `
     + `(${[...covered].join(', ') || 'none recorded'}) — the surface was not looked at there, `
     + 'which is not the same as the finding being fixed';
 }
@@ -788,8 +798,8 @@ export const producerNoun = (f) => (f?.producerKind === 'agent' ? 'producer' : '
 
 // Why a finding present in ONE run cannot be compared against the other. Order matters only for
 // which reason is reported first; each is independently sufficient.
-function incomparabilityReason(f, mine, theirs) {
-  if (!theirs.hosts.has(hostKey(f.host))) return { reason: 'host-not-scanned', detail: `host ${f.host} was not scanned in the other run` };
+function incomparabilityReason(f, mine, theirs, names) {
+  if (!theirs.hosts.has(hostKey(f.host))) return { reason: 'host-not-scanned', detail: `host ${f.host} was not scanned in ${names.theirs}` };
   // ⚠️ A NULL IDENTITY MAY NEVER SATISFY A SCOPE CHECK, and it may never be DESCRIBED as one
   // either. Before this leg a finding with no producer fell into `plugin-not-run` and reported
   // "plugin null did not run in the other run" — a sentence that is false about the run, about a
@@ -797,7 +807,7 @@ function incomparabilityReason(f, mine, theirs) {
   // missing. It is checked FIRST because every leg below keys on the producer.
   if (f.plugin == null) {
     return { reason: 'producer-unknown',
-      detail: 'this finding carries no producer identity, so whether it was in scope in the other run cannot be established' };
+      detail: `this finding carries no producer identity, so whether it was in scope in ${names.theirs} cannot be established` };
   }
   // ⚠️ THE ORACLE DEPENDS ON THE PRODUCER KIND, and guessing it from the string's SHAPE is what
   // this leg refuses to do. A plugin id is answerable from `pluginsRequested`. An EE analysis
@@ -814,7 +824,7 @@ function incomparabilityReason(f, mine, theirs) {
     // an agent. Delete that guard and this sentence starts calling agents plugins, which is the
     // defect the identity branch below had to be repaired for. The coupling is written here
     // because a reader deleting the guard is reading THIS line, not the sentence's test.
-    return { reason: PLUGIN_NOT_RUN_REASON, detail: `plugin ${producerLabel(f)} did not run in the other run` };
+    return { reason: PLUGIN_NOT_RUN_REASON, detail: `plugin ${producerLabel(f)} did not run in ${names.theirs}` };
   }
   // ⚠️ ENTERPRISE'S STAGE DID NOT RUN ON THIS HOST IN ONE OF THE RUNS (1.1.1 — the audit seat's T1-c ruling). A failed
   // LOAD (utils/ee_load.mjs) or a failed ENRICHMENT leaves the host with no analysis-agent and no CVE-mapper rows, while
@@ -827,7 +837,7 @@ function incomparabilityReason(f, mine, theirs) {
     const k = hostKey(f.host);
     const stage = theirs.eeStages?.get(k) ?? mine.eeStages?.get(k);
     if (stage) {
-      const which = theirs.eeStages?.has(k) ? 'the other run' : 'this run';
+      const which = theirs.eeStages?.has(k) ? names.theirs : names.mine;
       const what = stage.loadError ? 'failed to load' : 'failed during enrichment';
       return { reason: 'evidence-gap',
         detail: `Enterprise ${what} on ${f.host} in ${which} — none of its analysis agents or its CVE mapper ran there, so `
@@ -866,7 +876,7 @@ function incomparabilityReason(f, mine, theirs) {
   // EIGHT unremediated `eu-west-1` findings as RESOLVED — GuardDuty NOT ENABLED, Inspector2
   // DISABLED, default EBS encryption DISABLED — because narrowing a follow-up scan is a normal
   // operator action and nothing in the record could tell it from remediation.
-  const scopeMiss = scopeNotScanned(f, mine, theirs);
+  const scopeMiss = scopeNotScanned(f, mine, theirs, names);
   if (scopeMiss) return { reason: SCOPE_NOT_SCANNED_REASON, detail: scopeMiss };
 
   // ⚠️ `theirs` ONLY, AND THE `?? mine.gaps` THAT USED TO SIT HERE WAS WRONG IN BOTH HALVES.
@@ -889,9 +899,9 @@ function incomparabilityReason(f, mine, theirs) {
   if (gap) {
     return gap.kind === 'recorded-gap'
       ? { reason: 'evidence-gap',
-        detail: `the other run recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap.reason}` }
+        detail: `${names.theirs} recorded an evidence gap on ${f.host}/${producerLabel(f)}: ${gap.reason}` }
       : { reason: PLUGIN_NOT_MEASURED_REASON,
-        detail: `${f.host}/${producerLabel(f)} was not measured in the other run — ${gap.reason}` };
+        detail: `${f.host}/${producerLabel(f)} was not measured in ${names.theirs} — ${gap.reason}` };
   }
   // ⚠️ THE FINDING'S PORT WAS NOT MEASURED IN THE OTHER RUN (EE 1.1.0 build 9, F6). Any producer's row: a
   // probe that could not complete on an OPEN port starves every consumer of that port's service. Placed
@@ -899,7 +909,7 @@ function incomparabilityReason(f, mine, theirs) {
   const portGap = f.port != null && Number(f.port) > 0 ? theirs.portGaps?.get(portGapKey(f.host, f.port)) : null;
   if (portGap) {
     return { reason: PROBE_NOT_MEASURED_REASON,
-      detail: `port ${f.port} on ${f.host} was not measured in the other run — a probe ran there and did not `
+      detail: `port ${f.port} on ${f.host} was not measured in ${names.theirs} — a probe ran there and did not `
         + `complete its connection (${portGap}). It is NOT reported as fixed or as new — rescan to compare.` };
   }
   // ⚠️ THE CVE MAPPER COULD NOT LOOK THIS SERVICE UP IN THE OTHER RUN (1.1.1, T1b). Its own lookup gap on the same
@@ -918,7 +928,7 @@ function incomparabilityReason(f, mine, theirs) {
     const lookupGap = theirs.engineLookupGaps?.get(engineLookupGapKey(f.host, f.port, f.protocol));
     if (lookupGap) {
       return { reason: 'evidence-gap',
-        detail: `the CVE mapper recorded in the other run that it could not look up the service on ${f.port}/`
+        detail: `the CVE mapper recorded in ${names.theirs} that it could not look up the service on ${f.port}/`
           + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol} on ${f.host} (${lookupGap}), so its CVE `
           + 'rows there were not looked for. It is NOT reported as fixed or as new — rescan once the lookup succeeds.' };
     }
@@ -940,7 +950,7 @@ function incomparabilityReason(f, mine, theirs) {
     // `other?.open` — the TCP ORACLE, present only where 003 ran; a host entry may carry the UDP oracle alone (1.1.1).
     if (held?.open?.has(port) && other?.open && other?.closed && !other.open.has(port) && !other.closed.has(port)) {
       return { reason: PORT_NOT_MEASURED_REASON,
-        detail: `port ${port} on ${f.host} was open in the run that holds this finding, and the other run's port `
+        detail: `port ${port} on ${f.host} was open in ${names.mine}, and ${names.theirs}'s port `
           + 'scanner recorded it neither open nor closed — no answer inside its timeout (filtered), or not probed — so '
           + 'the port was not measured there. It is NOT reported as fixed or as new — rescan to compare. (This rule '
           + 'reads TCP ports the port scanner saw open; a UDP-transport finding is judged by its own rule, and a '
@@ -957,7 +967,7 @@ function incomparabilityReason(f, mine, theirs) {
   // With no service set recorded the rule FIRES: a UDP row with no oracle has no measurement at all (deliberately
   // unlike the TCP rule's silence without 003). A PORTLESS UDP row (mdns/0) stays outside, as a host-wide row does.
   if (port > 0 && udpRow) {
-    const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null);
+    const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null, names.theirs);
     if (!m.measured) {
       // The explanation follows the BRANCH: a service that answered but was not identified was not silent (the verifier
       // of the first draft found it told the reader both), and rescanning will not change it while its version is hidden.
@@ -1028,10 +1038,10 @@ function engineLookupGapsOf(findings) {
 // A UDP row that RESOLVED or APPEARED did so because the other run MEASURED its port (1.1.1) — so the row shows that
 // work, in the client's own report: the Pro page sells a resolved column that says why it was trusted. `basisNote` is
 // output-only; nothing here reads it back.
-function withUdpBasis(f, theirs) {
+function withUdpBasis(f, theirs, theirName) {
   const port = Number(f.port);
   if (!(port > 0) || !isUdpTransport(f.protocol)) return f;
-  const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null);
+  const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null, theirName);
   return m.measured ? { ...f, basisNote: m.basis } : f;
 }
 
@@ -1298,17 +1308,17 @@ export function buildScanDelta({ baseline, current }) {
       else unchanged.push(f);
       continue;
     }
-    const why = incomparabilityReason(f, bScope, cScope);
+    const why = incomparabilityReason(f, bScope, cScope, FRAME_DISAPPEARED);
     if (why) notComparable.push({ ...f, direction: 'disappeared', ...why });
-    else resolved.push(withUdpBasis(f, cScope));
+    else resolved.push(withUdpBasis(f, cScope, RUN_NAMES.current));
   }
   for (const [k, f] of cMap) {
     if (bMap.has(k)) continue;
     // The mirror, and it is not symmetric in danger: a finding "new" only because its host or
     // plugin was out of scope last time is NEW COVERAGE, not a new exposure.
-    const why = incomparabilityReason(f, cScope, bScope);
+    const why = incomparabilityReason(f, cScope, bScope, FRAME_APPEARED);
     if (why) notComparable.push({ ...f, direction: 'appeared', ...why });
-    else newFindings.push(withUdpBasis(f, bScope));
+    else newFindings.push(withUdpBasis(f, bScope, RUN_NAMES.baseline));
   }
 
   return {

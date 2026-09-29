@@ -143,13 +143,13 @@ test('(q7) an AGENT row: the other run\'s SNMP answered on 161 → the absence i
   const d = delta([udp(161, SNMP)], scanned(TCP_BOTH, HOST, ANSWERED_161), [], scanned(TCP_BOTH, HOST, ANSWERED_161));
   assert.equal(d.resolved.length, 1, 'SNMP answered and no longer accepts "public" — that is a fix');
   assert.deepEqual(d.notComparable, []);
-  assert.equal(d.resolved[0].basisNote, '161/udp answered in the other run (snmp open · net-snmp 5.9)');
+  assert.equal(d.resolved[0].basisNote, '161/udp answered in this run (snmp open · net-snmp 5.9)');
 });
 
 test('(q7) the APPEARED direction: the baseline\'s service answered on that port → NEW, with its basis', () => {
   const d = delta([], scanned(TCP_BOTH, HOST, ANSWERED_161), [udp(161, SNMP)], scanned(TCP_BOTH, HOST, ANSWERED_161));
   assert.equal(d.newFindings.length, 1);
-  assert.match(d.newFindings[0].basisNote, /^161\/udp answered in the other run/);
+  assert.match(d.newFindings[0].basisNote, /^161\/udp answered in the baseline run/);
 });
 
 test('(q7) the version-bump shape: the ENGINE\'s udp/53 rows, dnsmasq answered AND identified in both runs → resolved AND new', () => {
@@ -158,13 +158,13 @@ test('(q7) the version-bump shape: the ENGINE\'s udp/53 rows, dnsmasq answered A
     [udp(53, 'CVE-2020-25681 — udp/dns', eng)], scanned(TCP_BOTH, HOST, ANSWERED_53));
   assert.equal(d.resolved.length, 1);
   assert.equal(d.newFindings.length, 1);
-  assert.equal(d.resolved[0].basisNote, '53/udp answered in the other run (dns open · dnsmasq 2.79)');
+  assert.equal(d.resolved[0].basisNote, '53/udp answered in this run (dns open · dnsmasq 2.79)');
 });
 
 test('(q7) a UDP port CLOSED in the other run WAS measured (the concluder writes `closed` only from ECONNREFUSED) → RESOLVED', () => {
   const d = delta([udp(161, SNMP)], scanned(TCP_BOTH, HOST, ANSWERED_161), [], scanned(TCP_BOTH, HOST, [us(161, 'snmp', 'closed')]));
   assert.equal(d.resolved.length, 1);
-  assert.equal(d.resolved[0].basisNote, '161/udp closed in the other run (snmp closed)');
+  assert.equal(d.resolved[0].basisNote, '161/udp closed in this run (snmp closed)');
 });
 
 test('(a) THE ENGINE CONDITION: 53/udp answered but its program is `Unknown` → NOT COMPARABLE, the detail naming the unidentified program', () => {
@@ -210,7 +210,7 @@ test('(a) THE ENGINE CONDITION, version half: a known program with NO version �
 test('(q7) the engine condition does NOT reach an AGENT row: `open` suffices for an agent even with program Unknown', () => {
   const d = delta([udp(161, SNMP)], scanned(TCP_BOTH, HOST, ANSWERED_161), [], scanned(TCP_BOTH, HOST, [us(161, 'snmp', 'open', 'Unknown')]));
   assert.equal(d.resolved.length, 1);
-  assert.equal(d.resolved[0].basisNote, '161/udp answered in the other run (snmp open)');
+  assert.equal(d.resolved[0].basisNote, '161/udp answered in this run (snmp open)');
 });
 
 test('(a) the other run\'s service did NOT answer on that port (`no response`) → NOT COMPARABLE, the status named', () => {

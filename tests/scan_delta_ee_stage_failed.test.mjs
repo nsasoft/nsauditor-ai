@@ -74,7 +74,7 @@ test('(a) Enterprise FAILED TO LOAD on the host now → the baseline\'s agent AN
   for (const nc of d.notComparable) {
     assert.equal(nc.reason, 'evidence-gap');
     assert.equal(nc.direction, 'disappeared');
-    assert.match(nc.detail, /Enterprise failed to load on 192\.0\.2\.1 in the other run/);
+    assert.match(nc.detail, /Enterprise failed to load on 192\.0\.2\.1 in this run/, 'named absolutely: the failure is in the CURRENT run');
     assert.match(nc.detail, /isUdpTransport/, 'the recorded error is carried');
   }
 });
@@ -82,7 +82,7 @@ test('(a) Enterprise FAILED TO LOAD on the host now → the baseline\'s agent AN
 test('(a) Enterprise\'s ENRICHMENT threw on the host now → the same refusal, and the detail says which stage', () => {
   const d = buildScanDelta({ baseline: side('A', [agent('No transport encryption: ftp on port 21')]), current: side('B', [], { [HOST]: ENRICH }) });
   assert.equal(d.resolved.length, 0);
-  assert.match(d.notComparable[0]?.detail ?? '', /Enterprise failed during enrichment on 192\.0\.2\.1 in the other run/);
+  assert.match(d.notComparable[0]?.detail ?? '', /Enterprise failed during enrichment on 192\.0\.2\.1 in this run/);
 });
 
 test('(a) the APPEARED direction: the BASELINE\'s Enterprise failed, an agent row appears now → not NEW', () => {
@@ -95,7 +95,17 @@ test('(a) the APPEARED direction: the BASELINE\'s Enterprise failed, an agent ro
 test('(a) the side HOLDING the row recorded the failure (a partial queue written before enrichment threw) → not RESOLVED either', () => {
   const d = buildScanDelta({ baseline: side('A', [agent('No transport encryption: ftp on port 21')], { [HOST]: ENRICH }), current: side('B', []) });
   assert.equal(d.resolved.length, 0);
-  assert.match(d.notComparable[0]?.detail ?? '', /Enterprise failed during enrichment on 192\.0\.2\.1 in this run/);
+  assert.match(d.notComparable[0]?.detail ?? '', /Enterprise failed during enrichment on 192\.0\.2\.1 in the baseline run/);
+});
+
+test('ORDER, pinned: an ENGINE row straddling its identity-basis change (EE 1.0.0 → 1.1.1) on a host whose Enterprise failed now → evidence-gap — a stage that did not run is a coverage fact and answers first', () => {
+  const base = side('A', [agent('CVE-2023-38408 — tcp/ssh', 'intelligence_engine')]);
+  base.record = { ...base.record, eeVersion: '1.0.0' };
+  // Precondition: WITHOUT the stage failure the same pair is identity-basis-changed, so both legs genuinely reach this row.
+  assert.equal(buildScanDelta({ baseline: base, current: side('B', []) }).notComparable[0]?.reason, 'identity-basis-changed');
+  const d = buildScanDelta({ baseline: base, current: side('B', [], { [HOST]: LOAD }) });
+  assert.equal(d.notComparable[0]?.reason, 'evidence-gap');
+  assert.match(d.notComparable[0]?.detail ?? '', /Enterprise failed to load/);
 });
 
 // ── THROUGH THE LOADER: two sealed runs on disk, the flag read from the written raw ──────────────────────────

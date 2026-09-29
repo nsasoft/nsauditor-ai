@@ -68,7 +68,7 @@ test('a row on the port the run could NOT measure is not-comparable probe-not-me
   assert.equal(d.notComparable.length, 1);
   assert.equal(d.notComparable[0].reason, PROBE_NOT_MEASURED_REASON);
   assert.equal(d.notComparable[0].direction, 'disappeared');
-  assert.match(d.notComparable[0].detail, /port 443 on 192\.0\.2\.1 was not measured in the other run/);
+  assert.match(d.notComparable[0].detail, /port 443 on 192\.0\.2\.1 was not measured in this run/);
 });
 
 test('ANY producer\'s row on that port is set aside — the probe starved every consumer of the port', () => {

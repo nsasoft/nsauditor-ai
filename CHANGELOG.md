@@ -55,12 +55,18 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   run's seal covered it as its own. The directory is now created exclusively; on a collision the scan takes the next
   free suffix (`_2`, `_3`, …) and prints a `[scan] WARNING:` line on stdout naming both directories. When the seconds
   differ, the name is byte-identical to before.
+- **Every not-comparable reason now names its run absolutely.** The client report prefixes a not-comparable row with
+  "absent from this run" or "appeared in this run" (this run = the current one), and each reason's detail named runs
+  relative to the scan holding the row — "in the other run" — which for a row that disappeared is also this run, so
+  the assembled line placed a current-run event in the baseline. Details now say "this run" and "the baseline run"
+  (and a UDP row's basis note likewise) in both directions.
 - **An Enterprise package that is installed but fails to load is no longer read as "not installed".** The scan
   imported Enterprise inside a catch that treated EVERY failure as absence, so a load failure — Enterprise importing a
   name this Community does not export, the shape of an Enterprise release run above a Community below its peer
   floor — ran the scan with no analysis agents, no CVE mapper and no compliance report, and said nothing; the Pro
-  delta then read every agent and engine finding that host held before as RESOLVED. The package is now RESOLVED
-  first: not installed stays silent, and installed-but-failed prints `[EE] Enterprise is installed but FAILED TO
+  delta then read every agent and engine finding that host held before as RESOLVED. Presence is now decided by the
+  package's MANIFEST (a truncated install, or an exports map that does not serve the entry, is installed and broken —
+  not absent): not installed stays silent, and installed-but-failed prints `[EE] Enterprise is installed but FAILED TO
   LOAD …` on stderr and records `eeLoadError` on the scan's conclusion, beside the existing `eeEnrichmentError`
   (enrichment that threw). The delta reads both from each host's conclusion and reports an Enterprise producer's
   finding on a host where EITHER run recorded one as NOT COMPARABLE under `evidence-gap`, naming the stage and the

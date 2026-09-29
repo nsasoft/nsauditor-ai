@@ -70,6 +70,58 @@ test('(a) the DEFAULT resolver decides presence when no seam is given — and is
   } finally { L.resolverDeps.resolve = saved; }
 });
 
+// ── REAL PACKAGES: Node's own resolver decides (the audit seat's T1-c fold 2) ───────────────────────────────
+// Resolving the package ENTRY answers "does its entry resolve", not "is it installed": a package whose main file is
+// missing (a truncated install) or whose exports map does not serve "." throws ERR_MODULE_NOT_FOUND /
+// ERR_PACKAGE_PATH_NOT_EXPORTED at resolution — and read as ABSENT, the installed-but-broken class one layer down.
+// Presence is decided by the package MANIFEST; any failure of the import itself is then a load failure. Each case is a
+// real package in a scratch node_modules, resolved and imported by a child `node` from that directory.
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const EE_LOAD_URL = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'utils', 'ee_load.mjs')).href;
+function inScratch(pkg, files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-eepkg-'));
+  try {
+    if (pkg) {
+      const root = path.join(dir, 'node_modules', '@nsasoft', 'nsauditor-ai-ee');
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@nsasoft/nsauditor-ai-ee', version: '9.9.9', type: 'module', ...pkg }));
+      for (const [f, text] of Object.entries(files ?? {})) fs.writeFileSync(path.join(root, f), text);
+    }
+    fs.writeFileSync(path.join(dir, 'child.mjs'), `import * as L from ${JSON.stringify(EE_LOAD_URL)};
+const r = await L.loadEnterprise({ resolveEE: (s) => import.meta.resolve(s), importEE: () => import('@nsasoft/nsauditor-ai-ee') });
+process.stdout.write(JSON.stringify({ loaded: r.ee ? Object.keys(r.ee).sort() : null, loadError: r.loadError }));`);
+    const out = spawnSync(process.execPath, [path.join(dir, 'child.mjs')], { cwd: dir, encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    return JSON.parse(out.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('(q1) REAL — a healthy package loads', () => {
+  assert.deepEqual(inScratch({ main: 'index.mjs' }, { 'index.mjs': 'export const enrichScan = 1;' }), { loaded: ['enrichScan'], loadError: null });
+});
+
+test('(q1) REAL — no package at all is ABSENT, silent', () => {
+  assert.deepEqual(inScratch(null), { loaded: null, loadError: null });
+});
+
+test('(a) REAL — the package is there and its MAIN FILE is missing (a truncated install) → a LOAD error, never absent', () => {
+  const r = inScratch({ main: 'index.mjs' }, {});
+  assert.equal(r.loaded, null);
+  assert.ok(r.loadError, 'installed-but-broken must not read as not installed');
+});
+
+test('(a) REAL — an exports map that does not serve "." → a LOAD error, never absent', () => {
+  const r = inScratch({ exports: { './other': './other.mjs' } }, { 'other.mjs': 'export const x = 1;' });
+  assert.ok(r.loadError);
+});
+
+test('(a) REAL — an exports map that serves its manifest but not "." → a LOAD error, never absent', () => {
+  const r = inScratch({ exports: { './package.json': './package.json' } }, {});
+  assert.ok(r.loadError);
+});
+
 // ── THROUGH THE SHIPPED SCAN PATH ─────────────────────────────────────────────────────────────────────
 import { main } from '../cli.mjs';
 

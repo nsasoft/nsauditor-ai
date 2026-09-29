@@ -194,7 +194,7 @@ test('1.1.1 — a UDP row that RESOLVED shows WHY its port counts as measured, o
   });
   assert.equal(delta.resolved.length, 1);
   const row = rowFor(render(delta), 'RESOLVED-UDP-ROW');
-  assert.match(row, /161\/udp answered in the other run \(snmp open · net-snmp 5\.9\)/);
+  assert.match(row, /161\/udp answered in this run \(snmp open · net-snmp 5\.9\)/);
 });
 
 test('1.1.1 — a NON-UDP resolved row gains no UDP basis (the note is the UDP rule\'s, not a new default)', () => {
