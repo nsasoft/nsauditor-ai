@@ -55,6 +55,18 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   run's seal covered it as its own. The directory is now created exclusively; on a collision the scan takes the next
   free suffix (`_2`, `_3`, …) and prints a `[scan] WARNING:` line on stdout naming both directories. When the seconds
   differ, the name is byte-identical to before.
+- **An Enterprise package that is installed but fails to load is no longer read as "not installed".** The scan
+  imported Enterprise inside a catch that treated EVERY failure as absence, so a load failure — Enterprise importing a
+  name this Community does not export, the shape of an Enterprise release run above a Community below its peer
+  floor — ran the scan with no analysis agents, no CVE mapper and no compliance report, and said nothing; the Pro
+  delta then read every agent and engine finding that host held before as RESOLVED. The package is now RESOLVED
+  first: not installed stays silent, and installed-but-failed prints `[EE] Enterprise is installed but FAILED TO
+  LOAD …` on stderr and records `eeLoadError` on the scan's conclusion, beside the existing `eeEnrichmentError`
+  (enrichment that threw). The delta reads both from each host's conclusion and reports an Enterprise producer's
+  finding on a host where EITHER run recorded one as NOT COMPARABLE under `evidence-gap`, naming the stage and the
+  error — never resolved, never new. Community's own plugins are unaffected: a plugin's status governs its findings.
+  ⚠️ Not changed: the `feed`, `compliance` and `attest` subcommands still report a failed Enterprise load as "requires
+  the Enterprise package" (exit 2 — loud, but it names the wrong cause).
 
 ---
 

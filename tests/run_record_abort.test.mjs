@@ -18,6 +18,9 @@ import { main } from '../cli.mjs';
 import { listRunRecords, abortReasonOf } from '../utils/run_record.mjs';
 import { verifyRunChain, chainDigestPath } from '../utils/run_chain.mjs';
 import { loadRun } from '../utils/report_inputs.mjs';
+// NOT INSTALLED, described the way the product decides it (utils/ee_load.mjs): the package does not RESOLVE. A throwing
+// `importEE` alone now means installed-and-broken, which the scan reports (1.1.1).
+const notInstalled = () => { throw Object.assign(new Error("Cannot find package '@nsasoft/nsauditor-ai-ee'"), { code: 'ERR_MODULE_NOT_FOUND' }); };
 
 async function scan(outRoot, host, { allowAll, hooks = {} }) {
   const savedArgv = process.argv;
@@ -28,7 +31,7 @@ async function scan(outRoot, host, { allowAll, hooks = {} }) {
     if (allowAll) process.env.NSA_ALLOW_ALL_HOSTS = '1'; else delete process.env.NSA_ALLOW_ALL_HOSTS;
     process.argv = ['node', 'cli', 'scan', '--host', host, '--plugins', '003', '--ports', '1-2'];
     let error = null;
-    try { await main({ importEE: async () => { throw new Error('injected: EE not installed'); }, ...hooks }); } catch (e) { error = e; }
+    try { await main({ importEE: async () => { throw new Error('injected: EE not installed'); }, ...(hooks.importEE ? {} : { resolveEE: notInstalled }), ...hooks }); } catch (e) { error = e; }
     return error;
   } finally {
     process.argv = savedArgv;

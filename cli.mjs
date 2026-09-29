@@ -29,6 +29,7 @@ import { isBlockedIp, resolveAndValidate } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir, createHostOutDir, safeHost } from './utils/output_dir.mjs';
+import { loadEnterprise } from './utils/ee_load.mjs';
 import { deriveFindingsCount } from './utils/report_inputs.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE, aggregateNvdCache, abortReasonOf } from './utils/run_record.mjs';
@@ -954,11 +955,20 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   let epssDataAsOf = null;
   // Enterprise's report of WHERE the NVD store/cache it read lives (board item 23) — null without EE.
   let nvdCache = null;
-  try {
-    // `opts.importEE`: test-only injection seam, mirroring `preflightNsauditorPosture`'s
-    // `importEE` option elsewhere in this file — absent in every real invocation.
-    ee = opts?.importEE ? await opts.importEE() : await import('@nsasoft/nsauditor-ai-ee');
-  } catch { /* EE not installed — CE proceeds unchanged. The ONLY silent case. */ }
+  // ⚠️ "NOT INSTALLED" AND "INSTALLED BUT BROKEN" ARE TWO EVENTS (1.1.1, the audit seat's T1-c ruling). This used to be
+  // a bare `catch {}` read as "EE not installed — the ONLY silent case", and every import failure landed in it — measured
+  // at EE 174212f: Enterprise imported names this Community did not export, so below the floor the whole EE stage
+  // vanished without a word and the Pro delta read its rows RESOLVED. The package is RESOLVED first (utils/ee_load.mjs):
+  // absence stays silent; a failed load is named on stderr and recorded on the conclusion, beside `eeEnrichmentError`.
+  // `opts.importEE` / `opts.resolveEE`: test-only seams — absent in every real invocation.
+  const eeLoad = await loadEnterprise({ importEE: opts?.importEE ?? null, resolveEE: opts?.resolveEE ?? null });
+  ee = eeLoad.ee;
+  if (eeLoad.loadError) {
+    console.error(`[EE] Enterprise is installed but FAILED TO LOAD — this scan has no compliance report, no `
+      + `intelligence enrichment and no analysis-agent findings: ${eeLoad.loadError}`);
+    conclusion.result = conclusion.result || {};
+    conclusion.result.eeLoadError = eeLoad.loadError;
+  }
   // ⚠️ HOISTED DELIBERATELY, and only this value. `eeEnrichment` is `const` INSIDE the try below,
   // so reading it at the `appendHostWritten` call ~100 lines on is a ReferenceError — which the
   // suite caught as 16 failures rather than one, because every history comparison swallowed it as
@@ -1381,7 +1391,9 @@ export async function preflightGrcIfRequested(env, opts = {}) {
 // test drive the real scan pipeline (including this function's own run-record wiring) against
 // a controlled, injected EE module — e.g. one whose `enrichScan` reports a specific KEV/EPSS
 // `dataAsOf` — without depending on the real `@nsasoft/nsauditor-ai-ee` package, a real store
-// file, or the machine's own license/tier state being any particular thing.
+// file, or the machine's own license/tier state being any particular thing. An injected `importEE` counts as an
+// INSTALLED package (utils/ee_load.mjs): to describe one that is NOT installed, pass `testHooks.resolveEE` throwing —
+// a throwing `importEE` alone is now a package that is installed and FAILED to load, which the scan reports.
 // Reconstructs a single tier word ('ce' | 'pro' | 'enterprise') from the resolved capability
 // map — never from getTierFromEnv()'s own global cache. `runReport` below deliberately never
 // reads that cache: `caps` is passed in as an argument specifically so Pro is reachable from the
@@ -3139,6 +3151,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
 
   const opts = { insecureHttps };
   if (testHooks.importEE) opts.importEE = testHooks.importEE;
+  if (testHooks.resolveEE) opts.resolveEE = testHooks.resolveEE;
   // `testHooks.nowStamp`: a test seam, absent in every real invocation — it pins the per-host directory's second so a
   // leg can drive the same-second collision through the shipped scan path.
   if (testHooks.nowStamp) opts.nowStamp = testHooks.nowStamp;

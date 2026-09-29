@@ -704,6 +704,10 @@ const scopeOf = (side) => {
     // both lists (the loader's `portScan`), so an absent entry means "no oracle", never "nothing open".
     portState: portStateOf(side?.pluginStatus),
     engineLookupGaps: engineLookupGapsOf(side?.findings),
+    // Where Enterprise's STAGE did not run on a host (1.1.1): the loader's `eeStage` — a failed LOAD or a failed
+    // ENRICHMENT recorded on the host's conclusion — keyed by host.
+    eeStages: new Map((Array.isArray(side?.pluginStatus) ? side.pluginStatus : [])
+      .filter((h) => h?.eeStage && (h.eeStage.loadError || h.eeStage.enrichmentError)).map((h) => [hostKey(h.host), h.eeStage])),
     // The release that WROTE this side. Carried on the scope because the identity-basis
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
@@ -811,6 +815,24 @@ function incomparabilityReason(f, mine, theirs) {
     // defect the identity branch below had to be repaired for. The coupling is written here
     // because a reader deleting the guard is reading THIS line, not the sentence's test.
     return { reason: PLUGIN_NOT_RUN_REASON, detail: `plugin ${producerLabel(f)} did not run in the other run` };
+  }
+  // ⚠️ ENTERPRISE'S STAGE DID NOT RUN ON THIS HOST IN ONE OF THE RUNS (1.1.1 — the audit seat's T1-c ruling). A failed
+  // LOAD (utils/ee_load.mjs) or a failed ENRICHMENT leaves the host with no analysis-agent and no CVE-mapper rows, while
+  // the run record still names Enterprise's version and the same tier — so the whole-comparison refusals above do not
+  // fire, and before this leg every such row the other run held read RESOLVED. A queue-path row (an Enterprise producer)
+  // on a host where EITHER run recorded the failure was not looked for there. `evidence-gap`, the reason an individual
+  // agent's not-run record already carries; Community's plugins are not affected (their own status governs them).
+  // Checked before the identity-basis leg: a stage that did not run is a statement about coverage, and it wins.
+  if (f.producerKind === 'agent') {
+    const k = hostKey(f.host);
+    const stage = theirs.eeStages?.get(k) ?? mine.eeStages?.get(k);
+    if (stage) {
+      const which = theirs.eeStages?.has(k) ? 'the other run' : 'this run';
+      const what = stage.loadError ? 'failed to load' : 'failed during enrichment';
+      return { reason: 'evidence-gap',
+        detail: `Enterprise ${what} on ${f.host} in ${which} — none of its analysis agents or its CVE mapper ran there, so `
+          + `this ${producerNoun(f)}'s rows were not looked for (${String(stage.loadError ?? stage.enrichmentError).slice(0, 200)})` };
+    }
   }
   // ⚠️ THE PRODUCER CHANGED WHAT IT NAMES BETWEEN THESE TWO RELEASES, so its two keys for one
   // object cannot be matched and must not be DIFFERENCED either. Checked here, before the

@@ -14,6 +14,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { main } from '../cli.mjs';
 import { listRunRecords, aggregateNvdCache } from '../utils/run_record.mjs';
+// NOT INSTALLED, described the way the product decides it (utils/ee_load.mjs): the package does not RESOLVE. A throwing
+// `importEE` alone now means installed-and-broken, which the scan reports (1.1.1).
+const notInstalled = () => { throw Object.assign(new Error("Cannot find package '@nsasoft/nsauditor-ai-ee'"), { code: 'ERR_MODULE_NOT_FOUND' }); };
 
 const LOC = (p, source = 'env:NVD_CACHE_DIR', entries = 4) => ({
   path: p, source, state: 'absent',
@@ -49,7 +52,7 @@ function fakeEE(perHost) {
     enrichScan: async (conclusion, opts) => ({ enrichedPrompt: null, exploitIntel: { stores: {} }, nvdStore: perHost[opts.host] ?? undefined }),
   });
 }
-async function drive(hosts, importEE) {
+async function drive(hosts, importEE, extra = {}) {
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-nvdrec-'));
   const savedArgv = process.argv;
   const saved = { SCAN_OUT_PATH: process.env.SCAN_OUT_PATH, OPENAI_OUT_PATH: process.env.OPENAI_OUT_PATH, NSA_ALLOW_ALL_HOSTS: process.env.NSA_ALLOW_ALL_HOSTS };
@@ -58,7 +61,7 @@ async function drive(hosts, importEE) {
     process.env.SCAN_OUT_PATH = outRoot;
     process.env.NSA_ALLOW_ALL_HOSTS = '1';
     process.argv = ['node', 'cli', 'scan', '--host', hosts.join(','), '--plugins', '003', '--ports', '1-2', '--parallel', '1'];
-    await main({ importEE });
+    await main({ importEE, ...extra });
     const records = await listRunRecords(outRoot);
     assert.equal(records.length, 1);
     return records[0];
@@ -76,6 +79,6 @@ test('THROUGH main() — two hosts reporting the same location put it in the run
 });
 
 test('THROUGH main(), FOURTH QUADRANT — without Enterprise the record says null, not a guess', async () => {
-  const rec = await drive(['127.0.0.1'], async () => { throw new Error('injected: EE not installed'); });
+  const rec = await drive(['127.0.0.1'], async () => { throw new Error('injected: EE not installed'); }, { resolveEE: notInstalled });
   assert.equal(rec.nvdCache, null);
 });

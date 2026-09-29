@@ -34,6 +34,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { main } from '../cli.mjs';
 import { listRunRecords } from '../utils/run_record.mjs';
+// NOT INSTALLED, described the way the product decides it (utils/ee_load.mjs): the package does not RESOLVE. A throwing
+// `importEE` alone now means installed-and-broken, which the scan reports (1.1.1).
+const notInstalled = () => { throw Object.assign(new Error("Cannot find package '@nsasoft/nsauditor-ai-ee'"), { code: 'ERR_MODULE_NOT_FOUND' }); };
 
 // A fake `@nsasoft/nsauditor-ai-ee` module whose `enrichScan` reports exploit-intel store
 // state PER HOST — keyed by the real `host` value EE always receives in its own opts bag
@@ -72,7 +75,7 @@ function fakeEEPerHost(behaviors) {
 // is untouched by this file and exercised by Task 3's own tests.
 function driveHooks(behaviors) {
   if (behaviors === 'no-ee') {
-    return { importEE: async () => { throw new Error('injected: EE not installed'); } };
+    return { importEE: async () => { throw new Error('injected: EE not installed'); }, resolveEE: notInstalled };
   }
   return behaviors ? { importEE: fakeEEPerHost(behaviors) } : {};
 }

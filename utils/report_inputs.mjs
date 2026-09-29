@@ -534,6 +534,17 @@ export function udpServicesOf(raw) {
   return out.sort((a, b) => a.port - b.port);
 }
 
+// WHETHER ENTERPRISE'S STAGE RAN ON THIS HOST (1.1.1 — the audit seat's T1-c ruling). The scan writes
+// `conclusion.result.eeLoadError` when the installed Enterprise package failed to LOAD (utils/ee_load.mjs) and
+// `conclusion.result.eeEnrichmentError` when its enrichment THREW; either way its analysis agents and CVE mapper produced
+// nothing on the host. Null when neither was recorded — which is also what a Community-only scan reads.
+export function eeStageOf(raw) {
+  const r = raw?.conclusion?.result ?? {};
+  const loadError = typeof r.eeLoadError === 'string' ? r.eeLoadError : null;
+  const enrichmentError = typeof r.eeEnrichmentError === 'string' ? r.eeEnrichmentError : null;
+  return loadError || enrichmentError ? { loadError, enrichmentError } : null;
+}
+
 function shapeHost(host, dir, raw) {
   const envelopes = Array.isArray(raw.results) ? raw.results : [];
   const up = envelopes.some((e) => e?.result?.up === true);
@@ -552,6 +563,7 @@ function shapeHost(host, dir, raw) {
     pluginStatusRecorded: Array.isArray(raw.pluginStatus),
     portScan: portScanOf(raw),
     udpServices: udpServicesOf(raw),
+    eeStage: eeStageOf(raw),
   };
 }
 
@@ -569,7 +581,7 @@ function buildModel(rec, hosts, counts) {
     // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
     // silently drops every same-named host's own plugin table but the final one's.
     plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus,
-      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan, udpServices: h.udpServices });
+      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan, udpServices: h.udpServices, eeStage: h.eeStage });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;
