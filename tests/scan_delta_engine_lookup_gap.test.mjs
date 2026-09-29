@@ -80,9 +80,18 @@ test('(q1) a COVERAGE NOTE (truncated low-severity CVEs) is not a lookup failure
   assert.equal(d.resolved.length, 1);
 });
 
-test('(q1) the SAME lookup gap in both runs, no CVE rows either side → nothing moves, nothing new, nothing resolved', () => {
+test('(q1) the SAME lookup gap in both runs, no CVE rows either side → it PAIRS (unchanged): nothing new, resolved or refused', () => {
   const d = delta([gap(53, 'udp', 'nvd_lookup_failure')], [gap(53, 'udp', 'nvd_lookup_failure')]);
   assert.equal(d.newFindings.length + d.resolved.length + d.notComparable.length, 0);
+  assert.equal(d.unchanged.length, 1, 'a gap row carried by both runs is paired like any row — the mapper-gap corpus leg pins this');
+});
+
+test('(a) the gap row itself on ONE side only stays VISIBLE, refused with its reason — never dropped from the delta', () => {
+  const d = delta([gap(53, 'udp', 'cpe_map_miss')], []);
+  assert.equal(d.resolved.length, 0);
+  assert.equal(d.notComparable.length, 1);
+  assert.equal(d.notComparable[0].reason, 'evidence-gap');
+  assert.match(d.notComparable[0].detail, /coverage gap that opened or cleared, not an exposure/);
 });
 
 // ── THE DEFECT ────────────────────────────────────────────────────────────────────────────────────────
@@ -90,8 +99,9 @@ test('(a) the CVE lookup FAILED now on udp/53 → the baseline\'s CVE rows are N
   const base = ['CVE-2020-25681', 'CVE-2020-25682', 'CVE-2023-50387'].map((id) => cve(53, 'udp', id));
   const d = delta(base, [gap(53, 'udp', 'nvd_lookup_failure')]);
   assert.equal(d.resolved.length, 0);
-  assert.equal(d.notComparable.length, 3);
-  for (const nc of d.notComparable) {
+  const cveNc = d.notComparable.filter((n) => !String(n.title).startsWith('[COVERAGE GAP]'));
+  assert.equal(cveNc.length, 3);
+  for (const nc of cveNc) {
     assert.equal(nc.reason, 'evidence-gap');
     assert.equal(nc.direction, 'disappeared');
     assert.match(nc.detail, /could not look up/);
@@ -109,8 +119,9 @@ test('(a) TCP too: a failed lookup on 22/tcp sets aside the baseline\'s OpenSSH 
 test('(a) the APPEARED direction: the BASELINE\'s lookup failed, the CVE rows appear now → not NEW', () => {
   const d = delta([gap(53, 'udp', 'nvd_lookup_failure')], [cve(53, 'udp', 'CVE-5')]);
   assert.equal(d.newFindings.length, 0);
-  assert.equal(d.notComparable[0]?.reason, 'evidence-gap');
-  assert.equal(d.notComparable[0]?.direction, 'appeared');
+  const row = d.notComparable.find((n) => n.title.startsWith('CVE-5'));
+  assert.equal(row?.reason, 'evidence-gap');
+  assert.equal(row?.direction, 'appeared');
 });
 
 test('(a) every lookup-failed class sets the rows aside; the gap row ITSELF is never NEW and never RESOLVED', () => {

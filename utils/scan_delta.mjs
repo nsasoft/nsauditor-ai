@@ -883,6 +883,15 @@ function incomparabilityReason(f, mine, theirs) {
   // ⚠️ THE CVE MAPPER COULD NOT LOOK THIS SERVICE UP IN THE OTHER RUN (1.1.1, T1b). Its own lookup gap on the same
   // (host, port, transport) says the CVE rows were not looked for, whatever the port's state — so it answers before
   // the port rules, and before the UDP exemption, whose "answered and identified" cannot say the lookup worked.
+  // ⚠️ AND A LOOKUP-GAP ROW ON ONE SIDE ONLY IS ITSELF NEVER NEW OR RESOLVED (condition 4): it is a record that the
+  // mapper could not look a service up, so its appearing is not a new exposure and its vanishing is not a remediation
+  // (the lookup worked again, or the service changed). It stays visible, with its reason, rather than leaving the table.
+  if (isEngineLookupGap(f)) {
+    return { reason: 'evidence-gap',
+      detail: `this is the CVE mapper's own record that it could not look up the service on ${f.port}/`
+        + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol} (${f.gapClass}), present in only one of the `
+        + 'two runs — a coverage gap that opened or cleared, not an exposure that appeared or was fixed.' };
+  }
   if (f.plugin === CVE_MAPPER_PRODUCER && Number(f.port) > 0) {
     const lookupGap = theirs.engineLookupGaps?.get(engineLookupGapKey(f.host, f.port, f.protocol));
     if (lookupGap) {
@@ -963,7 +972,8 @@ function incomparabilityReason(f, mine, theirs) {
 // `evidenceGap` flag. So since 0.2.55 a failed lookup made the baseline's CVE rows on that service read RESOLVED (TCP
 // and UDP alike). Flagging the record `evidenceGap` would not do: the recorded-gap leg keys PRODUCER-wide, so one
 // cpe_map_miss — every run has some — would set aside every engine row on the host. So it is PORT-SCOPED, on
-// (host, port, transport) from the gap record's own target, and it applies to the CVE mapper's rows alone.
+// (host, port, transport) from the gap record's own target, and it applies to the CVE mapper's rows alone. The gap
+// rows stay paired like findings (unchanged across runs); one on a single side is refused, never NEW or RESOLVED.
 //
 // ⚠️ THE TABLE CLASSIFIES EVERY GAP CLASS THE ENGINE DECLARES, and Enterprise's test holds it in two-way equality with
 // the engine's GAP_CLASSES, so a class the engine adds and nobody classified fails the build — incompleteness costs
@@ -1202,10 +1212,10 @@ export function buildScanDelta({ baseline, current }) {
   // A declared scope boundary is set aside the same way (read into `scopeOf` as a statement); a row
   // flagged as both is a gap, which the line above already removes.
   const isScopeStatement = (f) => f.deferredScope === true;
-  // ⚠️ AND THE CVE MAPPER'S LOOKUP GAPS (1.1.1, T1b): read into `scopeOf` above, port-scoped. Paired like findings, one
-  // that vanished read RESOLVED and one that appeared read NEW — a gap is scope, never a finding.
-  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f) && !isEngineLookupGap(f));
-  const cFind = (current?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f) && !isEngineLookupGap(f));
+  // (The CVE mapper's lookup-gap rows stay PAIRED — unchanged when both runs carry one, which the mapper-gap corpus
+  // leg pins — and one present on ONE side only is refused in `incomparabilityReason`, never NEW or RESOLVED.)
+  const bFind = (baseline?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
+  const cFind = (current?.findings ?? []).filter((f) => !isGap(f) && !isScopeStatement(f));
   if ((baseline?.findings ?? []).some(isGap) || (current?.findings ?? []).some(isGap)) {
     // ⚠️ THE WORDING AVOIDS THE LITERAL BUCKET NAME ON PURPOSE. `scripts/board_probe_delta_driver.mjs`
     // harvests reasons by matching that phrase against every output line, so a LIMIT containing it

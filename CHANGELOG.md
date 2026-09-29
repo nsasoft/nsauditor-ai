@@ -35,7 +35,8 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   lookup made the baseline's CVE rows on that service read resolved, with one NEW gap row as the only trace. Those
   rows are now read as PORT-SCOPED gaps — keyed on host, port and transport, so a TCP-53 failure never reaches a UDP-53
   row — and the CVE mapper's rows on that port are NOT COMPARABLE (`evidence-gap`) in both directions, naming the
-  class. The gap row itself is scope: it is never new and never resolved. Every gap class the engine declares is
+  class. The gap row itself is never new and never resolved: carried by both runs it pairs like any row, and on one
+  side only it is refused with its reason (a gap that opened or cleared). Every gap class the engine declares is
   classified (Enterprise's test holds the table equal to the engine's list); a coverage NOTE is not a lookup failure.
   This completes the UDP rule's exemption for the CVE mapper, which is sound only where the lookup worked.
 - **The client report shows a not-comparable row's direction on the row.** Every not-comparable detail sentence is
