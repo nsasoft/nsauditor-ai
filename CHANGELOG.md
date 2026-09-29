@@ -6,6 +6,22 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## Unreleased
+
+- **Two scans of one host in the same second no longer share an output directory.** The per-host directory is
+  `<host>_<YYYYMMDD_HHMMSS>` — second granularity, local time — and it was created with a recursive `mkdir`, so a
+  second scan reaching that line in the same second reused the first scan's directory and overwrote its
+  `scan_conclusion_raw.json`, exiting 0 with no warning. Three ways reach the same second: back-to-back runs, one run
+  naming a host twice (`--host X,X`), and the repeated hour when daylight saving ends. 0.2.55's per-host seal
+  detected the overwrite and `report` refused the damaged run, but the first scan's evidence was already gone. The
+  fix also closes a quieter shape: when the later scan's Enterprise finding queue was EMPTY, no
+  `scan_finding_queue.json` was written, so the earlier scan's queue stayed in the shared directory and the later
+  run's seal covered it as its own. The directory is now created exclusively; on a collision the scan takes the next
+  free suffix (`_2`, `_3`, …) and prints a `[scan] WARNING:` line on stdout naming both directories. When the seconds
+  differ, the name is byte-identical to before.
+
+---
+
 ## 0.2.55 (2026-09-28) — *what changed since the last scan*, and the three fields that made it honest
 
 ⚠️ **ENTERPRISE 1.1.0 RAISES ITS PEER FLOOR TO COMMUNITY `>= 0.2.55` BECAUSE IT CALLS THIS

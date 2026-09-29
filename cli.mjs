@@ -28,7 +28,7 @@ import { scrubByKey } from './utils/redact.mjs';
 import { isBlockedIp, resolveAndValidate } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
-import { resolveBaseOutDir } from './utils/output_dir.mjs';
+import { resolveBaseOutDir, createHostOutDir, safeHost } from './utils/output_dir.mjs';
 import { deriveFindingsCount } from './utils/report_inputs.mjs';
 import { toCleanPath } from './utils/path_helpers.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, pruneRunRecordsForCE, aggregateNvdCache, abortReasonOf } from './utils/run_record.mjs';
@@ -45,19 +45,7 @@ const parseBool = (val, def = false) => {
   if (!s && def != null) return !!def;
   return ['true', '1', 'yes', 'on', 'y'].includes(s);
 };
-const nowStamp = () => {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return (
-    d.getFullYear().toString() +
-    pad(d.getMonth() + 1) +
-    pad(d.getDate()) + '_' +
-    pad(d.getHours()) +
-    pad(d.getMinutes()) +
-    pad(d.getSeconds())
-  );
-};
-const safeHost = (h) => String(h ?? 'unknown').replace(/[\/\\?%*:|"<>]/g, '_');
+// `nowStamp` and `safeHost` live in utils/output_dir.mjs beside `createHostOutDir`, so the directory name has one definition.
 // toCleanPath imported from ./utils/path_helpers.mjs (consolidated in v0.1.20)
 
 /**
@@ -162,11 +150,8 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   // outputs — otherwise compute one here for legacy callers.
   let outDir = presetOutDir;
   if (!outDir) {
-    const baseOutDir = resolveBaseOutDir();
-    await fsp.mkdir(baseOutDir, { recursive: true });
-    const ts     = nowStamp();
-    const runDir = `${safeHost(host)}_${ts}`;
-    outDir       = path.join(baseOutDir, runDir);
+    // The same exclusive create as scanSingleHost's: a legacy caller must not be able to reuse another run's directory.
+    outDir = await createHostOutDir(resolveBaseOutDir(), host);
   }
   await fsp.mkdir(outDir, { recursive: true });
 
@@ -930,11 +915,11 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // Pre-compute the per-scan output folder so EE enrichment, compliance
   // artifacts, and AI outputs all land in the same directory. maybeSendToOpenAI
   // will reuse this presetOutDir below.
-  const baseOutDir = resolveBaseOutDir();
-  await fsp.mkdir(baseOutDir, { recursive: true });
-  const ts        = nowStamp();
-  const outDir    = path.join(baseOutDir, `${safeHost(host)}_${ts}`);
-  await fsp.mkdir(outDir, { recursive: true });
+  //
+  // ⚠️ AN EXCLUSIVE CREATE (1.1.1 board): two scans of one host reaching this line in the same second used to share
+  // one directory and the later one overwrote the earlier one's evidence — see createHostOutDir. `opts.nowStamp` is
+  // a test seam (testHooks.nowStamp), absent in every real invocation.
+  const outDir = await createHostOutDir(resolveBaseOutDir(), host, opts?.nowStamp ? { stamp: opts.nowStamp } : {});
 
   // EE enrichment hook — no-op if @nsasoft/nsauditor-ai-ee is not installed
   // or the license tier doesn't grant intelligenceEngine. Compliance + outDir
@@ -3156,6 +3141,9 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
 
   const opts = { insecureHttps };
   if (testHooks.importEE) opts.importEE = testHooks.importEE;
+  // `testHooks.nowStamp`: a test seam, absent in every real invocation — it pins the per-host directory's second so a
+  // leg can drive the same-second collision through the shipped scan path.
+  if (testHooks.nowStamp) opts.nowStamp = testHooks.nowStamp;
   if (ports) opts.ports = ports;
   if (compliance) opts.compliance = compliance;
   if (complianceScope) opts.complianceScope = complianceScope;
