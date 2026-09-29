@@ -177,9 +177,14 @@ test('a queue gap record is excluded from the finding COUNT, like every other ga
 // for a row that APPEARED, `theirs` is again the side that failed to look. `mine` is never the
 // side that failed to look at a finding MY OWN run is holding.
 
+// ⚠️ THE FRESH ROW IS ON A TCP LABEL (1.1.1). This leg's subject is GAP OWNERSHIP, and its first fixture sat on
+// mdns 5353/udp — a UDP transport, which since 1.1.1 is never NEW in the appeared direction whatever the gaps say (no
+// UDP producer records a port as closed, so the baseline's silence is not a measurement). Left on UDP the leg would
+// test the UDP rule and prove nothing about ownership; the UDP shape is kept as its own twin below.
 test('FOURTH QUADRANT — my own gap does NOT refuse my own new row', () => {
   const prior = queueFinding('an unrelated prior row');
-  const fresh = queueFinding('[COVERAGE GAP] cpe_map_miss — NEW THING (mdns)');
+  const fresh = queueFinding('[COVERAGE GAP] cpe_map_miss — NEW THING (http)',
+    { target: { host: HOST, port: 8080, protocol: 'tcp', service: 'http' } });
   const d = buildScanDelta({
     baseline: side(shaped([prior]), { runId: 'b' }),                        // full run, no gap
     current: side(shaped([prior, fresh, queueGapRecord()]), { runId: 'c' }), // degraded, carries a gap
@@ -188,6 +193,20 @@ test('FOURTH QUADRANT — my own gap does NOT refuse my own new row', () => {
     'the baseline looked and did not find it; my own run\'s gap explains my ABSENCES, not this');
   assert.equal(d.newFindings[0].title, fresh.title);
   assert.equal(d.notComparable.filter((r) => /NEW THING/.test(String(r.title ?? ''))).length, 0);
+});
+
+test('…its UDP twin: the same row on mdns 5353/udp is not NEW — refused by the UDP rule, and NEVER blamed on my own gap', () => {
+  const prior = queueFinding('an unrelated prior row');
+  const fresh = queueFinding('[COVERAGE GAP] cpe_map_miss — NEW THING (mdns)');
+  const d = buildScanDelta({
+    baseline: side(shaped([prior]), { runId: 'b' }),
+    current: side(shaped([prior, fresh, queueGapRecord()]), { runId: 'c' }),
+  });
+  assert.equal(d.newFindings.length, 0);
+  const row = d.notComparable.find((r) => /NEW THING/.test(String(r.title ?? '')));
+  assert.equal(row?.reason, 'port-not-measured');
+  assert.equal(row?.direction, 'appeared');
+  assert.notEqual(row?.reason, 'evidence-gap', 'the ownership property this pair exists for');
 });
 
 test('FOURTH QUADRANT — my own gap does NOT refuse a row only I am holding, in the other direction', () => {

@@ -74,6 +74,83 @@ export const PROBE_NOT_MEASURED_REASON = 'probe-not-measured';
 // those ports read RESOLVED in the client's delta; five minutes later both ports were open again. A port in the
 // other run's tcpClosed WAS measured, and RESOLVED there stays legitimate. Enterprise's MTTR imports this name.
 export const PORT_NOT_MEASURED_REASON = 'port-not-measured';
+// A UDP-TRANSPORT FINDING THAT VANISHED WAS NOT MEASURED AS FIXED EITHER (1.1.1 board — found by the 1.1.0 web
+// cascade's reviewer driving the shipped engine). The TCP rule above keys on the port NUMBER in the holding run's
+// tcpOpen, so an SNMP 161/udp row that disappeared read RESOLVED with no caveat anywhere, and a udp/53 DNS row was
+// judged by TCP/53's state. No shipped UDP producer records a positive negative — SNMP records `no response`, DNS a
+// timeout, and the port scanner's `udpClosed` is empty on every sealed raw measured — so UDP SILENCE IS
+// INDISTINGUISHABLE FROM FILTERED, and a UDP row in one run only is NOT COMPARABLE unless the other run's service set
+// shows the port MEASURED for that producer (`udpPortMeasurement`: closed, or answered — and, for the CVE mapper,
+// identified). Same token, its own detail. What decides "UDP" is the finding's `protocol`, which is an APPLICATION LABEL, not a transport (the
+// concluder takes it from `probe_protocol || result.protocol || 'tcp'`), so the decision is this table.
+//
+// ⚠️ THE TABLE IS DERIVED, NOT HAND-LISTED: its keys are held in equality with every protocol label the shipped
+// producers WRITE — CE's plugins and utils here (`tests/udp_transport_label_census.test.mjs`), and Enterprise's
+// plugins, agents and engine on its side — so a label outside it is unreachable through the shipped path, and the
+// runtime default for an unknown label (not UDP, today's verdict) is a default nothing exercises. `dns` is classed
+// UDP because that is the SAFE direction, and its cost is STATED: a TCP-53 row labelled `dns` — a zone transfer (AXFR)
+// finding, which is TCP — OVER-REFUSES (it reads not-comparable where a closed TCP/53 would have been a measured fix),
+// while a UDP DNS row labelled TCP would read RESOLVED on a closed TCP/53. 060 writes port-53 rows under both `udp`
+// and `dns`, so the choice is live, not theoretical. `other` is a label with no port-bearing transport (ICMP, ARP, the
+// concluder's meta labels, which it filters out of the service set before any producer reads them).
+export const TRANSPORT_OF_LABEL = Object.freeze({
+  udp: 'udp', mdns: 'udp', dnssd: 'udp', llmnr: 'udp', upnp: 'udp', dns: 'udp',
+  tcp: 'tcp', 'tcp-ack': 'tcp', http: 'tcp', https: 'tcp', tr069: 'tcp',
+  icmp: 'other', 'icmp-timestamp': 'other', arp: 'other', 'os-detector': 'other', assessment: 'other', api: 'other',
+});
+export const UDP_TRANSPORT_LABELS = Object.freeze(Object.keys(TRANSPORT_OF_LABEL).filter((l) => TRANSPORT_OF_LABEL[l] === 'udp'));
+/** Is this protocol label a UDP transport? Case-insensitive; anything not a string, or not in the table, is not. */
+export const isUdpTransport = (label) => typeof label === 'string' && TRANSPORT_OF_LABEL[label.toLowerCase()] === 'udp';
+
+// The queue producer whose rows are CVE matches over a service's IDENTITY (program + version). Community cannot import
+// Enterprise, so the name is declared here and Enterprise's test holds it equal to its `INTELLIGENCE_ENGINE_SOURCE`.
+export const CVE_MAPPER_PRODUCER = 'intelligence_engine';
+const identified = (program) => typeof program === 'string' && program.trim() !== '' && program.trim().toLowerCase() !== 'unknown';
+
+/**
+ * WAS THIS UDP PORT MEASURED IN A RUN, FOR THIS PRODUCER? (1.1.1) — ONE decision, called by the delta and by
+ * Enterprise's MTTR, so the two channels cannot disagree. `services` is that run's UDP service records on the host
+ * (the loader's `udpServicesOf`), or null when the run recorded no service set.
+ *
+ * - `closed` on the port → MEASURED: the concluder writes it only from ECONNREFUSED, a real negative ("a CLOSED port
+ *   was measured, and closure there stands", as for TCP).
+ * - `open` → MEASURED for an analysis agent: it reads the fields the probe filled, so it looked and found nothing.
+ * - `open` for the CVE MAPPER → MEASURED only when the service was IDENTIFIED (a program that is not `Unknown`, and a
+ *   version). The mapper returns nothing and records nothing for an unidentified service (intelligence_engine's
+ *   program guard), so an `open` port whose program is `Unknown` would otherwise "resolve" every CVE row on it —
+ *   twenty dnsmasq rows on the router corpus — through this exemption's own front door (the audit seat's condition).
+ * - anything else (`no response`, `unknown`, the port absent from the set, no set at all) → NOT measured.
+ *
+ * @returns {{measured: true, basis: string} | {measured: false, kind: 'no-oracle'|'not-answered'|'unidentified', why: string}}
+ */
+export function udpPortMeasurement(port, producer, services) {
+  if (!Array.isArray(services)) {
+    return { measured: false, kind: 'no-oracle', why: 'the other run recorded no service set, so nothing says whether a UDP service answered there' };
+  }
+  const here = services.filter((s) => Number(s?.port) === Number(port));
+  const closed = here.find((s) => s?.status === 'closed');
+  if (closed) return { measured: true, basis: `${port}/udp closed in the other run (${closed.service ?? closed.protocol} closed)` };
+  const open = here.filter((s) => s?.status === 'open');
+  if (open.length === 0) {
+    return { measured: false, kind: 'not-answered', why: here.length
+      ? `in the other run no UDP service answered on that port (${here.map((s) => `${s.service ?? s.protocol} ${s.status ?? 'no status'}`).join(', ')})`
+      : 'the other run\'s service set holds no UDP service on that port' };
+  }
+  if (producer === CVE_MAPPER_PRODUCER) {
+    // ⚠️ A VERSION, NOT A PLACEHOLDER: the producers write an absent version as the literal `Unknown`, and the mapper
+    // queries a CPE with it, matches nothing and records nothing — so `Unknown` is as absent as null here.
+    const id = open.find((s) => identified(s.program) && identified(s.version));
+    if (!id) {
+      const s = open[0];
+      return { measured: false, kind: 'unidentified', why: `in the other run the UDP service answered but was not identified (program `
+        + `${identified(s.program) ? s.program : (s.program ?? 'absent')}, version ${identified(s.version) ? s.version : (s.version ?? 'absent')}), so the CVE mapper could not have matched it` };
+    }
+    return { measured: true, basis: `${port}/udp answered in the other run (${id.service ?? id.protocol} open · ${id.program} ${id.version})` };
+  }
+  const s = open[0];
+  const who = identified(s.program) ? ` · ${s.program}${s.version ? ` ${s.version}` : ''}` : '';
+  return { measured: true, basis: `${port}/udp answered in the other run (${s.service ?? s.protocol} open${who})` };
+}
 // The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
 // the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
 export const INPUT_GAP_CLASS = 'input_gap';
@@ -262,11 +339,11 @@ export const VIEW_REFUSAL_REASONS = Object.freeze([
 // the input. `tests/delta_boundary_contract.test.mjs` asserts CONSUMED ⊆ EMITTED ∪ DECLARED_ABSENT
 // against the REAL loader, so the fourth instance fails by name instead of shipping.
 export const CONSUMED_FINDING_FIELDS = ['host', 'plugin', 'pluginName', 'producerKind', 'evidenceGap', 'gapClass', 'deferredScope',
-  'contentDigest', 'identityQualifier', 'resource', 'region', 'port', 'title', 'severity', 'control'];
+  'contentDigest', 'identityQualifier', 'resource', 'region', 'port', 'protocol', 'title', 'severity', 'control'];
 
 // Fields this module WRITES onto its output records; they are never read from a loaded finding,
 // so they must not be demanded of the loader. Declared so the derivation can subtract them.
-export const OUTPUT_ONLY_FINDING_FIELDS = ['reason', 'detail', 'direction', 'from', 'to'];
+export const OUTPUT_ONLY_FINDING_FIELDS = ['reason', 'detail', 'direction', 'from', 'to', 'basisNote'];
 
 // A consumed field the loader legitimately cannot produce. NOT a bare allowlist: each entry names
 // the limit that DISCLOSES its absence, and the guard verifies that limit is actually emitted —
@@ -470,13 +547,22 @@ export function portsNotMeasured(findings) {
 function portStateOf(byHost) {
   const out = new Map();
   for (const h of Array.isArray(byHost) ? byHost : []) {
+    const k = hostKey(h?.host);
     const ps = h?.portScan;
-    if (!ps || !Array.isArray(ps.tcpOpen) || !Array.isArray(ps.tcpClosed)) continue;
-    const k = hostKey(h.host);
-    const e = out.get(k) ?? { open: new Set(), closed: new Set() };
-    for (const p of ps.tcpOpen) if (Number(p) > 0) e.open.add(Number(p));
-    for (const p of ps.tcpClosed) if (Number(p) > 0) e.closed.add(Number(p));
-    out.set(k, e);
+    if (ps && Array.isArray(ps.tcpOpen) && Array.isArray(ps.tcpClosed)) {
+      const e = out.get(k) ?? {};
+      e.open ??= new Set(); e.closed ??= new Set();
+      for (const p of ps.tcpOpen) if (Number(p) > 0) e.open.add(Number(p));
+      for (const p of ps.tcpClosed) if (Number(p) > 0) e.closed.add(Number(p));
+      out.set(k, e);
+    }
+    // The UDP oracle (1.1.1): the loader's `udpServices` — present only where the run recorded a service set. Two
+    // directories of one host pool their records, as their TCP lists do above.
+    if (Array.isArray(h?.udpServices)) {
+      const e = out.get(k) ?? {};
+      e.udpServices = [...(e.udpServices ?? []), ...h.udpServices];
+      out.set(k, e);
+    }
   }
   return out;
 }
@@ -798,16 +884,47 @@ function incomparabilityReason(f, mine, theirs) {
   // F6, so a probe-not-measured verdict does not move. Keyed on the HOLDING run's tcpOpen, so a UDP service or a
   // port no TCP list ever named is untouched; and only where the other run's scanner RAN on this host — with no
   // oracle there the rule is silent and the legs above govern (a stated limit, not an inference).
+  //
+  // ⚠️ GATED TO NON-UDP ROWS (1.1.1): the port scanner's lists are TCP, and a udp/53 row judged by TCP/53 read
+  // RESOLVED when TCP/53 closed and printed this TCP-only sentence when TCP/53 was filtered. A UDP-transport row goes
+  // to the leg below whatever TCP says about its port number.
   const port = Number(f.port);
-  if (port > 0) {
+  const udpRow = isUdpTransport(f.protocol);
+  if (port > 0 && !udpRow) {
     const held = mine.portState?.get(hostKey(f.host));
     const other = theirs.portState?.get(hostKey(f.host));
-    if (held?.open.has(port) && other && !other.open.has(port) && !other.closed.has(port)) {
+    // `other?.open` — the TCP ORACLE, present only where 003 ran; a host entry may carry the UDP oracle alone (1.1.1).
+    if (held?.open?.has(port) && other?.open && other?.closed && !other.open.has(port) && !other.closed.has(port)) {
       return { reason: PORT_NOT_MEASURED_REASON,
         detail: `port ${port} on ${f.host} was open in the run that holds this finding, and the other run's port `
           + 'scanner recorded it neither open nor closed — no answer inside its timeout (filtered), or not probed — so '
           + 'the port was not measured there. It is NOT reported as fixed or as new — rescan to compare. (This rule '
-          + 'reads TCP ports the port scanner saw open; UDP-only and host-wide findings are not judged by it.)' };
+          + 'reads TCP ports the port scanner saw open; a UDP-transport finding is judged by its own rule, and a '
+          + 'host-wide finding by neither.)' };
+    }
+  }
+  // ⚠️ A UDP-TRANSPORT ROW PRESENT IN ONE RUN ONLY (1.1.1). No UDP producer in this release records a port as
+  // CLOSED, so the other run's silence on this port is not a measurement: never RESOLVED, never NEW. Its precondition
+  // is the finding's PRODUCER having run in the other run, which the producer-wide legs above already own — a gap or
+  // a not-measured producer answers first. It never reads the port scanner, so it does not depend on 003 running.
+  // ⚠️ THE ORACLE IS THE OTHER RUN'S UDP SERVICE RECORD (`udpPortMeasurement`, shared with MTTR): where it says the
+  // port was measured for this producer the verdict stands — a changed SNMP community resolves, a dnsmasq version
+  // bump moves its CVE set; everywhere else the row is not comparable, and the detail names which absence it was.
+  // With no service set recorded the rule FIRES: a UDP row with no oracle has no measurement at all (deliberately
+  // unlike the TCP rule's silence without 003). A PORTLESS UDP row (mdns/0) stays outside, as a host-wide row does.
+  if (port > 0 && udpRow) {
+    const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null);
+    if (!m.measured) {
+      // The explanation follows the BRANCH: a service that answered but was not identified was not silent (the verifier
+      // of the first draft found it told the reader both), and rescanning will not change it while its version is hidden.
+      const why = m.kind === 'unidentified'
+        ? 'An unidentified service gives the CVE mapper nothing to match, so the absence of a CVE row there is not a '
+          + 'measurement. It is NOT reported as fixed or as new — rescan once the service\'s version can be read.'
+        : 'UDP silence is not a measurement: no producer in this release records an unanswered UDP port as closed, so a '
+          + 'UDP service that stopped answering cannot be told apart from one that was fixed. It is NOT reported as fixed '
+          + 'or as new — rescan, and confirm the service directly.';
+      return { reason: PORT_NOT_MEASURED_REASON,
+        detail: `${port}/udp on ${f.host} (${f.protocol}) carries a finding in only one of the two runs, and ${m.why}. ${why}` };
     }
   }
   // ⚠️ NO SILENT SHORT-CIRCUIT. This used to read `mine.frameworks && theirs.frameworks &&
@@ -824,6 +941,16 @@ function incomparabilityReason(f, mine, theirs) {
     }
   }
   return null;
+}
+
+// A UDP row that RESOLVED or APPEARED did so because the other run MEASURED its port (1.1.1) — so the row shows that
+// work, in the client's own report: the Pro page sells a resolved column that says why it was trusted. `basisNote` is
+// output-only; nothing here reads it back.
+function withUdpBasis(f, theirs) {
+  const port = Number(f.port);
+  if (!(port > 0) || !isUdpTransport(f.protocol)) return f;
+  const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null);
+  return m.measured ? { ...f, basisNote: m.basis } : f;
 }
 
 // The oracle test, separated from the per-finding check so its ABSENCE has somewhere to be
@@ -1089,7 +1216,7 @@ export function buildScanDelta({ baseline, current }) {
     }
     const why = incomparabilityReason(f, bScope, cScope);
     if (why) notComparable.push({ ...f, direction: 'disappeared', ...why });
-    else resolved.push(f);
+    else resolved.push(withUdpBasis(f, cScope));
   }
   for (const [k, f] of cMap) {
     if (bMap.has(k)) continue;
@@ -1097,7 +1224,7 @@ export function buildScanDelta({ baseline, current }) {
     // plugin was out of scope last time is NEW COVERAGE, not a new exposure.
     const why = incomparabilityReason(f, cScope, bScope);
     if (why) notComparable.push({ ...f, direction: 'appeared', ...why });
-    else newFindings.push(f);
+    else newFindings.push(withUdpBasis(f, bScope));
   }
 
   return {

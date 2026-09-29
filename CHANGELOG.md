@@ -8,6 +8,31 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A UDP finding that disappeared is no longer reported RESOLVED unless the other scan measured its port.** 0.2.55's
+  rule for a port that stopped answering reads the TCP ports the port scanner saw open, so an SNMP `161/udp` finding
+  that vanished was filed resolved with no caveat anywhere in the report, and a `udp/53` DNS finding was judged by
+  TCP/53's state (closed → resolved; filtered → the TCP-only sentence on a UDP row). A finding over a UDP transport
+  that is present in only one of the two runs is now NOT COMPARABLE under the existing reason `port-not-measured` —
+  in both directions — UNLESS the other run's service set recorded that UDP port as measured: `closed`, or `open`
+  (and, for the CVE mapper's rows, with the service identified by program and a real version — the placeholder
+  `Unknown` counts as none — because the mapper records nothing for an unidentified service). ⚠️ For the CVE mapper's
+  rows this exemption is sound only together with the next entry's lookup-gap rule: an identified service whose CVE
+  LOOKUP failed in the other run was not looked up. Where it was measured the verdict stands, and the resolved or new row says why
+  on the row itself (e.g. *53/udp answered in the other run (dns open · dnsmasq 2.79)*); where it was not, the detail
+  names which absence it was (no service set, no answer, or an unidentified service). The TCP rule no longer judges
+  UDP rows. What counts as UDP is the finding's protocol label, read through a table derived from every label the
+  shipped producers write (`udp`, `mdns`, `dnssd`, `llmnr`, `upnp`, `dns`). Measured on build 12's sealed router run
+  loaded through the shipped loader, with its twin carrying the timeout-control run's real service set and no UDP rows:
+  0.2.55 reported all 22 UDP rows resolved; this release reports 0 resolved and 22 not comparable. **Stated limits:** a
+  UDP service that was really decommissioned reads not comparable rather than resolved unless the other scan recorded
+  its port `closed`; a TCP port-53 zone-transfer finding labelled `dns` over-refuses the same way; a portless UDP row
+  (`mdns` on port 0) is outside the rule, as a host-wide finding is; findings from plugin envelopes carry no transport.
+  No new reason token: `NOT_COMPARABLE_REASONS` is unchanged.
+- **The client report shows a not-comparable row's direction on the row.** Every not-comparable detail sentence is
+  direction-neutral by construction, and the executive HTML printed no direction, so a client could not tell a
+  finding that APPEARED (a new-exposure candidate the scan could not confirm) from one that VANISHED. Each such row now
+  says *appeared in this run — not counted as NEW* or *absent from this run — not counted as RESOLVED*, as the terminal
+  view always has.
 - **Two scans of one host in the same second no longer share an output directory.** The per-host directory is
   `<host>_<YYYYMMDD_HHMMSS>` — second granularity, local time — and it was created with a recursive `mkdir`, so a
   second scan reaching that line in the same second reused the first scan's directory and overwrote its

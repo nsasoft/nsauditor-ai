@@ -152,3 +152,55 @@ test('G8 — the basis omits SCOPE when scope could not be evaluated', () => {
   assert.doesNotMatch(row, /\bscope\b[^<]*present in both runs/,
     'a page whose limits declare scope NOT EVALUATED cannot assert scope in its rows');
 });
+
+// ── 1.1.1: THE DIRECTION AND THE UDP BASIS RIDE THE ROW ─────────────────────────────────────────────────
+// Every not-comparable detail sentence is direction-NEUTRAL by construction, so without the direction words a client
+// cannot tell a finding that APPEARED (a new-exposure candidate the run could not confirm) from one that VANISHED. The
+// terminal view has always printed it; this page had not (the audit seat's fold on the symmetric UDP rule).
+const netRec = (over = {}) => rec({ hostsRequested: ['192.0.2.1'], hostsWritten: [{ host: '192.0.2.1', dir: 'd1' }],
+  pluginsRequested: ['003'], tier: 'enterprise', ceVersion: '0.2.55', eeVersion: '1.1.0', ...over });
+const udpRow = (title, over = {}) => ({ host: '192.0.2.1', port: 161, protocol: 'udp', plugin: 'config_agent', pluginName: 'config_agent',
+  producerKind: 'agent', severity: 'HIGH', title, resource: null, evidenceGap: false, gapClass: null, ...over });
+const byHost = (udpServices) => [{ host: '192.0.2.1', dir: 'd1', pluginStatusRecorded: true, status: [{ id: '003', status: 'ran' }],
+  portScan: { tcpOpen: [443], tcpClosed: [] }, ...(udpServices ? { udpServices } : {}) }];
+const snmpOpen = [{ port: 161, protocol: 'udp', service: 'snmp', status: 'open', program: 'net-snmp', version: '5.9' }];
+
+test('1.1.1 — a not-comparable row names its DIRECTION on the row: absent → "not counted as RESOLVED"', () => {
+  const delta = buildScanDelta({
+    baseline: { record: netRec(), findings: [udpRow('VANISHED-UDP-ROW')], pluginStatus: byHost(snmpOpen), integrity: 'chain-verified' },
+    current: { record: netRec({ runId: 'R2' }), findings: [], pluginStatus: byHost([]) },
+  });
+  assert.equal(delta.notComparable[0]?.direction, 'disappeared');
+  const row = rowFor(render(delta), 'VANISHED-UDP-ROW');
+  assert.match(row, /absent from this run — not counted as RESOLVED/);
+  assert.doesNotMatch(row, /appeared in this run/);
+});
+
+test('1.1.1 — …and appeared → "not counted as NEW", on its own row', () => {
+  const delta = buildScanDelta({
+    baseline: { record: netRec(), findings: [], pluginStatus: byHost([]), integrity: 'chain-verified' },
+    current: { record: netRec({ runId: 'R2' }), findings: [udpRow('APPEARED-UDP-ROW')], pluginStatus: byHost(snmpOpen) },
+  });
+  assert.equal(delta.notComparable[0]?.direction, 'appeared');
+  const row = rowFor(render(delta), 'APPEARED-UDP-ROW');
+  assert.match(row, /appeared in this run — not counted as NEW/);
+  assert.doesNotMatch(row, /absent from this run/);
+});
+
+test('1.1.1 — a UDP row that RESOLVED shows WHY its port counts as measured, on the row', () => {
+  const delta = buildScanDelta({
+    baseline: { record: netRec(), findings: [udpRow('RESOLVED-UDP-ROW')], pluginStatus: byHost(snmpOpen), integrity: 'chain-verified' },
+    current: { record: netRec({ runId: 'R2' }), findings: [], pluginStatus: byHost(snmpOpen) },
+  });
+  assert.equal(delta.resolved.length, 1);
+  const row = rowFor(render(delta), 'RESOLVED-UDP-ROW');
+  assert.match(row, /161\/udp answered in the other run \(snmp open · net-snmp 5\.9\)/);
+});
+
+test('1.1.1 — a NON-UDP resolved row gains no UDP basis (the note is the UDP rule\'s, not a new default)', () => {
+  const delta = buildScanDelta({
+    baseline: { record: rec(), findings: [s3('bucket-q')], integrity: 'chain-verified' },
+    current: { record: rec({ runId: 'R2' }), findings: [] },
+  });
+  assert.doesNotMatch(rowFor(render(delta), 'bucket-q'), /\/udp/);
+});

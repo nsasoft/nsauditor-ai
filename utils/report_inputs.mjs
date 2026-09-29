@@ -25,6 +25,7 @@ import {
 } from './run_record.mjs';
 import { CE_RETENTION_MS } from './scan_history.mjs';
 import { canonicalHost } from './cloud_providers.mjs';
+import { isUdpTransport } from './scan_delta.mjs';
 
 const refuse = (reason, message) => ({ ok: false, reason, message });
 
@@ -213,6 +214,12 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // FIELD and never a suffix: a suffix is a value change that fabricates churn across an
     // upgrade, a field is recomputed identically on both sides of any comparison.
     region,
+    // ⚠️ NO TRANSPORT ON THE PLUGIN PATH (1.1.1), and deliberately null rather than read from `details.protocol`:
+    // there it is a cloud RULE's protocol (an SG / NSG ingress rule, 1170 · 1221), not the transport of a service
+    // finding, and no shipped plugin emits a service finding over UDP (the UDP probes write `data[]` and the
+    // concluder's services, never `result.findings`). So the delta's UDP rule does not reach a plugin row — the
+    // declared limit, pinned in tests/scan_delta_udp_port_not_measured.test.mjs.
+    protocol: null,
     // ⚠️ AN EVIDENCE GAP IS SCOPE, NOT A FINDING, and the delta cannot tell them apart without
     // this. A gap record says "the scanner could not read this surface" — so a finding that
     // vanished behind one was not fixed, nobody looked. It is carried on the finding rather than
@@ -294,6 +301,10 @@ function shapeQueueEntry(host, q) {
   return {
     host,
     port: q?.port ?? q?.target?.port ?? null,
+    // THE PRODUCER'S PROTOCOL LABEL (1.1.1), verbatim — `udp`, `upnp`, `llmnr`, `mdns`, `https`, … It is an
+    // application label, not a transport; the delta's `isUdpTransport` decides which labels are UDP. Before this the
+    // loader dropped it, so a vanished 161/udp row was judged by the TCP port rule and read RESOLVED.
+    protocol: typeof q?.target?.protocol === 'string' ? q.target.protocol : null,
     severity: q?.severity != null ? String(q.severity).toUpperCase() : 'INFO',
     title: q?.title ?? null,
     detail: q?.description ?? q?.detail ?? null,
@@ -503,6 +514,26 @@ export function portScanOf(raw) {
   return { tcpOpen: ports(res.tcpOpen), tcpClosed: ports(res.tcpClosed) };
 }
 
+// What the run recorded about each UDP port (1.1.1) — the delta's UDP oracle. Read from the concluder's service set,
+// the SAME set the queue producers (the analysis agents and the intelligence engine) are pure over, so whether a UDP
+// row's absence is a measurement depends on what this set says about its port: see `udpPortMeasurement` in
+// scan_delta.mjs, which both the delta and Enterprise's MTTR call. Only UDP-transport labels (a `53/tcp` record never
+// stands in for `53/udp`), port > 0. Measured over 27 real router raws the UDP statuses are `open` / `no response` /
+// `unknown` — never `closed`, which the concluder writes only from ECONNREFUSED (an ICMP port-unreachable, a real
+// negative). Null when the raw carries no service set: no oracle, never "nothing answered".
+export function udpServicesOf(raw) {
+  const services = raw?.conclusion?.result?.services;
+  if (!Array.isArray(services)) return null;
+  const out = [];
+  for (const s of services) {
+    const port = Number(s?.port);
+    if (!Number.isInteger(port) || port <= 0 || !isUdpTransport(s?.protocol)) continue;
+    out.push({ port, protocol: String(s.protocol).toLowerCase(), service: s?.service ?? null, status: s?.status ?? null,
+      program: s?.program ?? null, version: s?.version ?? null });
+  }
+  return out.sort((a, b) => a.port - b.port);
+}
+
 function shapeHost(host, dir, raw) {
   const envelopes = Array.isArray(raw.results) ? raw.results : [];
   const up = envelopes.some((e) => e?.result?.up === true);
@@ -520,6 +551,7 @@ function shapeHost(host, dir, raw) {
     // destroyed here, before the consumer ever saw it.
     pluginStatusRecorded: Array.isArray(raw.pluginStatus),
     portScan: portScanOf(raw),
+    udpServices: udpServicesOf(raw),
   };
 }
 
@@ -537,7 +569,7 @@ function buildModel(rec, hosts, counts) {
     // which utils/host_iterator.mjs de-duplicates). A name-keyed Map is last-write-wins and
     // silently drops every same-named host's own plugin table but the final one's.
     plugins.byHost.push({ host: h.host, dir: h.dir, status: h.pluginStatus,
-      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan });
+      pluginStatusRecorded: h.pluginStatusRecorded, portScan: h.portScan, udpServices: h.udpServices });
     for (const ps of h.pluginStatus) {
       if (ps?.status === 'ran') plugins.ran += 1;
       else if (ps?.status === 'skipped') plugins.skipped += 1;

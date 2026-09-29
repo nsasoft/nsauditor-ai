@@ -636,6 +636,12 @@ function deltaBasis(delta) {
   return `comparable: ${legs} present in both runs; framework enumeration: ${fw}; ${integrity}`;
 }
 
+// What a not-comparable row's direction means, in the words a client reads.
+const NC_DIRECTION_WORDS = Object.freeze({
+  appeared: 'appeared in this run — not counted as NEW',
+  disappeared: 'absent from this run — not counted as RESOLVED',
+});
+
 function deltaRow(bucket, f, basis) {
   // ⚠️ THE REGION RIDES THE RESOURCE CELL (board E1(b)). Until E1 the region reached this table
   // only as a ` [<region>]` suffix that EE's region stamper had written INTO `resource` — which
@@ -674,15 +680,22 @@ ${escapeHtml(delta.refusal.detail)}</p>
   }
 
   const rows = [
-    ...delta.resolved.map((f) => deltaRow('resolved', f, deltaBasis(delta))),
-    ...delta.newFindings.map((f) => deltaRow('new', f, deltaBasis(delta))),
+    // A UDP row carries WHY its port counts as measured (1.1.1 — `basisNote`, e.g. "53/udp answered in the other run
+    // (dns open · dnsmasq 2.79)"), so a resolved UDP row shows its work on the row, never in a footer.
+    ...delta.resolved.map((f) => deltaRow('resolved', f, `${deltaBasis(delta)}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
+    ...delta.newFindings.map((f) => deltaRow('new', f, `${deltaBasis(delta)}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
     ...delta.changed.map((f) => deltaRow('changed', f, `${deltaBasis(delta)}; severity ${escapeHtml(String(f.from))} → ${escapeHtml(String(f.to))}`)),
     // The reason rides the row, not a legend.
     // ⚠️ THE CODE IS PRINTED VERBATIM, AND THAT IS THE DESIGN. A render-time label map was tried
     // here and reverted: it moved this seam and left the terminal's, so one outcome carried two
     // names. The noun that made a code wrong in front of a human was removed from the CODE
     // instead, which fixes every seam at once. See `NOT_COMPARABLE_REASONS` in scan_delta.mjs.
-    ...delta.notComparable.map((f) => deltaRow('not-comparable', f, `${f.reason}: ${f.detail}`)),
+    // ⚠️ THE DIRECTION RIDES THE ROW (1.1.1, the audit seat's fold). Every detail sentence is direction-neutral by
+    // construction ("open in the run that HOLDS this finding"), so without this a client could not tell a finding that
+    // APPEARED — a new-exposure candidate the run could not confirm — from one that VANISHED. The terminal view has
+    // always printed it; this page had not.
+    ...delta.notComparable.map((f) => deltaRow('not-comparable', f,
+      `${NC_DIRECTION_WORDS[f.direction] ?? 'direction not recorded'}; ${f.reason}: ${f.detail}`)),
   ].join('\n');
 
   const counts = `${delta.newFindings.length} new · ${delta.resolved.length} resolved · `

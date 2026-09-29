@@ -68,7 +68,10 @@ test('(c) open now but the probe failed there → build 9\'s probe-not-measured,
   assert.equal(d.notComparable[0].reason, PROBE_NOT_MEASURED_REASON);
 });
 
-test('a port the holding run did NOT see open (a UDP service, a port no TCP list names) is untouched → RESOLVED', () => {
+// ⚠️ RENAMED AT 1.1.1. This leg called a 161 row with NO protocol "a UDP service", which stopped being the case it
+// pins when the UDP rule landed: a row carrying a UDP label now never resolves (tests/scan_delta_udp_port_not_measured
+// .test.mjs). What it pins today is the TCP rule's own boundary on a row with no transport — the plugin path's limit.
+test('a port the holding run did NOT see open, on a row carrying NO transport, is untouched by the TCP rule → RESOLVED', () => {
   const d = delta([row(161, 'SNMP community public accepted')], scanned(OPEN_21), [], scanned({ tcpOpen: [443], tcpClosed: [] }));
   assert.equal(d.resolved.length, 1, 'the rule keys on the HOLDING run\'s tcpOpen; 161 was never in it');
 });
