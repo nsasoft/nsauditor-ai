@@ -82,7 +82,10 @@ test('(a) SAME second → the second directory is suffixed `_2`, the first is ne
     assert.deepEqual(fs.readdirSync(b), [], 'the new directory is a FRESH one — nothing of run A\'s leaks into it');
     assert.equal(out.lines.length, 1);
     assert.match(out.lines[0], /^\[scan\] WARNING: /);
-    assert.ok(out.lines[0].includes(a) && out.lines[0].includes(b), `the warning names both directories: ${out.lines[0]}`);
+    // WHOLE TOKENS (audit seat's fold): `a` is a PREFIX of `b`, so `includes(a)` was satisfied by `b` alone and a warning
+    // naming only the new directory passed. Each path is asserted in its own role.
+    assert.ok(out.lines[0].includes(`${a} already exists`), `the warning names the EXISTING directory: ${out.lines[0]}`);
+    assert.ok(out.lines[0].includes(`writes to ${b} instead`), `the warning names the NEW directory: ${out.lines[0]}`);
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
@@ -231,4 +234,18 @@ test('THROUGH main(): an earlier run\'s finding QUEUE does not ride into a later
     assert.equal(fs.existsSync(path.join(dirB, 'scan_finding_queue.json')), false,
       'run B wrote no queue, so ITS directory holds none — run A\'s queue is not in it');
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
+});
+
+// ── THE CLI COMPOSES NO HOST DIRECTORY ITSELF (the audit seat's second fold) ─────────────────────────────────
+// A caller-less fallback in maybeSendToOpenAI composed `${safeHost(host)}_${nowStamp()}` with a recursive mkdir — the
+// defect's own shape, kept warm, and no leg drove it. It is deleted; this census is what keeps any composition of a
+// host directory out of cli.mjs, so the exclusive create stays the only way one is made.
+test('cli.mjs composes no host-directory name and calls createHostOutDir exactly once (scanSingleHost)', () => {
+  const src = fs.readFileSync(new URL('../cli.mjs', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/.*$/gm, '$1');
+  assert.equal((src.match(/\bcreateHostOutDir\(/g) ?? []).length, 1, 'one exclusive create, in scanSingleHost');
+  // A CALL, not the seam's name: `opts.nowStamp` / `testHooks.nowStamp` carry a function in and never call it here.
+  assert.equal((src.match(/(?<![.\w])nowStamp\s*\(/g) ?? []).length, 0, 'no second-granular stamp is taken in cli.mjs');
+  assert.equal((src.match(/\$\{safeHost\([^)]*\)\}_/g) ?? []).length, 0, 'no `${safeHost(host)}_…` directory name is composed in cli.mjs');
+  assert.match(src, /if \(!presetOutDir\) throw new Error\('maybeSendToOpenAI: outDir is required/);
 });

@@ -145,14 +145,12 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     : await resolveSecret(process.env.OPENAI_API_KEY);
   const key           = keyRaw ? String(keyRaw).trim() : null;
 
-  // Per-scan folder. Caller (scanSingleHost) may pass a pre-computed outDir so
-  // that EE enrichment + compliance artifacts share the same folder as the AI
-  // outputs — otherwise compute one here for legacy callers.
-  let outDir = presetOutDir;
-  if (!outDir) {
-    // The same exclusive create as scanSingleHost's: a legacy caller must not be able to reuse another run's directory.
-    outDir = await createHostOutDir(resolveBaseOutDir(), host);
-  }
+  // Per-scan folder — REQUIRED. Its only caller, scanSingleHost, creates it exclusively (createHostOutDir) so that EE
+  // enrichment, compliance artifacts and the AI outputs share one folder. ⚠️ The fallback that used to compose a
+  // directory here (`${safeHost(host)}_${nowStamp()}`, recursive mkdir) had no caller and was the same-second
+  // collision's shape kept warm (1.1.1, audit seat's fold); it is gone, and a missing outDir is an error.
+  if (!presetOutDir) throw new Error('maybeSendToOpenAI: outDir is required — scanSingleHost creates it with createHostOutDir');
+  const outDir = presetOutDir;
   await fsp.mkdir(outDir, { recursive: true });
 
   // Paths (fixed names inside per-scan folder)
