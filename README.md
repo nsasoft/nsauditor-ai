@@ -18,11 +18,12 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 ## What's New
 
 **Latest: CE 0.2.55 + Enterprise 1.1.0 — *what changed since the last scan*.**
-`nsauditor-ai report --from <dir> --since <runId|prior>` (Pro/Enterprise) compares two scan runs:
+`nsauditor-ai report --from <dir> --format executive --since <runId|prior>` (Pro/Enterprise) compares two scan runs:
 what is new, what is resolved, what changed severity — and, above all, **what could NOT be compared
 and why**. "Resolved" is the dangerous verdict: a finding that disappeared because the host was not
-scanned, the plugin did not run, the scanner lost permission, or the framework enumeration moved is
-reported as NOT COMPARABLE **with its reason**, never as remediation. Run records are sealed with a
+scanned, the plugin did not run, the scanner lost permission, or the port stopped answering is
+reported as NOT COMPARABLE **with its reason**, never as remediation — and framework-enumeration
+movement is stated as NOT EVALUATED on every comparison. Run records are sealed with a
 SHA-256 chain, so an altered baseline REFUSES the comparison instead of producing verdicts from it —
 tamper-EVIDENT against corruption, partial restore and unsophisticated edits, **not tamper-proof
 against host-level access and not non-repudiation**, and the report says so in the body. The delta

@@ -178,7 +178,7 @@ compare with each other** — they are commensurable — so an existing history 
 your next scan. Old history is never rewritten or deleted.
 
 
-**`nsauditor-ai report --from <dir> --since <runId|prior>`** (Pro/Enterprise) compares two scan runs
+**`nsauditor-ai report --from <dir> --format executive --since <runId|prior>`** (Pro/Enterprise) compares two scan runs
 and reports what is new, what is resolved, what changed severity — and, above all, **what could not
 be compared and why**. The delta renders into the client-facing HTML report, not only to stdout.
 
