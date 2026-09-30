@@ -195,7 +195,7 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 
 | Tool | Purpose |
 |---|---|
-| `scan_host` | Run a full plugin scan against a host — service detection, OS fingerprint, structured findings |
+| `scan_host` | Run a full plugin scan against a host — service detection, OS fingerprint and the flags the service checks leave on each service record (weak SSH algorithms, SNMP community, weak TLS protocols / ciphers and a self-signed certificate, the MCP server checks; anonymous FTP login and zone transfer only when `FTP_CHECK_ANON` / `DNS_CHECK_AXFR` are set — both off by default). It does NOT look up CVEs, run the analysis agents, or return the HTTP probe's dangerous methods (006), SMB null sessions (014), the TLS-certificate / debug-endpoint / DNS-security auditors' findings (040 / 050 / 060) or Enterprise's zero-trust assessment (1023), so zero findings is not a clean verdict (use `get_vulnerabilities` per service CPE and `probe_service` for those plugins — both Pro — or the CLI scan with the Enterprise package and a Pro or Enterprise licence) |
 | `list_plugins` | List available scanner plugins with their IDs, priorities and requirements |
 | `compliance_matrix` | Return the shipped coverage matrix for a framework — Covered / Partial / Out of scope, with the per-group out-of-scope reasons. **Needs the Enterprise pack installed**: the matrices are its data, so on a Community-only install this fails closed with an install instruction rather than returning an empty matrix (an empty matrix is what gets filled in with a guess) |
 
@@ -312,6 +312,7 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
+- `FTP_CHECK_ANON=true` — lets the FTP check try an anonymous login (off by default; without it `scan_host` never reports anonymous FTP). `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN=<zone>` — lets the DNS check try a zone transfer of that zone (off by default). The same variables govern the CLI scan.
 - `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times, and fits inside Claude Desktop's ~60 s tool-call limit only when most of them finish quickly. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
 - `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
 - `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
@@ -451,7 +452,7 @@ nsauditor-ai --version     (or -v, or `version`)
 | `--out <dir>` | Custom output directory — applies to the per-scan folder *and* to alternate-format files (SARIF/CSV/Markdown) | `out/` |
 | `--parallel <n>` | Concurrent host scans | `1` |
 | `--output-format <fmt>` | Additional output format: `sarif` (CI/CD) · `csv` (spreadsheet) · `md` or `markdown` (chat/PR/Slack quotable) | — |
-| `--fail-on <sev>` | Exit code 2 if findings ≥ severity: `critical\|high\|medium\|low\|info` | — |
+| `--fail-on <sev>` | Exit code 1 if a flag it gates on is ≥ severity (`critical\|high\|medium\|low\|info`): anonymous FTP login and DNS zone transfer are critical, weak SSH algorithms medium, and any concluded scan counts as info — so `--fail-on info` fails every scan that concludes. Anonymous FTP login and zone transfer are tested only when `FTP_CHECK_ANON=true` / `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN` are set, so on a default scan `--fail-on high` and `--fail-on critical` never exit 1. It also reads dangerous HTTP methods (medium), but no scan's conclusion carries that flag today. It does not read the SNMP default community, weak TLS protocols / ciphers, a self-signed certificate, the MCP server checks, Enterprise's CVE rows or agent findings, so exit 0 is not a clean host; exit 2 for an unknown severity or no conclusion | — |
 | `--insecure-https` | Accept self-signed TLS certificates | `false` |
 | `--watch` | CTEM continuous **alerting** loop — re-scan on `--interval`, diff, webhook on `--alert-severity`. Not an evidence cadence: no retention, no cross-run aggregation, skips SARIF/CSV/Markdown + `--fail-on`, dies with the process. Use a scheduler for SOC 2 Type II history. | `false` |
 | `--interval <min>` | Rescan interval in minutes (requires `--watch`) | `60` |
@@ -487,7 +488,8 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all --parallel 10
 # Targeted scan: TLS + HTTP + DNS + OS detection
 nsauditor-ai scan --host 192.168.1.8 --plugins 011,006,009,013,008
 
-# SARIF output for CI/CD, fail on high+ findings
+# SARIF output for CI/CD. --fail-on high exits 1 only on anonymous FTP / zone transfer, which are tested only with
+# FTP_CHECK_ANON / DNS_CHECK_AXFR set — see the --fail-on row; exit 0 is not a clean host
 nsauditor-ai scan --host 10.0.0.5 --plugins all --output-format sarif --fail-on high
 
 # Markdown report — paste straight into a GitHub issue, Slack thread, or chat

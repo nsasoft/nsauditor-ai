@@ -244,7 +244,20 @@ export const TOOLS = [
   {
     name: 'scan_host',
     description:
-      'Run a full plugin scan on a target host and return structured results including service detection, OS fingerprinting, and security findings.',
+      'Run a full plugin scan on a target host and return structured results: service detection, OS fingerprinting, and'
+      + ' the flags the service checks leave on each service record — weak SSH algorithms, SNMP default community, weak '
+      + 'TLS protocols / ciphers and a self-signed certificate, the MCP server checks, and anonymous FTP login and DNS '
+      + 'zone transfer only when the server\'s environment enables those two checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
+      + 'DNS_AXFR_DOMAIN — both off by default). It runs, when their requirements are met, but does NOT return the '
+      + 'results of the HTTP probe (006, dangerous HTTP methods), the NetBIOS/SMB scanner (014, null sessions and '
+      + 'shares), the TLS-certificate (040), debug-endpoint (050) and DNS-security (060) auditors — use probe_service '
+      + '(Pro) with that plugin — or, with the Enterprise package, its zero-trust assessment (1023). It does NOT look up '
+      + 'CVEs and does NOT run the Enterprise analysis agents or exploit intelligence — so zero findings here is NOT a '
+      + 'statement that the host has no known vulnerabilities. For CVEs, call get_vulnerabilities (Pro) with each '
+      + 'service\'s cpe where it names a concrete version; a service whose cpe is null gets no lookup, so its CVE coverage'
+      + ' is unknown, not clean. With the Enterprise package and a Pro or Enterprise licence, the CLI scan (nsauditor-ai '
+      + 'scan --host <host>) runs the CVE mapper and the analysis agents, and joins exploit intelligence when a KEV / '
+      + 'EPSS store is configured.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -8,8 +8,9 @@ function pickResultsFromArgs(args) {
   return [];
 }
 
-// Stable slug from plugin name, falling back to IDs
-function slugify(name, id) {
+// Stable slug from plugin name, falling back to IDs. Exported so tests/concluder_drops_honesty.test.mjs derives the
+// adapter census with THIS rule rather than a copy of it.
+export function slugify(name, id) {
   const base = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   if (base) return base;
   const map = { '001':'ping_checker','002':'ssh_scanner','003':'port_scanner','004':'ftp_banner_check','005':'host_up_check','006':'http_probe','007':'snmp_scanner','009':'dns_scanner','010':'webapp_detector','011':'tls_scanner','012':'opensearch_scanner','013':'os_detector','014':'netbios__smb_scanner','015':'sunrpc_scanner','024':'syn_scanner','025':'db_scanner','026':'arp_scanner','027':'mdns_scanner','028':'upnp_scanner' };

@@ -120,9 +120,11 @@ test('buildMarkdownReport: findings sorted descending by severity (Critical firs
   assert.ok(highIdx < mediumIdx, 'High must come before Medium');
 });
 
+// 1.2.0 build 3: the placeholder used to read "_No security findings._", which a reader took as a clean verdict over a
+// host whose CVEs this renderer never looks up (tests/scan_host_scope_honesty.test.mjs). It now names its scope.
 test('buildMarkdownReport: no findings renders italicized placeholder', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: conclusionWithServices });
-  assert.match(md, /_No security findings\._/);
+  assert.match(md, /_None of the counted service-check flags fired\./);
   assert.match(md, /\*\*Security findings:\*\* 0/);
 });
 
@@ -178,7 +180,7 @@ test('buildMarkdownReport: tolerates conclusion with no result/services key', ()
   const md = buildMarkdownReport({ host: 'h', conclusion: {} });
   assert.match(md, /\*\*Services detected:\*\* 0/);
   assert.match(md, /_No services detected\._/);
-  assert.match(md, /_No security findings\._/);
+  assert.match(md, /_None of the counted service-check flags fired\./);
 });
 
 test('buildMarkdownReport: tolerates entirely missing conclusion', () => {

@@ -1269,7 +1269,7 @@ async function readSecretFromStdin(keyName) {
   });
 }
 
-function maxSeverityInConclusion(conclusion) {
+export function maxSeverityInConclusion(conclusion) {
   const services = conclusion?.result?.services || [];
   let max = 0;
 
@@ -1680,7 +1680,13 @@ Scan options:
   --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
   --out <dir>                  Output directory for scan artifacts
   --parallel <n>               Parallel host concurrency (default 1)
-  --fail-on <severity>         Exit non-zero if any finding ≥ severity
+  --fail-on <severity>         Exit 1 if a gated flag ≥ severity: anonymous FTP / zone
+                               transfer (critical; tested only with FTP_CHECK_ANON /
+                               DNS_CHECK_AXFR set), weak SSH algorithms (medium); any
+                               concluded scan is info. Dangerous HTTP methods are read
+                               but never reach the conclusion today. Not SNMP community,
+                               weak TLS, MCP checks, CVEs or agent findings — exit 0 is
+                               not a clean host. Exit 2: unknown severity or no conclusion.
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
   --watch                      CTEM continuous ALERTING mode: re-scan on --interval,

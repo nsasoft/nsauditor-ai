@@ -51,6 +51,29 @@ not-comparable row names its run absolutely, and two scans of one host in one se
   note: *"newly attributed — the same dnsmasq 2.78 answered on 53/udp in the baseline run; the service is unchanged, the
   vulnerability data is not"*. **Stated limits:** a port with two different identified services, or a run with no service
   set, keeps today's verdict; the mapper's coverage-note rows are outside the rule.
+- **`scan_host`, the Markdown report and `--fail-on` say what they do NOT look at (build 3, found preparing Gate 3-A).**
+  The MCP tool's description promised "service detection, OS fingerprinting, and security findings", and its Markdown
+  printed "Security findings: 0" and "_No security findings._" over a router whose CLI scan carried 16 CVEs and 5
+  analysis-agent findings: `scan_host` runs the plugins and the concluder only, never Enterprise's enrichment, and the
+  renderer counts service-check flags. Measured in two review rounds, the conclusion carries less than the renderers read:
+  the concluder imports `./<slug of the plugin's NAME>.mjs` and reads its named `conclude`, so six adapters are never
+  reached — the NetBIOS/SMB scanner (014) and the SYN scanner (024) by name, the TLS-certificate (040), debug-endpoint
+  (050) and DNS-security (060) auditors by name and because their `conclude` sits on the default object, and
+  Enterprise's zero-trust assessment (1023) — and the HTTP probe (006) has no adapter, so its dangerous-methods result
+  never reaches a service record. The anonymous-FTP and zone-transfer checks run only with `FTP_CHECK_ANON` /
+  `DNS_CHECK_AXFR` + `DNS_AXFR_DOMAIN`, off by default. The description now names what the records carry, what it runs
+  and drops (routing to `probe_service` (Pro)), that it looks up no CVEs and runs no agents, and that a service whose cpe
+  is null gets no lookup. The Markdown gains a **Scope** line naming exactly what it counts and what it does not, and a
+  placeholder that no longer reads as a clean verdict (the CLI's `--output-format md` uses the same renderer). The
+  `--fail-on` README row and `--help` entry (which said "any finding") name what it gates on — anonymous FTP login and
+  zone transfer (critical, opt-in), weak SSH algorithms (medium), any concluded scan as info, so `--fail-on info` fails
+  every scan that concludes and a default scan never trips `--fail-on high` — and that it exits **1** over the threshold
+  (the table said 2; 2 is an unknown severity or no conclusion). The README's MCP environment list documents the two
+  opt-in variables, and its CI example no longer promises a "high+" gate. **Stated, not fixed here (boarded for
+  1.2.1):** the six unreachable adapters and 006's missing one; SARIF and `--fail-on` read four flags only — not the SNMP
+  community or weak TLS flags the Markdown counts, nor the self-signed certificate or MCP-scanner flags nothing counts;
+  SARIF grades an open service medium where `--fail-on` grades it info. `tests/concluder_drops_honesty.test.mjs` pins
+  the census and `tests/fail_on_scope_honesty.test.mjs` the gate, so either moving turns a test red beside this text.
 - **A CVE row whose lookup failed in the other scan is no longer reported RESOLVED — TCP and UDP alike.** Enterprise's
   intelligence engine records a service it could not look up (the NVD lookup failed or returned a non-array, the
   offline store could not be read or held no entry for the CPE, the program has no CPE alias, or the banner carried no

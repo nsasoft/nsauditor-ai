@@ -237,6 +237,19 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
+  // 1.2.0 build 3: this renderer's findings are the service-check FLAGS only — nothing on the scan path fills a service's
+  // CVEs, and Enterprise's analysis agents and exploit intelligence write elsewhere. Without this line "Security findings:
+  // 0" read as a clean verdict over a host whose CLI run carried 16 CVEs (the Gate 3-A preparation's P8).
+  // The counted list names only flags a conclusion can carry: dangerousMethods is read by extractFindings but no adapter puts
+  // it on a service record (tests/concluder_drops_honesty.test.mjs pins that), so it is named among what is NOT counted.
+  lines.push('- **Scope:** counts only these service-check flags: weak SSH algorithms, SNMP default community, weak TLS '
+    + 'protocols / ciphers, and anonymous FTP login and DNS zone transfer when the scan\'s environment enables those two '
+    + 'checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with DNS_AXFR_DOMAIN — both off by default). It does not count a self-signed '
+    + 'certificate or the MCP server checks (both on the service records), nor dangerous HTTP methods, SMB null sessions or '
+    + 'the TLS-certificate, DNS-security and debug-endpoint auditors\' results (the scan\'s conclusion does not carry them); '
+    + 'it does not look up CVEs, and does not include Enterprise analysis-agent findings or exploit intelligence (a CLI scan '
+    + 'with the Enterprise package and a Pro or Enterprise licence records CVE and agent findings in scan_finding_queue.json, '
+    + 'when there are any).');
   lines.push('');
 
   // ---- Services table ----
@@ -267,7 +280,9 @@ export function buildMarkdownReport(scanData) {
   lines.push(`## Findings`);
   lines.push('');
   if (findings.length === 0) {
-    lines.push('_No security findings._');
+    lines.push('_None of the counted service-check flags fired. This is not a statement that the host has no known '
+      + 'vulnerabilities — CVE lookups, analysis-agent findings, the MCP server checks and several checks\' results are not '
+      + 'part of this count (see Scope above), and anonymous FTP login and zone transfer are tested only when enabled._');
     lines.push('');
   } else {
     findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));

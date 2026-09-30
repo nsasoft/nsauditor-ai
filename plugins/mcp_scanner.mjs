@@ -454,7 +454,8 @@ export function conclude({ result }) {
       detection.tools.length ? `tools=${detection.tools.length}` : null,
     ].filter(Boolean).join(' '),
     authoritative: true,
-    // Security flags (consumed by AI prompt / report renderer / SARIF)
+    // Security flags. scan_host returns them on this record; the Markdown report, SARIF, CSV and --fail-on do NOT read
+    // them yet (1.2.0 build 3 states it; boarded for 1.2.1).
     ...flags,
     // Evidence fields per N.5 FindingSchema
     evidence: { cwe, owasp, mitre },
