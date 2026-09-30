@@ -2,9 +2,11 @@
 //
 // ⚠️ THE BASELINE SELECTION IS ITSELF A CLAIM, which is why this module names it rather than
 // silently diffing against it. If the selected run was narrow — a `--plugins` subset, one host,
-// an interrupted run — the delta is technically correct and practically a wall of NOT-COMPARABLE,
-// and an operator who meets that twice stops reading the feature. So the baseline's id, timestamp
-// and scope are printed BEFORE any verdict.
+// an interrupted run — the delta is practically a wall of NOT-COMPARABLE, and an operator who
+// meets that twice stops reading the feature. So the baseline's id, timestamp and scope are
+// printed BEFORE any verdict. ⚠️ Not for an AGENT row (1.2.0 limit): an analysis agent's or the
+// CVE mapper's row whose input plugins a `--plugins` subset dropped reads resolved or new instead
+// of NOT-COMPARABLE — see AGENT_SCOPE_FROM_TIER.
 //
 // ⚠️ AND REFUSING IS NOT STONEWALLING. When the selected baseline cannot support a verdict, this
 // says which earlier records exist and which of them are chain-verified — but it NEVER

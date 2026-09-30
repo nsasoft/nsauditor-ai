@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.56 (⏳ PRE-PUBLISH — opened 2026-09-29, NOT YET ON npm) — a finding the other scan did not measure is never called resolved or new; paired with Enterprise 1.2.0
+## 0.2.56 (⏳ PRE-PUBLISH — opened 2026-09-29, NOT YET ON npm) — the delta refuses five more ways a finding could read as fixed without being fixed; paired with Enterprise 1.2.0
 
 **The release:** the Pro delta refuses five more ways a finding could read as fixed without being fixed: a UDP service
 that stopped answering, a CVE lookup that failed, an analysis agent that did not run (Enterprise's new record), an
@@ -14,6 +14,10 @@ Enterprise package that failed to load — which this Community now names instea
 CVE the vulnerability data stopped attributing while the same program and version still answered (a new reason). Every
 not-comparable row names its run absolutely, and two scans of one host in one second no longer share a directory.
 **Enterprise 1.2.0 requires this release** (`nsauditor-ai >= 0.2.56`): it imports names that first ship here.
+**Not refused in this release:** when the two scans ran different `--plugins`, a row that an analysis agent or the CVE
+mapper derived from the output of a plugin one scan did not request can read resolved (and in Enterprise, with SLA
+tracking on, MTTR counts it closed and the control it failed can read PASS) or new — keep `--plugins` identical between
+compared scans.
 
 - **A UDP finding that disappeared is no longer reported RESOLVED unless the other scan measured its port.** 0.2.55's
   rule for a port that stopped answering reads the TCP ports the port scanner saw open, so an SNMP `161/udp` finding

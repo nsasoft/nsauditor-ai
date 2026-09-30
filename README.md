@@ -13,11 +13,11 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 
 NSAuditor AI is the open-source core of a privacy-first security intelligence platform built by [Nsasoft US LLC](https://www.nsauditor.com/ai/). It orchestrates 27 specialized scanning plugins against target hosts, fuses their results through an intelligent concluder, and optionally produces AI-powered vulnerability reports — all running entirely on your machine.
 
-**Zero Data Exfiltration by design — and stated precisely.** We never see your scan data: no customer data is collected, transmitted, or stored by Nsasoft US LLC, and the product has no telemetry or phone-home endpoint. Scanning, analysis, license verification and report generation all run on your machine. Two clarifications that matter operationally: AI enrichment is **opt-in** and uses your own API keys (point it at a local Ollama and nothing leaves the host), while **CVE correlation queries NIST's public NVD API by default** — set `NSAUDITOR_OFFLINE_ONLY=1` with a local NVD store to make it fully local, which reports an explicit coverage gap instead of a silent clean.
+**Zero Data Exfiltration by design — and stated precisely.** We never see your scan data: no customer data is collected, transmitted, or stored by Nsasoft US LLC, and the product has no telemetry or phone-home endpoint. Scanning, analysis, license verification and report generation all run on your machine. Two clarifications that matter operationally: AI enrichment is **opt-in** and uses your own API keys (point it at a local Ollama and nothing leaves the host), while **CVE correlation queries NIST's public NVD API by default** — set `NSAUDITOR_OFFLINE_ONLY=1` with a local NVD store to make it fully local, which reports an explicit coverage gap in the scan instead of a silent clean (in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS).
 
 ## What's New
 
-**Latest: CE 0.2.56 + Enterprise 1.2.0 — *a finding the other scan did not measure is never called resolved or new*.**
+**Latest: CE 0.2.56 + Enterprise 1.2.0 — *the delta refuses five more ways a finding could read as fixed without being fixed*.**
 The Pro/Enterprise `report --since` delta (introduced in CE 0.2.55) now refuses five more ways a
 finding could read as fixed without being fixed: a UDP service that did not answer in the
 other run (`port-not-measured`, listed as `<port>/udp`), a CVE row whose lookup failed there, a
@@ -25,7 +25,11 @@ finding of an analysis agent that did not run, and — new in this release — *
 that failed to load**, which used to leave the scan running as Community without a word. It is now
 named on stderr and recorded on the scan's conclusion, and the delta refuses that host's agent and
 CVE-mapper rows as `evidence-gap`. And a CVE row that vanished while the same program and version
-still answer is `vulnerability-data-changed` — the vulnerability data moved, not the estate. Every
+still answer is `vulnerability-data-changed` — the vulnerability data moved, not the estate.
+**Not refused in this release:** when the two scans ran different `--plugins`, a row that an analysis agent or
+the CVE mapper derived from the output of a plugin one scan did not request can read resolved (and in Enterprise,
+with SLA tracking on, MTTR counts it closed and the control it failed can read PASS) or new — keep `--plugins`
+identical between compared scans. Every
 reason's detail names its run absolutely ("this run", "the baseline run"), and two scans started in
 the same second get distinct directories. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
 requires this release** (`nsauditor-ai >= 0.2.56`). The free last-vs-current webhook alerting delta
@@ -784,7 +788,7 @@ Configuration is entirely environment-based — a `.env` file, `--env <file>`, o
 
 **→ [Configuration reference](./docs/configuration.md)** — every environment variable, its default and its effect.
 
-The two that change behaviour most: `NSAUDITOR_OFFLINE_ONLY=1` forbids outbound CVE lookups and reads a local NVD store instead (reporting an explicit coverage gap rather than a silent clean), and `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / a local Ollama endpoint enable the opt-in AI analysis pass.
+The two that change behaviour most: `NSAUDITOR_OFFLINE_ONLY=1` forbids outbound CVE lookups and reads a local NVD store instead (reporting an explicit coverage gap in the scan rather than a silent clean; in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS), and `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / a local Ollama endpoint enable the opt-in AI analysis pass.
 
 ## Developing Plugins
 
@@ -937,7 +941,7 @@ NSAuditor AI is built on a **Zero Data Exfiltration (ZDE)** architecture:
 - **No data processing.** Nsasoft US LLC never sees, stores, or processes your scan results.
 - **AI is opt-in.** External AI calls use your own API keys. Redaction runs locally first.
 - **License validation is offline.** JWT signature verified locally with an embedded public key.
-- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap rather than a silent clean when the store cannot answer. Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
+- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap in the scan rather than a silent clean when the store cannot answer (in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS). Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
 
 Nsasoft US LLC is not a data processor, data controller, or business associate under any data protection regulation. You own and control all data produced by NSAuditor AI.
 

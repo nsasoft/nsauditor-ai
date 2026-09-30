@@ -117,10 +117,13 @@ rename will never happen.
 
 ```ini
 NSAUDITOR_OFFLINE_ONLY=1          # Exact match on '1'. Forbids outbound: CVE matching reads a local
-                                  # NVD store and reports an explicit coverage gap rather than a silent
-                                  # clean. Also VETOES the two settings below — configuring an offline
-                                  # posture and an outbound destination together is a startup error,
-                                  # never a quiet downgrade to weaker evidence.
+                                  # NVD store and reports an explicit coverage gap in the scan rather
+                                  # than a silent clean (in Enterprise 1.2.0 that gap reaches no
+                                  # compliance control, so a control only the missing CVE rows would
+                                  # fail can read PASS). Also VETOES the two settings below —
+                                  # configuring an offline posture and an outbound destination
+                                  # together is a startup error, never a quiet downgrade to weaker
+                                  # evidence.
 NSAUDITOR_TSA_URL=                # RFC 3161 Time-Stamp Authority endpoint, opt-in. Proven against a
                                   # live TSA on the npm path AND from inside the :0.33.0 container
                                   # image; :0.32.11 and earlier carry no openssl. NO DEFAULT, EVER —
