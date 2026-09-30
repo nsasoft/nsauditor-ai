@@ -148,6 +148,16 @@ test('E. every probe_service pluginName example resolves to a plugin', async () 
 });
 
 // ── F. no Desktop per-call limit stated as fact; the dated observations stated instead.
+const DURATION = /(?<![=\w-])~?\s*\d+(?:\.\d+)?\s*(?:s|secs?|seconds?|-second|min(?:ute)?s?)\b|\b(?:a|one)\s+minute\b/i;
+const SIXTY_LIMIT = [
+  /(?<![=\w-])~?\s*60\s*(?:s|secs?|seconds?|-second)\b[^.\n]{0,40}\b(?:limit|cap|window|wall|budget|kill)/i,
+  /\b(?:limit|cap|window|wall|budget|kill)\w*\b[^.\n]{0,40}(?<![=\w-])~?\s*60\s*(?:s|secs?|seconds?|-second)\b/i,
+];
+function desktopLimitAsFact(text) {
+  const units = text.split(/(?<=[.!?])\s+|\n\s*\n|\n(?=\s*(?:[-*|>]|\d+\.)\s)/);
+  return units.map((u) => u.replace(/\s+/g, ' ')).filter((u) => !/\b20\d\d-\d\d-\d\d\b/.test(u)
+    && ((/\bDesktop\b/.test(u) && DURATION.test(u)) || SIXTY_LIMIT.some((re) => re.test(u))));
+}
 test('F. the README states no Desktop tool-call limit as fact, and gives the dated observations', () => {
   const LIMIT_AS_FACT = [
     /~?\s*60\s*s(?:econds?)?\b[^.\n]{0,20}\s+(?:MCP\s+)?tool-call\s+(?:limit|cap)/i,
@@ -156,6 +166,25 @@ test('F. the README states no Desktop tool-call limit as fact, and gives the dat
     /automatic\s+region-batching|fits\s+Desktop's\s+limit\s+automatically/i,
   ];
   for (const re of LIMIT_AS_FACT) assert.doesNotMatch(README, re, `README states a Desktop limit as fact: ${re}`);
+  // A phrase list guards only the phrasings it lists: "a ~60 s per-call limit" passed the four above (the audit
+  // seat's survivor). The rule instead: a sentence with no ISO date may not name Desktop beside a duration, nor pair
+  // 60 s with a limit word in either order. A flag value (`--interval=60s`) is not a duration claim.
+  for (const s of [
+    'On one router a `scan_host` call timed out in Claude Desktop on 2026-08-10 and one returned within 138 s on 2026-09-30.',
+    'HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \\',
+    'A plugin declares its own 90 s budget.',
+    // one per lookbehind — each is cleared ONLY by that lookbehind (the HEALTHCHECK line reaches no limit word):
+    '`--interval=60s` is a probe cadence, not a limit.',
+    'The limit flag is `--timeout=60s`.',
+    'In Claude Desktop, pass `--timeout=60s`.',
+  ]) assert.deepEqual(desktopLimitAsFact(s), [], `ACCEPT case flagged: ${s}`);
+  for (const s of [
+    'Claude Desktop enforces a ~60 s per-call limit on MCP tools.',
+    'MCP tool calls are cut off at a 60-second cap.',
+    'Keep each call under the limit of 60 seconds.',
+    'Desktop gives each call about a minute.',
+  ]) assert.equal(desktopLimitAsFact(s).length, 1, `REJECT case passed: ${s}`);
+  assert.deepEqual(desktopLimitAsFact(README), [], 'README states a Desktop time limit as fact, undated');
   assert.equal((read('mcp_server.mjs').match(/pm\.runCloud\(/g) || []).length, 1, 'TRIPWIRE: scan_cloud call path changed');
   assert.match(README, /does not split a `regions:\["all"\]` call/);
   assert.match(README, /timed out in Claude Desktop on 2026-08-10/);
