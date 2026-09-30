@@ -74,6 +74,21 @@ not-comparable row names its run absolutely, and two scans of one host in one se
   community or weak TLS flags the Markdown counts, nor the self-signed certificate or MCP-scanner flags nothing counts;
   SARIF grades an open service medium where `--fail-on` grades it info. `tests/concluder_drops_honesty.test.mjs` pins
   the census and `tests/fail_on_scope_honesty.test.mjs` the gate, so either moving turns a test red beside this text.
+- **The README, `--help` and the `probe_service` schema stop promising what the code does not do (build 5).** Watch
+  mode's webhook does NOT fire on a service, version or finding change: `computeDiff` reads top-level `services`,
+  `findingsCount` and `tier`, and the per-host results the watch loop hands it carry none of them, so the per-cycle
+  comparison sees no change and the gate opens only after a cycle that scanned a different set of hosts from the one
+  before. The README's feature list, `--watch` row and Continuous Monitoring section, and `--help`, said it fired on
+  changes; they and the headline now say it does not in this release and point at the per-host `[ScanHistory]` lines,
+  which do compare, and the `--webhook-url` rows no longer say "delta alerts". The same section's "exponential
+  backoff" is up to two retries 1 s apart, and its `.scan_history/` is `scan_history.jsonl` in the output directory.
+  `--help` called `--ports` an override with a `1-1000` example: the ports are ADDED to the default set and a range is
+  not parsed. The README's Claude Desktop notes stated a ~60 s tool-call limit as fact and all-region `scan_cloud`
+  coverage as automatic; they now say what `PLUGIN_TIMEOUT_MS` and `CLOUD_PLUGIN_TIMEOUT_MS` bound (each plugin, not
+  the call), give the two dated observations (a `scan_host` timeout in Desktop on 2026-08-10, one returning within
+  138 s on 2026-09-30), and say the server does not batch regions. `probe_service`'s `pluginName` example
+  `"ssh_scanner"` matched no plugin (`Unknown plugin`); it now names `"002"` and `"SSH Scanner"`. **Stated, not fixed
+  here (boarded for 1.2.1):** the watch-mode comparison itself.
 - **A CVE row whose lookup failed in the other scan is no longer reported RESOLVED — TCP and UDP alike.** Enterprise's
   intelligence engine records a service it could not look up (the NVD lookup failed or returned a non-array, the
   offline store could not be read or held no entry for the CPE, the program has no CPE alias, or the banner carried no

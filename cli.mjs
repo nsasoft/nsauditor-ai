@@ -1677,7 +1677,8 @@ Scan options:
                                incomplete-coverage notice); CloudTrail trail discovery,
                                GuardDuty/Inspector and EC2 instances attempt every region.
   --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
-  --ports <range>              Override port list (e.g. 22,80,443 or 1-1000)
+  --ports <list>               Ports ADDED to the default set (e.g. 22,80,443 or 161/udp;
+                               a range such as 1-1000 is not parsed and adds nothing)
   --out <dir>                  Output directory for scan artifacts
   --parallel <n>               Parallel host concurrency (default 1)
   --fail-on <severity>         Exit 1 if a gated flag ≥ severity: anonymous FTP / zone
@@ -1690,15 +1691,16 @@ Scan options:
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
   --watch                      CTEM continuous ALERTING mode: re-scan on --interval,
-                               diff against the previous cycle, fire --webhook-url when a
-                               change crosses --alert-severity. NOT an evidence cadence —
+                               compare each host with its previous scan ([ScanHistory]
+                               lines); --webhook-url does NOT fire on a service, version or
+                               finding change in this release. NOT an evidence cadence —
                                it adds no retention or cross-run aggregation, skips SARIF/
                                CSV/Markdown output and --fail-on, and dies with this process.
                                Each tick is an ordinary scan, so with --compliance it writes
                                that tick's artifacts; nothing relates them across ticks. For
                                SOC 2 Type II history use a scheduler (cron/systemd/CI).
   --interval <minutes>         Watch interval (default 60)
-  --webhook-url <url>          Send delta alerts (must be public; private/loopback blocked)
+  --webhook-url <url>          Send --watch alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
   --compliance <framework>     Map findings to controls. 'all' = all 8 frameworks, or a CSV of
                                soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr,nist-800-171

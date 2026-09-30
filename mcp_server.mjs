@@ -348,7 +348,7 @@ export const TOOLS = [
         },
         pluginName: {
           type: 'string',
-          description: 'Plugin name or ID to run (e.g. "ssh_scanner" or "002")',
+          description: 'Plugin ID (e.g. "002") or its full name as list_plugins returns it, in any case (e.g. "SSH Scanner")',
         },
       },
       required: ['host', 'port', 'pluginName'],

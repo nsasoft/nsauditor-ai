@@ -29,7 +29,8 @@ still answer is `vulnerability-data-changed` — the vulnerability data moved, n
 reason's detail names its run absolutely ("this run", "the baseline run"), and two scans started in
 the same second get distinct directories. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
 requires this release** (`nsauditor-ai >= 0.2.56`). The free last-vs-current webhook alerting delta
-is untouched and stays free.
+is untouched and stays free; in this release it does not fire on a service, version or finding change (see
+Continuous Monitoring below).
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
@@ -44,7 +45,7 @@ Scan → Analyze → Prioritize → Track → Act
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
 - **Risk-scored prioritization (Pro/Enterprise)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
-- **Continuous monitoring (CTEM)** — watch mode rescans on a schedule, diffs against previous results, and fires webhook alerts on changes
+- **Continuous monitoring (CTEM)** — watch mode rescans on a schedule and compares each host's scan with its previous one; in this release its webhook alert does not fire on a service, version or finding change
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
 - **CI/CD ready** — SARIF output with `--fail-on` severity gating for pipeline integration
 
@@ -214,20 +215,19 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 | `get_findings` | Drill into the findings of the most recent `scan_cloud` run (per-provider session cache — not live state) |
 
 > `scan_cloud` runs the requested clouds' plugins **concurrently** (default up to 20 at once, 25s per-plugin
-> timeout) so a full multi-service cloud audit completes within Claude Desktop's ~60s tool-call limit. Tune with
+> timeout; a plugin that runs out is listed as `timeout` in the result's `manifest`, i.e. not measured). Tune with
 > `CLOUD_SCAN_CONCURRENCY` (default 20) and `CLOUD_PLUGIN_TIMEOUT_MS` (default 25000) in the server env. The
 > network `PLUGIN_TIMEOUT_MS` governs `scan_host` and `probe_service`, and binds every plugin there — including
 > one that declares a longer budget of its own. Read the result's **`findingsSummary`**
 > (per-provider severity counts + a CRITICAL/HIGH list) for the findings; `audited:false` / `notes` / `pluginsRan:0`
 > still mean a cloud was NOT audited (never a clean pass). Pass `providers:["aws"]` to audit only the cloud named.
 
-> **Full all-region AWS coverage fits Desktop's limit automatically.** When you ask for "all regions" / "full
-> coverage", the agent scans the enabled regions in small **region-group batches** (each within the ~60s window)
-> rather than one long `regions:["all"]` call — so it completes without timing out, and you do **not** raise any
-> timeout for it. Keep `CLOUD_PLUGIN_TIMEOUT_MS` **under** Desktop's ~60s tool-call cap (default `25000`; raise to
-> ~`45000` only for very large accounts — a higher per-plugin cap can let one plugin run past Desktop's wall and
-> cause a hard timeout). For unbounded multi-region scans use the **CLI** (`nsauditor-ai scan … --aws-region all`),
-> which has no MCP tool-call cap — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely. On the CLI a
+> **All-region AWS coverage.** The server does not split a `regions:["all"]` call into batches; the agent skill
+> (`nsauditor-ai-agent-skill`) teaches the assistant to cover the enabled regions in batches of 3–5 region codes per
+> call. `CLOUD_PLUGIN_TIMEOUT_MS` (default `25000`) bounds each plugin, not the call: raising it can give a slow
+> plugin more time and lengthen the call. A call that times out in the client returned no result — never read it as
+> a clean account. For unbounded multi-region scans use the **CLI** (`nsauditor-ai scan … --aws-region all`), which
+> has no MCP client in the path — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely. On the CLI a
 > plugin that declares its own budget already gets it; `PLUGIN_TIMEOUT_CEILING_MS` caps those.
 
 Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
@@ -313,10 +313,10 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
 - `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
 - `FTP_CHECK_ANON=true` — lets the FTP check try an anonymous login (off by default; without it `scan_host` never reports anonymous FTP). `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN=<zone>` — lets the DNS check try a zone transfer of that zone (off by default). The same variables govern the CLI scan.
-- `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times, and fits inside Claude Desktop's ~60 s tool-call limit only when most of them finish quickly. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
+- `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times. On one router a `scan_host` call timed out in Claude Desktop on 2026-08-10 and one returned within 138 s on 2026-09-30, so neither outcome is promised: a call that times out returned no result — never read it as a clean host. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
 - `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
 - `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
-- `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`). Keep it **under** Desktop's ~60s tool-call cap (raise to ~`45000` only for very large accounts); full all-region coverage is delivered by automatic region-batching, so it needs **no** timeout increase.
+- `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`). It bounds each plugin, not the call — see the all-region note above before raising it.
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 
 #### `NSA_ENV_FILE` — point the MCP server at an environment file
@@ -448,15 +448,15 @@ nsauditor-ai --version     (or -v, or `version`)
 | `--host <target>` | Target: IP, hostname, CIDR, dash range. Aliases: `--ip`, `--target` | *required*\* |
 | `--host-file <path>` | File with one host per line (`#` comments, blank lines OK) | — |
 | `--plugins <list>` | Comma-separated plugin IDs or `all` | `all` |
-| `--ports <list>` | **Additional** ports to scan, merged into the default config-derived list. Comma-separated. Optional `/tcp` or `/udp` suffix per entry (default: `tcp`). Examples: `8090` · `8090,9090` · `8090/tcp,5353/udp`. Use this to scan custom services on non-standard ports (e.g. MCP servers on `8090`, dev servers on `3000–9000`) | — |
+| `--ports <list>` | **Additional** ports to scan, merged into the default config-derived list. Comma-separated. Optional `/tcp` or `/udp` suffix per entry (default: `tcp`). Examples: `8090` · `8090,9090` · `8090/tcp,5353/udp`. Use this to scan custom services on non-standard ports (e.g. MCP servers on `8090`). A range such as `1-1000` is not parsed and adds nothing | — |
 | `--out <dir>` | Custom output directory — applies to the per-scan folder *and* to alternate-format files (SARIF/CSV/Markdown) | `out/` |
 | `--parallel <n>` | Concurrent host scans | `1` |
 | `--output-format <fmt>` | Additional output format: `sarif` (CI/CD) · `csv` (spreadsheet) · `md` or `markdown` (chat/PR/Slack quotable) | — |
 | `--fail-on <sev>` | Exit code 1 if a flag it gates on is ≥ severity (`critical\|high\|medium\|low\|info`): anonymous FTP login and DNS zone transfer are critical, weak SSH algorithms medium, and any concluded scan counts as info — so `--fail-on info` fails every scan that concludes. Anonymous FTP login and zone transfer are tested only when `FTP_CHECK_ANON=true` / `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN` are set, so on a default scan `--fail-on high` and `--fail-on critical` never exit 1. It also reads dangerous HTTP methods (medium), but no scan's conclusion carries that flag today. It does not read the SNMP default community, weak TLS protocols / ciphers, a self-signed certificate, the MCP server checks, Enterprise's CVE rows or agent findings, so exit 0 is not a clean host; exit 2 for an unknown severity or no conclusion | — |
 | `--insecure-https` | Accept self-signed TLS certificates | `false` |
-| `--watch` | CTEM continuous **alerting** loop — re-scan on `--interval`, diff, webhook on `--alert-severity`. Not an evidence cadence: no retention, no cross-run aggregation, skips SARIF/CSV/Markdown + `--fail-on`, dies with the process. Use a scheduler for SOC 2 Type II history. | `false` |
+| `--watch` | CTEM continuous **alerting** loop — re-scan on `--interval`, compare each host with its previous scan (`[ScanHistory]` lines), webhook on `--alert-severity` — but not on a service, version or finding change in this release (see Continuous Monitoring). Not an evidence cadence: no retention, no cross-run aggregation, skips SARIF/CSV/Markdown + `--fail-on`, dies with the process. Use a scheduler for SOC 2 Type II history. | `false` |
 | `--interval <min>` | Rescan interval in minutes (requires `--watch`) | `60` |
-| `--webhook-url <url>` | Webhook URL for delta alerts | — |
+| `--webhook-url <url>` | Webhook URL for watch-mode alerts (see `--watch`) | — |
 | `--alert-severity <sev>` | Minimum severity for webhook alerts | `high` |
 | `--compliance <fw>` | Compliance framework to map findings into. Accepts CSV for multi-framework runs (e.g. `soc2`, `hipaa`, `nist-csf`, `pci-dss`, `iso-27001`, `cis-v8`, `gdpr`, `nist-800-171`, or any combination like `soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr,nist-800-171` — `all` expands to the same eight). **Enterprise license required.** Supported frameworks as of EE 0.40.0 — **eight**: `soc2` (AICPA TSC 2017) + `hipaa` (HIPAA Security Rule §164.312 Technical Safeguards) + `nist-csf` (NIST Cybersecurity Framework 2.0 Core, CSWP 29 Feb 2024) + `pci-dss` (PCI DSS v4.0.1, PCI SSC June 2024 errata) + `iso-27001` (ISO/IEC 27001:2022, ISO + IEC October 2022) + `cis-v8` (CIS Critical Security Controls v8, CIS May 2021 / v8.1 errata June 2024) + `gdpr` (GDPR Article 32 / Security of Processing, Regulation (EU) 2016/679 — Art. 32 infrastructure substrate, **not** GDPR compliance) + `nist-800-171` (NIST SP 800-171 Rev 2 — evidence substrate for **CMMC Level 2 preparation**, **not** a CMMC certification, **not** a FedRAMP authorization, and no MET/NOT MET determination or SPRS score). See `@nsasoft/nsauditor-ai-ee` README for per-framework coverage details. | — |
 | `--compliance-scope <path>` | Optional JSON file describing the assessment scope (passed to the compliance engine for cover-page attestation) | — |
@@ -771,10 +771,10 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 ```
 
 - **Scheduling** with configurable intervals and concurrency control
-- **Delta detection** — new, removed, and changed services highlighted between cycles
-- **Webhook alerts** — JSON POST with retry (exponential backoff, no retry on 4xx)
+- **Change detection** — each host's scan is compared with that host's previous line in `scan_history.jsonl` and printed as a `[ScanHistory]` line: new, removed and changed services, and the findings delta
+- **Webhook alerts** — a JSON POST, retried up to twice 1 s apart on a 5xx or network error, not on a 4xx. ⚠️ **In this release the webhook does NOT fire on a service, version or finding change:** the cycle comparison it is gated on finds no services in the scan results it is handed, so its `=== Delta Report ===` shows no change for any host. The gate opens only when a cycle scanned a different set of hosts from the cycle before (in practice, one cut short by stopping the loop); an alert is then posted for each host whose services carry a flag at or above `--alert-severity` (at `info`, every service counts). Read changes from the `[ScanHistory]` lines.
 - **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. Set `NSA_ALLOW_ALL_HOSTS=1` to scan RFC 1918 ranges (local network auditing)
-- **Scan history** stored in `.scan_history/` (JSONL format, 7-day retention in CE)
+- **Scan history** stored in `scan_history.jsonl` in the output directory (`--out`, default `out/`; 7-day retention in CE)
 
 ---
 
