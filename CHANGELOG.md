@@ -138,6 +138,19 @@ compared scans.
   error — never resolved, never new. Community's own plugins are unaffected: a plugin's status governs its findings.
   ⚠️ Not changed: the `feed`, `compliance` and `attest` subcommands still report a failed Enterprise load as "requires
   the Enterprise package" (exit 2 — loud, but it names the wrong cause).
+- **The README is corrected where a reader acts on it (the release-doc fold, 2026-09-30; text only — no code, rule or
+  data changed), each fix measured against the code.** `npx nsauditor-ai-mcp` is gone: the server is a bin inside this
+  package, and when npx does not find the bin it asks the npm registry for a PACKAGE of that name, which this project
+  did not hold. Claude Code runs the installed bin, Claude Desktop takes the block `nsauditor-ai mcp install-key`
+  prints (absolute node and script paths), and the name is reserved with this release by an inert placeholder.
+  `NSA_ALLOW_ALL_HOSTS` is described by what it opens: over MCP it turns off the check of what a host name resolves to,
+  so a name resolving to a loopback or cloud-metadata address gets through (driven both ways), and it never lifts the
+  webhook guard. Also: the below-floor symptom is the measured one (Enterprise's plugins load; its intelligence,
+  analysis-agent and compliance stages are skipped); two scans get distinct directories when their plugin runs FINISH
+  in the same second; `report --since` joins the CLI reference and the report exit contract; AI-prompt redaction is
+  stated with the switch that turns it off and GRC redaction with its default, off; the suppression workflow's tier is
+  corrected; and the README carries no test count. ⚠️ Not changed: the collision message in `utils/output_dir.mjs`
+  still says "started in the same second" (code — 1.2.1).
 
 ---
 

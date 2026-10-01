@@ -7,7 +7,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-1582%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#tests)
 
 ---
 
@@ -22,7 +22,8 @@ The Pro/Enterprise `report --since` delta (introduced in CE 0.2.55) now refuses 
 finding could read as fixed without being fixed: a UDP service that did not answer in the
 other run (`port-not-measured`, listed as `<port>/udp`), a CVE row whose lookup failed there, a
 finding of an analysis agent that did not run, and — new in this release — **an Enterprise package
-that failed to load**, which used to leave the scan running as Community without a word. It is now
+that failed to load**, which used to leave its plugins running while the scan skipped its intelligence,
+analysis-agent and compliance stages without a word. It is now
 named on stderr and recorded on the scan's conclusion, and the delta refuses that host's agent and
 CVE-mapper rows as `evidence-gap`. And a CVE row that vanished while the same program and version
 still answer is `vulnerability-data-changed` — the vulnerability data moved, not the estate.
@@ -30,8 +31,8 @@ still answer is `vulnerability-data-changed` — the vulnerability data moved, n
 the CVE mapper derived from the output of a plugin one scan did not request can read resolved (and in Enterprise,
 with SLA tracking on, MTTR counts it closed and the control it failed can read PASS) or new — keep `--plugins`
 identical between compared scans. Every
-reason's detail names its run absolutely ("this run", "the baseline run"), and two scans started in
-the same second get distinct directories. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
+reason's detail names its run absolutely ("this run", "the baseline run"), and two scans of one host
+whose plugin runs finished in the same second get distinct directories. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
 requires this release** (`nsauditor-ai >= 0.2.56`). The free last-vs-current webhook alerting delta
 is untouched and stays free; in this release it does not fire on a service, version or finding change (see
 Continuous Monitoring below).
@@ -48,7 +49,7 @@ Scan → Analyze → Prioritize → Track → Act
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
 - **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
-- **Risk-scored prioritization (Pro/Enterprise)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field, and an operator suppression workflow (accepted-risk / false-positive with expiry) keeps triaged findings out of the report until they expire
+- **Risk-scored prioritization (Pro/Enterprise)** — findings carry a composite risk score (CVSS weighted by verification status, with an uplift for initial-access techniques) and a status field. Enterprise adds an operator suppression workflow for compliance findings (accepted-risk / false-positive with expiry): the compliance report shows a suppressed finding as suppressed, naming its approver and rationale, and an expired suppression no longer applies
 - **Continuous monitoring (CTEM)** — watch mode rescans on a schedule and compares each host's scan with its previous one; in this release its webhook alert does not fire on a service, version or finding change
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
 - **CI/CD ready** — SARIF output with `--fail-on` severity gating for pipeline integration
@@ -187,9 +188,10 @@ Expose scanning capabilities to AI assistants via [Model Context Protocol](https
 
 ```bash
 nsauditor-ai-mcp
-# or
-npx nsauditor-ai-mcp
 ```
+
+Run the installed bin, never `npx nsauditor-ai-mcp`: `nsauditor-ai-mcp` is a bin inside the `nsauditor-ai` package, and when npx does not find that bin it looks the name up on the npm registry instead — which never starts this server. For Claude Desktop, paste the block
+`nsauditor-ai mcp install-key` prints (Claude Desktop Setup, below).
 
 The server registers **seven** tools and lists all seven to every client. The licence is
 checked when a tool is CALLED, not when the list is served — so an unlicensed call returns
@@ -294,13 +296,16 @@ npm install -g nsauditor-ai
 nsauditor-ai mcp install-key   # required before MCP server will start
 ```
 
-Then add this to your `claude_desktop_config.json` (Settings → Developer → Edit Config):
+Then paste the `mcpServers` block that `install-key` prints into your `claude_desktop_config.json` (Settings →
+Developer → Edit Config). It names node and the server script by absolute path, because Claude Desktop may not see
+the directory your shell finds `nsauditor-ai-mcp` in. Add any other variables to its `env` block, for example:
 
 ```json
 {
   "mcpServers": {
     "nsauditor-ai": {
-      "command": "nsauditor-ai-mcp",
+      "command": "<from: nsauditor-ai mcp install-key — the absolute path to node>",
+      "args": ["<from: nsauditor-ai mcp install-key — the absolute path to bin/nsauditor-ai-mcp.mjs>"],
       "env": {
         "NSA_MCP_AUTH_KEY": "keychain:NSA_MCP_AUTH_KEY",
         "NSA_ENV_FILE": "~/envs/prod-aws.env",
@@ -315,7 +320,9 @@ Then add this to your `claude_desktop_config.json` (Settings → Developer → E
 The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp install-key` — on macOS it's the `keychain:NSA_MCP_AUTH_KEY` placeholder shown above; on Linux/Windows it's the literal key value (and you should `chmod 600` your config file).
 
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
-- `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`)
+- `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`). It turns off the MCP
+  server's check of what a host name resolves to, so a name that resolves to a loopback or cloud-metadata address then gets
+  through too; targets written as `localhost`, `127.x`, `::1`, `169.254.x` or `metadata.google…` stay refused
 - `FTP_CHECK_ANON=true` — lets the FTP check try an anonymous login (off by default; without it `scan_host` never reports anonymous FTP). `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN=<zone>` — lets the DNS check try a zone transfer of that zone (off by default). The same variables govern the CLI scan.
 - `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times. On one router a `scan_host` call timed out in Claude Desktop on 2026-08-10 and one returned within 138 s on 2026-09-30, so neither outcome is promised: a call that times out returned no result — never read it as a clean host. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
 - `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
@@ -355,7 +362,7 @@ PLUGIN_TIMEOUT_MS=5000
 nsauditor-ai mcp install-key   # required before MCP server will start
 claude mcp add nsauditor-ai \
   --env NSA_MCP_AUTH_KEY=keychain:NSA_MCP_AUTH_KEY \
-  -- npx nsauditor-ai-mcp
+  -- nsauditor-ai-mcp
 ```
 
 To target an environment via the file, add it as an env value:
@@ -364,7 +371,7 @@ To target an environment via the file, add it as an env value:
 claude mcp add nsauditor-ai \
   --env NSA_MCP_AUTH_KEY=keychain:NSA_MCP_AUTH_KEY \
   --env NSA_ENV_FILE=~/envs/prod-aws.env \
-  -- npx nsauditor-ai-mcp
+  -- nsauditor-ai-mcp
 ```
 
 (On Linux/Windows, replace the `keychain:NSA_MCP_AUTH_KEY` placeholder with the literal key printed by `install-key`.)
@@ -439,7 +446,7 @@ nsauditor-ai validate
 nsauditor-ai feed bundle --from <dir-of-NVD-feeds> --out <bundle.json.gz> [--kev <f>] [--epss <f>]
 nsauditor-ai feed import --file <feed-or-bundle> [--cache-dir <d>] [--extras-dir <d>] [--append]   # the feeds you downloaded
 nsauditor-ai compliance <attest|suppress|review|renew|keygen|sign-pack|verify-pack>   (Enterprise)
-nsauditor-ai report --from <dir> --format executive|jira [--run <id>] [--brand <brand.json>] [--out <path>] [--allow-partial]   (Pro/Enterprise)
+nsauditor-ai report --from <dir> --format executive|jira [--run <id>] [--since <runId|prior>] [--brand <brand.json>] [--out <path>] [--allow-partial]   (Pro/Enterprise)
 nsauditor-ai mcp
 nsauditor-ai --help        (or -h, or `help`)
 nsauditor-ai --version     (or -v, or `version`)
@@ -546,15 +553,17 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
 | `--format executive` | Self-contained, print-ready HTML report; no external network reference other than an `http(s)`/`mailto` `<a href>` | — |
 | `--format jira` | Jira-importer CSV (`Summary`/`Description`/`Priority`/`Labels`/`External ID`); the import mapping is done in Jira and has not been verified against a live Jira instance. **`pass`-tier records are EXCLUDED** — a Jira issue is a work item and a passing check is not work; every other tier is kept, INFO included, because INFO carries the evidence gaps and scope boundaries. Passing checks appear in the `executive` report under their own **PASS** tier. | — |
 | `--run <id>` | Report a specific run id instead of the newest one under `--from` | newest run |
+| `--since <runId\|prior>` | Compare the reported run with a baseline run under `--from`: `prior` is the run that started immediately before it, or name a run id. The `executive` report lists each new, resolved and changed finding, and each finding that could NOT be compared with its reason; stdout prints the counts, the changed and not-comparable rows and the limits; the `jira` CSV carries none of it. Keep `--plugins` identical between the two scans (see What's New). Every refusal exits 2: if the baseline was found but cannot support a comparison, the `executive` report is still written, states the refusal and lists no new, resolved or changed finding; if no baseline is found, if the reported run's own record fails verification, or with `--format jira`, nothing is written | — |
 | `--brand <brand.json>` | Cover-page branding (company name, prepared-by, contact, logo) — `--format executive` only | unbranded |
 | `--out <path>` | Write to this path instead of `report_<runId>.<ext>` beside the run record | `report_<runId>.<ext>` |
 | `--allow-partial` | Render even if some requested hosts were never written, or the run never recorded completion — the caveat is stated on the cover, never hidden | `false` |
 
-A value-less `--from`/`--brand`/`--run`/`--out` (nothing after the flag, or a shell glob that swallowed the argument) is a fatal error, not a silent default.
+A value-less `--from`/`--brand`/`--run`/`--out`/`--since` (nothing after the flag, or a shell glob that swallowed the argument) is a fatal error, not a silent default.
 
 **Exit contract** — `0` a report was rendered · `1` fix the RUN (no run record under `--from`, or an
 incomplete run without `--allow-partial`) · `2` fix the REQUEST or its environment (an unknown or
-missing flag value, an unwritable `--out`, a `--brand` file that is refused).
+missing flag value, an unwritable `--out`, a `--brand` file that is refused, or a `--since` comparison
+that could not be made — see `--since` above).
 
 ⚠️ `--brand` with `--format jira` is **refused**, not ignored: a Jira CSV has nowhere to put branding,
 and silently dropping a flag the caller passed is how a report goes out unbranded without anyone
@@ -684,7 +693,7 @@ No license key? Everything in this repository works perfectly without one. The C
 
 ### Pro/Enterprise Plugins
 
-Pro and Enterprise add 29 cloud and posture auditors on top of the Community scanners — AWS, Azure and GCP, mapped to eight compliance frameworks. They require `@nsasoft/nsauditor-ai-ee` and a licence.
+Enterprise adds 29 cloud and posture auditors on top of the Community scanners — AWS, Azure and GCP, mapped to eight compliance frameworks. They require `@nsasoft/nsauditor-ai-ee` and an Enterprise licence; a Pro licence does not unlock them.
 
 **→ [Pro / Enterprise plugin catalog](./docs/enterprise-plugins.md)** — every plugin with its id, what it audits, and the AWS region-scoping rules for the regional auditors (`--aws-region <one|csv|all>`).
 
@@ -696,14 +705,14 @@ See [Pro & Enterprise Activation](#pro--enterprise-activation) to install a lice
 
 Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta, Drata, or Secureframe workspace reflects the latest cloud posture without a manual export/import round-trip.
 
-**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, egress is redaction-gated: resource identifiers can be hashed or removed, the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
+**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, finding text and target identifiers go to your platform as written unless you set `COMPLIANCE_GRC_REDACTION` to `hash` or `remove` (redaction is off by default); the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
 
 ```bash
 # Enable the scan-time push (Enterprise)
 COMPLIANCE_GRC_PROVIDER=vanta        # or: drata | secureframe
 COMPLIANCE_GRC_TOKEN=<your API key>  # never serialized to artifacts
 # Optional:
-# COMPLIANCE_GRC_REDACTION=hash      # off | hash | remove  (egress identifier redaction)
+# COMPLIANCE_GRC_REDACTION=hash      # off by default | hash | remove  (scrubs finding text and targets before egress)
 # COMPLIANCE_GRC_CONTROL_MAP=/path/to/config.json  # provider config: Vanta control→test map, Drata connection ({connectionId, resourceId, schemaMap}), or Secureframe ({workspaceId, collectionId, schemaMap})
 ```
 
@@ -743,7 +752,7 @@ NSAuditor AI supports three AI providers for vulnerability analysis. **All provi
 - **Pro** — intelligence-enriched prompts (CVE matches, MITRE ATT&CK technique annotations, composite risk scores injected into the prompt). Same API call, better-grounded output
 - **Enterprise** — Pro prompts + compliance context
 
-**Redaction:** Before any data reaches an AI API, the redaction pipeline masks IP addresses, MAC addresses, serial numbers, and configurable confidential keywords. Admin RAW reports retain full detail for internal review.
+**Redaction:** On by default (`OPENAI_REDACT=false` turns it off), the redaction pipeline masks IP addresses, MAC addresses, serial numbers, and configurable confidential keywords before the payload reaches an AI API. Admin RAW reports retain full detail for internal review.
 
 ```ini
 # .env
@@ -777,7 +786,7 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 - **Scheduling** with configurable intervals and concurrency control
 - **Change detection** — each host's scan is compared with that host's previous line in `scan_history.jsonl` and printed as a `[ScanHistory]` line: new, removed and changed services, and the findings delta
 - **Webhook alerts** — a JSON POST, retried up to twice 1 s apart on a 5xx or network error, not on a 4xx. ⚠️ **In this release the webhook does NOT fire on a service, version or finding change:** the cycle comparison it is gated on finds no services in the scan results it is handed, so its `=== Delta Report ===` shows no change for any host. The gate opens only when a cycle scanned a different set of hosts from the cycle before (in practice, one cut short by stopping the loop); an alert is then posted for each host whose services carry a flag at or above `--alert-severity` (at `info`, every service counts). Read changes from the `[ScanHistory]` lines.
-- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. Set `NSA_ALLOW_ALL_HOSTS=1` to scan RFC 1918 ranges (local network auditing)
+- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. `NSA_ALLOW_ALL_HOSTS=1` lifts the scan-entry guard for local network auditing — on the CLI the whole guard, loopback and metadata included; over MCP, the check of what a host name resolves to — and never the webhook guard
 - **Scan history** stored in `scan_history.jsonl` in the output directory (`--out`, default `out/`; 7-day retention in CE)
 
 ---
@@ -861,7 +870,7 @@ export default {
 
 ## Tests
 
-Run all 1582 tests:
+Run the full suite:
 
 ```bash
 npm test
@@ -892,7 +901,7 @@ Tests use Node.js built-in `--test` runner with the `assert` module — no exter
 | RPC not detected | Ensure port 111 is accessible and RPC portmapper is running |
 | WS-Discovery timeout | Check network config and firewall for multicast on UDP 3702 |
 | SYN scan requires root | Run with `sudo` or use TCP connect scanner (plugin 003) instead |
-| Webhook URL rejected | Private/loopback/cloud metadata blocked by SSRF guard. Use `NSA_ALLOW_ALL_HOSTS=1` to allow RFC 1918 scan targets |
+| Webhook URL rejected | Private/loopback/cloud metadata blocked by SSRF guard. `NSA_ALLOW_ALL_HOSTS` does not lift this guard: use a public webhook URL |
 | EE plugins not loading | Verify `@nsasoft/nsauditor-ai-ee` is installed and license key is set |
 
 ---
@@ -939,7 +948,7 @@ NSAuditor AI is built on a **Zero Data Exfiltration (ZDE)** architecture:
 
 - **No telemetry.** No analytics. No usage tracking. No phone-home.
 - **No data processing.** Nsasoft US LLC never sees, stores, or processes your scan results.
-- **AI is opt-in.** External AI calls use your own API keys. Redaction runs locally first.
+- **AI is opt-in.** External AI calls use your own API keys. Redaction runs locally first, on by default (`OPENAI_REDACT=false` turns it off).
 - **License validation is offline.** JWT signature verified locally with an embedded public key.
 - **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap in the scan rather than a silent clean when the store cannot answer (in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS). Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
 
