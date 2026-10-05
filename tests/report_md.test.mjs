@@ -385,3 +385,27 @@ test('buildMarkdownReport: closing fence always matches opening fence length', (
     assert.equal(fences[i], fences[i + 1], `fence pair mismatch at index ${i}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 1.2.1 lane 3 (s5): the REAL wrapped conclusion. runConcluder hands callers {id, name, result: <conclusion>},
+// and both callers (cli --output-format md, scan_host markdown) pass that object — while the report read
+// host and summary one level ABOVE result, so a real scan's Markdown had no OS, Hostname or summary rows.
+// The fixtures above put them beside result, a shape no runConcluder produces, which is why they stayed green.
+// This conclusion is PRODUCED by the manager and the real concluder, never written by hand.
+// ---------------------------------------------------------------------------
+test('(s5) the REAL wrapped conclusion renders the OS, Hostname and summary rows', async () => {
+  const { PluginManager } = await import('../plugin_manager.mjs');
+  const { default: concluder } = await import('../plugins/result_concluder.mjs');
+  const mgr = await PluginManager.create({ plugins: [concluder] });
+  const conclusion = await mgr.runConcluder([
+    { id: '001', name: 'Ping Checker', result: { up: true, os: 'Linux', osVersion: '5.x', data: [] } },
+    { id: '027', name: 'MDNS Scanner', result: { up: true, data: [{ probe_protocol: 'udp', probe_port: 5353,
+      probe_info: 'mDNS', response_banner: JSON.stringify({ txt: { fn: 'router' } }) }] } },
+  ]);
+  assert.equal(typeof conclusion?.result?.summary, 'string', 'positive control: the manager wraps the concluder output under result');
+  assert.equal(conclusion.summary, undefined, 'and nothing sits beside it — this is the shape callers receive');
+  const md = buildMarkdownReport({ host: '192.0.2.1', conclusion });
+  assert.match(md, /\*\*OS:\*\* Linux 5\.x/);
+  assert.match(md, /\*\*Hostname:\*\* router/);
+  assert.ok(md.includes(conclusion.result.summary), `the summary sentence: ${conclusion.result.summary}`);
+});

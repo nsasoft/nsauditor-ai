@@ -191,8 +191,9 @@ export function buildMarkdownReport(scanData) {
   const host = scanData.host ?? '(unknown host)';
   const conclusion = scanData.conclusion ?? {};
   const services = conclusion?.result?.services ?? [];
-  const hostInfo = conclusion?.host ?? {};
-  const summaryText = conclusion?.summary ?? '';
+  // runConcluder's callers receive {id, name, result: <conclusion>}; a legacy flat shape is still read.
+  const hostInfo = conclusion?.result?.host ?? conclusion?.host ?? {};
+  const summaryText = conclusion?.result?.summary ?? conclusion?.summary ?? '';
   const toolVersion = scanData.toolVersion ?? '';
   const scanTime = scanData.scanTime instanceof Date
     ? scanData.scanTime.toISOString()
