@@ -1,3 +1,4 @@
+import './helpers/no_operator_home.mjs';   // FIRST: the MCP call log is computed from homedir() at load
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -207,4 +208,17 @@ test('integration: scan_cloud render composes rollup + bold + get_findings suffi
   assert.equal(drilled.findings.length, 1);
   assert.equal(drilled.findings[0].resource, 'sqs-cleartext-queue');
   _setTier();
+});
+
+test('hygiene: the MCP call log this file writes lives under a scratch HOME, never the operator\'s', async () => {
+  // Every handleScanCloud above appends one line to <homedir>/.nsauditor/mcp-calls.log, the log
+  // `nsauditor-ai mcp verify-call` reads to prove a tool call was real. With the real HOME, each
+  // run of this file appended 3 lines to the operator's own provenance log (measured 2026-10-05).
+  const { homedir, tmpdir } = await import('node:os');
+  const { existsSync, realpathSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  assert.ok(realpathSync(homedir()).startsWith(realpathSync(tmpdir())),
+    `homedir() is ${homedir()} — the MCP call log would be written into the operator's real home`);
+  assert.ok(existsSync(join(homedir(), '.nsauditor', 'mcp-calls.log')),
+    'the scratch HOME holds the call log the tests above wrote — so they wrote it HERE');
 });

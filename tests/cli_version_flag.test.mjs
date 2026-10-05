@@ -13,7 +13,8 @@ import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -21,10 +22,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 const CLI_PATH = join(REPO_ROOT, 'cli.mjs');
 const PKG = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+// The CLI writes a run record (out/scan_run_*.json + .sha256, chained by prevDigest) for every
+// scan it STARTS, including one the SSRF guard aborts — and `out` is relative to the working
+// directory. With cwd = the CE checkout, every run of this file appended two files to the
+// operator's own run-record chain in out/ (measured 2026-10-05: 191 → 193 per run). So the CLI
+// runs from a scratch directory, and the leg below proves the record lands THERE.
+const WORK = mkdtempSync(join(tmpdir(), 'nsa-cli-version-'));
+test.after(() => rmSync(WORK, { recursive: true, force: true }));
 
 function runCli(args) {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
-    cwd: REPO_ROOT,
+    cwd: WORK,
     encoding: 'utf8',
     timeout: 15000,
   });
@@ -65,7 +73,7 @@ test('CE-0.1.30.1: version flag does NOT require a license key (parallels --help
     )
   );
   const r = spawnSync(process.execPath, [CLI_PATH, '--version'], {
-    cwd: REPO_ROOT,
+    cwd: WORK,
     env: cleanEnv,
     encoding: 'utf8',
     timeout: 15000,
@@ -120,6 +128,11 @@ test('CE-0.1.30.1 reviewer M1: short flag `-v` does NOT match when used as a fla
   // that EITHER the process errored (license) OR scan output appears.
   // The key invariant is: the version handler (which exits 0 immediately
   // after one line) was NOT triggered.
+  // The aborted run's record lands in the scratch cwd, never in the CE checkout's out/.
+  const workOut = join(WORK, 'out');
+  assert.ok(existsSync(workOut) && readdirSync(workOut).some((f) => /^scan_run_.*\.json$/.test(f)),
+    'the aborted scan\'s run record must land under the scratch working directory — with cwd = the '
+    + 'CE checkout it is appended to the operator\'s own out/ run-record chain');
   const isJustVersion = /^nsauditor-ai \d+\.\d+\.\d+\s*$/m.test(r.stdout) &&
                         r.stdout.split('\n').filter((l) => l.trim()).length < 5;
   assert.equal(
