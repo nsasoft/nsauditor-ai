@@ -55,15 +55,17 @@ export function perTargetMx(waitSec) {
 // fetches the description of every device it reports itself. The original is called SYNCHRONOUSLY, so the
 // device is listed exactly when it would have been; only its promise is caught.
 //
-// 1.2.1 lane 2 (R2): the same wrapper also refuses an ssdp:alive NOTIFY whose LOCATION names a host
-// other than the device that sent it. The library fetches the LOCATION of every NOTIFY it keeps with NO
-// host check (its M-SEARCH-answer path does check), so any device on the segment could point it at
-// loopback, cloud metadata or a third host. Such a NOTIFY is dropped before the library sees it, and
-// COUNTED (refusedAnnouncements), never silently.
+// 1.2.1 lane 2 (R2): the same wrapper also refuses a NOTIFY whose LOCATION names a host other than the
+// device that sent it. The library fetches the LOCATION of every NOTIFY it keeps with NO host check (its
+// M-SEARCH-answer path does check), so any device on the segment could point it at loopback, cloud
+// metadata or a third host. Such a NOTIFY is dropped before the library sees it, and COUNTED
+// (refusedAnnouncements), never silently. The decision is taken on the LIBRARY'S OWN PARSE of the packet
+// (`_parseSdpResponseHeader`, the same start-line test) — a parser of our own disagreed with it on a
+// repeated LOCATION (it keeps the last), a space before the colon and a `NOTIFYX` start line. Should that
+// parser ever be missing, every NOTIFY is refused: the check fails closed.
 const RECEIVE_GUARD = Symbol.for('nsauditor.upnp.receivePacketGuard');
 const DROPPED = Symbol.for('nsauditor.upnp.droppedResponses');
 const REFUSED = Symbol.for('nsauditor.upnp.refusedAnnouncements');
-const NOTIFY_LOCATION_RE = /^LOCATION:[ \t]*(.*?)[ \t]*$/im;
 export function guardReceivePacket(upnp) {
   if (!upnp || typeof upnp._receivePacket !== 'function' || upnp[RECEIVE_GUARD]) return upnp;
   const original = upnp._receivePacket;
@@ -75,13 +77,9 @@ export function guardReceivePacket(upnp) {
   };
   upnp._receivePacket = function guardedReceivePacket(...args) {
     const [buffer, rinfo] = args;
-    const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer ?? '');
-    if (/^NOTIFY\b/.test(text)) {
-      const loc = text.match(NOTIFY_LOCATION_RE)?.[1];
-      if (loc && !descriptionUrlAllowed(loc, rinfo?.address)) {
-        upnp[REFUSED] += 1;
-        return Promise.resolve();
-      }
+    if (refuseAnnouncement(upnp, buffer, rinfo)) {
+      upnp[REFUSED] += 1;
+      return Promise.resolve();
     }
     let p;
     try { p = original.apply(this, args); } catch (err) { count(err); return Promise.resolve(); }
@@ -90,6 +88,18 @@ export function guardReceivePacket(upnp) {
   upnp[RECEIVE_GUARD] = true;
   return upnp;
 }
+/** Whether the library would fetch this packet's LOCATION as a NOTIFY, from a host other than the sender. */
+function refuseAnnouncement(upnp, buffer, rinfo) {
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer ?? '');
+  if (/^M-SEARCH/.test(text)) return false; // the library ignores these
+  if (typeof upnp._parseSdpResponseHeader !== 'function') return /^NOTIFY/.test(text);
+  let headers;
+  try { headers = upnp._parseSdpResponseHeader(text); } catch { return /^NOTIFY/.test(text); }
+  if (!headers || !headers.USN || !/^NOTIFY/.test(String(headers['$']))) return false;
+  const loc = headers.LOCATION;
+  return loc !== undefined && !descriptionUrlAllowed(loc, rinfo?.address);
+}
+
 /** Library errors caught so far on this instance, by error name. */
 export function droppedResponses(upnp) {
   return { ...(upnp?.[DROPPED] ?? {}) };

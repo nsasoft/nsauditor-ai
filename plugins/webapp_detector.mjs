@@ -104,14 +104,19 @@ async function assertHopAllowed(next, entryHost) {
 
 async function fetchOnce(url, signal) {
   const extra = parseExtraHeaders();
-  const headers = {
+  const base = {
     'User-Agent': 'Mozilla/5.0 (compatible; NetworkSecurityAuditor/1.18.0; +https://example.invalid)',
     DNT: '1',
-    ...extra,
   };
-  const entryHost = new URL(url).hostname;
+  const entry = new URL(url);
+  const entryHost = entry.hostname;
+  // The operator's HTTP_EXTRA_HEADERS (where an Authorization or an API key goes) are for the origin the
+  // operator named. Once a hop leaves that origin — another host, scheme or port — none of them is sent
+  // again, even if the chain comes back. (undici's own follow drops only Authorization cross-origin.)
+  let leftOrigin = false;
   let current = url;
   for (let hop = 0; ; hop++) {
+    const headers = leftOrigin ? base : { ...base, ...extra };
     // global fetch (undici) is available in Node >=18
     const res = await fetch(current, { redirect: 'manual', headers, signal });
     const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
@@ -121,6 +126,7 @@ async function fetchOnce(url, signal) {
       }
       const next = new URL(location, current);
       await assertHopAllowed(next, entryHost);
+      if (next.origin !== entry.origin) leftOrigin = true;
       await res.body?.cancel?.().catch(() => {});
       current = next.href;
       continue;

@@ -136,3 +136,45 @@ test('a NOTIFY whose LOCATION names ANOTHER host is dropped before the library f
     assert.equal(plugin.refusedAnnouncements(upnp) - before, 1);
   }
 });
+
+// ── the guard reads an announcement exactly as the LIBRARY reads it ──────────
+// (Security review of the first guard: it parsed LOCATION with its own regex while the library parses with
+// `_parseSdpResponseHeader` — so a second LOCATION line (the library keeps the LAST, the regex read the
+// first), a space before the colon (the library accepts it, the regex did not), or a start line the library
+// still takes for a NOTIFY (`NOTIFYX`) slipped a LOCATION past the check. The guard now decides on the
+// library's own parse. Node's http.request parses the URL string with the WHATWG parser the predicate uses —
+// measured on \\@, #@, padded, 0x7f.1, 127.1 and mapped-IPv6 spellings: same host in every case.)
+async function receiveRaw(t, text, sender = SENDER) {
+  const prevParams = upnp._params;
+  upnp._params = { st: 'upnp:rootdevice' };
+  upnp._devices = {};
+  const added = [];
+  const onAdded = (d) => added.push(d);
+  upnp.on('added', onAdded);
+  t.after(() => { upnp.removeListener('added', onAdded); upnp._params = prevParams; upnp._devices = {}; });
+  await upnp._receivePacket(Buffer.from(text), sender);
+  return added;
+}
+const NOTIFY_TAIL = 'NT: upnp:rootdevice\r\nNTS: ssdp:alive\r\nCACHE-CONTROL: max-age=600\r\n';
+
+test('a SECOND LOCATION line naming another host is refused — the library keeps the last one', async (t) => {
+  const own = await server(t);
+  const other = await server(t);
+  const before = plugin.refusedAnnouncements(upnp);
+  await receiveRaw(t, `NOTIFY * HTTP/1.1\r\nLOCATION: http://127.0.0.1:${own.port}/d.xml\r\n` +
+    `LOCATION: http://localhost:${other.port}/d.xml\r\n${NOTIFY_TAIL}USN: uuid:dup::upnp:rootdevice\r\n\r\n`);
+  assert.equal(other.hits.length, 0, 'the library fetched the second LOCATION');
+  assert.equal(plugin.refusedAnnouncements(upnp) - before, 1);
+});
+
+test('a LOCATION written with a space before the colon is read and refused — the library accepts that spelling', async (t) => {
+  const other = await server(t);
+  await receiveRaw(t, `NOTIFY * HTTP/1.1\r\nLOCATION : http://localhost:${other.port}/d.xml\r\n${NOTIFY_TAIL}USN: uuid:spaced::upnp:rootdevice\r\n\r\n`);
+  assert.equal(other.hits.length, 0);
+});
+
+test('a start line the library still takes for a NOTIFY ("NOTIFYX") is checked too', async (t) => {
+  const other = await server(t);
+  await receiveRaw(t, `NOTIFYX * HTTP/1.1\r\nLOCATION: http://localhost:${other.port}/d.xml\r\n${NOTIFY_TAIL}USN: uuid:notifyx::upnp:rootdevice\r\n\r\n`);
+  assert.equal(other.hits.length, 0);
+});

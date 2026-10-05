@@ -23,10 +23,12 @@ import webappDetector from '../plugins/webapp_detector.mjs';
 const realFetch = globalThis.fetch;
 const realLookup = dns.lookup;
 const realAllowAll = process.env.NSA_ALLOW_ALL_HOSTS;
+const realExtra = process.env.HTTP_EXTRA_HEADERS;
 afterEach(() => {
   globalThis.fetch = realFetch;
   dns.lookup = realLookup;
   if (realAllowAll === undefined) delete process.env.NSA_ALLOW_ALL_HOSTS; else process.env.NSA_ALLOW_ALL_HOSTS = realAllowAll;
+  if (realExtra === undefined) delete process.env.HTTP_EXTRA_HEADERS; else process.env.HTTP_EXTRA_HEADERS = realExtra;
 });
 
 const WP = '<html><head><meta name="generator" content="WordPress 6.5.2"/></head><body>ok</body></html>';
@@ -42,7 +44,7 @@ function stubFetch(routes) {
   globalThis.fetch = async (url, opts = {}) => {
     let current = String(url);
     for (let hop = 0; hop <= 20; hop++) {
-      calls.push([current, opts.redirect]);
+      calls.push([current, opts.redirect, { ...(opts.headers ?? {}) }]);
       const r = routes[current];
       if (!r) throw new Error(`stub: no route for ${current}`);
       const status = r.status ?? 200;
@@ -164,6 +166,49 @@ test('the hop chain is bounded at 5 — the sixth redirect is not followed', asy
   const r = await run('203.0.113.5');
   assert.equal(calls.length, 6, 'the first request plus 5 hops');
   assert.ok(errorRows(r).some((d) => /limit/i.test(d.probe_info)));
+});
+
+// ── the operator's extra headers never travel to another origin ──────────────
+// (Security review of the first hop-loop commit: following hops itself, the detector re-sent every header
+// — HTTP_EXTRA_HEADERS included, where an operator puts an Authorization or an API key — to whatever host
+// the target named. undici's own follow drops Authorization on a cross-origin hop; this drops ALL the
+// operator's extra headers once the chain leaves the origin the operator named, and never re-adds them.)
+const SECRET = { Authorization: 'Bearer operator-secret', 'X-Api-Key': 'k-123' };
+const carriesSecret = (h) => Object.keys(h).some((k) => /^(authorization|x-api-key)$/i.test(k));
+
+test('(fourth quadrant) a hop within the SAME origin keeps the operator\'s extra headers', async () => {
+  process.env.HTTP_EXTRA_HEADERS = JSON.stringify(SECRET);
+  const calls = stubFetch({
+    'http://203.0.113.5/': { status: 301, location: '/home' },
+    'http://203.0.113.5/home': { status: 200, body: WP },
+  });
+  await run('203.0.113.5');
+  assert.deepEqual(calls.map((c) => carriesSecret(c[2])), [true, true]);
+});
+
+test('a hop to ANOTHER HOST carries none of the operator\'s extra headers — and they are not re-added on the way back', async () => {
+  process.env.HTTP_EXTRA_HEADERS = JSON.stringify(SECRET);
+  stubDns({ 'www.example.net': ['93.184.215.14'] });
+  const calls = stubFetch({
+    'http://203.0.113.5/': { status: 302, location: 'http://www.example.net/' },
+    'http://www.example.net/': { status: 302, location: 'http://203.0.113.5/back' },
+    'http://203.0.113.5/back': { status: 200, body: WP },
+  });
+  await run('203.0.113.5');
+  assert.deepEqual(calls.map((c) => [c[0], carriesSecret(c[2])]), [
+    ['http://203.0.113.5/', true], ['http://www.example.net/', false], ['http://203.0.113.5/back', false]]);
+});
+
+test('a same-host hop that changes scheme or port is another origin — the extra headers are dropped', async () => {
+  process.env.HTTP_EXTRA_HEADERS = JSON.stringify(SECRET);
+  for (const next of ['https://203.0.113.5/', 'http://203.0.113.5:8080/']) {
+    const calls = stubFetch({
+      'http://203.0.113.5/': { status: 301, location: next },
+      [next]: { status: 200, body: WP },
+    });
+    await run('203.0.113.5');
+    assert.deepEqual(calls.map((c) => carriesSecret(c[2])), [true, false], next);
+  }
 });
 
 // ── REAL dependency: undici between two loopback listeners ───────────────────
