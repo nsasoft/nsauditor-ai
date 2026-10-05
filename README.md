@@ -236,7 +236,7 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 > has no MCP client in the path — there you can raise `PLUGIN_TIMEOUT_MS` (e.g. `90000`) freely. On the CLI a
 > plugin that declares its own budget already gets it; `PLUGIN_TIMEOUT_CEILING_MS` caps those.
 
-Security: SSRF protection on all host inputs (blocks RFC 1918, loopback, fc00::/7, cloud metadata), port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
+Security: SSRF protection on every host the MCP server is handed — the address it resolves to is checked (every answer), loopback, link-local and cloud-metadata addresses are always refused, and RFC 1918, CGNAT and fc00::/7 are refused unless `NSA_ALLOW_ALL_HOSTS` is set; a host the scanned target names — a redirect hop, a UPnP device's description URL — is checked the same way by the plugin that would follow it. A checked name is resolved again when it is scanned (no DNS pin). Port validation (1–65535), CPE format enforcement, dependency injection for test isolation. **Server-startup authentication is required** — see next section.
 
 ### Authentication (required)
 
@@ -788,7 +788,7 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 - **Scheduling** with configurable intervals and concurrency control
 - **Change detection** — each host's scan is compared with that host's previous line in `scan_history.jsonl` and printed as a `[ScanHistory]` line: new, removed and changed services, and the findings delta
 - **Webhook alerts** — a JSON POST, retried up to twice 1 s apart on a 5xx or network error, not on a 4xx. ⚠️ **In this release the webhook does NOT fire on a service, version or finding change:** the cycle comparison it is gated on finds no services in the scan results it is handed, so its `=== Delta Report ===` shows no change for any host. The gate opens only when a cycle scanned a different set of hosts from the cycle before (in practice, one cut short by stopping the loop); an alert is then posted for each host whose services carry a flag at or above `--alert-severity` (at `info`, every service counts). Read changes from the `[ScanHistory]` lines.
-- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. `NSA_ALLOW_ALL_HOSTS=1` lifts the scan-entry guard for local network auditing — on the CLI the whole guard, loopback and metadata included; over MCP, the private-range check only, so loopback, link-local and metadata stay refused — and never the webhook guard
+- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`, and at every host a scanned target names: the webapp detector re-checks each redirect hop (at most 5) and sends your `HTTP_EXTRA_HEADERS` only to the origin you named, the UPnP scanner fetches a device description only from the device that answered, and the OpenSearch scanner does not follow redirects. `NSA_ALLOW_ALL_HOSTS=1` lifts the scan-entry guard for local network auditing — on the CLI the whole guard, loopback and metadata included; over MCP, the private-range check only, so loopback, link-local and metadata stay refused — and never the webhook guard
 - **Scan history** stored in `scan_history.jsonl` in the output directory (`--out`, default `out/`; 7-day retention in CE)
 
 ---
