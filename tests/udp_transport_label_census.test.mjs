@@ -142,10 +142,13 @@ test('the census reads a real corpus (floor), and its detector catches every wri
       "const hdr = { Accept: '*/*' };",
       "const q = { protocol: 'quic' };",
       '/** a doc comment that closes with */',
+      // a REGEX LITERAL ending in `\\/\\/` with a write on the same line: read as a line comment, it hides the write (the
+      // audit seat's mutant — the regex branch off — stayed green until this line; the corpus carries the shape five times)
+      String.raw`const u = /^https?:\/\//.test(s); const a2 = { probe_protocol: 'rtp' };`,
     ].join('\n'));
     const rel = path.relative(ROOT, path.join(tmp, 'p.mjs'));
     const { labels, computed } = censusOf([rel]);
-    assert.deepEqual([...labels.keys()].sort(), ['dccp', 'http', 'https', 'os-detector', 'quic', 'sctp', 'tcp', 'udp'],
+    assert.deepEqual([...labels.keys()].sort(), ['dccp', 'http', 'https', 'os-detector', 'quic', 'rtp', 'sctp', 'tcp', 'udp'],
       'the ASSIGNMENT form is a write (`rec.protocol = \'sctp\'`), and so is a literal fallback (`probe_protocol || "dccp"`); `===` is a comparison, not a write');
     assert.ok(!labels.has('string'), 'a comparison is not a write');
     assert.ok(!labels.has('commented-out'), 'a comment is not a write');
