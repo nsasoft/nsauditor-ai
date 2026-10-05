@@ -252,7 +252,8 @@ export default {
     const hostUp = results.some(r => r?.result?.up === true) || services.some(s => s.status === 'open');
     const open = services.filter(s => s.status === 'open');
     const parts = [];
-    parts.push(hostUp ? `Host${hostName ? ` (${hostName})` : ''} is UP` : 'Host appears DOWN');
+    // Not UP means no probe got an answer — no evidence either way, never "DOWN" (1.2.1 lane 1 F).
+    parts.push(hostUp ? `Host${hostName ? ` (${hostName})` : ''} is UP` : 'No evidence the host is up');
     if (os) parts.push(`OS: ${os}`);
     if (osVersion) parts.push(`Version: ${osVersion}`);
     if (open.length) {

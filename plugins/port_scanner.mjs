@@ -249,7 +249,12 @@ export default {
   priority: 30,
   protocols: ["tcp", "udp"],
   ports: [],
-  requirements: { host: "up" },
+  // 1.2.1 lane 1 F, ruling (ii): NOT gated on `host: "up"`. The port scan is the measurement that
+  // decides liveness, so it does not wait for a liveness guess: with no discovery evidence it still
+  // runs, and its own `up` (a port answered) opens every `host: "up"` gate downstream. Gated, a host
+  // that drops ping and the common ports lost its port scan and read "Host appears DOWN" over an
+  // open uncommon port (driven through the CLI: `003 skipped "host not up"`).
+  requirements: {},
 
   // run(host, _portIgnored, opts)
   async run(host, _port = 0, opts = {}) {
@@ -334,12 +339,16 @@ export default {
     const udpClosed     = data.filter(d => d.probe_protocol === "udp" && d.status === "closed").map(d => d.probe_port); // typically empty
     const udpNoResponse = data.filter(d => d.probe_protocol === "udp" && d.status === "no-response").map(d => d.probe_port);
 
-    // Consider host "up" if we saw any TCP evidence (open/closed/filtered) OR any UDP open.
-    const anyTcpEvidence = tcpOpen.length > 0 || tcpClosed.length > 0 || tcpFiltered.length > 0;
-    const anyUdpOpen     = udpOpen.length > 0;
+    // `up` means a port answered — open or refused; a timeout, an unreachable or a socket error is
+    // not an answer. (1.2.1 lane 1 F: 'filtered' — every timeout, EHOSTUNREACH, ENETUNREACH and other
+    // socket error, classifyTcpError — used to count too, so a host that answered nothing read UP from
+    // its own timeouts; driven against a silent 127.0.0.2: `up: true, tcpFiltered: [22, 8443]`.
+    // Ungated, that would read every silent host UP and open every downstream gate.)
+    const anyTcpAnswer = tcpOpen.length > 0 || tcpClosed.length > 0;
+    const anyUdpOpen   = udpOpen.length > 0;
 
     return {
-      up: anyTcpEvidence || anyUdpOpen,
+      up: anyTcpAnswer || anyUdpOpen,
       program: "Unknown",
       version: "Unknown",
       os: null,

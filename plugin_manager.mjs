@@ -390,7 +390,8 @@ function updateContextFromResult(mod, result, ctx) {
  */
 export function describeSkipReason(mod, ctx) {
   const req = mod?.requirements || {};
-  if (req.host === 'up' && !ctx.hostUp) return 'host not up';
+  // No probe answered, which is no evidence either way — never "down" (1.2.1 lane 1 F).
+  if (req.host === 'up' && !ctx.hostUp) return 'no evidence the host is up';
   if (req.host === 'down' && ctx.hostUp) return 'host is up (requires down)';
   if (Array.isArray(req.tcp_open) && req.tcp_open.length) {
     const missing = req.tcp_open.filter(p => !ctx.tcpOpen.has(p));

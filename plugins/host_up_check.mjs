@@ -1,5 +1,6 @@
 // plugins/host_up_check.mjs
-// Real plugin to check if a host is up or down using ICMP (ping), TCP (common ports), and UDP (high closed port) probes.
+// Real plugin that looks for evidence a host is up — ICMP (ping), TCP (common ports) and UDP (a high, likely-closed
+// port). No answer is recorded as no evidence, never as down.
 // Updated to prioritize ICMP TTL-based OS detection, with TCP probes refining ambiguous TTLs (e.g., TTL 64) using banners and port heuristics.
 // Extracts router name and version from port 443 banner (e.g., Netgear R8000) and includes in result.
 // Returns { up: boolean, os: string|null, router_info: { name: string|null, version: string|null }|null, data: [{ probe_protocol, probe_port, probe_info, response_banner }] }.
@@ -76,7 +77,7 @@ const OS_SPECIFICITY = {
 export default {
   id: '005',
   name: 'Host Up Check',
-  description: 'Checks if the host is up or down using ICMP, TCP (common ports), and UDP (high closed port) probes with enhanced OS detection.',
+  description: 'Looks for evidence that the host is up using ICMP, TCP (common ports) and UDP (a high, likely-closed port) probes, with enhanced OS detection; no answer is no evidence, not down.',
   priority: 20,
   requirements: { host: "down" }, // run when ping hasn't marked it UP (ping blocked/filtered)
   protocols: ['tcp', 'udp', 'icmp'],
@@ -245,88 +246,46 @@ export default {
       });
     }
 
-    // UDP Probe (send to likely closed high port)
+    // UDP Probe (send to a likely-closed high port).
+    // 1.2.1 lane 1 F: a successful send is NOT evidence that the host is up — it says only that the
+    // local stack accepted the datagram. The leg used to set `up` in the send callback, clear the wait
+    // and close the socket, so a host that never answered read UP and the ICMP port-unreachable that
+    // follows a send (the real order on loopback) was discarded with the socket. Evidence of UP is that
+    // port-unreachable or a reply. Silence until the timeout is recorded as NO EVIDENCE, never as down,
+    // and costs up to UDP_REPLY_WAIT_MS on every run of this plugin where nothing answers on UDP.
+    // Settles once: the first of reply / port-unreachable / error / timeout writes the one UDP row.
     const udpPort = 54321;
+    const UDP_REPLY_WAIT_MS = 3000;
     await new Promise((resolve) => {
       dlog(`Attempting UDP probe on ${host}:${udpPort}`);
       const socket = dgram.createSocket('udp4');
-      const timeoutId = setTimeout(() => {
-        data.push({
-          probe_protocol: 'udp',
-          probe_port: udpPort,
-          probe_info: 'Timeout - host possibly down',
-          response_banner: null
-        });
-        socket.close();
-        resolve();
-      }, 3000);
-
-      socket.on('error', (err) => {
+      let settled = false;
+      const settle = (probe_info, answered) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeoutId);
-        if (err.code === 'ECONNREFUSED') {
-          up = true;
-          data.push({
-            probe_protocol: 'udp',
-            probe_port: udpPort,
-            probe_info: 'ICMP Port Unreachable - host up',
-            response_banner: null
-          });
-        } else {
-          data.push({
-            probe_protocol: 'udp',
-            probe_port: udpPort,
-            probe_info: `Error: ${err.code} - ${err.message}`,
-            response_banner: null
-          });
-        }
+        if (answered) up = true;
+        data.push({ probe_protocol: 'udp', probe_port: udpPort, probe_info, response_banner: null });
         socket.close();
         resolve();
+      };
+      const timeoutId = setTimeout(
+        () => settle(`No reply within ${UDP_REPLY_WAIT_MS / 1000} s - no evidence either way`, false),
+        UDP_REPLY_WAIT_MS
+      );
+
+      socket.on('message', () => settle('UDP reply - host up', true));
+      socket.on('error', (err) => {
+        if (err.code === 'ECONNREFUSED') settle('ICMP Port Unreachable - host up', true);
+        else settle(`Error: ${err.code} - ${err.message}`, false);
       });
 
       socket.connect(udpPort, host, (err) => {
-        if (err) {
-          clearTimeout(timeoutId);
-          data.push({
-            probe_protocol: 'udp',
-            probe_port: udpPort,
-            probe_info: `Connect error: ${err.message}`,
-            response_banner: null
-          });
-          socket.close();
-          resolve();
-          return;
-        }
-
+        if (err) return settle(`Connect error: ${err.message}`, false);
         socket.send(Buffer.alloc(0), (err) => {
-          clearTimeout(timeoutId);
-          if (err) {
-            if (err.code === 'ECONNREFUSED') {
-              up = true;
-              data.push({
-                probe_protocol: 'udp',
-                probe_port: udpPort,
-                probe_info: 'ICMP Port Unreachable - host up',
-                response_banner: null
-              });
-            } else {
-              data.push({
-                probe_protocol: 'udp',
-                probe_port: udpPort,
-                probe_info: `Send error: ${err.message}`,
-                response_banner: null
-              });
-            }
-          } else {
-            up = true;
-            data.push({
-              probe_protocol: 'udp',
-              probe_port: udpPort,
-              probe_info: 'Send successful, no error - host up (port may be open)',
-              response_banner: null
-            });
-          }
-          socket.close();
-          resolve();
+          if (!err) return; // sent — now wait for a reply, a port-unreachable or the timeout
+          if (err.code === 'ECONNREFUSED') settle('ICMP Port Unreachable - host up', true);
+          else settle(`Send error: ${err.message}`, false);
         });
       });
     });

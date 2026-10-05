@@ -6,10 +6,10 @@ import { describeSkipReason } from '../plugin_manager.mjs';
 /*  Unit tests for describeSkipReason                                  */
 /* ------------------------------------------------------------------ */
 
-test('describeSkipReason: host up requirement + host not up', () => {
+test('describeSkipReason: host up requirement + no probe answered — "no evidence", never "down"', () => {
   const mod = { requirements: { host: 'up' } };
   const ctx = { hostUp: false, tcpOpen: new Set(), udpOpen: new Set() };
-  assert.equal(describeSkipReason(mod, ctx), 'host not up');
+  assert.equal(describeSkipReason(mod, ctx), 'no evidence the host is up');
 });
 
 test('describeSkipReason: host down requirement + host is up', () => {
