@@ -320,9 +320,11 @@ the directory your shell finds `nsauditor-ai-mcp` in. Add any other variables to
 The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp install-key` — on macOS it's the `keychain:NSA_MCP_AUTH_KEY` placeholder shown above; on Linux/Windows it's the literal key value (and you should `chmod 600` your config file).
 
 - `NSA_MCP_AUTH_KEY` — **required** (see Authentication section above)
-- `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`). It turns off the MCP
-  server's check of what a host name resolves to, so a name that resolves to a loopback or cloud-metadata address then gets
-  through too; targets written as `localhost`, `127.x`, `::1`, `169.254.x` or `metadata.google…` stay refused
+- `NSA_ALLOW_ALL_HOSTS=1` — required to scan private/RFC 1918 addresses (e.g., `192.168.x.x`); only `1`, `true`, `yes`
+  or `on` turn it on. It admits private ranges only: loopback, link-local and cloud-metadata addresses stay refused over
+  MCP whether they are written as an address in any spelling or reached through what a host name resolves to — every
+  answer is checked. The check does not pin the answer, so a name whose answer changes between the check and the scan
+  (DNS rebinding) is not caught
 - `FTP_CHECK_ANON=true` — lets the FTP check try an anonymous login (off by default; without it `scan_host` never reports anonymous FTP). `DNS_CHECK_AXFR=true` with `DNS_AXFR_DOMAIN=<zone>` — lets the DNS check try a zone transfer of that zone (off by default). The same variables govern the CLI scan.
 - `PLUGIN_TIMEOUT_MS=5000` — the per-plugin budget for `scan_host` and `probe_service` (default 30000), and it binds every plugin there, including one that declares a longer budget of its own. It bounds each PLUGIN, not the call: `scan_host` runs a host's plugins one after another, so the call takes roughly the sum of their times. On one router a `scan_host` call timed out in Claude Desktop on 2026-08-10 and one returned within 138 s on 2026-09-30, so neither outcome is promised: a call that times out returned no result — never read it as a clean host. On a real home gateway the plugins of one full scan took ~113 s between them at the default budget.
 - `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
@@ -786,7 +788,7 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 - **Scheduling** with configurable intervals and concurrency control
 - **Change detection** — each host's scan is compared with that host's previous line in `scan_history.jsonl` and printed as a `[ScanHistory]` line: new, removed and changed services, and the findings delta
 - **Webhook alerts** — a JSON POST, retried up to twice 1 s apart on a 5xx or network error, not on a 4xx. ⚠️ **In this release the webhook does NOT fire on a service, version or finding change:** the cycle comparison it is gated on finds no services in the scan results it is handed, so its `=== Delta Report ===` shows no change for any host. The gate opens only when a cycle scanned a different set of hosts from the cycle before (in practice, one cut short by stopping the loop); an alert is then posted for each host whose services carry a flag at or above `--alert-severity` (at `info`, every service counts). Read changes from the `[ScanHistory]` lines.
-- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. `NSA_ALLOW_ALL_HOSTS=1` lifts the scan-entry guard for local network auditing — on the CLI the whole guard, loopback and metadata included; over MCP, the check of what a host name resolves to — and never the webhook guard
+- **SSRF protection** — private, loopback, and cloud metadata addresses blocked at the scan entry point and inside `sendWebhook()`. `NSA_ALLOW_ALL_HOSTS=1` lifts the scan-entry guard for local network auditing — on the CLI the whole guard, loopback and metadata included; over MCP, the private-range check only, so loopback, link-local and metadata stay refused — and never the webhook guard
 - **Scan history** stored in `scan_history.jsonl` in the output directory (`--out`, default `out/`; 7-day retention in CE)
 
 ---

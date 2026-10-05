@@ -1,6 +1,11 @@
+import './helpers/no_operator_keychain.mjs';   // FIRST: the driven legs below load a licence through main()
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { isBlockedIp, resolveAndValidate } from '../utils/net_validation.mjs';
+import { main } from '../cli.mjs';
 
 /**
  * Mirrors the SSRF guard in scanSingleHost() from cli.mjs.
@@ -121,4 +126,38 @@ test('SSRF guard (EE-0.3.2.5): non-string host does not crash the sentinel check
   // typeof guard short-circuits and the guard falls through to the
   // existing isBlockedIp / resolve logic.
   await assert.rejects(() => applySsrfGuard(null), /Cannot read|invalid|reject/i);
+});
+
+// ---------------------------------------------------------------------------
+// 1.2.1 lane 1 C — DRIVEN through the real cli.mjs main(), not the mirror above: only an explicit
+// truthy word lifts the CLI guard. Before 1.2.1, `NSA_ALLOW_ALL_HOSTS=0` and `=false` lifted it,
+// because the check was plain truthiness. LOOPBACK ONLY: plugin 003 against 127.0.0.1 ports 1-2.
+// ---------------------------------------------------------------------------
+async function driveScan(host, allowValue) {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-cli-ssrf-'));
+  const savedArgv = process.argv;
+  const saved = { SCAN_OUT_PATH: process.env.SCAN_OUT_PATH, OPENAI_OUT_PATH: process.env.OPENAI_OUT_PATH, NSA_ALLOW_ALL_HOSTS: process.env.NSA_ALLOW_ALL_HOSTS };
+  try {
+    delete process.env.OPENAI_OUT_PATH;
+    process.env.SCAN_OUT_PATH = outRoot;
+    if (allowValue === undefined) delete process.env.NSA_ALLOW_ALL_HOSTS; else process.env.NSA_ALLOW_ALL_HOSTS = allowValue;
+    process.argv = ['node', 'cli', 'scan', '--host', host, '--plugins', '003', '--ports', '1-2'];
+    const notInstalled = () => { throw Object.assign(new Error("Cannot find package '@nsasoft/nsauditor-ai-ee'"), { code: 'ERR_MODULE_NOT_FOUND' }); };
+    try { await main({ importEE: async () => { throw new Error('injected: EE not installed'); }, resolveEE: notInstalled }); return null; } catch (e) { return e; }
+  } finally {
+    process.argv = savedArgv;
+    for (const [k, v] of Object.entries(saved)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
+    fs.rmSync(outRoot, { recursive: true, force: true });
+  }
+}
+
+test('(fourth quadrant, first) C: NSA_ALLOW_ALL_HOSTS="true" still lifts the CLI guard — a loopback scan completes', async () => {
+  assert.equal(await driveScan('127.0.0.1', 'true'), null);
+});
+
+test('C: "0", "false", "no" and "off" do NOT lift the CLI guard — loopback is refused', async () => {
+  for (const v of ['0', 'false', 'no', 'off']) {
+    const err = await driveScan('127.0.0.1', v);
+    assert.match(String(err && err.message), /blocked address range/, `NSA_ALLOW_ALL_HOSTS=${v} must not lift the guard`);
+  }
 });

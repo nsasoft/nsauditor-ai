@@ -25,7 +25,7 @@ import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
-import { isBlockedIp, resolveAndValidate } from './utils/net_validation.mjs';
+import { isBlockedIp, resolveAndValidate, allowAllHosts } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir, createHostOutDir, safeHost } from './utils/output_dir.mjs';
@@ -885,7 +885,8 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
   const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
 
-  if (!process.env.NSA_ALLOW_ALL_HOSTS && !isCloudSentinel) {
+  // Only an explicit truthy word lifts it (1/true/yes/on) — before 1.2.1 "=0" and "=false" did too.
+  if (!allowAllHosts() && !isCloudSentinel) {
     if (isBlockedIp(host)) {
       throw new Error(`Scanning blocked address range is not allowed: ${host}`);
     }

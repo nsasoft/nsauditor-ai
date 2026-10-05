@@ -320,6 +320,126 @@ describe('MCP Server — validateHost()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateHost — 1.2.1 lane 1 B + C: the RESOLVED address, in both arms of NSA_ALLOW_ALL_HOSTS
+// ---------------------------------------------------------------------------
+//
+// ⚠️ A HARNESS THAT PROBES THE NETWORK IS A SCANNER. Every name below is answered by a stubbed
+// dns.lookup (the object net_validation.mjs imports); no address under test reaches getaddrinfo or
+// a socket. A literal is classified as a string and never resolved.
+
+describe('MCP Server — validateHost() checks the resolved address in both arms (1.2.1 B + C)', () => {
+  async function withEnv(value, fn) {
+    const had = Object.prototype.hasOwnProperty.call(process.env, 'NSA_ALLOW_ALL_HOSTS');
+    const prev = process.env.NSA_ALLOW_ALL_HOSTS;
+    if (value === undefined) delete process.env.NSA_ALLOW_ALL_HOSTS; else process.env.NSA_ALLOW_ALL_HOSTS = value;
+    try { return await fn(); } finally { if (had) process.env.NSA_ALLOW_ALL_HOSTS = prev; else delete process.env.NSA_ALLOW_ALL_HOSTS; }
+  }
+  /** `table` maps a name to its answers (a string or an array); an unknown name is ENOTFOUND. */
+  async function withResolver(table, fn) {
+    const dns = (await import('node:dns/promises')).default;
+    const orig = dns.lookup;
+    const calls = [];
+    dns.lookup = async (name, opts) => {
+      calls.push(name);
+      const raw = table[name];
+      if (raw === undefined) { const e = new Error(`getaddrinfo ENOTFOUND ${name}`); e.code = 'ENOTFOUND'; throw e; }
+      const list = [].concat(raw).map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+      return opts && opts.all ? list : list[0];
+    };
+    try { return await fn(calls); } finally { dns.lookup = orig; }
+  }
+  const NOT_ALLOWED = /not allowed via MCP/;
+
+  // ── FOURTH QUADRANT FIRST: what must keep passing.
+  it('(fourth quadrant, first) SET=1 still admits private hosts — literal, resolved and IPv6 ULA', async () => {
+    await withEnv('1', () => withResolver({ 'nas.lan': '10.0.0.5' }, async () => {
+      for (const h of ['192.168.1.1', 'nas.lan', 'fd12:3456::1']) assert.equal(await validateHost(h), h, `${h} must pass with allow-all`);
+    }));
+  });
+
+  it('(fourth quadrant) UNSET admits a public name and a public literal', async () => {
+    await withEnv(undefined, () => withResolver({ 'public.example': '93.184.216.34' }, async () => {
+      assert.equal(await validateHost('public.example'), 'public.example');
+      assert.equal(await validateHost('8.8.8.8'), '8.8.8.8');
+    }));
+  });
+
+  it('(fourth quadrant) the cloud sentinels pass in both arms with the resolver called ZERO times', async () => {
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({}, async (calls) => {
+        for (const h of ['aws', 'gcp', 'azure']) assert.equal(await validateHost(h), h);
+        assert.equal(calls.length, 0, `env=${env}: the sentinel short-circuit must not resolve`);
+      }));
+    }
+  });
+
+  it('(fourth quadrant) C: "1", "true", "TRUE", "yes" and "on" lift the private-range check', async () => {
+    for (const v of ['1', 'true', 'TRUE', 'yes', 'on']) {
+      await withEnv(v, async () => assert.equal(await validateHost('192.168.1.1'), '192.168.1.1', `NSA_ALLOW_ALL_HOSTS=${v}`));
+    }
+  });
+
+  // ── DEFECTS, every one passing before 1.2.1.
+  it('UNSET refuses loopback / link-local / metadata in every spelling and by any answer', async () => {
+    await withEnv(undefined, () => withResolver({
+      'v6mapped.example': '::ffff:a9fe:a9fe',
+      'multi.example': ['93.184.216.34', '127.0.0.1'],
+      '6425673729': '127.0.0.1',          // the OS truncates mod 2^32 to 127.0.0.1; the URL parser rejects it
+    }, async () => {
+      for (const h of ['0:0:0:0:0:0:0:1', '::ffff:7f00:1', '::ffff:a9fe:a9fe', 'febf::1',
+        'v6mapped.example', 'multi.example', '6425673729']) {
+        await assert.rejects(() => validateHost(h), NOT_ALLOWED, `${h} must be refused`);
+      }
+    }));
+  });
+
+  it('SET=1 still refuses loopback, link-local and metadata — on the RESOLVED address too', async () => {
+    await withEnv('1', () => withResolver({
+      'localtest.me': '127.0.0.1',
+      'a9fea9fe.nip.io': '169.254.169.254',
+      '169-254-169-254.sslip.io': '169.254.169.254',
+      'metadata': '169.254.169.254',
+    }, async () => {
+      for (const h of ['localtest.me', 'a9fea9fe.nip.io', '169-254-169-254.sslip.io', 'metadata', '[::1]', '::ffff:127.0.0.1',
+        '0x7f000001', 'fd00:ec2::254', '100.100.100.200']) {
+        await assert.rejects(() => validateHost(h), NOT_ALLOWED, `${h} must be refused even with allow-all`);
+      }
+    }));
+  });
+
+  it('a bare NAME never short-circuits to allowed: it reaches the resolver in BOTH arms, and a loopback answer refuses it', async () => {
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({ 'rebind.example': '127.0.0.1' }, async (calls) => {
+        await assert.rejects(() => validateHost('rebind.example'), NOT_ALLOWED, `env=${env}`);
+        assert.ok(calls.includes('rebind.example'), `env=${env}: the name was never resolved`);
+      }));
+    }
+  });
+
+  it('a URL-shaped or CIDR string is refused in both arms (recorded decision: MCP takes ONE host; nothing here expands a CIDR)', async () => {
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({}, async () => {
+        for (const h of ['127.0.0.1@8.8.8.8', '126.0.0.0/7', '10.0.0.0/8', '8.8.8.8:80']) {
+          await assert.rejects(() => validateHost(h), undefined, `env=${env}: ${h} must not pass as a literal`);
+        }
+      }));
+    }
+  });
+
+  it('SET=1 refuses a name that does not resolve (recorded decision: it no longer passes to fail later in the plugins)', async () => {
+    await withEnv('1', () => withResolver({}, async () => {
+      await assert.rejects(() => validateHost('nowhere.invalid'), /could not be resolved/);
+    }));
+  });
+
+  it('C: "0", "false", "no" and "off" behave as UNSET — they do NOT lift the check', async () => {
+    for (const v of ['0', 'false', 'no', 'off', '']) {
+      await withEnv(v, async () => assert.rejects(() => validateHost('192.168.1.1'), NOT_ALLOWED, `NSA_ALLOW_ALL_HOSTS=${JSON.stringify(v)}`));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Server factory — structural tests (no transport started)
 // ---------------------------------------------------------------------------
 

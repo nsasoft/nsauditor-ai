@@ -38,15 +38,21 @@ PRIVATE.addSubnet('fc00::', 7, 'ipv6');            // unique local
 /**
  * Canonical IP literal for `input`, or null when it is not an IP literal (a name).
  * Strips brackets and an IPv6 zone id, then accepts what net.isIP accepts; anything else is run
- * through the WHATWG URL parser, which reads the legacy IPv4 spellings an OS resolver would
- * (0x7f000001, 0177.0.0.1, 2130706433, 127.1) as the dotted quad they mean.
+ * through the WHATWG URL parser — but only when it is shaped like a legacy IPv4 spelling (digits,
+ * hex, x, dots) — which reads those spellings (0x7f000001, 0177.0.0.1, 2130706433, 127.1) as the
+ * dotted quad an OS resolver would.
  * @param {string} input
  * @returns {string|null}
  */
-function canonicalIp(input) {
+export function canonicalIp(input) {
   const s = String(input ?? '').trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
   if (!s) return null;
   if (net.isIP(s)) return s;
+  // Only a legacy-IPv4-SHAPED string may reach the URL parser. Fed anything else it reads
+  // userinfo, a port or a path: '127.0.0.1@8.8.8.8' parses to host 8.8.8.8 and '126.0.0.0/7' to
+  // host 126.0.0.0 — a public literal and a public network whose /7 spans 127/8. Those are NAMES
+  // here, routed to resolution, which refuses them.
+  if (!/^[0-9a-fx.]+$/i.test(s)) return null;
   try {
     const host = new URL(`http://${s}`).hostname.replace(/^\[|\]$/g, '');
     return net.isIP(host) ? host : null;
@@ -96,19 +102,33 @@ export function isPrivateLike(ip) {
 }
 
 /**
+ * Whether the operator has lifted the private-range check (NSA_ALLOW_ALL_HOSTS). Only an explicit
+ * truthy word lifts it — "0", "false", "no", "off" and "" do NOT (before 1.2.1 any non-empty value
+ * did, so "=0" and "=false" silently lifted the guard). Same convention as host_up_check.mjs.
+ * @param {Record<string,string|undefined>} [env]
+ * @returns {boolean}
+ */
+export function allowAllHosts(env = process.env) {
+  return /^(1|true|yes|on)$/i.test(String(env.NSA_ALLOW_ALL_HOSTS ?? '').trim());
+}
+
+/**
  * Resolve a hostname and verify that NO resolved address is in a blocked range — a name whose
  * answers include a single blocked address is refused, because a connecting client may try every
  * answer (Node's net.connect does, with autoSelectFamily).
  * @param {string} hostname
+ * @param {{ allowPrivate?: boolean }} [opts] allowPrivate: admit 'private' answers (the operator's
+ *   allow-all); 'always' answers — loopback, link-local, metadata — are refused regardless
  * @returns {Promise<string>} the first resolved address (every answer having passed)
  * @throws {Error} if any answer is in a blocked range, or DNS fails
  */
-export async function resolveAndValidate(hostname) {
+export async function resolveAndValidate(hostname, { allowPrivate = false } = {}) {
   const answers = await dns.lookup(hostname, { all: true, verbatim: true });
   const list = Array.isArray(answers) ? answers : [answers];
   if (list.length === 0) throw new Error(`Host did not resolve`);
   for (const { address } of list) {
-    if (isBlockedIp(address)) {
+    const cls = classifyAddress(address);
+    if (cls === 'always' || (cls === 'private' && !allowPrivate)) {
       throw new Error(`Host resolves to blocked IP range`);
     }
   }

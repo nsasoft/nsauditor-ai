@@ -16,7 +16,7 @@ import { appendFile, mkdir, chmod } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { resolveAndValidate } from './utils/net_validation.mjs';
+import { resolveAndValidate, classifyAddress, canonicalIp, allowAllHosts } from './utils/net_validation.mjs';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -392,38 +392,48 @@ export const TOOLS = [
 
 /**
  * Validate host to prevent SSRF via loopback, link-local, or cloud metadata.
- * Performs DNS resolution to defeat rebinding / encoded-IP bypasses.
+ *
+ * A literal is classified by VALUE in any spelling (net_validation.classifyAddress); a name is
+ * resolved and EVERY answer is classified — in both arms of NSA_ALLOW_ALL_HOSTS. Allow-all admits
+ * private ranges only: loopback, unspecified, link-local and metadata stay refused, by literal or
+ * by answer. A name that does not resolve is refused in both arms.
+ *
+ * ⚠️ LIMIT (stated, 1.2.1): this does NOT pin the resolved address. It returns the NAME, and each
+ * plugin resolves it again when it connects, so a name whose answer changes between this check
+ * and the scan (DNS rebinding) is not caught. Pinning is boarded for the next minor (1.2.1 R1).
+ * Before 1.2.1 this comment said the resolution "defeats rebinding"; it never did.
  * @param {string} host
  * @returns {Promise<string>} normalised hostname
  */
 export async function validateHost(host) {
   const h = String(host).trim().toLowerCase();
   if (!h) throw new Error('Empty host');
-  // Fast-path: reject decimal-encoded loopback IPs (127.0.0.0/8).
-  // Other private/link-local ranges (RFC 1918, 169.254.x.x) are caught by the regex below
-  // and by the DNS resolveAndValidate() layer for all encoding forms.
+  const notAllowed = () => new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
+  // Cheap pre-check for the obvious spellings; the classifier below is the authority.
   const _isAllDigits = /^\d+$/.test(h);
   const _n = _isAllDigits && h.length <= 10 ? Number(h) : -1;
   const isDecimalLoopback = _n >= 0x7F000000 && _n <= 0x7FFFFFFF;
   if (isDecimalLoopback || /^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
-    throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
+    throw notAllowed();
   }
 
   // Cloud-sentinel hosts (aws/gcp/azure) are scoping tokens, NOT DNS names — they
   // route to the cloud-scanner plugins (probe_service enforces the cloud-intent
   // gate downstream; the CLI whitelists them the same way in scanSingleHost).
-  // Skip the SSRF DNS resolution for them so the sentinel path is reachable
-  // (otherwise dns.lookup('aws') ENOTFOUND is misread as a blocked address).
+  // They are never resolved (dns.lookup('aws') would be ENOTFOUND).
   if (isCloudSentinelHost(h)) return h;
 
-  // DNS resolution check — catches rebinding, decimal/octal IPs, IPv6-mapped addrs.
-  // NSA_ALLOW_ALL_HOSTS=1 bypasses RFC 1918 checks for local network auditing.
-  if (!process.env.NSA_ALLOW_ALL_HOSTS) {
-    try {
-      await resolveAndValidate(h);
-    } catch (err) {
-      throw new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
-    }
+  // NSA_ALLOW_ALL_HOSTS (1/true/yes/on only) admits PRIVATE ranges for local-network auditing.
+  const allowPrivate = allowAllHosts();
+  const cls = classifyAddress(h);
+  if (cls === 'always' || (cls === 'private' && !allowPrivate)) throw notAllowed();
+  if (canonicalIp(h)) return h;   // a permitted literal — nothing to resolve
+
+  try {
+    await resolveAndValidate(h, { allowPrivate });
+  } catch (err) {
+    if (/blocked/.test(String(err && err.message))) throw notAllowed();
+    throw new Error(`Host could not be resolved via MCP: ${h}`);
   }
   return h;
 }
@@ -670,7 +680,7 @@ export async function handleProbeService(args) {
     const s = String(host).trim().toLowerCase();
     throw new Error(
       `Plugin ${plugin.id} (${plugin.name}) is a network plugin — it does not run against the ` +
-      `'${s}' cloud sentinel. Use a network host/IP/CIDR, or a cloud auditor with host: "${s}".`,
+      `'${s}' cloud sentinel. Use a network host or IP address, or a cloud auditor with host: "${s}".`,
     );
   }
   const hostKind = isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network';

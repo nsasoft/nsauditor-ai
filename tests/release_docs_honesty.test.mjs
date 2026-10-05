@@ -134,7 +134,12 @@ test('below the floor: no shipped .md says the scan runs as Community, and the R
 // ── (3) NSA_ALLOW_ALL_HOSTS ──────────────────────────────────────────────────────────────────────────────────────────
 test('NSA_ALLOW_ALL_HOSTS: the README says what it opens over MCP, and never offers it for a rejected webhook', () => {
   const s = read('README.md');
-  assert.match(s, /name that resolves to a loopback or cloud-metadata address then gets\s+through/);
+  // 1.2.1 lane 1 B: allow-all no longer lifts the resolved-address check over MCP — it admits private
+  // ranges only. The pre-1.2.1 disclosure ("a name that resolves to a loopback or cloud-metadata
+  // address then gets through") became false with that change and must not survive in the README.
+  assert.match(s, /It admits private ranges only: loopback, link-local and cloud-metadata addresses stay refused over\s+MCP/);
+  assert.doesNotMatch(s, /name that resolves to a loopback or cloud-metadata address then gets\s+through/);
+  assert.match(s, /does not pin the answer/);
   assert.match(s, /never the webhook guard/);
   assert.doesNotMatch(s, /Webhook URL rejected[^\n]*Use `NSA_ALLOW_ALL_HOSTS=1`/);
 });

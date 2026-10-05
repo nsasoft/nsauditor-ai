@@ -157,6 +157,18 @@ test('classifyAddress: "always" (refused in every arm), "private" (refused only 
   }
 });
 
+test('a URL-shaped string is never canonicalised into a literal — userinfo, a port, a path or a CIDR suffix routes to resolution', () => {
+  // The WHATWG parser reads '127.0.0.1@8.8.8.8' as userinfo + host 8.8.8.8 and '126.0.0.0/7' as host
+  // 126.0.0.0 + path — so a classifier that fed it ANY string would call the first a public literal
+  // and the second a public address whose /7 spans 127/8. Only a legacy-IPv4-shaped string (digits,
+  // hex, x, dots) may reach the URL parser; everything else is a name and must be resolved.
+  for (const v of ['127.0.0.1@8.8.8.8', '8.8.8.8@127.0.0.1', '192.168.1.0/24', '126.0.0.0/7',
+    '8.8.8.8:80', '8.8.8.8#x', '8.8.8.8?a']) {
+    assert.equal(nv.canonicalIp(v), null, `${v} must not canonicalise to a literal`);
+    assert.equal(nv.classifyAddress(v), null, `${v} is a route to resolution, not a verdict`);
+  }
+});
+
 test('fails CLOSED: a name the resolver cannot answer, or answers with nothing, is refused — never "not blocked"', async () => {
   // classifyAddress returns null for anything that is not an IP literal: that is a ROUTE ("resolve
   // it"), not a verdict. net.BlockList itself answers false, silently, for a non-IP string — so the
