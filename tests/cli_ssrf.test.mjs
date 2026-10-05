@@ -4,128 +4,92 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isBlockedIp, resolveAndValidate } from '../utils/net_validation.mjs';
+// The REAL guard, through the namespace so a missing export fails its own legs. Until 1.2.1 this
+// file tested `applySsrfGuard`, a verbatim COPY of the guard ("we replicate the exact logic"), so
+// no edit to cli.mjs could turn it red — and the copy carried the literal-skip regex that let
+// '6425673729' (the OS reads it as 127.0.0.1) through unresolved.
+import * as cli from '../cli.mjs';
 import { main } from '../cli.mjs';
 
-/**
- * Mirrors the SSRF guard in scanSingleHost() from cli.mjs.
- * The guard itself is not exported, so we replicate the exact logic for focused tests.
- *
- * EE-0.3.2.5: cloud-provider sentinel hosts ('aws' / 'gcp' / 'azure',
- * case-insensitive) bypass the guard — they're scoping tokens routed
- * to EE cloud-scanner plugins, not network addresses, and previously
- * required NSA_ALLOW_ALL_HOSTS=1 to scan (which dangerously also
- * disabled the guard for legitimate IP / hostname targets).
- */
-const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
-
-async function applySsrfGuard(host, allowAllHosts = false) {
-  if (allowAllHosts) return; // NSA_ALLOW_ALL_HOSTS=1 bypass
-
-  // Cloud sentinels bypass without requiring the env-var.
-  if (typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase())) return;
-
-  if (isBlockedIp(host)) {
-    throw new Error(`Scanning blocked address range is not allowed: ${host}`);
-  }
-
-  // Hostname (not literal IP) — resolve and validate the resolved address
-  if (!/^[\d.:[\]]+$/.test(host)) {
-    try {
-      await resolveAndValidate(host);
-    } catch (err) {
-      throw new Error(`Host rejected by SSRF guard: ${err.message}`);
-    }
-  }
+// ⚠️ A HARNESS THAT PROBES THE NETWORK IS A SCANNER. Names are answered by a stubbed dns.lookup on
+// the object net_validation.mjs imports; this file used to resolve dns.google, localhost, azurex and
+// aws-foo for real. No spelling under test reaches getaddrinfo or a socket.
+async function withResolver(table, fn) {
+  const dns = (await import('node:dns/promises')).default;
+  const orig = dns.lookup;
+  const calls = [];
+  dns.lookup = async (name, opts) => {
+    calls.push(name);
+    const raw = table[name];
+    if (raw === undefined) { const e = new Error(`getaddrinfo ENOTFOUND ${name}`); e.code = 'ENOTFOUND'; throw e; }
+    const list = [].concat(raw).map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+    return opts && opts.all ? list : list[0];
+  };
+  try { return await fn(calls); } finally { dns.lookup = orig; }
 }
+const UNSET = {};
+const SET = { NSA_ALLOW_ALL_HOSTS: '1' };
+const guard = (host, env = UNSET) => cli.assertScanTargetAllowed(host, env);
 
-// ---------------------------------------------------------------------------
-// Literal blocked IPs
-// ---------------------------------------------------------------------------
-
-test('SSRF guard: rejects loopback 127.0.0.1', async () => {
-  await assert.rejects(() => applySsrfGuard('127.0.0.1'), /blocked address range/);
+// ── FOURTH QUADRANT FIRST: what must keep passing.
+test('(fourth quadrant, first) a public literal and a public name pass with the variable unset', async () => {
+  assert.equal(typeof cli.assertScanTargetAllowed, 'function', 'cli.mjs does not export its scan-target guard');
+  await withResolver({ 'dns.google': '8.8.8.8' }, async () => {
+    await guard('8.8.8.8');
+    await guard('dns.google');
+  });
 });
 
-test('SSRF guard: rejects cloud metadata endpoint 169.254.169.254', async () => {
-  await assert.rejects(() => applySsrfGuard('169.254.169.254'), /blocked address range/);
+test('(fourth quadrant) NSA_ALLOW_ALL_HOSTS=1 lifts the WHOLE CLI guard — loopback and private pass (documented: README "on the CLI the whole guard")', async () => {
+  await withResolver({}, async (calls) => {
+    await guard('127.0.0.1', SET);
+    await guard('10.0.0.1', SET);
+    assert.equal(calls.length, 0, 'with the guard lifted nothing is resolved');
+  });
 });
 
-test('SSRF guard: rejects RFC 1918 address 10.0.0.1', async () => {
-  await assert.rejects(() => applySsrfGuard('10.0.0.1'), /blocked address range/);
+test('(fourth quadrant) the cloud sentinels pass, any case, and are never resolved', async () => {
+  await withResolver({}, async (calls) => {
+    for (const h of ['aws', 'gcp', 'azure', 'AWS', 'Azure', 'GCP']) await guard(h);
+    assert.equal(calls.length, 0);
+  });
 });
 
-test('SSRF guard: rejects RFC 1918 address 192.168.1.1', async () => {
-  await assert.rejects(() => applySsrfGuard('192.168.1.1'), /blocked address range/);
+// ── DEFECTS.
+test('blocked literals are refused with the pinned message — loopback, metadata, RFC 1918, ::1', async () => {
+  for (const h of ['127.0.0.1', '169.254.169.254', '10.0.0.1', '192.168.1.1', '::1']) {
+    await assert.rejects(() => guard(h), /^Error: Scanning blocked address range is not allowed: /, h);
+  }
 });
 
-test('SSRF guard: rejects IPv6 loopback ::1', async () => {
-  await assert.rejects(() => applySsrfGuard('::1'), /blocked address range/);
+test('every spelling of loopback / metadata is refused (1.2.1 E; passed at 0.2.56)', async () => {
+  for (const h of ['0:0:0:0:0:0:0:1', '[0:0:0:0:0:0:0:1]', '::ffff:7f00:1', '::ffff:a9fe:a9fe', 'febf::1', '0x7f000001', '0177.0.0.1']) {
+    await assert.rejects(() => guard(h), /blocked address range/, h);
+  }
 });
 
-// ---------------------------------------------------------------------------
-// NSA_ALLOW_ALL_HOSTS bypass
-// ---------------------------------------------------------------------------
-
-test('SSRF guard: bypasses blocked IP when allowAllHosts=true', async () => {
-  // Should not throw
-  await assert.doesNotReject(() => applySsrfGuard('127.0.0.1', true));
+test('a digits-only string the URL parser rejects is RESOLVED, not skipped — the OS reads 6425673729 as 127.0.0.1 (1.2.1 E)', async () => {
+  // It matched the old literal-skip regex /^[\d.:[\]]+$/, so the guard never resolved it, isBlockedIp
+  // said "not an address", and the scan's own connect sent it to loopback.
+  await withResolver({ '6425673729': '127.0.0.1' }, async (calls) => {
+    await assert.rejects(() => guard('6425673729'), /SSRF guard|blocked/);
+    assert.ok(calls.includes('6425673729'), 'it must be resolved, not skipped as a literal');
+  });
 });
 
-test('SSRF guard: bypasses RFC 1918 when allowAllHosts=true', async () => {
-  await assert.doesNotReject(() => applySsrfGuard('10.0.0.1', true));
+test('a name is refused if ANY answer is blocked, and an unresolvable or non-sentinel cloud-shaped name is refused', async () => {
+  await withResolver({ 'localhost': '127.0.0.1', 'multi.example': ['93.184.216.34', '127.0.0.1'] }, async () => {
+    await assert.rejects(() => guard('localhost'), /SSRF guard/);
+    await assert.rejects(() => guard('multi.example'), /SSRF guard/);
+    await assert.rejects(() => guard('azurex'), /SSRF guard/);   // NOT a sentinel: resolved, ENOTFOUND
+    await assert.rejects(() => guard('aws-foo'), /SSRF guard/);
+  });
 });
 
-// ---------------------------------------------------------------------------
-// Hostname resolution
-// ---------------------------------------------------------------------------
-
-test('SSRF guard: rejects hostname resolving to loopback (localhost)', async () => {
-  await assert.rejects(() => applySsrfGuard('localhost'), /SSRF guard/);
-});
-
-test('SSRF guard: allows public hostname (dns.google)', async () => {
-  await assert.doesNotReject(() => applySsrfGuard('dns.google'));
-});
-
-// ---------------------------------------------------------------------------
-// EE-0.3.2.5: cloud-sentinel hosts bypass the SSRF guard
-// ---------------------------------------------------------------------------
-
-test('SSRF guard (EE-0.3.2.5): cloud sentinel "aws" passes without NSA_ALLOW_ALL_HOSTS', async () => {
-  // Pre-fix this threw "Host rejected by SSRF guard: getaddrinfo ENOTFOUND aws"
-  // because resolveAndValidate() couldn't resolve "aws" as a DNS name.
-  await assert.doesNotReject(() => applySsrfGuard('aws'));
-});
-
-test('SSRF guard (EE-0.3.2.5): cloud sentinel "gcp" passes without NSA_ALLOW_ALL_HOSTS', async () => {
-  await assert.doesNotReject(() => applySsrfGuard('gcp'));
-});
-
-test('SSRF guard (EE-0.3.2.5): cloud sentinel "azure" passes without NSA_ALLOW_ALL_HOSTS', async () => {
-  await assert.doesNotReject(() => applySsrfGuard('azure'));
-});
-
-test('SSRF guard (EE-0.3.2.5): cloud sentinels are case-insensitive ("AWS" / "Azure")', async () => {
-  await assert.doesNotReject(() => applySsrfGuard('AWS'));
-  await assert.doesNotReject(() => applySsrfGuard('Azure'));
-  await assert.doesNotReject(() => applySsrfGuard('GCP'));
-});
-
-test('SSRF guard (EE-0.3.2.5): unrecognized cloud-shaped strings still go through resolution', async () => {
-  // "azurex" / "amazon" / "aws-foo" are NOT sentinels — they should still
-  // trigger DNS resolution. Without that, an attacker who guessed at the
-  // sentinel list could coerce the scanner into bypassing SSRF for any
-  // string they wanted.
-  await assert.rejects(() => applySsrfGuard('azurex'), /SSRF guard/);
-  await assert.rejects(() => applySsrfGuard('aws-foo'), /SSRF guard/);
-});
-
-test('SSRF guard (EE-0.3.2.5): non-string host does not crash the sentinel check', async () => {
-  // Defensive: if host arrives as null/undefined/number, the sentinel
-  // typeof guard short-circuits and the guard falls through to the
-  // existing isBlockedIp / resolve logic.
-  await assert.rejects(() => applySsrfGuard(null), /Cannot read|invalid|reject/i);
+test('a non-string host does not crash the sentinel check and is refused', async () => {
+  await withResolver({}, async () => {
+    await assert.rejects(() => guard(null), /reject|blocked|invalid/i);
+  });
 });
 
 // ---------------------------------------------------------------------------

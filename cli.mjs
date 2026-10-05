@@ -25,7 +25,7 @@ import { createScheduler } from './utils/scheduler.mjs';
 import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
-import { isBlockedIp, resolveAndValidate, allowAllHosts } from './utils/net_validation.mjs';
+import { isBlockedIp, resolveAndValidate, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir, createHostOutDir, safeHost } from './utils/output_dir.mjs';
@@ -879,26 +879,37 @@ export function scanTargetRefusal({ cmd, host, hostFile } = {}) {
 // rather than per scanSingleHost() call (reviewer L1 fold).
 const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
 
+/**
+ * The CLI's scan-target SSRF guard (exported so tests drive the REAL code — 1.2.1 lane 1 E).
+ * Cloud sentinels (aws/gcp/azure) skip it. NSA_ALLOW_ALL_HOSTS (1/true/yes/on only) lifts the WHOLE
+ * guard on the CLI, loopback and metadata included — documented, and the local-network smoke tests
+ * scan loopback that way. Otherwise a literal is classified by value in any spelling, and anything
+ * that is not a literal is resolved with EVERY answer checked. Before 1.2.1 a digits-and-dots string
+ * skipped resolution (/^[\\d.:[\\]]+$/), so '6425673729' — which the OS reads as 127.0.0.1 — was
+ * scanned unchecked.
+ * @param {string} host
+ * @param {Record<string,string|undefined>} [env]
+ */
+export async function assertScanTargetAllowed(host, env = process.env) {
+  const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
+  if (isCloudSentinel || allowAllHosts(env)) return;
+  if (isBlockedIp(host)) {
+    throw new Error(`Scanning blocked address range is not allowed: ${host}`);
+  }
+  if (!canonicalIp(host)) {
+    try {
+      await resolveAndValidate(host);
+    } catch (err) {
+      throw new Error(`Host rejected by SSRF guard: ${err.message}`);
+    }
+  }
+}
+
 async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // SSRF guard — block loopback, private ranges, cloud metadata endpoints.
   // Set NSA_ALLOW_ALL_HOSTS=1 to scan RFC 1918 / private ranges (local network auditing).
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
-  const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
-
-  // Only an explicit truthy word lifts it (1/true/yes/on) — before 1.2.1 "=0" and "=false" did too.
-  if (!allowAllHosts() && !isCloudSentinel) {
-    if (isBlockedIp(host)) {
-      throw new Error(`Scanning blocked address range is not allowed: ${host}`);
-    }
-    // Hostname (not literal IP) — resolve and validate the resolved address
-    if (!/^[\d.:[\]]+$/.test(host)) {
-      try {
-        await resolveAndValidate(host);
-      } catch (err) {
-        throw new Error(`Host rejected by SSRF guard: ${err.message}`);
-      }
-    }
-  }
+  await assertScanTargetAllowed(host);
 
   // `manifest` classifies every selected plugin as ran|skipped|timeout|error with a reason.
   // Discarding it is what makes "no findings" ambiguous between a clean estate and one whose
