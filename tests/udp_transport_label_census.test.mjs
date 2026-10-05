@@ -20,8 +20,41 @@ import * as SD from '../utils/scan_delta.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TABLE = SD.TRANSPORT_OF_LABEL ?? {};
 
-// Comments out, so a label named in prose is not a write; `(?<!:)//` keeps URLs.
-const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/(^|[^:\\])\/\/.*$/gm, '$1');
+// Comments out, so a label named in prose is not a write — read as a TOKENIZER, not a regex (1.2.1): the regex form opened
+// a "block comment" at the `/*` inside a STRING (`Accept: '*/*'` in the HTTP probe) and closed it at the next real `*/`,
+// so the day that file gained a doc comment the census blanked five label writes between them and called `http` and
+// `https` orphans. Strings, templates and regex literals are skipped as units; newlines are kept.
+function code(src) {
+  const out = src.split('');
+  let i = 0;
+  let prev = '';
+  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== '\n') out[k] = ' '; };
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '/') { const j = src.indexOf('\n', i); const e = j < 0 ? src.length : j; blank(i, e); i = e; continue; }
+    if (c === '/' && d === '*') { const j = src.indexOf('*/', i + 2); const e = j < 0 ? src.length : j + 2; blank(i, e); i = e; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      i++;
+      while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
+      i++; prev = c; continue;
+    }
+    if (c === '/' && (prev === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prev))) {
+      let inClass = false;
+      i++;
+      while (i < src.length && src[i] !== '\n' && (inClass || src[i] !== '/')) {
+        if (src[i] === '\\') i++;
+        else if (src[i] === '[') inClass = true;
+        else if (src[i] === ']') inClass = false;
+        i++;
+      }
+      i++; prev = '/'; continue;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return out.join('');
+}
 // A comparison is not a write: `typeof x === 'string'` must not put `string` in the vocabulary.
 const noComparisons = (rhs) => rhs.replace(/(?:===|!==|==|!=)\s*(['"])[^'"]*\1/g, '').replace(/(['"])[^'"]*\1\s*(?:===|!==|==|!=)/g, '');
 
@@ -105,10 +138,14 @@ test('the census reads a real corpus (floor), and its detector catches every wri
       'const g = (x) => x.protocol;',
       'portInfo.protocol = m ? m[1] : "tcp";',
       'evidenceRow("x", port, String(r?.probe_protocol || "dccp"), banner);',
+      // a `/*` inside a STRING, then a real doc comment later: the label between them is a write
+      "const hdr = { Accept: '*/*' };",
+      "const q = { protocol: 'quic' };",
+      '/** a doc comment that closes with */',
     ].join('\n'));
     const rel = path.relative(ROOT, path.join(tmp, 'p.mjs'));
     const { labels, computed } = censusOf([rel]);
-    assert.deepEqual([...labels.keys()].sort(), ['dccp', 'http', 'https', 'os-detector', 'sctp', 'tcp', 'udp'],
+    assert.deepEqual([...labels.keys()].sort(), ['dccp', 'http', 'https', 'os-detector', 'quic', 'sctp', 'tcp', 'udp'],
       'the ASSIGNMENT form is a write (`rec.protocol = \'sctp\'`), and so is a literal fallback (`probe_protocol || "dccp"`); `===` is a comparison, not a write');
     assert.ok(!labels.has('string'), 'a comparison is not a write');
     assert.ok(!labels.has('commented-out'), 'a comment is not a write');

@@ -1695,9 +1695,10 @@ Scan options:
   --parallel <n>               Parallel host concurrency (default 1)
   --fail-on <severity>         Exit 1 if a gated flag ≥ severity: anonymous FTP / zone
                                transfer (critical; tested only with FTP_CHECK_ANON /
-                               DNS_CHECK_AXFR set), weak SSH algorithms (medium); any
-                               concluded scan is info. Dangerous HTTP methods are read
-                               but never reach the conclusion today. Not SNMP community,
+                               DNS_CHECK_AXFR set), weak SSH algorithms (medium), and
+                               Dangerous HTTP methods (medium) only where an Allow
+                               header was read — not tested never trips it; any
+                               concluded scan is info. Not SNMP community,
                                weak TLS, MCP checks, CVEs or agent findings — exit 0 is
                                not a clean host. Exit 2: unknown severity or no conclusion.
   --output-format <fmt>        Additional report format: sarif | csv | md

@@ -79,9 +79,23 @@ test('the README row and --help say the two critical checks are opt-in, so a def
   const r = failOnRow();
   assert.match(r, /FTP_CHECK_ANON/); assert.match(r, /DNS_CHECK_AXFR/);
   assert.match(r, /never exit 1/);
-  assert.match(r, /no scan's conclusion carries/, 'dangerous HTTP methods are read but never arrive');
   const at = CLI.indexOf('  --fail-on <severity>');
   assert.match(CLI.slice(at, CLI.indexOf('\n  --', at + 5)), /FTP_CHECK_ANON/);
+});
+
+// 1.2.1 lane 3 (a4): dangerous HTTP methods REACH the conclusion now (the HTTP probe's adapter), so --fail-on gates on them —
+// only where an Allow header was read. Not tested (methodsTested false, null) never trips the gate and is said as such.
+test('(a4) dangerous methods gate at medium where an Allow header was read; NOT TESTED never trips the gate', () => {
+  assert.equal(gate({ methodsTested: true, dangerousMethods: ['PUT'] }), RANK.medium);
+  assert.ok(gate({ methodsTested: false, dangerousMethods: null }) < RANK.medium, 'not tested is not a finding');
+  const r = failOnRow();
+  assert.doesNotMatch(r, /no scan's conclusion carries/, 'they arrive now');
+  assert.match(r, /dangerous HTTP methods[^.]*Allow header/);
+  assert.match(r, /not tested/);
+  const at = CLI.indexOf('  --fail-on <severity>');
+  const help = CLI.slice(at, CLI.indexOf('\n  --', at + 5));
+  assert.doesNotMatch(help, /never reach the conclusion/);
+  assert.match(help.replace(/\s+/g, ' '), /Dangerous HTTP methods \(medium\) only where an Allow header was read/);
 });
 
 test('the README CI example does not promise a high+ gate', () => {

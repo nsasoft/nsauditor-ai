@@ -48,10 +48,10 @@ test('the description no longer promises unqualified "security findings", and sa
   assert.match(d, /analysis agents/);
   assert.match(d, /NOT a statement that the host has no known vulnerabilities/);
   assert.match(d, /get_vulnerabilities/, 'it names the route that DOES look CVEs up');
-  // Build-3 review: scan_host RUNS 040 / 050 / 060 but the concluder has no adapter for them, so their findings never
-  // reach its response (boarded for 1.2.1) — the description must say so and route to probe_service.
+  // Build-3 review: scan_host RAN 040 / 050 / 060 but the concluder never reached their adapters, so the description said
+  // so and routed to probe_service. Since 1.2.1 lane 3 they are carried (and 006's methods too), so nothing is left to
+  // route: the probe_service sentence is retired, and the carried-fields leg below pins each of them to behaviour.
   assert.match(d, /040/); assert.match(d, /060/); assert.match(d, /050/);
-  assert.match(d, /probe_service/);
   assert.match(d, /MCP server checks/, 'the flags 070 DOES set are named as returned');
 });
 
@@ -75,44 +75,46 @@ test('with findings too: the scope line is there, because the limit holds whatev
 
 // ── SECOND REVIEW ROUND: what the conclusion does NOT carry, and the two checks that are OFF by default ────────────
 // tests/concluder_reaches_every_adapter.test.mjs pins what the conclusion carries and drops; tests/fail_on_scope_honesty.test.mjs the gate.
-const returnedPart = (d) => d.slice(0, d.search(/It runs but does NOT return|does NOT return/));
+// What the records CARRY is the part before "It does NOT look up CVEs". Since 1.2.1 (a4) nothing a scan_host plugin produces
+// is left un-returned, so there is no "does NOT return" clause; the HTTP probe's methods are carried, and NOT TESTED is
+// said for what it is.
+const carriedPart = (d) => d.slice(0, d.search(/It does NOT look up/));
 
-test('the description does not list dangerous HTTP methods among what it returns, and names what it drops', () => {
+test('the description lists the HTTP probe\'s methods among what the records carry, and says not tested is not "none"', () => {
   const d = scanHost();
-  assert.doesNotMatch(returnedPart(d), /dangerous HTTP methods/, 'no scan_host service record carries dangerousMethods');
-  for (const re of [/006/, /014/, /1023/, /FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /off by default/, /probe_service \(Pro\)/,
-    /self-signed/, /cpe is null/]) assert.match(d, re);
+  assert.match(carriedPart(d), /\(006\b[^)]*dangerousMethods[^)]*methodsTested/, '006 is named with its two fields');
+  assert.match(carriedPart(d), /not tested, never "none"/);
+  assert.doesNotMatch(d, /does NOT return/, 'no plugin result is left un-returned');
+  for (const re of [/014/, /1023/, /FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /off by default/, /self-signed/, /cpe is null/]) assert.match(d, re);
 });
 
 test('the Scope line\'s COUNTED list names only flags a conclusion can carry, and says two checks are opt-in', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: services });
   const counted = /counts only these service-check flags:([^.]*)\./.exec(md)?.[1];
   assert.ok(counted, 'the Scope line has its counted list');
-  assert.doesNotMatch(counted, /dangerous HTTP methods/);
+  assert.match(counted, /dangerous HTTP methods/, 'counted since 1.2.1 (a4) — the conclusion carries them');
+  assert.match(counted, /Allow header/, 'and only where an Allow header was read');
   assert.match(counted, /FTP_CHECK_ANON/);
-  assert.match(md, /dangerous HTTP methods/, 'named among what is NOT counted');
   assert.match(md, /self-signed/);
 });
 
-// 1.2.1 lane 3: the concluder REACHES 014 / 040 / 050 / 060 now, so the description moves them from what it drops to what
-// the records carry — and this leg ties each name to a field the concluder actually lands, so the sentence cannot run
-// ahead of the code (or fall behind it).
-test('the description names what the conclusion now carries (014, 040, 050, 060), each tied to a field that lands', async () => {
+// 1.2.1 lane 3: the concluder REACHES 006 / 014 / 040 / 050 / 060 now, so the description names them among what the records
+// carry — and this leg ties each name to a field the concluder actually lands, so the sentence cannot run ahead of the
+// code (or fall behind it).
+test('the description names what the conclusion carries (006, 014, 040, 050, 060), each tied to a field that lands', async () => {
   const d = scanHost();
-  const cut = d.search(/does NOT return/);
-  assert.ok(cut > 0, 'the description still has its "does NOT return" clause');
-  const carried = d.slice(0, cut);
-  const dropped = d.slice(cut);
-  for (const [id, field] of [['014', 'nullSessionAllowed'], ['040', 'certAudit'], ['050', 'tribeHealth'], ['060', 'dnsSecurity']]) {
+  const carried = carriedPart(d);
+  for (const [id, field] of [['006', 'dangerousMethods'], ['014', 'nullSessionAllowed'], ['040', 'certAudit'],
+    ['050', 'tribeHealth'], ['060', 'dnsSecurity']]) {
     assert.match(carried, new RegExp(`\\(${id}\\b[^)]*${field}`), `${id} is named with ${field} among what the records carry`);
-    assert.doesNotMatch(dropped, new RegExp(`\\b${id}\\b`), `${id} is no longer among what scan_host does not return`);
   }
-  assert.match(dropped, /\b006\b/);
-  // 1023 is reached through the manager's registry since 1.2.1, and lands as ONE evidence line (Enterprise's
+  // 1023 is reached through the manager's registry and lands as ONE evidence line (Enterprise's
   // tests/zero_trust_adapter_reached.test.mjs measures it) — so the description says exactly that.
-  assert.match(dropped, /\(1023\) reaches the conclusion only as one score line in its evidence/);
+  assert.match(d, /\(1023\) reaches the conclusion only as one score line in its evidence/);
   const { default: concluder } = await import('../plugins/result_concluder.mjs');
   const c = await concluder.run([
+    { id: '006', name: 'HTTP Probe', result: { up: true, program: 'nginx', methodsTested: true, allowedMethods: ['PUT'],
+      dangerousMethods: ['PUT'], data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx' }] } },
     { id: '014', name: 'NetBIOS/SMB Scanner', result: { up: true, nullSessionAllowed: true, data: [{ probe_port: 445, probe_protocol: 'tcp', probe_info: 'SMB2' }] } },
     { id: '050', name: 'TRIBE', result: { up: true, overallSeverity: 'high', summary: { critical: 0, high: 1, medium: 0 }, serverInfo: {},
       findings: { debug: [{ severity: 'high', check: 'debug_endpoint', detail: 'x' }] } } },
@@ -121,5 +123,5 @@ test('the description names what the conclusion now carries (014, 040, 050, 060)
       findings: { spf: [{ severity: 'high', check: 'missing_spf', detail: 'x' }] } } },
   ]);
   const has = (field) => c.services.some((s) => s[field] != null) || c.evidence.some((e) => e[field] != null);
-  for (const field of ['nullSessionAllowed', 'tribeHealth', 'dnsSecurity']) assert.ok(has(field), `the concluder lands ${field}`);
+  for (const field of ['dangerousMethods', 'nullSessionAllowed', 'tribeHealth', 'dnsSecurity']) assert.ok(has(field), `the concluder lands ${field}`);
 });

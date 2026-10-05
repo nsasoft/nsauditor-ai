@@ -243,19 +243,24 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
+  // 1.2.1 (a4): a service whose HTTP methods were NOT tested (no Allow header was read) is said to be so — never "none".
+  const methodsNotTested = services.filter((s) => s.methodsTested === false);
+  if (methodsNotTested.length > 0) {
+    lines.push(`- **HTTP methods not tested:** ${methodsNotTested.map((s) => escapeCell(`${s.port}/${s.protocol || 'tcp'}`)).join(', ')}`
+      + ' — no Allow header was read, so dangerous methods were not checked there (not "none")');
+  }
   // 1.2.0 build 3: this renderer's findings are the service-check FLAGS only — nothing on the scan path fills a service's
   // CVEs, and Enterprise's analysis agents and exploit intelligence write elsewhere. Without this line "Security findings:
   // 0" read as a clean verdict over a host whose CLI run carried 16 CVEs (the Gate 3-A preparation's P8).
-  // The counted list names only flags a conclusion can carry: dangerousMethods is read by extractFindings but no adapter puts
-  // it on a service record (tests/concluder_reaches_every_adapter.test.mjs pins that until 006 gains one), so it is named
-  // among what is NOT counted. Since 1.2.1 the conclusion carries 014's, 040's, 050's and 060's results, but this
-  // report does not count them yet, so the line names them as carried and not counted.
+  // The counted list names only flags a conclusion can carry. Since 1.2.1 the HTTP probe's adapter puts dangerousMethods on
+  // its record (only where an Allow header was read), so they are counted; 014's, 040's, 050's and 060's results are
+  // carried too, but this report does not count them yet, so the line names them as carried and not counted.
   lines.push('- **Scope:** counts only these service-check flags: weak SSH algorithms, SNMP default community, weak TLS '
-    + 'protocols / ciphers, and anonymous FTP login and DNS zone transfer when the scan\'s environment enables those two '
-    + 'checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with DNS_AXFR_DOMAIN — both off by default). It does not count a self-signed '
-    + 'certificate, the MCP server checks, SMB null sessions or the TLS-certificate, DNS-security and debug-endpoint '
-    + 'auditors\' results (all carried in the scan\'s conclusion), nor dangerous HTTP methods (the conclusion does not '
-    + 'carry them); '
+    + 'protocols / ciphers, dangerous HTTP methods (only where an Allow header was read), and anonymous FTP login and DNS '
+    + 'zone transfer when the scan\'s environment enables those two checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
+    + 'DNS_AXFR_DOMAIN — both off by default). It does not count a self-signed certificate, the MCP server checks, SMB null '
+    + 'sessions or the TLS-certificate, DNS-security and debug-endpoint auditors\' results (all carried in the scan\'s '
+    + 'conclusion); '
     + 'it does not look up CVEs, and does not include Enterprise analysis-agent findings or exploit intelligence (a CLI scan '
     + 'with the Enterprise package and a Pro or Enterprise licence records CVE and agent findings in scan_finding_queue.json, '
     + 'when there are any).');

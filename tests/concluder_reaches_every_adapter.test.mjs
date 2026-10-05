@@ -58,17 +58,38 @@ test('(q) a reached adapter (011, the TLS scanner) still lands its flags on 443,
   assert.equal(rec.program, 'TLS');
 });
 
-test('(q) a plugin with NO adapter still yields its fallback record (001, 006, 013)', async () => {
-  const services = await servicesOf([
-    { id: '006', name: 'HTTP Probe', result: { up: true, program: 'nginx', version: '1.18.0', dangerousMethods: ['PUT'],
-      data: [{ probe_port: 80, probe_protocol: 'tcp', status: 'open' }] } },
-  ]);
-  const rec = services.find((s) => s.port === 80);
-  assert.ok(rec, 'the probe still yields its fallback record');
-  assert.equal(rec.source, 'http');
-  assert.equal(rec.program, 'nginx');
-  // The HTTP probe has no adapter until lane 3 (a4): its dangerous methods still never reach a record.
-  assert.equal('dangerousMethods' in rec, false);
+test('(q) a plugin with NO adapter still yields its fallback record (027, mDNS)', async () => {
+  const services = await servicesOf([{ id: '027', name: 'MDNS Scanner', result: { up: true,
+    data: [{ probe_protocol: 'udp', probe_port: 5353, probe_info: 'mDNS answer' }] } }]);
+  const rec = services.find((s) => s.port === 5353);
+  assert.ok(rec, 'the fallback record');
+  assert.equal(rec.source, 'mdns');
+});
+
+// (a4), the audit seat's Option A: the HTTP probe's adapter lands its record EXACTLY where the fallback did — the
+// http/https key, the same identity, CPE and status — and adds the methods result. Pinned as identity EQUALITY with the
+// fallback record, so no key, program, version, CPE or Services-detected count moves across 1.2.0 -> 1.2.1. (Was: the
+// leg that pinned 006 as never reached — inverted, not deleted, so it still proves the adapter is reached.)
+const R006 = (fields) => ({ id: '006', name: 'HTTP Probe', result: { up: true, program: 'nginx', version: '1.18.0', ...fields,
+  data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx/1.18.0' }] } });
+
+test('006 (HTTP probe): the methods land on its record, and its key and identity are the fallback record\'s, unchanged', async () => {
+  const r = R006({ methodsTested: true, allowedMethods: ['GET', 'PUT'], dangerousMethods: ['PUT'] });
+  const viaAdapter = (await servicesOf([r])).find((s) => s.port === 80);
+  const viaFallback = (await servicesOf([r], { adapters: new Map([['006', { conclude: null }]]) })).find((s) => s.port === 80);
+  assert.ok('dangerousMethods' in viaAdapter, 'the adapter is reached: the field is on the record');
+  assert.deepEqual(viaAdapter.dangerousMethods, ['PUT']);
+  assert.equal(viaAdapter.methodsTested, true);
+  assert.equal('dangerousMethods' in viaFallback, false, 'positive control: the fallback record never carried it');
+  const { methodsTested, allowedMethods, dangerousMethods, ...identity } = viaAdapter;
+  void methodsTested; void allowedMethods; void dangerousMethods;
+  assert.deepEqual(identity, viaFallback, 'zero identity movement: key, program, version, CPE, status and source as before');
+});
+
+test('006 not tested: the record carries methodsTested false and NULL — never [] ("none dangerous")', async () => {
+  const rec = (await servicesOf([R006({ methodsTested: false, allowedMethods: null, dangerousMethods: null })])).find((s) => s.port === 80);
+  assert.equal(rec.methodsTested, false);
+  assert.equal(rec.dangerousMethods, null);
 });
 
 test('(q) a cloudProvider plugin is EXEMPT — its adapter is never called, and its result falls back as before', async () => {

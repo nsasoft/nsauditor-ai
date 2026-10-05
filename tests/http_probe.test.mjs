@@ -87,7 +87,7 @@ test("http_probe: detects dangerous HTTP methods via OPTIONS", async () => {
   }
 });
 
-test("http_probe: handles OPTIONS 405 gracefully", async () => {
+test("http_probe: handles OPTIONS 405 gracefully — and a 405 with no Allow header is NOT TESTED, never \"none dangerous\"", async () => {
   const { server, port } = await startHttpServer((req, res) => {
     if (req.method === 'OPTIONS') {
       res.statusCode = 405;
@@ -100,7 +100,9 @@ test("http_probe: handles OPTIONS 405 gracefully", async () => {
   });
   try {
     const result = await httpProbe.run("127.0.0.1", port);
-    assert.deepEqual(result.dangerousMethods, []);
+    // 1.2.1: this asserted `[]` — an indeterminate reading as a pass. No Allow header was read, so nothing was observed.
+    assert.equal(result.dangerousMethods, null);
+    assert.equal(result.methodsTested, false);
     assert.equal(result.up, true);
   } finally {
     server.close();
@@ -116,4 +118,62 @@ test("http_probe: connection refused path", async () => {
   assert.equal(result.up, false);
   assert.ok(result.data.some(d => /http\(s\) error:/i.test(d.probe_info)));
   assert.equal(result.program, null);
+});
+
+// 1.2.1 lane 3 (a4) / (s3), the audit seat's ruling: the methods are TESTED only when an Allow header was READ — the probe
+// has no other way to see the list. An OPTIONS answer without Allow (a 405, a 200) and no answer at all are both NOT
+// TESTED: methodsTested false, null arrays, never `[]`. All three used to read `dangerousMethods: []`, so "not tested"
+// read as "none dangerous" to every consumer (scan_host, the Markdown, SARIF, --fail-on) — the indeterminate-as-PASS shape.
+test("(fourth quadrant, first) an Allow header read is a test: methodsTested true, the list as advertised", async () => {
+  const { server, port } = await startHttpServer((req, res) => {
+    if (req.method === 'OPTIONS') { res.setHeader('Allow', 'GET, HEAD'); res.end(); return; }
+    res.setHeader('Server', 'test'); res.end('ok');
+  });
+  try {
+    const result = await httpProbe.run("127.0.0.1", port);
+    assert.equal(result.methodsTested, true);
+    assert.deepEqual(result.allowedMethods, ['GET', 'HEAD']);
+    assert.deepEqual(result.dangerousMethods, []);
+  } finally { server.close(); }
+});
+
+test("(fourth quadrant) an Allow header listing dangerous methods is a test that FOUND them", async () => {
+  const { server, port } = await startHttpServer((req, res) => {
+    if (req.method === 'OPTIONS') { res.setHeader('Allow', 'GET, PUT, DELETE'); res.end(); return; }
+    res.setHeader('Server', 'test'); res.end('ok');
+  });
+  try {
+    const result = await httpProbe.run("127.0.0.1", port);
+    assert.equal(result.methodsTested, true);
+    assert.deepEqual(result.dangerousMethods, ['PUT', 'DELETE']);
+  } finally { server.close(); }
+});
+
+test("an OPTIONS 200 WITHOUT an Allow header is NOT TESTED — the server did not advertise, nothing was observed", async () => {
+  const { server, port } = await startHttpServer((req, res) => {
+    if (req.method === 'OPTIONS') { res.statusCode = 200; res.end(); return; }
+    res.setHeader('Server', 'test'); res.end('ok');
+  });
+  try {
+    const result = await httpProbe.run("127.0.0.1", port);
+    assert.equal(result.methodsTested, false);
+    assert.equal(result.dangerousMethods, null);
+    assert.equal(result.allowedMethods, null);
+    assert.ok(result.data.some((d) => /no Allow header.*not tested/i.test(d.probe_info)), JSON.stringify(result.data));
+  } finally { server.close(); }
+});
+
+test("an OPTIONS that is NOT answered is NOT TESTED — methodsTested false, null arrays, and a row that says so", async () => {
+  const { server, port } = await startHttpServer((req, res) => {
+    if (req.method === 'OPTIONS') { req.socket.destroy(); return; }
+    res.setHeader('Server', 'test'); res.end('ok');
+  });
+  try {
+    const result = await httpProbe.run("127.0.0.1", port);
+    assert.equal(result.up, true, 'positive control: the GET was answered');
+    assert.equal(result.methodsTested, false);
+    assert.equal(result.dangerousMethods, null, 'not tested is not "none dangerous"');
+    assert.equal(result.allowedMethods, null);
+    assert.ok(result.data.some((d) => /OPTIONS .*not answered.*not tested/i.test(d.probe_info)), JSON.stringify(result.data));
+  } finally { server.close(); }
 });

@@ -260,31 +260,74 @@ export default {
 
     // Keep OS null unless we have a trustworthy hint; HTTP headers rarely reveal OS reliably.
 
-    // HTTP method testing via OPTIONS
+    // HTTP method testing via OPTIONS. `methodsTested` means AN ALLOW HEADER WAS READ — the probe has no other way to see
+    // the method list, so an OPTIONS answer without Allow (a 405, a 200) and no answer at all are both NOT TESTED:
+    // methodsTested false and null arrays, never [] (1.2.1, the audit seat's ruling; all three read [] before, so "not
+    // tested" read as "none dangerous"). Do not widen "tested" to "answered": a per-method probe is a different capability.
+    let optResult = null;
     try {
-      const optResult = await probeOptions(host, port, isHttps, allowInsecure, timeoutMs);
-      if (optResult?.allow) {
-        const methods = optResult.allow.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
-        const dangerous = methods.filter(m => ['PUT', 'DELETE', 'TRACE', 'CONNECT'].includes(m));
-        result.allowedMethods = methods;
-        result.dangerousMethods = dangerous;
-        if (dangerous.length > 0) {
-          result.data.push({
-            probe_protocol: isHttps ? 'https' : 'http',
-            probe_port: port,
-            probe_info: `WARNING: Dangerous HTTP methods enabled: ${dangerous.join(', ')}`,
-            response_banner: `Allow: ${optResult.allow}`
-          });
-        }
-      } else {
-        result.allowedMethods = [];
-        result.dangerousMethods = [];
-      }
+      optResult = await probeOptions(host, port, isHttps, allowInsecure, timeoutMs);
     } catch {
-      result.allowedMethods = [];
-      result.dangerousMethods = [];
+      optResult = null;
+    }
+    if (!optResult || !String(optResult.allow || '').trim()) {
+      result.methodsTested = false;
+      result.allowedMethods = null;
+      result.dangerousMethods = null;
+      result.data.push({
+        probe_protocol: isHttps ? 'https' : 'http',
+        probe_port: port,
+        probe_info: optResult
+          ? `OPTIONS answered ${optResult.status} with no Allow header — HTTP methods not tested`
+          : 'OPTIONS was not answered — HTTP methods not tested',
+        response_banner: null
+      });
+    } else {
+      const methods = String(optResult.allow || '').split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+      const dangerous = methods.filter(m => ['PUT', 'DELETE', 'TRACE', 'CONNECT'].includes(m));
+      result.methodsTested = true;
+      result.allowedMethods = methods;
+      result.dangerousMethods = dangerous;
+      if (dangerous.length > 0) {
+        result.data.push({
+          probe_protocol: isHttps ? 'https' : 'http',
+          probe_port: port,
+          probe_info: `WARNING: Dangerous HTTP methods enabled: ${dangerous.join(', ')}`,
+          response_banner: `Allow: ${optResult.allow}`
+        });
+      }
     }
 
     return result;
   },
 };
+/**
+ * Concluder adapter (1.2.1 lane 3 (a4), the audit seat's Option A). The HTTP probe had no adapter, so its methods result
+ * never reached a service record. Its record lands EXACTLY where the concluder's fallback put it — the http / https key,
+ * the same program, version, status and source — so no service identity, CPE or Services-detected count moves across
+ * 1.2.0 -> 1.2.1; it adds only the methods result. `methodsTested` is true only when an Allow header was READ; otherwise
+ * both arrays are null (NOT TESTED, never "none"). Merging into the tcp key is a separate, boarded decision.
+ */
+export function conclude({ result }) {
+  const rows = Array.isArray(result?.data) ? result.data : [];
+  const row = rows.find(Boolean) || {};
+  let status = result?.up ? 'open' : 'unknown';
+  if (row?.probe_info && /refused|ECONNREFUSED/i.test(String(row.probe_info))) status = 'closed';
+  return [{
+    port: Number(row?.probe_port ?? result?.port ?? 0),
+    protocol: row?.probe_protocol || result?.protocol || 'tcp',
+    service: 'http',
+    program: result?.program || 'Unknown',
+    version: result?.version || 'Unknown',
+    status,
+    info: row?.probe_info || null,
+    banner: row?.response_banner || null,
+    source: 'http',
+    evidence: rows,
+    ...('methodsTested' in (result || {}) ? {
+      methodsTested: result.methodsTested === true,
+      allowedMethods: result.methodsTested === true ? result.allowedMethods : null,
+      dangerousMethods: result.methodsTested === true ? result.dangerousMethods : null,
+    } : {}),
+  }];
+}

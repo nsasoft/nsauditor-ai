@@ -497,3 +497,24 @@ test('(eadb33a fold 2) an attacker\'s OWN backslash cannot unescape ours — in 
     assert.ok(html.includes('onerror=alert(1)'), 'the text survives');
   }
 });
+
+// ---------------------------------------------------------------------------
+// 1.2.1 lane 3 (a4): dangerous HTTP methods now REACH a service record (the HTTP probe's adapter), so the report counts
+// them where an Allow header was read — and says NOT TESTED, never "none", where it was not.
+// ---------------------------------------------------------------------------
+const httpSvc = (fields) => ({ result: { services: [{ port: 80, protocol: 'http', service: 'http', program: 'nginx',
+  version: '1.18.0', status: 'open', ...fields }] } });
+
+test('(a4) dangerous methods read from an Allow header are a counted Medium finding, and the Scope line counts them', () => {
+  const md = buildMarkdownReport({ host: 'h', conclusion: httpSvc({ methodsTested: true, dangerousMethods: ['PUT', 'DELETE'] }) });
+  assert.match(md, /### \[Medium\] Dangerous HTTP method\(s\) allowed: PUT, DELETE/);
+  const counted = /counts only these service-check flags:([^.]*)\./.exec(md)?.[1];
+  assert.match(counted, /dangerous HTTP methods/);
+  assert.doesNotMatch(md, /HTTP methods not tested/);
+});
+
+test('(a4) methods NOT tested: no finding, and the report names the service as NOT TESTED — never "none"', () => {
+  const md = buildMarkdownReport({ host: 'h', conclusion: httpSvc({ methodsTested: false, dangerousMethods: null }) });
+  assert.doesNotMatch(md, /Dangerous HTTP method/);
+  assert.match(md, /- \*\*HTTP methods not tested:\*\* 80\/http — no Allow header was read/);
+});
