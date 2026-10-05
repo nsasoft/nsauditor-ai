@@ -487,7 +487,9 @@ export async function handleScanHost(args) {
     host: output.host,
     conclusion: output.conclusion ?? null,
     manifest: output.manifest ?? [],
-    pluginsRan: output.results?.length ?? 0,
+    // Plugins that RAN, from the manifest — not output.results, which holds one wrapped run per port plus
+    // error / timeout / gate-skip envelopes. Same count scan_cloud reports.
+    pluginsRan: (output.manifest || []).filter((m) => m.status === 'ran').length,
     markdown,
   };
 }

@@ -133,6 +133,34 @@ describe('MCP Server — tool handlers', () => {
     assert.equal(typeof result.pluginsRan, 'number');
   });
 
+  // 1.2.1 lane 3 (s4): pluginsRan counted output.results — one wrapped run PER PORT, plus error, timeout
+  // and gate-skip envelopes — while the manifest has one entry per plugin with its status. scan_cloud
+  // already counts manifest entries with status 'ran'; scan_host now does the same.
+  it('(s4, fourth quadrant first) one plugin that ran once counts 1', async () => {
+    const result = await handleScanHost({ host: '192.168.1.1' });
+    assert.equal(result.pluginsRan, 1);
+  });
+
+  it('(s4) per-port runs and an error envelope count the plugins that RAN, not the envelopes', async () => {
+    const pm = makeMockPluginManager(FAKE_PLUGINS);
+    pm.run = async (host) => ({
+      host,
+      results: [
+        { id: '002', name: 'SSH Scanner', result: { up: true, data: [] } }, // port 22
+        { id: '002', name: 'SSH Scanner', result: { up: true, data: [] } }, // port 2222
+        { id: '011', name: 'TLS Scanner', result: { up: false, error: 'boom', data: [] } },
+      ],
+      conclusion: { id: '008', name: 'Result Concluder', result: { summary: 's', services: [], evidence: [] } },
+      manifest: [
+        { id: '002', name: 'SSH Scanner', status: 'ran', reason: null, duration_ms: 10 },
+        { id: '011', name: 'TLS Scanner', status: 'error', reason: 'boom', duration_ms: 3 },
+      ],
+    });
+    _setPluginManager(pm);
+    const result = await handleScanHost({ host: '192.168.1.1' });
+    assert.equal(result.pluginsRan, 1);
+  });
+
   // -----------------------------------------------------------------------
   // 2. scan_host — missing host
   // -----------------------------------------------------------------------
