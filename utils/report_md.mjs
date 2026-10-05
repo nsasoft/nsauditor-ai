@@ -293,7 +293,9 @@ export function buildMarkdownReport(scanData) {
   } else {
     findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
     for (const f of findings) {
-      lines.push(`### [${f.severity}] ${f.title}`);
+      // The title is escaped as a WHOLE: a CVE title interpolates the service's program and version, which a host
+      // chooses (the HTTP probe's program is the raw Server header).
+      lines.push(`### [${f.severity}] ${escapeCell(f.title)}`);
       lines.push('');
       lines.push(`- **Target:** ${escapeCell(f.target)}`);
       if (f.evidence) {

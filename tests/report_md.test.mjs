@@ -454,3 +454,46 @@ test('(s5 fold) the same holds for a service cell built from a banner', async ()
     { port: 80, protocol: 'tcp', service: 'http', program: HOSTILE, version: HOSTILE, status: 'open' }] } } });
   assert.doesNotMatch(await renderedHtml(md), /<a\b|<img\b|<script\b/i);
 });
+
+// ---------------------------------------------------------------------------
+// eadb33a's fold (the architect seat's read): two holes inside that commit's own scope.
+// (1) The finding HEADING (`### [severity] title`) was written unescaped, and a CVE finding's title interpolates
+//     svc.program / svc.version — host-chosen bytes (the HTTP probe's program is the raw Server header). Driven, a
+//     hostile program gave five headings carrying live links and remote images. The title is escaped as a whole, so the
+//     next title that interpolates a banner is safe by construction.
+// (2) The backslash member of the escape set was unguarded: an attacker's own `\` before our `\<` makes `\\<` — a
+//     literal backslash, then RAW HTML. No fixture carried a backslash, so dropping it from the set stayed green.
+// ---------------------------------------------------------------------------
+const HOSTILE_ESC = String.raw`\<img src=x onerror=alert(1)> \![p](https://evil.example/p.png) \[u](https://evil.example/login)`;
+const cveService = (program, version) => ({ result: { services: [
+  { port: 80, protocol: 'tcp', service: 'http', program, version, status: 'open', cves: ['CVE-2024-0001'] }] } });
+
+test('(fourth quadrant, first) a benign CVE heading is byte-identical: dots, hyphens, the em dash and the severity bracket untouched', () => {
+  const md = buildMarkdownReport({ host: '192.0.2.1', conclusion: cveService('nginx', '1.18.0-ubuntu') });
+  assert.ok(md.split('\n').includes('### [High] CVE-2024-0001 — nginx 1.18.0-ubuntu'), md);
+});
+
+test('(eadb33a fold 1) a CVE heading built from a hostile program and version renders as text — no link, image or tag', async () => {
+  const md = buildMarkdownReport({ host: '192.0.2.1', conclusion: cveService(HOSTILE, HOSTILE) });
+  assert.ok(md.includes('### [High] CVE-2024-0001'), 'positive control: the heading is emitted');
+  const html = await renderedHtml(md);
+  assert.doesNotMatch(html, /<a\b|<img\b|<script\b/i, html);
+  assert.ok(html.includes('evil.example/login'), 'the text is still there to read');
+});
+
+test('(eadb33a fold 2) an attacker\'s OWN backslash cannot unescape ours — in the wrapped rows, a service cell and a heading', async () => {
+  const { PluginManager } = await import('../plugin_manager.mjs');
+  const { default: concluder } = await import('../plugins/result_concluder.mjs');
+  const mgr = await PluginManager.create({ plugins: [concluder] });
+  const conclusion = await mgr.runConcluder([
+    { id: '001', name: 'Ping Checker', result: { up: true, os: `Linux ${HOSTILE_ESC}`, data: [] } },
+    { id: '027', name: 'MDNS Scanner', result: { up: true, data: [{ probe_protocol: 'udp', probe_port: 5353,
+      probe_info: 'mDNS', response_banner: JSON.stringify({ txt: { fn: HOSTILE_ESC } }) }] } },
+  ]);
+  for (const md of [buildMarkdownReport({ host: '192.0.2.1', conclusion }),
+    buildMarkdownReport({ host: '192.0.2.1', conclusion: cveService(HOSTILE_ESC, HOSTILE_ESC) })]) {
+    const html = await renderedHtml(md);
+    assert.doesNotMatch(html, /<a\b|<img\b|<script\b/i, html);
+    assert.ok(html.includes('onerror=alert(1)'), 'the text survives');
+  }
+});
