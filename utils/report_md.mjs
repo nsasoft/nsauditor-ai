@@ -15,12 +15,17 @@ const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
  * Escape Markdown special characters that would break table cell rendering.
  * Pipes break tables; backticks break inline code; newlines break row layout.
  */
+// Every Markdown- or HTML-active character is backslash-escaped (CommonMark allows a backslash before any
+// ASCII punctuation), so a value a NETWORK HOST chose — a hostname from mDNS or UPnP, an OS or program from a
+// banner, the summary that embeds them — renders as text: no link, image, autolink, emphasis or raw tag.
+// (1.2.1: it escaped only | and `, and the hostname and OS rows, once reachable, rendered live links,
+// remote images and <img onerror> in any renderer that allows HTML.)
+const MD_ACTIVE = /[\\`*_[\]<>!|~]/g;
 function escapeCell(value) {
   if (value == null) return '';
   return String(value)
-    .replace(/\|/g, '\\|')
-    .replace(/`/g, '\\`')
-    .replace(/[\r\n]+/g, ' ');
+    .replace(/[\r\n]+/g, ' ')
+    .replace(MD_ACTIVE, (c) => `\\${c}`);
 }
 
 /**

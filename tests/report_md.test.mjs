@@ -409,3 +409,48 @@ test('(s5) the REAL wrapped conclusion renders the OS, Hostname and summary rows
   assert.match(md, /\*\*Hostname:\*\* router/);
   assert.ok(md.includes(conclusion.result.summary), `the summary sentence: ${conclusion.result.summary}`);
 });
+
+// ---------------------------------------------------------------------------
+// 1.2.1 lane 3 (s5) security fold: the rows (s5) revived carry values a NETWORK HOST chooses — the hostname
+// from an mDNS txt.fn or a UPnP friendlyName, the OS from banners, and the summary, which embeds both. The
+// shared escapeCell escaped only | ` and newlines, so a name like `[update](https://evil.example)` became a
+// live link, `![](https://…)` a remote image fetched when the report is viewed, and `<img onerror>` raw HTML
+// in any renderer that allows it — and service cells built from banners already went through the same
+// helper. Rendered here with CE's own markdown-it, raw HTML ON (the worst case), linkify OFF.
+// ---------------------------------------------------------------------------
+const HOSTILE = '[update](https://evil.example/login) ![p](https://evil.example/p.png) <img src=x onerror=alert(1)> <script>alert(2)</script>';
+
+async function renderedHtml(md) {
+  const { default: MarkdownIt } = await import('markdown-it');
+  return new MarkdownIt({ html: true, linkify: false }).render(md);
+}
+
+test('(fourth quadrant, first) ordinary values stay readable — dots, slashes, hyphens, colons are not escaped', () => {
+  const md = buildMarkdownReport({ host: '192.0.2.1', conclusion: { result: { services: [
+    { port: 443, protocol: 'tcp', service: 'https', program: 'nginx', version: '1.24.0-ubuntu', status: 'open' }] },
+    summary: 'Host (gw-1.example.com) is UP — OS: Linux', host: { os: 'Linux', osVersion: '5.15', name: 'gw-1.example.com' } } });
+  assert.match(md, /\*\*OS:\*\* Linux 5\.15/);
+  assert.match(md, /\*\*Hostname:\*\* gw-1\.example\.com/);
+  assert.ok(md.includes('nginx') && md.includes('1.24.0-ubuntu'));
+});
+
+test('(s5 fold) a hostile hostname, OS and summary from the REAL wrapped conclusion render as text — no link, image or tag', async () => {
+  const { PluginManager } = await import('../plugin_manager.mjs');
+  const { default: concluder } = await import('../plugins/result_concluder.mjs');
+  const mgr = await PluginManager.create({ plugins: [concluder] });
+  const conclusion = await mgr.runConcluder([
+    { id: '001', name: 'Ping Checker', result: { up: true, os: `Linux ${HOSTILE}`, data: [] } },
+    { id: '027', name: 'MDNS Scanner', result: { up: true, data: [{ probe_protocol: 'udp', probe_port: 5353,
+      probe_info: 'mDNS', response_banner: JSON.stringify({ txt: { fn: HOSTILE } }) }] } },
+  ]);
+  assert.ok(String(conclusion.result.host?.name).includes('evil.example'), 'positive control: the hostile name reached the conclusion');
+  const html = await renderedHtml(buildMarkdownReport({ host: '192.0.2.1', conclusion }));
+  assert.doesNotMatch(html, /<a\b|<img\b|<script\b/i, html);
+  assert.ok(html.includes('evil.example/login'), 'the text is still there to read');
+});
+
+test('(s5 fold) the same holds for a service cell built from a banner', async () => {
+  const md = buildMarkdownReport({ host: '192.0.2.1', conclusion: { result: { services: [
+    { port: 80, protocol: 'tcp', service: 'http', program: HOSTILE, version: HOSTILE, status: 'open' }] } } });
+  assert.doesNotMatch(await renderedHtml(md), /<a\b|<img\b|<script\b/i);
+});
