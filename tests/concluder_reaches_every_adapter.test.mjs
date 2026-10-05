@@ -166,7 +166,7 @@ const DNSSEC = { up: true, overallSeverity: 'high', summary: { actionable: 3 },
 const DNS_009 = { id: '009', name: 'dns_scanner', result: { up: true, program: 'BIND', version: '9.18',
   data: [{ probe_port: 53, probe_protocol: 'udp', probe_info: 'version.bind' }] } };
 
-test('060 (DNS security) on a host that serves DNS: every actionable finding lands on 53/udp, identity untouched', async () => {
+test('060 (DNS security) when the scan found a 53/udp service: every actionable finding lands on it, identity untouched', async () => {
   const services = await servicesOf([DNS_009, { id: '060', name: 'DNS Security Auditor', result: DNSSEC }]);
   const rec = services.find((s) => s.port === 53 && s.protocol === 'udp');
   assert.ok(rec);
@@ -176,7 +176,7 @@ test('060 (DNS security) on a host that serves DNS: every actionable finding lan
   assert.ok(services.every((s) => isPort(s.port)), JSON.stringify(services));
 });
 
-test('060 on a host with NO DNS service: no service row is invented — the findings are evidence', async () => {
+test('060 when the scan found NO 53/udp service: no service row is invented — the findings are evidence', async () => {
   const c = await concluder.run([{ id: '060', name: 'DNS Security Auditor', result: DNSSEC }]);
   assert.deepEqual(c.services, [], 'a domain DNS-posture audit is not a port on this host');
   const ev = c.evidence.find((e) => e.from === 'dns-sec-auditor');

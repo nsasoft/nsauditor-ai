@@ -250,7 +250,7 @@ export const TOOLS = [
       + 'zone transfer only when the server\'s environment enables those two checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
       + 'DNS_AXFR_DOMAIN — both off by default). The records also carry the NetBIOS/SMB null-session check (014, '
       + 'nullSessionAllowed and shares) and the TLS-certificate (040, certAudit) and debug-endpoint (050, tribeHealth) '
-      + 'audits; the DNS-security audit (060, dnsSecurity) lands on the 53/udp record when the host serves DNS, otherwise '
+      + 'audits; the DNS-security audit (060, dnsSecurity) lands on the 53/udp record when the scan found a 53/udp service, otherwise '
       + 'in the conclusion\'s evidence. It runs, when its requirements are met, but does NOT return the results of the '
       + 'HTTP probe (006, dangerous HTTP methods) — use probe_service (Pro) with that plugin. With the Enterprise '
       + 'package, the zero-trust assessment (1023) reaches the conclusion only as one score line in its evidence, not '
