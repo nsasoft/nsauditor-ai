@@ -5,7 +5,7 @@
 // Set UPNP_INCLUDE_NON_MATCHED=1 to keep all discovered devices.
 
 import upnp from 'node-upnp-utils';
-import { isPrivateLike } from '../utils/net_validation.mjs';
+import { isPrivateLike, canonicalIp } from '../utils/net_validation.mjs';
 
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.UPNP_DEBUG || ""));
 function dlog(...a) { if (DEBUG) console.log("[upnp-scanner]", ...a); }
@@ -54,17 +54,35 @@ export function perTargetMx(waitSec) {
 // its search's result — what fails is the library's own description, which 028 does not depend on: it
 // fetches the description of every device it reports itself. The original is called SYNCHRONOUSLY, so the
 // device is listed exactly when it would have been; only its promise is caught.
+//
+// 1.2.1 lane 2 (R2): the same wrapper also refuses an ssdp:alive NOTIFY whose LOCATION names a host
+// other than the device that sent it. The library fetches the LOCATION of every NOTIFY it keeps with NO
+// host check (its M-SEARCH-answer path does check), so any device on the segment could point it at
+// loopback, cloud metadata or a third host. Such a NOTIFY is dropped before the library sees it, and
+// COUNTED (refusedAnnouncements), never silently.
 const RECEIVE_GUARD = Symbol.for('nsauditor.upnp.receivePacketGuard');
 const DROPPED = Symbol.for('nsauditor.upnp.droppedResponses');
+const REFUSED = Symbol.for('nsauditor.upnp.refusedAnnouncements');
+const NOTIFY_LOCATION_RE = /^LOCATION:[ \t]*(.*?)[ \t]*$/im;
 export function guardReceivePacket(upnp) {
   if (!upnp || typeof upnp._receivePacket !== 'function' || upnp[RECEIVE_GUARD]) return upnp;
   const original = upnp._receivePacket;
   upnp[DROPPED] = {};
+  upnp[REFUSED] = 0;
   const count = (err) => {
     const name = err?.name || 'Error';
     upnp[DROPPED][name] = (upnp[DROPPED][name] ?? 0) + 1;
   };
   upnp._receivePacket = function guardedReceivePacket(...args) {
+    const [buffer, rinfo] = args;
+    const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer ?? '');
+    if (/^NOTIFY\b/.test(text)) {
+      const loc = text.match(NOTIFY_LOCATION_RE)?.[1];
+      if (loc && !descriptionUrlAllowed(loc, rinfo?.address)) {
+        upnp[REFUSED] += 1;
+        return Promise.resolve();
+      }
+    }
     let p;
     try { p = original.apply(this, args); } catch (err) { count(err); return Promise.resolve(); }
     return Promise.resolve(p).catch(count);
@@ -75,6 +93,28 @@ export function guardReceivePacket(upnp) {
 /** Library errors caught so far on this instance, by error name. */
 export function droppedResponses(upnp) {
   return { ...(upnp?.[DROPPED] ?? {}) };
+}
+/** NOTIFY announcements refused so far on this instance: their LOCATION named a host other than the sender. */
+export function refusedAnnouncements(upnp) {
+  return upnp?.[REFUSED] ?? 0;
+}
+
+/**
+ * Whether a description URL a UPnP device advertised may be fetched: http or https, on the address of the
+ * device that answered — never another host, a name, or another scheme. The device chooses this URL, not the
+ * operator, so a LOCATION aimed at loopback, cloud metadata or a third host is not followed (1.2.1 lane 2, R2).
+ * @param {string} location the advertised LOCATION
+ * @param {string} answeringAddress the source address of the SSDP answer
+ */
+export function descriptionUrlAllowed(location, answeringAddress) {
+  let url;
+  try { url = new URL(String(location ?? '')); } catch { return false; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  const host = canonicalIp(url.hostname);
+  let from = canonicalIp(answeringAddress);
+  if (!host || !from) return false;
+  from = from.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, '$1');
+  return host.toLowerCase() === from.toLowerCase();
 }
 const droppedSince = (upnp, before) => {
   const now = droppedResponses(upnp); const out = {};
@@ -197,23 +237,31 @@ function extractDeviceInfo(device, deviceXml) {
   return info;
 }
 
-async function fetchDeviceDescription(location, timeout = 5000) {
+// The description is fetched only from the answering device's own address, with the platform fetch and
+// `redirect: 'manual'` — a device that answers with a redirect is not followed elsewhere. (It used
+// node-fetch, which CE never declared, following up to 20 redirects to any host.)
+export const DESCRIPTION_REFUSED = Symbol('description refused');
+async function fetchDeviceDescription(location, answeringAddress, timeout = 5000) {
   if (!location) return null;
-  
+  if (!descriptionUrlAllowed(location, answeringAddress)) {
+    dlog(`Refused device description URL ${location}: not on the answering device ${answeringAddress}`);
+    return DESCRIPTION_REFUSED;
+  }
+
   try {
-    const { default: fetch } = await import('node-fetch');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
-    const response = await fetch(location, { 
+
+    const response = await fetch(location, {
       signal: controller.signal,
+      redirect: 'manual',
       headers: {
         'User-Agent': 'UPnP-Scanner/1.0'
       }
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (response.ok) {
       return await response.text();
     } else {
@@ -280,6 +328,7 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
     upnp = guardReceivePacket(upnpModule);
   }
   const droppedBefore = droppedResponses(upnp);
+  const refusedBefore = refusedAnnouncements(upnp);
 
   const allDevices = [];
   let matched = false;
@@ -326,8 +375,10 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
       
       // Fetch and parse device description if available
       let deviceXml = null;
+      let descriptionRefused = false;
       if (location) {
-        deviceXml = await fetchDeviceDescription(location, 3000);
+        deviceXml = await fetchDeviceDescription(location, address, 3000);
+        if (deviceXml === DESCRIPTION_REFUSED) { deviceXml = null; descriptionRefused = true; }
       }
       
       // Extract detailed device information
@@ -360,6 +411,9 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
       if (location) {
         infoParts.push(`location=${location}`);
       }
+      if (descriptionRefused) {
+        infoParts.push('description refused (LOCATION is not on the answering device)');
+      }
 
       // Enhanced banner with comprehensive data
       const bannerObj = {
@@ -376,7 +430,8 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
         ssdpAnalysis,
         deviceInfo,
         descriptionXML: deviceXml ? deviceXml.substring(0, 2000) : null, // Limit XML size
-        xmlTruncated: deviceXml && deviceXml.length > 2000
+        xmlTruncated: deviceXml && deviceXml.length > 2000,
+        ...(descriptionRefused ? { descriptionRefused: true } : {})
       };
 
       const row = {
@@ -398,11 +453,11 @@ async function runWithUpnp(targetHost, timeoutMs, opts) {
       }
     }
 
-    return { rows, matched, dropped: droppedSince(upnp, droppedBefore) };
+    return { rows, matched, dropped: droppedSince(upnp, droppedBefore), refused: refusedAnnouncements(upnp) - refusedBefore };
     
   } catch (e) {
     dlog("UPnP discovery error:", e?.message || e);
-    return { rows: [], matched: false, dropped: droppedSince(upnp, droppedBefore) };
+    return { rows: [], matched: false, dropped: droppedSince(upnp, droppedBefore), refused: refusedAnnouncements(upnp) - refusedBefore };
   }
 }
 
@@ -448,7 +503,10 @@ export default {
       };
     }
 
-    const { rows, matched, dropped } = await runWithUpnp(host, timeoutMs, opts);
+    const { rows, matched, dropped, refused = 0 } = await runWithUpnp(host, timeoutMs, opts);
+    if (refused > 0) {
+      console.warn(`[upnp-scanner] ${refused} ssdp:alive announcement(s) named a description URL on a host other than the announcing device and were dropped before the UPnP library could fetch it`);
+    }
     dlog(`Discovery complete: matched=${matched}, rows.length=${rows.length}`);
     const upnpLibraryErrors = Object.values(dropped).reduce((a, b) => a + b, 0);
     if (upnpLibraryErrors > 0) {
@@ -514,6 +572,7 @@ export default {
       waitPerTargetSec: perTargetWaitSec(timeoutMs),
       upnpLibraryErrors,
       upnpLibraryErrorsByName: dropped,
+      upnpRefusedAnnouncements: refused,
       data
     };
   }

@@ -28,6 +28,7 @@
 // }
 
 import { fingerprint } from '../utils/tech_fingerprint.mjs';
+import { canonicalIp, classifyAddress, resolveAndValidate, allowAllHosts } from '../utils/net_validation.mjs';
 
 const DEBUG =
   String(process.env.DEBUG_MODE || '').toLowerCase() === '1' ||
@@ -70,6 +71,37 @@ function normalizeTarget(target) {
   return (target.host || target.hostname || target.name || '').replace(/^https?:\/\//i, '').split('/')[0];
 }
 
+// 1.2.1 lane 2 (R2): redirects are followed HERE, one hop at a time, never by undici. The target chooses
+// a hop, not the operator, and the scan-entry guard ran once, on the host the operator named — so with
+// `redirect: 'follow'` a target could send the scanner to loopback or cloud metadata and have the
+// answer's headers reflected into the result. A hop to the host the operator named (any port, http or
+// https) was admitted at entry and is followed; any other host goes through the MCP guard's policy:
+// loopback, link-local, metadata and unspecified refused in every configuration, private ranges only
+// under NSA_ALLOW_ALL_HOSTS, a name refused if ANY of its answers is. Stated limit, as at entry: the
+// checked name is resolved again by the request (no pin against rebinding).
+const MAX_REDIRECT_HOPS = 5;
+
+async function assertHopAllowed(next, entryHost) {
+  if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+    throw new Error(`redirect to ${next.href} refused: only http and https hops are followed`);
+  }
+  const host = next.hostname.replace(/^\[|\]$/g, '');
+  if (host.toLowerCase() === String(entryHost).replace(/^\[|\]$/g, '').toLowerCase()) return;
+  const allowPrivate = allowAllHosts();
+  if (canonicalIp(host)) {
+    const cls = classifyAddress(host);
+    if (cls === 'always' || (cls === 'private' && !allowPrivate)) {
+      throw new Error(`redirect to ${host} refused by the SSRF guard (blocked address range)`);
+    }
+    return;
+  }
+  try {
+    await resolveAndValidate(host, { allowPrivate });
+  } catch (err) {
+    throw new Error(`redirect to ${host} refused by the SSRF guard (${err.message})`);
+  }
+}
+
 async function fetchOnce(url, signal) {
   const extra = parseExtraHeaders();
   const headers = {
@@ -77,14 +109,28 @@ async function fetchOnce(url, signal) {
     DNT: '1',
     ...extra,
   };
-  // global fetch (undici) is available in Node >=18
-  const res = await fetch(url, { redirect: 'follow', headers, signal });
-  const finalUrl = res.url || url;
-  const statusCode = res.status;
-  const rawHeaders = {};
-  res.headers.forEach((v, k) => (rawHeaders[k.toLowerCase()] = v));
-  const html = await res.text();
-  return { url: finalUrl, statusCode, headers: rawHeaders, html };
+  const entryHost = new URL(url).hostname;
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    // global fetch (undici) is available in Node >=18
+    const res = await fetch(current, { redirect: 'manual', headers, signal });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (location) {
+      if (hop >= MAX_REDIRECT_HOPS) {
+        throw new Error(`redirect limit (${MAX_REDIRECT_HOPS} hops) reached at ${current}`);
+      }
+      const next = new URL(location, current);
+      await assertHopAllowed(next, entryHost);
+      await res.body?.cancel?.().catch(() => {});
+      current = next.href;
+      continue;
+    }
+    const statusCode = res.status;
+    const rawHeaders = {};
+    res.headers.forEach((v, k) => (rawHeaders[k.toLowerCase()] = v));
+    const html = await res.text();
+    return { url: current, statusCode, headers: rawHeaders, html };
+  }
 }
 
 async function tryDetectAt(url) {

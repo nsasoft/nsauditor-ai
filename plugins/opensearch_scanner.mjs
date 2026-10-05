@@ -128,8 +128,12 @@ export default {
           const agent = await buildAgentIfNeeded(scheme, insecure);
           const ctrl = new AbortController();
           const to = setTimeout(() => ctrl.abort(), timeoutMs);
+          // 1.2.1 lane 2 (R2): never follow a redirect. The banner and version are read at `/`; a 3xx is
+          // the target's answer. Followed, a target could send the scanner to any host — loopback and
+          // cloud metadata included — with no SSRF check at the hop.
           const res = await doFetch(url, {
             method: 'GET',
+            redirect: 'manual',
             headers: {
               'User-Agent': 'opensearch-js/3.4.0 (opensearch-scanner)'
             },

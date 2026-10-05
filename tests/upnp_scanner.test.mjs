@@ -59,9 +59,24 @@ test('UPnP Scanner: matches target host IP and records rows', async () => {
   process.env.DEBUG_MODE = '1'; 
   process.env.UPNP_INCLUDE_NON_MATCHED = '1';
   globalThis.__upnpFakeFactory = () => makeUpnpFake();
+  // The device descriptions are answered HERE: until 1.2.1 the plugin used node-fetch with no seam and
+  // this leg made a real HTTP GET to 192.168.1.24:1990 and 192.168.1.88:5000 on whatever LAN ran it.
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    return new Response('<?xml version="1.0"?><root xmlns="urn:schemas-upnp-org:device-1-0"><device><friendlyName>WFADevice</friendlyName></device></root>', { status: 200 });
+  };
 
   const { default: upnpScanner } = await import('../plugins/upnp_scanner.mjs');
-  const out = await upnpScanner.run('192.168.1.24', 1900, { timeoutMs: 200 });
+  let out;
+  try {
+    out = await upnpScanner.run('192.168.1.24', 1900, { timeoutMs: 200 });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(asked.sort(), ['http://192.168.1.24:1990/WFADevice.xml', 'http://192.168.1.88:5000/Public_UPNP_gatedesc.xml'],
+    'each description is asked for once, from its own device, and only through the stub');
 
   // Enhanced debugging output
   console.log('Raw scanner output:', JSON.stringify(out, null, 2));
