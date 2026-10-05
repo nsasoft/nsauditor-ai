@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.56 (⏳ PRE-PUBLISH — opened 2026-09-29, NOT YET ON npm) — the delta refuses five more ways a finding could read as fixed without being fixed; paired with Enterprise 1.2.0
+## 0.2.56 (2026-10-04) — the delta refuses five more ways a finding could read as fixed without being fixed; paired with Enterprise 1.2.0
 
 **The release:** the Pro delta refuses five more ways a finding could read as fixed without being fixed: a UDP service
 that stopped answering, a CVE lookup that failed, an analysis agent that did not run (Enterprise's new record), an
