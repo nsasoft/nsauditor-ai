@@ -590,58 +590,37 @@ export default {
   },
 
   // ── Conclude: NSAuditor report items ────────────────────────────────────
+  // 1.2.1: ONE record on 8080, its findings under `tribeHealth`. The per-finding records shared the summary's
+  // protocol:port key and were dropped by the merge once the concluder reached this adapter — the CRITICAL among them.
   conclude({ result }) {
     if (!result.up) {
+      // The API probe failed on a port the scan found open: that says nothing about the port's liveness.
       return [{
         port: 8080,
         protocol: "tcp",
         service: "tribe-v2",
-        status: "down",
-        severity: SEVERITY.INFO,
         info: result.error,
+        tribeHealth: { state: "down", severity: SEVERITY.INFO, error: result.error ?? null, findings: [] },
         source: "tribe-health",
       }];
     }
 
-    const items = [];
+    // Individual findings grouped by category; only actionable ones (skip PASS and INFO in conclude).
+    // ZDE: no response bodies or header values in conclude output — classifications and issue descriptions only.
+    const findings = Object.entries(result.findings)
+      .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
+      .filter((f) => f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO)
+      .map((f) => ({ severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
 
-    // Service identity item
-    items.push({
+    return [{
       port: 8080,
       protocol: "tcp",
       service: "tribe-v2",
       status: "open",
-      severity: result.overallSeverity,
       info: `API probe complete: ${result.summary.critical} critical, ${result.summary.high} high, ${result.summary.medium} medium findings`,
-      serverInfo: result.serverInfo,
+      tribeHealth: { state: "up", severity: result.overallSeverity, summary: result.summary, serverInfo: result.serverInfo, findings },
       source: "tribe-health",
       authoritative: true,
-    });
-
-    // Individual findings grouped by category
-    const allFindings = Object.entries(result.findings).flatMap(
-      ([category, issues]) => issues.map((i) => ({ ...i, category }))
-    );
-
-    // Only surface actionable items (skip PASS and INFO in conclude)
-    for (const f of allFindings) {
-      if (f.severity === SEVERITY.PASS || f.severity === SEVERITY.INFO) continue;
-
-      items.push({
-        port: 8080,
-        protocol: "tcp",
-        service: "tribe-v2",
-        severity: f.severity,
-        status: "action_required",
-        category: f.category,
-        check: f.check,
-        info: f.detail,
-        // ZDE: no response bodies or header values in conclude output.
-        // Only classifications and issue descriptions.
-        source: "tribe-health",
-      });
-    }
-
-    return items;
+    }];
   },
 };

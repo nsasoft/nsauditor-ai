@@ -78,6 +78,11 @@ function resolveLiveness(base, other) {
   return base?.status || 'unknown';
 }
 
+// What a service IS (or how it was merged) — the fields authority governs. Everything else on a record is an adapter's
+// finding or flag, and a merge must not drop it.
+const IDENTITY_FIELDS = new Set(['port', 'protocol', 'service', 'program', 'version', 'cpe', 'status', 'info', 'banner',
+  'source', 'evidence', 'authoritative', '__authoritative']);
+
 // Merge by protocol:port with basic authority precedence.
 // If 'authoritative' flag is true on a record, it wins over non-authoritative —
 // for identity. See resolveLiveness above for why status is handled separately.
@@ -104,9 +109,16 @@ export function upsertService(services, next, { authoritative = false } = {}) {
     return;
   }
   if (!authoritative && cur.__authoritative) {
-    // keep current authoritative, but allow filling blanks
+    // keep current authoritative, but allow filling blanks — and carry every NON-identity field the authoritative
+    // record lacks (1.2.1): this branch kept only identity, so a non-authoritative adapter that reached an
+    // authoritative record (040's certificate audit on 011's 443) landed nothing.
+    const carried = {};
+    for (const [k, v] of Object.entries(next)) {
+      if (!IDENTITY_FIELDS.has(k) && v !== undefined && cur[k] === undefined) carried[k] = v;
+    }
     services[i] = {
       ...cur,
+      ...carried,
       program: cur.program || next.program || null,
       version: cur.version || next.version || null,
       info: cur.info || next.info || null,

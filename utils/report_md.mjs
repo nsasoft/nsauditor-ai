@@ -247,12 +247,15 @@ export function buildMarkdownReport(scanData) {
   // CVEs, and Enterprise's analysis agents and exploit intelligence write elsewhere. Without this line "Security findings:
   // 0" read as a clean verdict over a host whose CLI run carried 16 CVEs (the Gate 3-A preparation's P8).
   // The counted list names only flags a conclusion can carry: dangerousMethods is read by extractFindings but no adapter puts
-  // it on a service record (tests/concluder_drops_honesty.test.mjs pins that), so it is named among what is NOT counted.
+  // it on a service record (tests/concluder_reaches_every_adapter.test.mjs pins that until 006 gains one), so it is named
+  // among what is NOT counted. Since 1.2.1 the conclusion carries 014's, 040's, 050's and 060's results, but this
+  // report does not count them yet, so the line names them as carried and not counted.
   lines.push('- **Scope:** counts only these service-check flags: weak SSH algorithms, SNMP default community, weak TLS '
     + 'protocols / ciphers, and anonymous FTP login and DNS zone transfer when the scan\'s environment enables those two '
     + 'checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with DNS_AXFR_DOMAIN — both off by default). It does not count a self-signed '
-    + 'certificate or the MCP server checks (both on the service records), nor dangerous HTTP methods, SMB null sessions or '
-    + 'the TLS-certificate, DNS-security and debug-endpoint auditors\' results (the scan\'s conclusion does not carry them); '
+    + 'certificate, the MCP server checks, SMB null sessions or the TLS-certificate, DNS-security and debug-endpoint '
+    + 'auditors\' results (all carried in the scan\'s conclusion), nor dangerous HTTP methods (the conclusion does not '
+    + 'carry them); '
     + 'it does not look up CVEs, and does not include Enterprise analysis-agent findings or exploit intelligence (a CLI scan '
     + 'with the Enterprise package and a Pro or Enterprise licence records CVE and agent findings in scan_finding_queue.json, '
     + 'when there are any).');

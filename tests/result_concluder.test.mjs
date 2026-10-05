@@ -115,8 +115,9 @@ test("Result Concluder: meta entries excluded from services, real services kept"
       up: true, program: "nginx", version: "1.22",
       data: [{ probe_protocol: "tcp", probe_port: 443, probe_info: "HTTPS open" }],
     }),
-    // Meta: assessment (protocol=assessment, port=0)
-    wrap("050", "Zero Trust Assessment", {
+    // Meta: assessment (protocol=assessment, port=0). Enterprise's zero-trust assessment is plugin 1023; this fixture
+    // said "050" — the TRIBE API probe — which the 1.2.1 concluder, resolving adapters by id, now actually reaches.
+    wrap("1023", "Zero Trust Assessment", {
       up: false,
       data: [{ probe_protocol: "assessment", probe_port: 0, probe_info: "Score: 72/100" }],
       protocol: "assessment",

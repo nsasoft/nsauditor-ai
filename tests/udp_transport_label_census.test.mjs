@@ -41,6 +41,11 @@ export function censusOf(files) {
     }
     // A default parameter is a write too (os_detector's `proto = "os-detector"`).
     for (const m of src.matchAll(/\bproto\s*=\s*(['"])([A-Za-z0-9_-]+)\1/g)) labels.set(m[2], [...(labels.get(m[2]) ?? []), `${rel} (default)`]);
+    // So is a literal FALLBACK on a protocol expression, wherever it flows (1.2.1): os_detector passes
+    // `r?.probe_protocol || "dns"` into evidenceRow. Until 1.2.1 that `dns` was ALSO written literally by 060's
+    // per-finding records, so the census never had to see this form; folding those records away made it the
+    // only writer, and a census that cannot see it calls a live label an orphan.
+    for (const m of src.matchAll(/\b(?:probe_)?protocol\s*\|\|\s*(['"])([A-Za-z0-9_-]+)\1/g)) labels.set(m[2], [...(labels.get(m[2]) ?? []), `${rel} (fallback)`]);
   }
   return { labels, computed };
 }
@@ -99,11 +104,12 @@ test('the census reads a real corpus (floor), and its detector catches every wri
       "if (x.protocol === 'udp') {}",
       'const g = (x) => x.protocol;',
       'portInfo.protocol = m ? m[1] : "tcp";',
+      'evidenceRow("x", port, String(r?.probe_protocol || "dccp"), banner);',
     ].join('\n'));
     const rel = path.relative(ROOT, path.join(tmp, 'p.mjs'));
     const { labels, computed } = censusOf([rel]);
-    assert.deepEqual([...labels.keys()].sort(), ['http', 'https', 'os-detector', 'sctp', 'tcp', 'udp'],
-      'the ASSIGNMENT form is a write (`rec.protocol = \'sctp\'`); `===` is a comparison, not a write');
+    assert.deepEqual([...labels.keys()].sort(), ['dccp', 'http', 'https', 'os-detector', 'sctp', 'tcp', 'udp'],
+      'the ASSIGNMENT form is a write (`rec.protocol = \'sctp\'`), and so is a literal fallback (`probe_protocol || "dccp"`); `===` is a comparison, not a write');
     assert.ok(!labels.has('string'), 'a comparison is not a write');
     assert.ok(!labels.has('commented-out'), 'a comment is not a write');
     assert.deepEqual([...computed].map((c) => c.split(' :: ')[1]).sort(),

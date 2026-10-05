@@ -299,7 +299,8 @@ export async function conclude({ host, result }) {
       port,
       protocol: proto,
       service: r?.service || "unknown",
-      program: result?.program || "nmap",
+      // nmap is the tool that saw the port, not the program listening on it (1.2.1).
+      program: "Unknown",
       version: r?.response_banner || "Unknown",
       status,
       info: r?.probe_info || null,

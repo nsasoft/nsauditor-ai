@@ -74,7 +74,7 @@ test('with findings too: the scope line is there, because the limit holds whatev
 });
 
 // ── SECOND REVIEW ROUND: what the conclusion does NOT carry, and the two checks that are OFF by default ────────────
-// tests/concluder_drops_honesty.test.mjs pins the drops these sentences state; tests/fail_on_scope_honesty.test.mjs the gate.
+// tests/concluder_reaches_every_adapter.test.mjs pins what the conclusion carries and drops; tests/fail_on_scope_honesty.test.mjs the gate.
 const returnedPart = (d) => d.slice(0, d.search(/It runs but does NOT return|does NOT return/));
 
 test('the description does not list dangerous HTTP methods among what it returns, and names what it drops', () => {
@@ -92,4 +92,34 @@ test('the Scope line\'s COUNTED list names only flags a conclusion can carry, an
   assert.match(counted, /FTP_CHECK_ANON/);
   assert.match(md, /dangerous HTTP methods/, 'named among what is NOT counted');
   assert.match(md, /self-signed/);
+});
+
+// 1.2.1 lane 3: the concluder REACHES 014 / 040 / 050 / 060 now, so the description moves them from what it drops to what
+// the records carry — and this leg ties each name to a field the concluder actually lands, so the sentence cannot run
+// ahead of the code (or fall behind it).
+test('the description names what the conclusion now carries (014, 040, 050, 060), each tied to a field that lands', async () => {
+  const d = scanHost();
+  const cut = d.search(/does NOT return/);
+  assert.ok(cut > 0, 'the description still has its "does NOT return" clause');
+  const carried = d.slice(0, cut);
+  const dropped = d.slice(cut);
+  for (const [id, field] of [['014', 'nullSessionAllowed'], ['040', 'certAudit'], ['050', 'tribeHealth'], ['060', 'dnsSecurity']]) {
+    assert.match(carried, new RegExp(`\\(${id}\\b[^)]*${field}`), `${id} is named with ${field} among what the records carry`);
+    assert.doesNotMatch(dropped, new RegExp(`\\b${id}\\b`), `${id} is no longer among what scan_host does not return`);
+  }
+  assert.match(dropped, /\b006\b/);
+  // 1023 is reached through the manager's registry since 1.2.1, and lands as ONE evidence line (Enterprise's
+  // tests/zero_trust_adapter_reached.test.mjs measures it) — so the description says exactly that.
+  assert.match(dropped, /\(1023\) reaches the conclusion only as one score line in its evidence/);
+  const { default: concluder } = await import('../plugins/result_concluder.mjs');
+  const c = await concluder.run([
+    { id: '014', name: 'NetBIOS/SMB Scanner', result: { up: true, nullSessionAllowed: true, data: [{ probe_port: 445, probe_protocol: 'tcp', probe_info: 'SMB2' }] } },
+    { id: '050', name: 'TRIBE', result: { up: true, overallSeverity: 'high', summary: { critical: 0, high: 1, medium: 0 }, serverInfo: {},
+      findings: { debug: [{ severity: 'high', check: 'debug_endpoint', detail: 'x' }] } } },
+    { id: '060', name: 'DNS', result: { up: true, overallSeverity: 'high', summary: { actionable: 1 },
+      details: { spfRecord: null, dmarcRecord: null, dkimSelectors: [], dnssec: { hasDNSKEY: false } },
+      findings: { spf: [{ severity: 'high', check: 'missing_spf', detail: 'x' }] } } },
+  ]);
+  const has = (field) => c.services.some((s) => s[field] != null) || c.evidence.some((e) => e[field] != null);
+  for (const field of ['nullSessionAllowed', 'tribeHealth', 'dnsSecurity']) assert.ok(has(field), `the concluder lands ${field}`);
 });

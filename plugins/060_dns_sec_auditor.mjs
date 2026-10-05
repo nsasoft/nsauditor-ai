@@ -944,20 +944,29 @@ export default {
   },
 
   // ── Conclude ────────────────────────────────────────────────────────────
+  // 1.2.1: ONE record, its findings under `dnsSecurity`, ATTACH-ONLY. This audits a domain's DNS posture and runs on
+  // every scan, so it is not a port on the scanned host: it lands on a 53/udp record a port-level probe found, and
+  // otherwise becomes evidence. Its per-finding records carried NO port (they keyed to `dns:NaN`), and the summary
+  // wrote "DNS-Audit" / "v2" into identity and its verdict into the liveness field.
   conclude({ result, host }) {
     if (!result.findings) return [];
 
-    const items = [];
+    const findings = Object.entries(result.findings)
+      .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
+      .filter((f) => f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO)
+      .map((f) => ({ severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
 
-    // Summary item
-    items.push({
+    return [{
       port: 53,
       protocol: "udp",
       service: "dns-security",
-      program: "DNS-Audit",
-      version: "v2",
-      status: result.summary.actionable > 0 ? "action_required" : "hardened",
-      severity: result.overallSeverity,
+      attachOnly: true,
+      dnsSecurity: {
+        status: result.summary.actionable > 0 ? "action_required" : "hardened",
+        severity: result.overallSeverity,
+        actionable: result.summary.actionable,
+        findings,
+      },
       info: [
         `${result.summary.actionable} actionable findings`,
         result.details.spfRecord ? "SPF present" : "SPF missing",
@@ -969,29 +978,7 @@ export default {
       ].join(" | "),
       source: "dns-sec-auditor",
       authoritative: false,
-    });
-
-    // Individual actionable findings
-    const allFindings = Object.entries(result.findings).flatMap(
-      ([category, issues]) => issues.map((i) => ({ ...i, category }))
-    );
-
-    for (const f of allFindings) {
-      if (f.severity === SEVERITY.PASS || f.severity === SEVERITY.INFO) continue;
-
-      items.push({
-        protocol: "dns",
-        service: "dns-security",
-        severity: f.severity,
-        status: "action_required",
-        category: f.category,
-        check: f.check,
-        info: f.detail,
-        source: "dns-sec-auditor",
-      });
-    }
-
-    return items;
+    }];
   },
 
   authoritativePorts: new Set(),

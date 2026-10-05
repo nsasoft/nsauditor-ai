@@ -691,6 +691,30 @@ export class PluginManager {
     return mergeResultObjects(plugin, filtered);
   }
 
+  /**
+   * The adapter registry handed to the concluder, by plugin ID (1.2.1): every loaded plugin's `conclude` — named or on
+   * its default object, as discovery attaches it — with its authoritativePorts and cloudProvider. Ids are a
+   * correctness key here, so a built-in wins: CE over EE over a custom NSAUDITOR_PLUGIN_PATH plugin that reuses an id
+   * (which would otherwise capture that plugin's records).
+   */
+  _concluderAdapters() {
+    const RANK = { ce: 0, ee: 1, custom: 2 };
+    const map = new Map();
+    for (const p of this.plugins || []) {
+      if (isConcluder(p) || typeof p?.conclude !== 'function') continue;
+      const id = String(p.id);
+      const rank = RANK[p._source] ?? 1;
+      const prev = map.get(id);
+      if (prev && prev.rank <= rank) {
+        if (prev.rank < rank) vlog(`plugin id ${id} from ${p._source} ignored for the concluder: a ${prev.source} plugin owns it`);
+        continue;
+      }
+      map.set(id, { rank, source: p._source ?? null, name: p.name ?? null, conclude: p.conclude.bind(p),
+        authoritativePorts: p.authoritativePorts ?? null, cloudProvider: p.cloudProvider ?? null });
+    }
+    return map;
+  }
+
   async runConcluder(resultsArray) {
     const concluder =
       this.plugins.find((p) => p.id === "008") ||
@@ -703,16 +727,17 @@ export class PluginManager {
     }
 
     try {
+      const adapters = this._concluderAdapters();
       // Support both signatures:
-      //  1) run(pluginResults)
-      //  2) run(host, port, { results })
+      //  1) run(pluginResults, { adapters })
+      //  2) run(host, port, { results, adapters })
       let conclusion;
       if (concluder.run.length >= 3) {
         vlog("Running Result Concluder with plugin results (opts.results signature):", JSON.stringify(resultsArray, null, 2));
-        conclusion = await concluder.run(null, 0, { results: resultsArray, context: withBaseContext({}) });
+        conclusion = await concluder.run(null, 0, { results: resultsArray, context: withBaseContext({}), adapters });
       } else {
         vlog("Running Result Concluder with plugin results (single-arg signature):", JSON.stringify(resultsArray, null, 2));
-        conclusion = await concluder.run(resultsArray);
+        conclusion = await concluder.run(resultsArray, { adapters });
       }
 
       vlog("Result Concluder raw output:", JSON.stringify(conclusion, null, 2));

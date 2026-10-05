@@ -33,9 +33,11 @@ async function loadPluginsFromDir(dir, source) {
       const mod = await import(join(dir, file));
       const plugin = mod.default;
       if (plugin?.id && plugin?.name && typeof plugin?.run === 'function') {
-        // Attach conclude from named export or plugin default
+        // Attach conclude (and its authoritativePorts) from the named export or the plugin default
         const conclude = mod.conclude ?? plugin.conclude;
-        plugins.push({ ...plugin, _source: source, ...(conclude ? { conclude } : {}) });
+        const authoritativePorts = mod.authoritativePorts ?? plugin.authoritativePorts;
+        plugins.push({ ...plugin, _source: source, ...(conclude ? { conclude } : {}),
+          ...(authoritativePorts ? { authoritativePorts } : {}) });
       }
     } catch (e) {
       if (process.env.NSA_VERBOSE) {

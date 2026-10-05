@@ -703,14 +703,14 @@ export default {
         .filter((i) => i.severity !== SEVERITY.PASS && i.severity !== SEVERITY.INFO)
         .map((i) => i.detail);
 
+      // 1.2.1: the audit travels under `certAudit`, never in identity. This record wrote program "TLS" and the
+      // NEGOTIATED protocol as the service version, and once the concluder reached it, that version would have
+      // filled the blank on the TLS scanner's authoritative record.
       items.push({
         port: pr.port,
         protocol: "tcp",
         service: pr.service,
-        program: "TLS",
-        version: pr.negotiation.protocol,
         status: "open",
-        severity: pr.severity,
         info: [
           status,
           `${pr.certificate.daysToExpiry}d remaining`,
@@ -719,18 +719,23 @@ export default {
           pr.certificate.selfSigned ? "self-signed" : null,
           pr.certificate.hostnameValid ? null : "hostname-mismatch",
         ].filter(Boolean).join(" | "),
-        issues: actionableIssues,
-        details: {
-          subject: pr.certificate.subject,
-          issuer: pr.certificate.issuer,
-          names: pr.certificate.names,
-          validFrom: pr.certificate.validFrom,
-          validTo: pr.certificate.validTo,
-          signatureAlgorithm: pr.certificate.signatureAlgorithm,
-          keyType: pr.certificate.keyType,
-          keyBits: pr.certificate.keyBits,
-          chainDepth: pr.chain.depth,
-          authorized: pr.authorized,
+        certAudit: {
+          severity: pr.severity,
+          certStatus: status,
+          negotiatedProtocol: pr.negotiation.protocol,
+          issues: actionableIssues,
+          details: {
+            subject: pr.certificate.subject,
+            issuer: pr.certificate.issuer,
+            names: pr.certificate.names,
+            validFrom: pr.certificate.validFrom,
+            validTo: pr.certificate.validTo,
+            signatureAlgorithm: pr.certificate.signatureAlgorithm,
+            keyType: pr.certificate.keyType,
+            keyBits: pr.certificate.keyBits,
+            chainDepth: pr.chain.depth,
+            authorized: pr.authorized,
+          },
         },
         // ZDE: fingerprints and serial numbers stay in-process.
         // Conclude emits only classifications and metadata.

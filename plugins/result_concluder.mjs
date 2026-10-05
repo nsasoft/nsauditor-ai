@@ -1,4 +1,7 @@
 // plugins/result_concluder.mjs — plug-and-play dispatcher with full metadata and evidence
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { normalizeService, upsertService, keyOf } from '../utils/conclusion_utils.mjs';
 
 function pickResultsFromArgs(args) {
@@ -8,14 +11,78 @@ function pickResultsFromArgs(args) {
   return [];
 }
 
-// Stable slug from plugin name, falling back to IDs. Exported so tests/concluder_drops_honesty.test.mjs derives the
-// adapter census with THIS rule rather than a copy of it.
-export function slugify(name, id) {
-  const base = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  if (base) return base;
-  const map = { '001':'ping_checker','002':'ssh_scanner','003':'port_scanner','004':'ftp_banner_check','005':'host_up_check','006':'http_probe','007':'snmp_scanner','009':'dns_scanner','010':'webapp_detector','011':'tls_scanner','012':'opensearch_scanner','013':'os_detector','014':'netbios__smb_scanner','015':'sunrpc_scanner','024':'syn_scanner','025':'db_scanner','026':'arp_scanner','027':'mdns_scanner','028':'upnp_scanner' };
-  return map[String(id)] || String(id);
+// The second argument (or opts.adapters in the (host, port, { results }) form) may carry the PluginManager's adapter
+// registry: a Map (or plain object) from plugin id to { conclude, authoritativePorts, cloudProvider }.
+function pickOptsFromArgs(args) {
+  if (Array.isArray(args[0]) && args[1] && typeof args[1] === 'object') return args[1];
+  if (args.length >= 3 && args[2] && typeof args[2] === 'object') return args[2];
+  if (args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) return args[0];
+  return {};
 }
+
+// A plugin name as a label — the default `source` of an adapter record that names none. It no longer RESOLVES
+// anything: until 1.2.1 the concluder imported `./<this slug>.mjs` and read only a named `conclude`, so 014 and 024
+// (slug ≠ file name) and 040 / 050 / 060 (conclude on the default object) were never reached.
+function nameSlug(name) {
+  return String(name || 'plugin').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'plugin';
+}
+
+/** One adapter-registry entry from a plugin module: `conclude` named or on the default object, by plugin ID. */
+function adapterEntry(mod) {
+  const p = mod?.default;
+  if (!p || typeof p !== 'object' || p.id == null) return null;
+  const conclude = typeof mod.conclude === 'function' ? mod.conclude
+    : (typeof p.conclude === 'function' ? p.conclude.bind(p) : null);
+  return {
+    id: String(p.id),
+    name: typeof p.name === 'string' ? p.name : null,
+    conclude,
+    authoritativePorts: mod.authoritativePorts ?? p.authoritativePorts ?? null,
+    cloudProvider: p.cloudProvider ?? null,
+  };
+}
+
+// The concluder's own directory as a registry, built once — used for any id the caller's registry does not carry
+// (a direct concluder.run, or a test manager with injected plugins).
+const SELF = fileURLToPath(import.meta.url);
+let ownRegistry = null;
+function ownDirectoryAdapters() {
+  ownRegistry ??= (async () => {
+    const map = new Map();
+    let names = [];
+    try { names = (await readdir(path.dirname(SELF))).filter((f) => f.endsWith('.mjs')).sort(); } catch { return map; }
+    for (const f of names) {
+      if (f === path.basename(SELF)) continue;
+      try {
+        const e = adapterEntry(await import(pathToFileURL(path.join(path.dirname(SELF), f)).href));
+        if (e && !map.has(e.id)) map.set(e.id, e);
+      } catch { /* a plugin that fails to load has no adapter here */ }
+    }
+    return map;
+  })();
+  return ownRegistry;
+}
+
+function toRegistry(adapters) {
+  if (adapters instanceof Map) return adapters;
+  if (adapters && typeof adapters === 'object') return new Map(Object.entries(adapters));
+  return new Map();
+}
+
+// A result with NO id (some callers pass names only) resolves by the plugin's DECLARED name — never by a file name
+// derived from it, which is what left 014 / 024 unreached.
+function byDeclaredName(registry) {
+  const out = new Map();
+  for (const e of registry.values()) {
+    const n = typeof e?.name === 'string' ? e.name.trim().toLowerCase() : '';
+    if (n && !out.has(n)) out.set(n, e);
+  }
+  return out;
+}
+
+// Adapter payloads that travel under a namespace. A record without a positive port is evidence, not a service row,
+// and these ride along onto its evidence entry so moving it there loses nothing.
+const ADAPTER_PAYLOAD_KEYS = ['certAudit', 'tribeHealth', 'dnsSecurity'];
 
 function scoreOsLabel(label) {
   const s = String(label||'').toLowerCase();
@@ -134,6 +201,9 @@ export default {
 
   async run(...args) {
     const results = pickResultsFromArgs(args);
+    const supplied = toRegistry(pickOptsFromArgs(args).adapters);
+    const own = await ownDirectoryAdapters();
+    const pendingAttach = [];
     const services = [];
     const evidence = [];
     let os = null;
@@ -163,8 +233,8 @@ export default {
 
     for (const r of results) {
       const name = r?.name || r?.id || 'plugin';
-      const slug = slugify(name, r?.id);
-      const modPath = `./${slug}.mjs`;
+      const id = String(r?.id ?? '');
+      const slug = nameSlug(name);
 
       // Prefer OS and osVersion provided by plugins, but pick the most specific; OS Detector wins ties
       if (r?.result?.os) {
@@ -174,38 +244,54 @@ export default {
         osSource = picked.source;
       }
 
-      // Extract host name from UPnP Scanner if available
-      if (slug === 'upnp_scanner') {
+      // Host names by plugin ID (they keyed on a name slug, and the UPnP one never matched: the plugin is named
+      // "Enhanced UPnP Scanner").
+      if (id === '028') {
         hostName = extractHostNameFromUpnp(r?.result) || hostName;
       }
-
-      // Extract host name from mDNS Scanner if available
-      if (slug === 'mdns_scanner') {
+      if (id === '027') {
         hostName = extractHostNameFromMdns(r?.result) || hostName;
       }
 
-      let recs = null;
-      try {
-        const mod = await import(modPath);
-        if (typeof mod.conclude === 'function') {
-          recs = await mod.conclude({ host: typeof args[0] === 'string' ? args[0] : undefined, result: r?.result });
-          const authSet = mod?.authoritativePorts instanceof Set ? mod.authoritativePorts : null;
-          for (const item of (recs || [])) {
-            const rec = normalizeService({ ...item, source: item.source || slug });
-            const key = keyOf(rec);
-            const authoritative = (authSet && authSet.has(key)) || !!item.authoritative;
-            upsertService(services, rec, { authoritative });
+      // Resolve the adapter by ID: the caller's registry first, then this directory. A cloudProvider plugin is
+      // EXEMPT — its findings travel raw (cloud_finding_summary / harvestCloudFindings), and through a service-record
+      // adapter they carry no port and collapse into one fabricated row.
+      const entry = id
+        ? (supplied.get(id) ?? own.get(id))
+        : (byDeclaredName(supplied).get(String(name).trim().toLowerCase())
+          ?? byDeclaredName(own).get(String(name).trim().toLowerCase()));
+      if (entry && typeof entry.conclude === 'function' && !entry.cloudProvider) {
+        let recs = null;
+        try {
+          recs = await entry.conclude({ host: typeof args[0] === 'string' ? args[0] : undefined, result: r?.result });
+        } catch {
+          recs = null; // an adapter that throws falls through to the fallback record, as before
+        }
+        if (recs) {
+          const authSet = entry.authoritativePorts instanceof Set ? entry.authoritativePorts : null;
+          for (const item of recs) {
+            const { attachOnly, ...rest } = item || {};
+            const rec = normalizeService({ ...rest, source: rest.source || slug });
+            const authoritative = (authSet && authSet.has(keyOf(rec))) || !!rest.authoritative;
+            // An attach-only record (060's domain DNS-posture audit) lands only on a service a port-level probe
+            // found; decided after every result is in, so result order does not matter.
+            if (attachOnly) pendingAttach.push(rec);
+            else upsertService(services, rec, { authoritative });
           }
           if (r?.result?.data) pushEvidence(name, r.result.data);
           continue;
         }
-      } catch {
-        // no adapter -> fall through
       }
       for (const item of fallbackRecord(name, r?.result)) {
         upsertService(services, normalizeService(item), { authoritative: false });
       }
       if (r?.result?.data) pushEvidence(name, r.result.data);
+    }
+
+    const unattached = [];
+    for (const rec of pendingAttach) {
+      if (services.some((s) => keyOf(s) === keyOf(rec))) upsertService(services, rec, { authoritative: false });
+      else unattached.push(rec);
     }
 
     for (const svc of services) delete svc.__authoritative;
@@ -216,24 +302,28 @@ export default {
     const META_PROTOCOLS = new Set(['assessment', 'icmp', 'os-detector', 'arp']);
     const PORT_ZERO_META_PROTOCOLS = new Set(['api', 'tcp', 'udp']);
     const isMetaEntry = (s) => {
+      // A service has a port. A record without a positive integer one (no port at all keys to `<proto>:NaN`) is
+      // evidence — 040's "no TLS found", 060's per-domain findings — never a service row with port null.
+      if (!(Number.isInteger(s.port) && s.port > 0)) return true;
       if (META_PROTOCOLS.has(s.protocol)) return true;
       if (s.port === 0 && PORT_ZERO_META_PROTOCOLS.has(s.protocol)) return true;
       if (s.info && /Skipped:/i.test(String(s.info))) return true;
       return false;
     };
 
-    const metaEntries = services.filter(isMetaEntry);
+    const metaEntries = services.filter(isMetaEntry).concat(unattached);
     const realServices = services.filter(s => !isMetaEntry(s));
 
-    // Move meta entries into evidence only
+    // Move meta entries into evidence only — with any namespaced adapter payload, so nothing is lost on the way
     for (const m of metaEntries) {
       evidence.push({
         from: m.source || 'meta',
         protocol: m.protocol,
-        port: m.port,
+        port: Number.isFinite(m.port) ? m.port : null,
         status: m.status,
         info: m.info,
         ...(m.banner ? { banner: m.banner } : {}),
+        ...Object.fromEntries(ADAPTER_PAYLOAD_KEYS.filter((k) => m[k] != null).map((k) => [k, m[k]])),
       });
     }
 
