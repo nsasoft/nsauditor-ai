@@ -199,6 +199,32 @@ test('exposure_agent, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS 
   assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
 });
 
+// ── service_agent: AN AGENT'S TITLE AT 1.2.1 — the version left it (lane 6, the exposure precedent) ─────────────────────
+// Its rows were titled `End-of-life OpenSSH 6.6p1 on port 22`, embedding the version it judged; an identified move that
+// stayed end-of-life (6.6p1 → 6.7p1) read one row RESOLVED and one NEW, and MTTR closed the first while the host was still
+// end-of-life. From 1.2.1 the title is `End-of-life OpenSSH on port 22` (the version rides target.version and the
+// description), so every service-agent row straddling the upgrade is declared — in the SAME release as exposure_agent's.
+const SERVICE = 'service_agent';
+const QS = (title, over = {}) => Q(title, { plugin: SERVICE, pluginName: SERVICE, port: 22, severity: 'HIGH', ...over });
+
+test('service_agent — a 1.2.0 row titled with its version and its 1.2.1 version-free twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT[SERVICE], '1.2.1');
+  const d = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QS('End-of-life OpenSSH 6.6p1 on port 22')]),
+    current: qside(QREC({ eeVersion: '1.2.1' }), [QS('End-of-life OpenSSH on port 22')]) });
+  assert.deepEqual([d.resolved.length, d.newFindings.length], [0, 0], 'the software did not change — its title did');
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
+  for (const nc of d.notComparable) assert.match(nc.detail, /service_agent/);
+  assert.equal(identityBasisChanged(SERVICE, '1.2.0', '1.2.1'), true, 'the key resolves, driven rather than read');
+  assert.equal(identityBasisChanged(SERVICE, '1.2.1', '1.2.1'), false);
+});
+
+test('service_agent, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
+  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.1' }), [QS('End-of-life OpenSSH on port 22')]), current: qside(QREC({ eeVersion: '1.2.1' }), []) });
+  assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
+  const before = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QS('End-of-life OpenSSH 6.6p1 on port 22')]), current: qside(QREC({ eeVersion: '1.2.0' }), []) });
+  assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
+});
+
 test('the TABLE is exported and every entry names a version the comparison can order', () => {
   assert.ok(IDENTITY_BASIS_CHANGED_AT && typeof IDENTITY_BASIS_CHANGED_AT === 'object');
   const entries = Object.entries(IDENTITY_BASIS_CHANGED_AT);
@@ -411,9 +437,12 @@ test('the DECLARED SET is exactly this, and a deletion fails as loudly as an add
   // MOVED DELIBERATELY at 1.2.1 (lane 6): exposure_agent ADDED at '1.2.1' — its titles stopped embedding the service the
   // probe identified (`Management port 22 (ssh) open` → `Management port 22 open`), and an agent's title IS its identity.
   // Sixteen producers: fourteen plugins, two agents.
+  // MOVED DELIBERATELY at 1.2.1 (lane 6): service_agent ADDED at '1.2.1' — its titles stopped embedding the version it
+  // judged (`End-of-life OpenSSH 6.6p1 on port 22` → `End-of-life OpenSSH on port 22`), in the same release as
+  // exposure_agent's, so a customer takes both straddles in one upgrade. Seventeen producers: fourteen plugins, three agents.
   const AT_1_1_0 = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
-  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1', exposure_agent: '1.2.1' };
+  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1', exposure_agent: '1.2.1', service_agent: '1.2.1' };
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), Object.keys(EXPECTED).sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
     + 'REMOVED, stop: every finding that straddles its change silently becomes comparable again, '

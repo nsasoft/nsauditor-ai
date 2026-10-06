@@ -22,7 +22,8 @@ const HOST = '192.0.2.23';
 const run = (id) => ({ schema: 1, runId: id, startedAt: '2026-10-06T00:00:00Z', finishedAt: '2026-10-06T01:00:00Z',
   hostsRequested: [HOST], hostsWritten: [{ host: HOST, dir: 'd' }], pluginsRequested: ['003'], portsRequested: null,
   tier: 'enterprise', ceVersion: '0.2.57', eeVersion: '1.2.1', kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null });
-const EOL = (v = '6.6p1') => `End-of-life OpenSSH ${v} on port 22`;
+// The service agent's title since 1.2.1: the version rides target.version, never the title (the identity straddle).
+const EOL = () => 'End-of-life OpenSSH on port 22';
 const eol = (over = {}) => ({ host: HOST, port: 22, protocol: 'tcp', plugin: 'service_agent', pluginName: 'service_agent',
   producerKind: 'agent', severity: 'HIGH', title: EOL(), evidenceGap: false, gapClass: null, ...over });
 const cve = (over = {}) => ({ host: HOST, port: 22, protocol: 'tcp', plugin: CVE_MAPPER_PRODUCER, pluginName: CVE_MAPPER_PRODUCER,

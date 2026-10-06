@@ -419,6 +419,12 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // move read as one row RESOLVED and one NEW. From 1.2.1 the title is port-keyed (`Management port 22 open`) and the
   // service rides `target.service` and the description, so every exposure row straddling the upgrade is declared once.
   exposure_agent: '1.2.1',
+  // ⚠️ service_agent JOINS AT 1.2.1 — THE SAME KIND, IN THE SAME RELEASE (lane 6). Its rows were titled `End-of-life OpenSSH
+  // 6.6p1 on port 22`, embedding the version it judged — so an identified move that stayed end-of-life (6.6p1 → 6.7p1) read
+  // one row RESOLVED and one NEW, and MTTR closed the first while the host was still end-of-life. From 1.2.1 the title is
+  // `End-of-life OpenSSH on port 22` and the version rides `target.version` and the description. Declared beside
+  // exposure_agent's so a customer takes both agent straddles in one upgrade, said once.
+  service_agent: '1.2.1',
 });
 
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
