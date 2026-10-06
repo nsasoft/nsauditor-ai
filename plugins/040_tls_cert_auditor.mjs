@@ -23,6 +23,7 @@
 
 import tls from "node:tls";
 import { isIP } from "node:net";
+import { X509Certificate } from "node:crypto";
 
 // ── Severity ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,26 @@ const WEAK_CIPHER_FRAGMENTS = [
 ];
 
 const DEPRECATED_PROTOCOLS = new Set(["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]);
-const WEAK_SIG_ALGORITHMS  = /sha1WithRSA|md5WithRSA|md2WithRSA|sha1-with-rsa|dsaWithSHA1/i;
+const WEAK_SIG_ALGORITHMS  = /sha1WithRSA|md5WithRSA|md2WithRSA|sha1-with-rsa|dsaWithSHA1|ecdsa-with-SHA1/i;
+
+// ⚠️ THE SIGNATURE ALGORITHM IS NOT ON getPeerCertificate() (1.3.0 build 5, Gate 3-A F-3b). Node's peer certificate
+// carries subject, issuer, modulus, bits, raw … and no signature algorithm (measured on Node 24.12), so the leaf and
+// chain checks below read "unknown" and could not fire from e96c8f9 (2026-04-08) on. It is in the DER: X509Certificate
+// reads it on Node 24 (measured v24.12.0), and the getter does NOT EXIST on Node 20 (v20.19.6, CE's engines floor);
+// Node 22 is not measured. Where it cannot be read, the algorithm is NOT ASSESSED — never "unknown" read as a pass.
+export function signatureAlgorithmOf(peerCert) {
+  if (!peerCert?.raw) return null;
+  try {
+    const alg = new X509Certificate(peerCert.raw).signatureAlgorithm;
+    return typeof alg === "string" && alg ? alg : null;
+  } catch {
+    return null;
+  }
+}
+const SIG_NOT_ASSESSED =
+  "not assessed — this Node runtime does not report certificate signature algorithms (Node 24 does; Node 20 does not)";
+// A certificate that issued itself: its own signature is verified by no client (an anchor, or a leaf that is its own).
+const selfIssued = (c) => !!c?.issuerCertificate && c.issuerCertificate.fingerprint256 === c.fingerprint256;
 
 // ── Hostname Validation ──────────────────────────────────────────────────────
 // Checks CN and SANs against the target hostname, handling wildcards.
@@ -187,7 +207,7 @@ function analyzeChain(cert, now) {
       validTo: current.valid_to,
       expired: now > validTo,
       notYetValid: now < validFrom,
-      signatureAlgorithm: current.signatureAlgorithm || "unknown",
+      signatureAlgorithm: signatureAlgorithmOf(current) ?? "not reported",
     };
 
     chain.push(entry);
@@ -210,8 +230,10 @@ function analyzeChain(cert, now) {
       });
     }
 
-    // Weak sig in chain
-    if (depth > 0 && WEAK_SIG_ALGORITHMS.test(entry.signatureAlgorithm)) {
+    // Weak sig in chain — on an ISSUED certificate only. A self-signed terminal entry is the trust anchor, whose own
+    // signature no client verifies (the architect seat's ruling, F-3b), so a SHA-1 root above SHA-256 certificates is
+    // recorded and not graded.
+    if (depth > 0 && !selfIssued(current) && WEAK_SIG_ALGORITHMS.test(entry.signatureAlgorithm)) {
       issues.push({
         severity: SEVERITY.MEDIUM,
         check: "chain_weak_signature",
@@ -237,17 +259,27 @@ function analyzeChain(cert, now) {
 
 // ── Key Strength Analysis ────────────────────────────────────────────────────
 
-function analyzeKeyStrength(cert, config) {
+// ⚠️ THE TYPE COMES FROM THE FIELDS NODE ACTUALLY SETS (1.3.0 build 5, Gate 3-A F-3). Node's getPeerCertificate() gives
+// `pubkey` as a raw Buffer with no `.type`; an RSA key carries `modulus` and `exponent`, an EC key a named curve
+// (`asn1Curve` / `nistCurve`), and both carry `bits` (measured on Node 24.12). Until build 5 this read `cert.pubkey?.type`,
+// so the type was always "unknown" and neither branch below could run on a real server — a 1024-bit RSA key raised
+// nothing. A key of neither type (Ed25519 carries none of these fields) is NOT ASSESSED, said on certAudit, never silent.
+export function analyzeKeyStrength(cert, config) {
   const issues = [];
-  const keyType = cert.pubkey?.type || "unknown";
-  const keyBits = cert.bits || cert.pubkey?.size || null;
+  const keyType = cert.modulus ? "RSA" : (cert.asn1Curve || cert.nistCurve) ? "EC" : "unknown";
+  const keyBits = Number.isFinite(cert.bits) && cert.bits > 0 ? cert.bits : null;
 
   const result = {
     type: keyType,
     bits: keyBits,
+    strength: keyType === "unknown"
+      ? "not assessed — the key is neither RSA (no modulus) nor EC (no named curve), so its size is not graded"
+      : keyBits === null
+        ? `not assessed — the ${keyType} key reported no size`
+        : "assessed",
   };
 
-  if (keyType === "RSA" || keyType === "rsa") {
+  if (keyType === "RSA") {
     if (keyBits && keyBits < config.minRsaBits) {
       issues.push({
         severity: keyBits < 1024 ? SEVERITY.CRITICAL : SEVERITY.HIGH,
@@ -255,7 +287,7 @@ function analyzeKeyStrength(cert, config) {
         detail: `RSA key is ${keyBits} bits (minimum recommended: ${config.minRsaBits})`,
       });
     }
-  } else if (keyType === "EC" || keyType === "ec") {
+  } else if (keyType === "EC") {
     if (keyBits && keyBits < config.minEcBits) {
       issues.push({
         severity: SEVERITY.HIGH,
@@ -407,13 +439,10 @@ async function auditPort(host, port, config) {
     cert.subject?.O === cert.issuer?.O &&
     cert.fingerprint256 === cert.issuerCertificate?.fingerprint256;
 
-  if (isSelfSigned) {
-    issues.push({
-      severity: SEVERITY.HIGH,
-      check: "self_signed",
-      detail: "Certificate is self-signed — not trusted by clients",
-    });
-  }
+  const selfSignedIssue = isSelfSigned
+    ? { severity: SEVERITY.HIGH, check: "self_signed", detail: "Certificate is self-signed — not trusted by clients" }
+    : null;
+  if (selfSignedIssue) issues.push(selfSignedIssue);
 
   // ── Hostname Mismatch ──────────────────────────────────────────────────
   const hostnameValid = validateHostname(cert, host);
@@ -465,13 +494,22 @@ async function auditPort(host, port, config) {
   }
 
   // ── Signature Algorithm ────────────────────────────────────────────────
-  const sigAlg = cert.signatureAlgorithm || "unknown";
-  if (WEAK_SIG_ALGORITHMS.test(sigAlg)) {
-    issues.push({
-      severity: SEVERITY.HIGH,
-      check: "weak_signature",
-      detail: `Weak signature algorithm: ${sigAlg}`,
-    });
+  // Read from the DER (signatureAlgorithmOf, above). A weak algorithm on a SELF-SIGNED leaf is not graded — the leaf is
+  // its own anchor, so no client verifies that signature (option B, ruled) — and the self_signed finding says which
+  // algorithm and why, so the skip is visible; the algorithm is recorded either way.
+  const sigAlg = signatureAlgorithmOf(cert);
+  const sigStrength = sigAlg ? "assessed" : SIG_NOT_ASSESSED;
+  if (sigAlg && WEAK_SIG_ALGORITHMS.test(sigAlg)) {
+    if (selfSignedIssue) {
+      selfSignedIssue.detail += `; signed with ${sigAlg} — not graded on a self-signed certificate, whose signature no `
+        + "client verifies (pin it by fingerprint)";
+    } else {
+      issues.push({
+        severity: SEVERITY.HIGH,
+        check: "weak_signature",
+        detail: `Weak signature algorithm: ${sigAlg}`,
+      });
+    }
   }
 
   // ── Key Strength ───────────────────────────────────────────────────────
@@ -563,9 +601,11 @@ async function auditPort(host, port, config) {
       selfSigned: isSelfSigned,
       hostnameValid,
       names: allNames,
-      signatureAlgorithm: sigAlg,
+      signatureAlgorithm: sigAlg ?? "not reported",
+      signatureStrength: sigStrength,
       keyType: keyAnalysis.keyInfo.type,
       keyBits: keyAnalysis.keyInfo.bits,
+      keyStrength: keyAnalysis.keyInfo.strength,
       fingerprint256: cert.fingerprint256,
       serialNumber: cert.serialNumber,
     },
@@ -787,8 +827,10 @@ export default {
             validFrom: pr.certificate.validFrom,
             validTo: pr.certificate.validTo,
             signatureAlgorithm: pr.certificate.signatureAlgorithm,
+            signatureStrength: pr.certificate.signatureStrength,
             keyType: pr.certificate.keyType,
             keyBits: pr.certificate.keyBits,
+            keyStrength: pr.certificate.keyStrength,
             chainDepth: pr.chain.depth,
             authorized: pr.authorized,
           },

@@ -13,6 +13,13 @@ import tls from 'node:tls';
 
 const [keyPath, certPath, target, serverJson] = process.argv.slice(2);
 const serverOverrides = serverJson ? JSON.parse(serverJson) : {};
+// 1.3.0 build 5 (F-3b): NSA_TEST_DROP_SIGALG_GETTER=1 removes X509Certificate's signatureAlgorithm getter BEFORE 040
+// loads, which is what Node 20 is (measured: v20.19.6 has no such getter; v24.12.0 has it). Test-only; read here only.
+if (process.env.NSA_TEST_DROP_SIGALG_GETTER === '1') {
+  const { X509Certificate } = await import('node:crypto');
+  delete X509Certificate.prototype.signatureAlgorithm;
+  Object.defineProperty(X509Certificate.prototype, 'signatureAlgorithm', { get() { return undefined; }, configurable: true });
+}
 const { default: auditor } = await import('../../plugins/040_tls_cert_auditor.mjs');
 const { default: concluder } = await import('../../plugins/result_concluder.mjs');
 const { conclusionFindings } = await import('../../utils/service_flags.mjs');
@@ -47,6 +54,14 @@ try {
       .map((i) => `${i.severity}:${i.check}`),
     graded,
     failOnRank: maxSeverityInConclusion(conclusion),
+    // 1.3.0 build 5 (F-3): what 040 recorded about the KEY, on its port result and on the concluded certAudit.
+    keyInfo: (({ keyType, keyBits, keyStrength } = {}) => ({ keyType, keyBits, keyStrength }))(result.portResults?.[0]?.certificate),
+    certAuditKey: (({ keyType, keyBits, keyStrength } = {}) => ({ keyType, keyBits, keyStrength }))(
+      (conclusion?.services ?? conclusion?.result?.services ?? []).find((s) => s.certAudit)?.certAudit?.details),
+    // F-3b: what 040 recorded about SIGNATURES — the leaf's, each chain entry's, and the certAudit state.
+    certAuditSig: (({ signatureAlgorithm, signatureStrength } = {}) => ({ signatureAlgorithm, signatureStrength }))(
+      (conclusion?.services ?? conclusion?.result?.services ?? []).find((s) => s.certAudit)?.certAudit?.details),
+    chainSigs: (result.portResults?.[0]?.chain?.entries ?? []).map((e) => `${e.depth}:${e.signatureAlgorithm}`),
   }));
 } finally {
   server.close();

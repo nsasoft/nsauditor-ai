@@ -139,7 +139,8 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   on a router scanned by address, with a 53/udp service, nothing landed and nothing said why.
 - **The TLS certificate audit (040) grades an IP target's name mismatch by context, reads IP SANs, says when a
   certificate carries no subjectAltName, judges TLS 1.3 forward secrecy by the protocol, and no longer calls a name
-  mismatch a CA-trust failure.** Five changes, each measured on a real TLS server. (1) Node prints an IP SAN as `IP
+  mismatch a CA-trust failure — and its key-size and signature checks fire on a real server for the first time.**
+  Seven changes, each measured on a real TLS server. (1) Node prints an IP SAN as `IP
   Address:<addr>` and 040 read only `IP:`, so it never saw one: an IP-target service whose certificate correctly names
   its address was reported as a HIGH name mismatch. IP SANs are now read in both spellings and compared as addresses,
   so `::1` matches `0:0:0:0:0:0:0:1`. (2) Scanned by address, a certificate that names DNS names only cannot match. The
@@ -160,7 +161,22 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   MEDIUM. (3) With a chain the CA store verified and only the name wrong, Node reports `ERR_TLS_CERT_ALTNAME_INVALID`,
   and 040 added `ca_not_trusted` (MEDIUM, "not trusted by system CA store") for a chain the store had trusted. That
   exact code no longer raises it; a chain that fails reports its own code and keeps the finding. A CA-signed IP-target
-  scan no longer carries a false CA-trust finding.
+  scan no longer carries a false CA-trust finding. (6) Key size had never been graded on a real server since the check
+  was written (`e96c8f9`): it read the key type from `pubkey.type`, and Node's peer certificate gives `pubkey` as a raw
+  Buffer, so the type was always "unknown" and a 1024-bit key read like a 2048-bit one. The type now comes from the
+  fields Node sets (`modulus` for RSA, a named curve for EC) and the size from `bits`: RSA under 2048 bits is
+  `weak_rsa_key` HIGH (CRITICAL under 1024), EC under 256 bits `weak_ec_key` HIGH, and a key of neither type (Ed25519)
+  records `keyStrength: not assessed` on `certAudit`. That router serves a 1024-bit key, so it now also reads
+  `weak_rsa_key` HIGH — four findings. (7) The signature checks (`weak_signature` on the leaf, `chain_weak_signature`
+  on an issued intermediate) read a `signatureAlgorithm` field Node's peer certificate does not carry, so they had never
+  fired either. The algorithm is now read from the certificate's DER (`X509Certificate`), which Node 24 provides and Node
+  20 does not (measured; Node 22 not measured): where it cannot be read, `certAudit` records `signatureStrength: not
+  assessed`, never a pass. `ecdsa-with-SHA1` joins the weak names. A self-signed certificate's own signature is not
+  graded, because no client verifies it — a SHA-1 root above SHA-256 certificates raises nothing, and a self-signed SHA-1
+  leaf raises `self_signed` alone, whose detail names the algorithm and why (that router's leaf is self-signed
+  `sha1WithRSAEncryption`). Under a trusted CA, Node's verifier also refuses a 1024-bit key or a SHA-1 signature, so
+  `ca_not_trusted` (MEDIUM) rides beside those grades. These grades reach the records, the Markdown, `--fail-on` and
+  `scan_host`; Enterprise does not yet route them to a compliance control.
 - **A check that did not run, or could not complete, reads NOT TESTED — never "none", "denied" or "refused".** Dangerous
   HTTP methods read `[]` when OPTIONS failed or carried no Allow header; a zone-transfer timeout, TCP error, parse error
   or empty close read `axfrAllowed: false` with a row saying "denied"; an FTP server that never greeted with 220 or
