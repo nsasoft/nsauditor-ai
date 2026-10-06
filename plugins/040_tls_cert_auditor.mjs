@@ -425,8 +425,20 @@ async function auditPort(host, port, config) {
     // reader. HIGH stays HIGH for a DNS-name target the certificate does not name, a certificate naming a DIFFERENT
     // address, and one naming no SAN at all.
     const dnsSans = extractSANs(cert, "DNS");
-    const byAddress = isIP(host) !== 0 && dnsSans.length > 0 && extractSANs(cert, "IP").length === 0;
-    issues.push(byAddress
+    const ipSans = extractSANs(cert, "IP");
+    const byAddress = isIP(host) !== 0 && dnsSans.length > 0 && ipSans.length === 0;
+    // A certificate with NO subjectAltName names no host a modern (RFC 6125) client checks — the CN is ignored — so
+    // "does not match certificate names: <CN>" told the reader a usable name was present and merely differed. HIGH,
+    // with that said (0.2.57, before this text had any prior identity in a delta).
+    const noSan = dnsSans.length === 0 && ipSans.length === 0;
+    issues.push(noSan
+      ? {
+        severity: SEVERITY.HIGH,
+        check: "hostname_mismatch",
+        detail: `Hostname "${host}": the certificate carries no subjectAltName — modern clients reject it for any name `
+          + (cert.subject?.CN ? `(CN ${cert.subject.CN} is not checked)` : "(and it carries no CN either)"),
+      }
+      : byAddress
       ? {
         severity: SEVERITY.LOW,
         check: "hostname_mismatch",
@@ -479,8 +491,10 @@ async function auditPort(host, port, config) {
     });
   }
 
-  // Forward secrecy check
-  const hasForwardSecrecy = /ECDHE|DHE/i.test(cipher.name);
+  // Forward secrecy check. 0.2.57: TLS 1.3 by the PROTOCOL — every TLS 1.3 suite is ephemeral by construction, and
+  // its name (TLS_AES_256_GCM_SHA384) carries neither ECDHE nor DHE, so the name test called every TLS 1.3 server
+  // "no forward secrecy". Below TLS 1.3, the cipher name as before.
+  const hasForwardSecrecy = protocol === "TLSv1.3" || /ECDHE|DHE/i.test(cipher.name);
   if (!hasForwardSecrecy) {
     issues.push({
       severity: SEVERITY.MEDIUM,

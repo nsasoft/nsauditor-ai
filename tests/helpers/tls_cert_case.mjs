@@ -5,13 +5,14 @@
 // It is a child so the test can set NODE_EXTRA_CA_CERTS to a throwaway CA at process START, which makes the chain
 // trusted and leaves the certificate's NAME as the only thing under test. Loopback only; nothing leaves the machine.
 // A `.mjs` under tests/helpers/, never `*.test.mjs`: the suite glob does not run it.
-// usage: node tls_cert_case.mjs <key.pem> <cert.pem> <target host>
+// usage: node tls_cert_case.mjs <key.pem> <cert.pem> <target host> [<server options JSON>]
 // FIRST: the CLI is imported below, and it must never read an operator's .env (tests/no_operator_dotenv_census.test.mjs).
 import './no_operator_dotenv.mjs';
 import fs from 'node:fs';
 import tls from 'node:tls';
 
-const [keyPath, certPath, target] = process.argv.slice(2);
+const [keyPath, certPath, target, serverJson] = process.argv.slice(2);
+const serverOverrides = serverJson ? JSON.parse(serverJson) : {};
 const { default: auditor } = await import('../../plugins/040_tls_cert_auditor.mjs');
 const { default: concluder } = await import('../../plugins/result_concluder.mjs');
 const { conclusionFindings } = await import('../../utils/service_flags.mjs');
@@ -19,8 +20,12 @@ const { maxSeverityInConclusion } = await import('../../cli.mjs');
 
 // TLS 1.2 with ECDHE suites only: 040 judges forward secrecy by the cipher NAME, and a TLS 1.3 suite name carries no
 // ECDHE, so a TLS 1.3 server would add a no_forward_secrecy finding that is not under test here (recorded separately).
-const server = tls.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath), minVersion: 'TLSv1.2',
-  maxVersion: 'TLSv1.2', ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384', honorCipherOrder: true },
+// A case may override the TLS settings (a `null` deletes one, e.g. `ciphers: null` for Node's defaults).
+const serverOptions = { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath), minVersion: 'TLSv1.2',
+  maxVersion: 'TLSv1.2', ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384', honorCipherOrder: true,
+  ...serverOverrides };
+for (const k of Object.keys(serverOptions)) if (serverOptions[k] === null) delete serverOptions[k];
+const server = tls.createServer(serverOptions,
   (s) => { try { s.end(); } catch { /* ignore */ } });
 server.on('tlsClientError', () => {});
 // Listen on the target's own address when it is an IPv6 literal, else on 127.0.0.1 (a name like localhost reaches it).
@@ -34,6 +39,7 @@ try {
   // After a marker line: importing the CLI prints loader lines on stdout before this.
   process.stdout.write('\n@@RESULT@@' + JSON.stringify({
     port,
+    negotiation: (result.portResults?.[0] ?? {}).negotiation ?? null,
     hostname: issues.filter((i) => i.check === 'hostname_mismatch'),
     // Graded issues only: `info` and `pass` never reach a reader (service_flags drops them), and the TLS 1.2 pin adds
     // an info `not_tls13` by design.

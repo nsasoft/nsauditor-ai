@@ -129,22 +129,30 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   — <host> is an IP address, which has no SPF, DMARC or NS records to audit" — and makes no DNS query. A hostname that
   resolves to an address, `localhost` included, is a domain and still runs. The history line's count already included
   these findings through 0.2.56 (it counts the audit's informational result too); for an IP target it now counts none.
-- **The TLS certificate audit (040) grades an IP target's name mismatch by context, reads IP SANs, and no longer calls
-  a name mismatch a CA-trust failure.** Three changes, each measured on a real TLS server. (1) Node prints an IP SAN as
-  `IP Address:<addr>` and 040 read only `IP:`, so it never saw one: an IP-target service whose certificate correctly
-  names its address was reported as a HIGH name mismatch. IP SANs are now read in both spellings and compared as
-  addresses, so `::1` matches `0:0:0:0:0:0:0:1`. (2) Scanned by address, a certificate that names DNS names only cannot
-  match. The finding is kept, because a client connecting by address does see the mismatch, and graded LOW, its detail
-  saying the certificate names DNS names only and that the mismatch is expected where the service is reached by name. A
-  DNS-name target the certificate does not name, a certificate naming a different address, and one with no
-  subjectAltName stay HIGH. The case was found on the 1.3.0 release-gate scan of a router, where `Hostname
-  "192.168.1.1" does not match certificate names: www.routerlogin.net` was HIGH and `--fail-on high` counted it. That
-  router's certificate carries no subjectAltName at all (its name is in the CN only), so its mismatch stays HIGH under
-  this rule, as does its `self_signed` finding: it still exits 1. The change reaches an IP target whose certificate
-  carries DNS SANs. (3) With a chain the CA store verified and only the name wrong, Node reports
-  `ERR_TLS_CERT_ALTNAME_INVALID`, and 040 added `ca_not_trusted` (MEDIUM, "not trusted by system CA store") for a chain
-  the store had trusted. That exact code no longer raises it; a chain that fails reports its own code and keeps the
-  finding. A CA-signed IP-target scan no longer carries a false CA-trust finding.
+- **The TLS certificate audit (040) grades an IP target's name mismatch by context, reads IP SANs, says when a
+  certificate carries no subjectAltName, judges TLS 1.3 forward secrecy by the protocol, and no longer calls a name
+  mismatch a CA-trust failure.** Five changes, each measured on a real TLS server. (1) Node prints an IP SAN as `IP
+  Address:<addr>` and 040 read only `IP:`, so it never saw one: an IP-target service whose certificate correctly names
+  its address was reported as a HIGH name mismatch. IP SANs are now read in both spellings and compared as addresses,
+  so `::1` matches `0:0:0:0:0:0:0:1`. (2) Scanned by address, a certificate that names DNS names only cannot match. The
+  finding is kept, because a client connecting by address does see the mismatch, and graded LOW, its detail saying the
+  certificate names DNS names only and that the mismatch is expected where the service is reached by name. A DNS-name
+  target the certificate does not name, a certificate naming a different address, and one with no subjectAltName stay
+  HIGH. The case was found on the 1.3.0 release-gate scan of a router, where `Hostname "192.168.1.1" does not match
+  certificate names: www.routerlogin.net` was HIGH and `--fail-on high` counted it. That router's certificate carries
+  no subjectAltName at all (its name is in the CN only), so its mismatch stays HIGH under this rule, as does its
+  `self_signed` finding: it still exits 1. The change reaches an IP target whose certificate carries DNS SANs. (4) A
+  certificate with NO subjectAltName names no host a modern client checks (the CN is ignored), so "does not match
+  certificate names: <CN>" told the reader a usable name was present and merely differed. It stays HIGH and now says
+  `Hostname "<host>": the certificate carries no subjectAltName — modern clients reject it for any name (CN <cn> is not
+  checked)`. (5) Forward secrecy was judged by the cipher NAME alone, and a TLS 1.3 suite name
+  (`TLS_AES_256_GCM_SHA384`) carries neither ECDHE nor DHE, so every TLS 1.3 server got `no_forward_secrecy` (MEDIUM),
+  though every TLS 1.3 suite is ephemeral. A TLS 1.3 connection now has forward secrecy by its protocol; below TLS 1.3
+  the cipher name decides as before, so a TLS 1.2 RSA key exchange (that router's `AES256-GCM-SHA384`) keeps its
+  MEDIUM. (3) With a chain the CA store verified and only the name wrong, Node reports `ERR_TLS_CERT_ALTNAME_INVALID`,
+  and 040 added `ca_not_trusted` (MEDIUM, "not trusted by system CA store") for a chain the store had trusted. That
+  exact code no longer raises it; a chain that fails reports its own code and keeps the finding. A CA-signed IP-target
+  scan no longer carries a false CA-trust finding.
 - **A check that did not run, or could not complete, reads NOT TESTED — never "none", "denied" or "refused".** Dangerous
   HTTP methods read `[]` when OPTIONS failed or carried no Allow header; a zone-transfer timeout, TCP error, parse error
   or empty close read `axfrAllowed: false` with a row saying "denied"; an FTP server that never greeted with 220 or

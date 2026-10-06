@@ -41,6 +41,7 @@ function makeFixtures() {
     leaf('noSan', null);
     leaf('ownIp', 'DNS:www.routerlogin.test,IP:127.0.0.1');
     leaf('ownIp6', 'DNS:www.routerlogin.test,IP:::1');
+    leaf('ipOnly', 'IP:10.0.0.1');
     run(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'selfSigned.key', '-out', 'selfSigned.pem', '-days', '200',
       '-subj', '/CN=www.routerlogin.test', '-addext', 'subjectAltName=DNS:www.routerlogin.test']);
     return d;
@@ -50,7 +51,7 @@ function makeFixtures() {
 before(() => { DIR = makeFixtures(); });
 after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
 
-function caseFor(t, name, target, { trusted = true } = {}) {
+function caseFor(t, name, target, { trusted = true, server = null } = {}) {
   if (!DIR) {
     if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
     t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
@@ -59,7 +60,8 @@ function caseFor(t, name, target, { trusted = true } = {}) {
   const env = { ...process.env };
   if (trusted) env.NODE_EXTRA_CA_CERTS = path.join(DIR, 'ca.pem'); else delete env.NODE_EXTRA_CA_CERTS;
   delete env.NODE_TEST_CONTEXT;
-  const out = execFileSync(process.execPath, [HELPER, path.join(DIR, `${name}.key`), path.join(DIR, `${name}.pem`), target],
+  const args = [HELPER, path.join(DIR, `${name}.key`), path.join(DIR, `${name}.pem`), target, ...(server ? [JSON.stringify(server)] : [])];
+  const out = execFileSync(process.execPath, args,
     { env, encoding: 'utf8', timeout: 30000 });
   const i = out.lastIndexOf('@@RESULT@@');
   assert.ok(i >= 0, `the case printed no result: ${out.slice(-300)}`);
@@ -86,9 +88,23 @@ test('(q) an IP target and a certificate naming a DIFFERENT address: HIGH — th
   assert.equal(r.failOnRank, RANK.high);
 });
 
-test('(q) an IP target and a certificate with NO subjectAltName: HIGH — it names no host a client can check', (t) => {
+test('(q) an IP target and a certificate with NO subjectAltName: HIGH — it names no host a client can check, and says so', (t) => {
   const r = caseFor(t, 'noSan', '127.0.0.1'); if (!r) return;
   assert.deepEqual(r.hostname.map((i) => i.severity), ['high']);
+  assert.equal(r.hostname[0].detail, 'Hostname "127.0.0.1": the certificate carries no subjectAltName — modern clients '
+    + 'reject it for any name (CN www.routerlogin.test is not checked)');
+});
+
+test('(q) an IP-only SAN naming a different address: HIGH, and NOT the no-SAN wording — the certificate does carry a SAN', (t) => {
+  const r = caseFor(t, 'ipOnly', '127.0.0.1'); if (!r) return;
+  assert.deepEqual(r.hostname.map((i) => i.severity), ['high']);
+  assert.doesNotMatch(r.hostname[0].detail, /carries no subjectAltName/);
+});
+
+test('a DNS-NAME target and a certificate with NO subjectAltName: the same no-SAN wording, HIGH — not "the names differ"', (t) => {
+  const r = caseFor(t, 'noSan', 'localhost'); if (!r) return;
+  assert.deepEqual(r.hostname.map((i) => [i.severity, i.detail]), [['high', 'Hostname "localhost": the certificate carries no '
+    + 'subjectAltName — modern clients reject it for any name (CN www.routerlogin.test is not checked)']]);
 });
 
 // ── THE CHANGE ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -146,5 +162,28 @@ test('(q) SELF-SIGNED is unchanged: self_signed HIGH, no ca_not_trusted (skipped
 test('a TRUSTED chain and a WRONG name: hostname_mismatch only — no "not trusted by system CA store" for a chain the store verified', (t) => {
   const r = caseFor(t, 'dnsOnly', '127.0.0.1'); if (!r) return;
   assert.equal(r.otherChecks.includes('medium:ca_not_trusted'), false);
+  assert.deepEqual(r.otherChecks, []);
+});
+
+// ── FORWARD SECRECY (ruled into 0.2.57): judged by the PROTOCOL for TLS 1.3, by the cipher name below it ──────────────
+// Every TLS 1.3 suite is ephemeral by construction, but its name (TLS_AES_256_GCM_SHA384) carries neither ECDHE nor
+// DHE, so a name-only test called every TLS 1.3 server "no forward secrecy".
+test('(q, first) TLS 1.2 with an RSA key exchange: no_forward_secrecy MEDIUM STAYS — the router\'s true finding is this shape', (t) => {
+  const r = caseFor(t, 'ownIp', '127.0.0.1', { server: { ciphers: 'AES256-GCM-SHA384' } }); if (!r) return;
+  assert.equal(r.negotiation?.protocol, 'TLSv1.2');
+  assert.deepEqual(r.otherChecks, ['medium:no_forward_secrecy']);
+});
+
+test('(q) TLS 1.2 with ECDHE: no no_forward_secrecy', (t) => {
+  const r = caseFor(t, 'ownIp', '127.0.0.1'); if (!r) return;
+  assert.equal(r.negotiation?.protocol, 'TLSv1.2');
+  assert.deepEqual(r.otherChecks, []);
+});
+
+test('a default node:tls server (TLS 1.3): no no_forward_secrecy — every TLS 1.3 suite is ephemeral', (t) => {
+  const r = caseFor(t, 'ownIp', '127.0.0.1', { server: { maxVersion: 'TLSv1.3', ciphers: null, honorCipherOrder: null } }); if (!r) return;
+  assert.equal(r.negotiation?.protocol, 'TLSv1.3', 'the case negotiated TLS 1.3');
+  assert.match(r.negotiation?.cipher ?? '', /^TLS_/, 'a TLS 1.3 suite name, which carries no ECDHE/DHE');
+  assert.equal(r.negotiation?.forwardSecrecy, true);
   assert.deepEqual(r.otherChecks, []);
 });
