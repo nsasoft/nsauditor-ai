@@ -15,6 +15,7 @@
 // after the fix proves nothing by passing. The MUTANT is the evidence — reverting scope to
 // `hostsRequested ∪ hostsWritten` must turn the first leg red, and the battery beside this file
 // records that it does.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

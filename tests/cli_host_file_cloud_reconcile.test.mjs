@@ -6,6 +6,7 @@
 // reachability path Move 2.7 closed. The conflict fail-fast fires in the env block
 // BEFORE license/scan, so this is deterministic + fast (no creds, no network).
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -22,7 +23,7 @@ test('--host-file of sentinels + stale CLOUD_PROVIDER=aws → CLI fail-fasts (ex
   writeFileSync(hf, 'aws\ngcp\nazure\n');
   try {
     const r = spawnSync(process.execPath, [BIN, 'scan', '--host-file', hf, '--plugins', 'all'],
-      { encoding: 'utf8', env: { ...process.env, CLOUD_PROVIDER: 'aws' } });
+      { encoding: 'utf8', env: withNoDotenv({ ...process.env, CLOUD_PROVIDER: 'aws' }) });
     assert.equal(r.status, 1, `expected exit 1; stderr: ${r.stderr}`);
     assert.match(r.stderr, /conflicts with CLOUD_PROVIDER|not covered/i,
       `expected the reconcile conflict error; stderr: ${r.stderr}`);

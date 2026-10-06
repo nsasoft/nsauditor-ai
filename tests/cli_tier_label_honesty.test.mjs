@@ -63,6 +63,7 @@
  * asserted below, and every drive still passes an EXPLICIT key so the leg can never silently
  * become a reading of this machine's keychain.
  */
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -93,14 +94,14 @@ function renderHelp(key) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tier-label-'));
   const r = spawnSync(process.execPath, [CLI, 'help'], {
     encoding: 'utf8',
-    env: {
+    env: withNoDotenv({
       ...process.env,
       NSAUDITOR_LICENSE_KEY: key,
       XDG_CONFIG_HOME: path.join(tmp, 'nonexistent'),
       NSAUDITOR_LICENSE_STATE_FILE: path.join(tmp, 'lic-state.json'),
       NSAUDITOR_LICENSE_REVOCATIONS_FILE: path.join(tmp, 'lic-revocations.json'),
       NSAUDITOR_LICENSE_ID_REPLAY_DEFENSE: '0',
-    },
+    }),
   });
   assert.equal(r.status, 0, `\`help\` exited ${r.status}: ${r.stderr}`);
   assert.ok(r.stdout.length > 2000,

@@ -25,6 +25,7 @@
  * because a user follows it and gets an error. Both legs are asserted; the phantom leg is the one
  * that would otherwise rot into decoration, because every incident so far has been the first kind.
  */
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -163,7 +164,7 @@ function dispatchedComplianceVerbs() {
 
 /** The verbs `nsauditor-ai help` advertises. Driven through the REAL CLI, never re-parsed. */
 function advertisedComplianceVerbs() {
-  const out = execFileSync(process.execPath, [CLI, 'help'], { encoding: 'utf8' });
+  const out = execFileSync(process.execPath, [CLI, 'help'], { env: withNoDotenv(), encoding: 'utf8' });
   const verbs = new Set([...out.matchAll(/nsauditor-ai compliance ([a-z-]+)/g)].map((m) => m[1]));
   assert.ok(out.length > 2000, 'help output is implausibly short — the CLI did not print its help');
   return verbs;
@@ -193,7 +194,7 @@ describe('CLI help advertises exactly the compliance verbs the CLI dispatches', 
   });
 
   it('the two pack-signing verbs specifically are advertised WITH their scope bound', () => {
-    const out = execFileSync(process.execPath, [CLI, 'help'], { encoding: 'utf8' });
+    const out = execFileSync(process.execPath, [CLI, 'help'], { env: withNoDotenv(), encoding: 'utf8' });
     for (const verb of ['sign-pack', 'verify-pack']) {
       assert.match(out, new RegExp(`compliance ${verb}`),
         `\`compliance ${verb}\` is missing from help — this is the exact 0.38.0 regression`);

@@ -7,6 +7,7 @@
 // sealed, and the error re-thrown so the scan's exit is unchanged; `report` refuses it BY NAME
 // (`aborted-run`), and `--since prior` still selects it rather than silently substituting an older run.
 // ⚠️ FOURTH QUADRANT FIRST: a scan that completes is `finished`, sealed, and reportable as before.
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -94,7 +95,7 @@ function runCli(argv) {
   const env = { ...process.env, NSAUDITOR_LICENSE_KEY: PRO_KEY, XDG_CONFIG_HOME: path.join(tmp, 'nonexistent'),
     NSAUDITOR_LICENSE_STATE_FILE: path.join(tmp, 'lic-state.json'), NSAUDITOR_LICENSE_REVOCATIONS_FILE: path.join(tmp, 'lic-revocations.json'),
     NSAUDITOR_LICENSE_ID_REPLAY_DEFENSE: '0' };
-  const r = spawnSync(process.execPath, [new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname, ...argv], { encoding: 'utf8', env });
+  const r = spawnSync(process.execPath, [new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname, ...argv], { encoding: 'utf8', env: withNoDotenv(env) });
   return { code: r.status, stderr: r.stderr };
 }
 

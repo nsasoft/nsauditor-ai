@@ -19,6 +19,7 @@
  * ⚠️ NOTHING HERE CLAIMS THE CAPABILITY WORKS. Publishing a surface is not proving it: per D6 the
  * three-part gate runs against the published registry bytes and the hedges flip at N+1.
  */
+import './helpers/no_operator_dotenv.mjs';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 

@@ -1,3 +1,4 @@
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -8,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, '..', 'cli.mjs');
 
 test('cli.mjs parses (node --check)', (t, done) => {
-  execFile(process.execPath, ['--check', CLI], (err) => {
+  execFile(process.execPath, ['--check', CLI], { env: withNoDotenv() }, (err) => {
     assert.equal(err, null, `node --check failed for ${CLI}`);
     done?.();
   });

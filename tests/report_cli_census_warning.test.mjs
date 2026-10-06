@@ -31,6 +31,7 @@
 // Every leg also asserts the run SUCCEEDED (exit 0, an .html on disk) before asserting anything
 // about warnings. A refused run prints no warning either.
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -87,7 +88,7 @@ function runCli(argv, key) {
   }
   const bin = new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-census-cli-'));
-  const r = spawnSync(process.execPath, [bin, ...argv], { encoding: 'utf8', env: licEnv(key, tmp) });
+  const r = spawnSync(process.execPath, [bin, ...argv], { encoding: 'utf8', env: withNoDotenv(licEnv(key, tmp)) });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

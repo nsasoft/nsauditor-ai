@@ -12,6 +12,7 @@
 // stderr, and `conclusion.result.eeLoadError` in the shape of the existing `eeEnrichmentError`, so the delta can refuse.
 //
 // FOURTH QUADRANT FIRST.
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -92,7 +93,7 @@ function inScratch(pkg, files) {
     fs.writeFileSync(path.join(dir, 'child.mjs'), `import * as L from ${JSON.stringify(EE_LOAD_URL)};
 const r = await L.loadEnterprise({ resolveEE: (s) => import.meta.resolve(s), importEE: () => import('@nsasoft/nsauditor-ai-ee') });
 process.stdout.write(JSON.stringify({ loaded: r.ee ? Object.keys(r.ee).sort() : null, loadError: r.loadError }));`);
-    const out = spawnSync(process.execPath, [path.join(dir, 'child.mjs')], { cwd: dir, encoding: 'utf8' });
+    const out = spawnSync(process.execPath, [path.join(dir, 'child.mjs')], { env: withNoDotenv(), cwd: dir, encoding: 'utf8' });
     assert.equal(out.status, 0, out.stderr);
     return JSON.parse(out.stdout);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

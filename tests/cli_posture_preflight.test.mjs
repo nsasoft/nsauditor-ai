@@ -34,6 +34,7 @@
 // EE remains OPTIONAL: no EE, no veto to run, and the preflight says so with a reason
 // rather than failing. The `importEE` seam means these cases never need EE installed.
 
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { preflightNsauditorPosture } from '../cli.mjs';

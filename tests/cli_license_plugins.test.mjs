@@ -18,6 +18,7 @@
 // discovery + tier resolution.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,7 +44,7 @@ function runCli(args, env = {}) {
   if (!Object.hasOwn(env, 'NSAUDITOR_LICENSE_KEY')) delete cleanEnv.NSAUDITOR_LICENSE_KEY;
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     cwd: REPO_ROOT,
-    env: cleanEnv,
+    env: withNoDotenv(cleanEnv),
     encoding: 'utf8',
     timeout: 30000,
   });

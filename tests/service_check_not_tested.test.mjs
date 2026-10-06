@@ -13,6 +13,7 @@
 // Harness: every network leg talks to a loopback listener this file starts (or to a loopback port nothing listens on).
 // FOURTH QUADRANT FIRST: a check that ran and measured lists nothing.
 
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';

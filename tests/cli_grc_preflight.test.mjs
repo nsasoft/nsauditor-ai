@@ -11,6 +11,7 @@
 // enrichScan EE-optional pattern); but a GrcConfigError PROPAGATES so the CLI can
 // fail-fast.
 
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { preflightGrcIfRequested } from '../cli.mjs';

@@ -18,6 +18,7 @@
 // The obvious objection — a seat could write one throwaway fixture per code just to satisfy the
 // census — is not an objection. That fixture PINS the trigger condition, so when the condition
 // narrows it fails. The cheat-path is the intended path.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

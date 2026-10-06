@@ -14,6 +14,7 @@
 // Creating a shared file or editing Task 4's test file would violate that, so the helper is
 // duplicated verbatim instead (it is a small, stable fixture shape).
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -139,7 +140,7 @@ async function runCli(argv, key) {
   }
   const bin = new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-cli-'));
-  const r = spawnSync(process.execPath, [bin, ...argv], { encoding: 'utf8', env: licEnv(key, tmp) });
+  const r = spawnSync(process.execPath, [bin, ...argv], { encoding: 'utf8', env: withNoDotenv(licEnv(key, tmp)) });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
@@ -539,7 +540,7 @@ test('ADVERSARIAL: a nonexistent --brand path is refused (2), not silently rende
 
 test('CC-8: `nsauditor-ai help` advertises the report subcommand and its flags', () => {
   const bin = new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname;
-  const r = spawnSync(process.execPath, [bin, 'help'], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin, 'help'], { env: withNoDotenv(), encoding: 'utf8' });
   assert.equal(r.status, 0, `help must exit 0: ${r.stderr}`);
   const out = r.stdout;
   assert.ok(out.length > 2000, 'help output is implausibly short — the CLI did not print its help');

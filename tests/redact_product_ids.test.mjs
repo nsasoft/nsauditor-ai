@@ -24,6 +24,7 @@
 // in the same commit message that announced not repeating E2's invented-constant defect. The
 // shape exists in source; only the exposure is absent. The `EE-RT` half is still prophylactic,
 // and now it is pinned by a literal that is really in the tree.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

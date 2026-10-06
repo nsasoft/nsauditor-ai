@@ -12,6 +12,7 @@
 // The audit seat's shape: an EXCLUSIVE create, a suffix on EEXIST, a WARNING on stdout naming both directories —
 // and the fourth quadrant first: when the seconds differ, the directory name is BYTE-IDENTICAL to today's, because
 // every reader and every manifest keys on it.
+import './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';

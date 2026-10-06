@@ -1,3 +1,4 @@
+import './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: the driven legs below load a licence through main()
 import assert from 'node:assert/strict';
 import test from 'node:test';

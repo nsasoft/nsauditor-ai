@@ -8,6 +8,7 @@
 // Fixtures use the REAL writers and the S3 MULTI-RESOURCE shape deliberately: issue text carries
 // the DEFECT and not the bucket, which is what made the identity-key defect live rather than
 // theoretical. A fixture built on a singleton finding cannot see that class.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

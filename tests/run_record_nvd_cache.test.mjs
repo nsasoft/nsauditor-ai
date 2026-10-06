@@ -6,6 +6,7 @@
 // true for some hosts and wrong for others is worse than none.
 // ⚠️ FOURTH QUADRANT FIRST: two hosts that AGREE are recorded, with the FIRST host's vintage — the leg
 // that rots if the aggregation degenerates to "always null".
+import './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';

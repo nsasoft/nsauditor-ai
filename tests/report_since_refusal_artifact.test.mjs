@@ -14,6 +14,7 @@
 //                                honest to render, and any pre-existing --out file is named as
 //                                stale rather than left to be mistaken for this run's output.
 // Could-not-measure stays loud in both: the exit is 2, never 0.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

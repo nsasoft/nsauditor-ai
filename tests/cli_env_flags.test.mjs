@@ -1,3 +1,4 @@
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '../cli.mjs';

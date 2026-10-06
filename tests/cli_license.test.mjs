@@ -1,3 +1,4 @@
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import assert from 'node:assert/strict';
@@ -26,7 +27,7 @@ function isolatedEnv() {
 
 test('license --status prints CE when no key set', async () => {
   const env = isolatedEnv();
-  const { stdout } = await exec('node', [CLI, 'license', '--status'], { env });
+  const { stdout } = await exec('node', [CLI, 'license', '--status'], { env: withNoDotenv(env) });
   assert.ok(
     stdout.includes('CE') || stdout.includes('Community') || stdout.includes('community'),
     `Expected CE/Community in output, got: ${stdout}`
@@ -35,7 +36,7 @@ test('license --status prints CE when no key set', async () => {
 
 test('license --capabilities lists CE capabilities', async () => {
   const env = isolatedEnv();
-  const { stdout } = await exec('node', [CLI, 'license', '--capabilities'], { env });
+  const { stdout } = await exec('node', [CLI, 'license', '--capabilities'], { env: withNoDotenv(env) });
   assert.ok(stdout.includes('coreScanning'), `Missing coreScanning in: ${stdout}`);
   assert.ok(stdout.includes('basicMCP'), `Missing basicMCP in: ${stdout}`);
 });

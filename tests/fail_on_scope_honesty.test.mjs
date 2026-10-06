@@ -14,6 +14,7 @@
 // commit. The skill's CI section is owed at release prep.
 //
 // FOURTH QUADRANT FIRST: the flags the gate DOES read still gate.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -14,6 +14,7 @@
 // to read from the tmp file.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fsp } from 'node:fs';
@@ -84,7 +85,7 @@ async function runCli(args, opts = {}) {
   };
 
   const result = spawnSync(process.execPath, [CLI_PATH, ...args], {
-    env,
+    env: withNoDotenv(env),
     encoding: 'utf8',
     timeout: 10_000,
   });

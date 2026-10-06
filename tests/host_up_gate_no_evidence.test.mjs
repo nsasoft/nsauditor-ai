@@ -17,6 +17,7 @@
 // network. The CLI legs spawn the real CLI against 127.0.0.1 (a listener this file starts) and
 // 127.0.0.2 (only after proving the address is silent on this machine), with HOME and cwd in scratch.
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_home.mjs';
 import { test, afterEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -202,7 +203,7 @@ function scanCli(args, name) {
   const env = { ...process.env, NSA_ALLOW_ALL_HOSTS: '1', AI_ENABLED: 'false' };
   delete env.NODE_TEST_CONTEXT;
   return new Promise((resolve) => {
-    const child = cp.spawn(process.execPath, [CLI, 'scan', ...args, '--out', out], { cwd: WORK, env });
+    const child = cp.spawn(process.execPath, [CLI, 'scan', ...args, '--out', out], { cwd: WORK, env: withNoDotenv(env) });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('close', (code) => {

@@ -1,3 +1,4 @@
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import test from 'node:test';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import assert from 'node:assert/strict';
@@ -419,7 +420,7 @@ test('N.25 REGRESSION: `nsauditor-ai validate` finds plugins when invoked from /
   const result = spawnSync(
     process.execPath,
     [CLI_PATH, 'validate', '--json'],
-    { cwd: os.tmpdir(), encoding: 'utf8', timeout: 10000 }
+    { env: withNoDotenv(), cwd: os.tmpdir(), encoding: 'utf8', timeout: 10000 }
   );
 
   // Validate exit code 0 or 1 (warn) is acceptable; only 2 (error) would indicate

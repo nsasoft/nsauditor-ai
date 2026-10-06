@@ -9,6 +9,7 @@
 // version on stdout.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,6 +33,7 @@ test.after(() => rmSync(WORK, { recursive: true, force: true }));
 
 function runCli(args) {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
+    env: withNoDotenv(),
     cwd: WORK,
     encoding: 'utf8',
     timeout: 15000,
@@ -74,7 +76,7 @@ test('CE-0.1.30.1: version flag does NOT require a license key (parallels --help
   );
   const r = spawnSync(process.execPath, [CLI_PATH, '--version'], {
     cwd: WORK,
-    env: cleanEnv,
+    env: withNoDotenv(cleanEnv),
     encoding: 'utf8',
     timeout: 15000,
   });

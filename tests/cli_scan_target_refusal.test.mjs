@@ -12,6 +12,7 @@
 // main() refusing through a COPY of its condition — a mutant that restored the old inline checks passed every
 // spawned leg — so a structural leg reads cli.mjs: the two refusal messages live in code only inside
 // scanTargetRefusal, and main() calls it exactly once.
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -91,7 +92,7 @@ function runBin(argv) {
   for (const k of ['COMPLIANCE_GRC_PROVIDER', 'NSAUDITOR_OFFLINE_ONLY', 'NSAUDITOR_TSA_URL', 'SCAN_OUT_PATH']) delete env[k];
   try {
     const r = spawnSync(process.execPath, [new URL('../bin/nsauditor-ai.mjs', import.meta.url).pathname, ...argv],
-      { encoding: 'utf8', env, cwd: tmp, timeout: 60_000 });
+      { encoding: 'utf8', env: withNoDotenv(env), cwd: tmp, timeout: 60_000 });
     return { code: r.status, stderr: r.stderr, wrote: fs.readdirSync(tmp).filter((f) => f !== 'nonexistent') };
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }

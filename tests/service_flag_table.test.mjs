@@ -10,6 +10,7 @@
 //
 // FOURTH QUADRANT FIRST: a clean, fully-tested record is graded NOTHING by the table and by every reader.
 
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

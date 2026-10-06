@@ -29,6 +29,7 @@
  * stay withdrawn until the trio publishes AND the NIC-down gate passes on the BUILT artifacts.
  * If you are reading this while editing marketing copy, the answer is still "not yet".
  */
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -75,7 +76,7 @@ describe('the feed commands\' flag surface', () => {
      * driving the entry point rather than by reading it.
      */
     const r = spawnSync(process.execPath, [path.join(ROOT, 'cli.mjs'), 'feed', 'bundle',
-      '--from=/tmp/nvd', '--out=/tmp/b.json.gz'], { encoding: 'utf8', timeout: 60_000 });
+      '--from=/tmp/nvd', '--out=/tmp/b.json.gz'], { env: withNoDotenv(), encoding: 'utf8', timeout: 60_000 });
     assert.equal(r.status, 2,
       `the \`=\` shape must be refused with exit 2, got ${r.status}. stderr: ${r.stderr?.slice(0, 300)}`);
     assert.match(`${r.stderr}`, /--from=/,

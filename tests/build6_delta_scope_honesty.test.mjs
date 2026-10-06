@@ -16,6 +16,7 @@
 // `deltaBasis` signature change, boarded for 1.2.1), so a resolved agent or CVE-mapper row still reads "comparable:
 // host, plugin … present in both runs". The disclosure reaches that client through the report's LIMITS block instead,
 // which renders AGENT_SCOPE_FROM_TIER — asserted below on the written HTML of the very pair it describes.
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

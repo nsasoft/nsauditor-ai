@@ -17,6 +17,7 @@
 // correct declaration, the Pro-capability case and the ungated case are green before and after.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_keychain.mjs';   // FIRST: keeps this file off the operator's real Keychain
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,7 +58,7 @@ function runPlugins() {
     NSAUDITOR_LICENSE_STATE_FILE: join(home, 'licence-state.json'),
     NSA_VERBOSE: '',
   };
-  const r = spawnSync(process.execPath, [CLI_PATH, 'license', '--plugins'], { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync(process.execPath, [CLI_PATH, 'license', '--plugins'], { cwd: REPO_ROOT, env: withNoDotenv(env), encoding: 'utf8', timeout: 30000 });
   const line = (id) => (r.stdout.match(new RegExp(`^\\s+${id}\\s.*$`, 'm')) ?? [null])[0];
   cached = { r, line };
   return cached;

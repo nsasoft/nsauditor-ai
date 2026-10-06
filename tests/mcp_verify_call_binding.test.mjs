@@ -18,6 +18,7 @@
 // Harness: the server module is imported after HOME points at a scratch directory (the call log path is computed at
 // load); every CLI spawn uses that same HOME, a licence-state file and a dummy licence key there.
 
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import './helpers/no_operator_home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,7 +37,7 @@ const LOG = path.join(HOME, '.nsauditor', 'mcp-calls.log');
 function verify(args, input) {
   const env = { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'),
     NSAUDITOR_LICENSE_KEY: 'not-a-licence', NSAUDITOR_LICENSE_STATE_FILE: path.join(HOME, 'licence-state.json'), NSA_VERBOSE: '' };
-  const r = spawnSync(process.execPath, [CLI, 'mcp', 'verify-call', ...args], { cwd: ROOT, env, encoding: 'utf8', timeout: 30000, input });
+  const r = spawnSync(process.execPath, [CLI, 'mcp', 'verify-call', ...args], { cwd: ROOT, env: withNoDotenv(env), encoding: 'utf8', timeout: 30000, input });
   return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 function logLines(...entries) {
