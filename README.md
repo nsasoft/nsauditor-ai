@@ -13,29 +13,25 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 
 NSAuditor AI is the open-source core of a privacy-first security intelligence platform built by [Nsasoft US LLC](https://www.nsauditor.com/ai/). It orchestrates 27 specialized scanning plugins against target hosts, fuses their results through an intelligent concluder, and optionally produces AI-powered vulnerability reports — all running entirely on your machine.
 
-**Zero Data Exfiltration by design — and stated precisely.** We never see your scan data: no customer data is collected, transmitted, or stored by Nsasoft US LLC, and the product has no telemetry or phone-home endpoint. Scanning, analysis, license verification and report generation all run on your machine. Two clarifications that matter operationally: AI enrichment is **opt-in** and uses your own API keys (point it at a local Ollama and nothing leaves the host), while **CVE correlation queries NIST's public NVD API by default** — set `NSAUDITOR_OFFLINE_ONLY=1` with a local NVD store to make it fully local, which reports an explicit coverage gap in the scan instead of a silent clean (in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS).
+**Zero Data Exfiltration by design — and stated precisely.** We never see your scan data: no customer data is collected, transmitted, or stored by Nsasoft US LLC, and the product has no telemetry or phone-home endpoint. Scanning, analysis, license verification and report generation all run on your machine. Two clarifications that matter operationally: AI enrichment is **opt-in** and uses your own API keys (point it at a local Ollama and nothing leaves the host), while **CVE correlation queries NIST's public NVD API by default** — set `NSAUDITOR_OFFLINE_ONLY=1` with a local NVD store to make it fully local, which reports an explicit coverage gap in the scan instead of a silent clean (from Enterprise 1.2.1 that gap fails, as an evidence gap, the compliance controls the CVE rows map to).
 
 ## What's New
 
-**Latest: CE 0.2.56 + Enterprise 1.2.0 — *the delta refuses five more ways a finding could read as fixed without being fixed*.**
-The Pro/Enterprise `report --since` delta (introduced in CE 0.2.55) now refuses five more ways a
-finding could read as fixed without being fixed: a UDP service that did not answer in the
-other run (`port-not-measured`, listed as `<port>/udp`), a CVE row whose lookup failed there, a
-finding of an analysis agent that did not run, and — new in this release — **an Enterprise package
-that failed to load**, which used to leave its plugins running while the scan skipped its intelligence,
-analysis-agent and compliance stages without a word. It is now
-named on stderr and recorded on the scan's conclusion, and the delta refuses that host's agent and
-CVE-mapper rows as `evidence-gap`. And a CVE row that vanished while the same program and version
-still answer is `vulnerability-data-changed` — the vulnerability data moved, not the estate.
-**Not refused in this release:** when the two scans ran different `--plugins`, a row that an analysis agent or
-the CVE mapper derived from the output of a plugin one scan did not request can read resolved (and in Enterprise,
-with SLA tracking on, MTTR counts it closed and the control it failed can read PASS) or new — keep `--plugins`
-identical between compared scans. Every
-reason's detail names its run absolutely ("this run", "the baseline run"), and two scans of one host
-whose plugin runs finished in the same second get distinct directories. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 1.2.0
-requires this release** (`nsauditor-ai >= 0.2.56`). The free last-vs-current webhook alerting delta
-is untouched and stays free; in that release it did not fire on a service, version or finding change (see
-Continuous Monitoring below).
+**Latest: CE 0.2.57 + Enterprise 1.2.1 — *a finding on a port, region or producer a scan did not measure is not counted as fixed — two measured limits stated*.**
+The Pro/Enterprise `report --since` delta refuses two more ways a row could read as fixed without being fixed. A CVE
+or end-of-life row on a TCP port whose service the other scan reached but could not identify (a program and a version)
+is `port-not-measured`, never resolved or new. And from Enterprise 1.2.1 a scan that left out a plugin an analysis agent
+reads records it, so that agent's rows there are refused as `evidence-gap`. Each new, resolved and changed row now
+carries a **Basis** cell saying what the delta checked for that row. Two Enterprise agents changed identity at 1.2.1 —
+the exposure agent's titles no longer name the service, the service agent's no longer name the version — and both are
+declared in this release, so a row compared across the upgrade reads `identity-basis-changed`, never resolved or new.
+**Two measured limits:** a scan made before EE 1.2.1 could not record a plugin left out of it, so in a comparison with
+one, an agent's row that scan lacks is not refused — its Basis cell says so; and a scan that discovered ports with the
+Nmap plugin (024) alone records no port oracle, so an analysis agent's row on a port it did not measure can read
+resolved — include the port scanner (003). The release also carries this cycle's scanner, report and security fixes;
+the [CHANGELOG](./CHANGELOG.md) lists them. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage
+matrix UNCHANGED; **Enterprise 1.2.1 requires this release** (`nsauditor-ai >= 0.2.57`). The free last-vs-current
+webhook alerting delta is untouched and stays free (see Continuous Monitoring below).
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
@@ -162,7 +158,7 @@ npm install
 node --env-file=.env cli.mjs scan --host 192.168.1.1 --plugins all
 ```
 
-Results land in `./out/<host>_<timestamp>/`:
+Results land in `./out/<host>_<timestamp>/` (two scans of one host whose plugin runs finished in the same second get distinct directories):
 
 | File | Contents |
 |---|---|
@@ -556,7 +552,7 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
 | `--format executive` | Self-contained, print-ready HTML report; no external network reference other than an `http(s)`/`mailto` `<a href>` | — |
 | `--format jira` | Jira-importer CSV (`Summary`/`Description`/`Priority`/`Labels`/`External ID`); the import mapping is done in Jira and has not been verified against a live Jira instance. **`pass`-tier records are EXCLUDED** — a Jira issue is a work item and a passing check is not work; every other tier is kept, INFO included, because INFO carries the evidence gaps and scope boundaries. Passing checks appear in the `executive` report under their own **PASS** tier. | — |
 | `--run <id>` | Report a specific run id instead of the newest one under `--from` | newest run |
-| `--since <runId\|prior>` | Compare the reported run with a baseline run under `--from`: `prior` is the run that started immediately before it, or name a run id. The `executive` report lists each new, resolved and changed finding, and each finding that could NOT be compared with its reason; stdout prints the counts, the changed and not-comparable rows and the limits; the `jira` CSV carries none of it. Each new, resolved and changed row carries a **Basis** cell saying what made it comparable: for a plugin's row, the host, plugin and scope present in both runs; for an Enterprise analysis agent's or the CVE mapper's row, that the run lacking it recorded no evidence gap from that producer covering it, and — for a CVE or end-of-life row on a TCP port — the measurement itself (the service identified, or the port closed). Where the run lacking an agent row predates EE 1.2.1, the cell says that run could not record an input plugin left out of the scan, so the row is not refused. Keep `--plugins` identical between the two scans (see What's New). Every refusal exits 2: if the baseline was found but cannot support a comparison, the `executive` report is still written, states the refusal and lists no new, resolved or changed finding; if no baseline is found, if the reported run's own record fails verification, or with `--format jira`, nothing is written | — |
+| `--since <runId\|prior>` | Compare the reported run with a baseline run under `--from`: `prior` is the run that started immediately before it, or name a run id. The `executive` report lists each new, resolved and changed finding, and each finding that could NOT be compared with its reason; stdout prints the counts, the changed and not-comparable rows and the limits; the `jira` CSV carries none of it. Each new, resolved and changed row carries a **Basis** cell saying what made it comparable: for a plugin's row, the host, plugin and scope present in both runs; for an Enterprise analysis agent's or the CVE mapper's row, that the run lacking it recorded no evidence gap from that producer covering it, and — for a CVE or end-of-life row on a TCP port — the measurement itself (the service identified, or the port closed). Where the run lacking an agent row predates EE 1.2.1, the cell says that run could not record an input plugin left out of the scan, so the row is not refused. When the baseline was made before Enterprise 1.2.1, keep `--plugins` identical between the two scans (see What's New). Every refusal exits 2: if the baseline was found but cannot support a comparison, the `executive` report is still written, states the refusal and lists no new, resolved or changed finding; if no baseline is found, if the reported run's own record fails verification, or with `--format jira`, nothing is written | — |
 | `--brand <brand.json>` | Cover-page branding (company name, prepared-by, contact, logo) — `--format executive` only | unbranded |
 | `--out <path>` | Write to this path instead of `report_<runId>.<ext>` beside the run record | `report_<runId>.<ext>` |
 | `--allow-partial` | Render even if some requested hosts were never written, or the run never recorded completion — the caveat is stated on the cover, never hidden | `false` |
@@ -800,7 +796,7 @@ Configuration is entirely environment-based — a `.env` file, `--env <file>`, o
 
 **→ [Configuration reference](./docs/configuration.md)** — every environment variable, its default and its effect.
 
-The two that change behaviour most: `NSAUDITOR_OFFLINE_ONLY=1` forbids outbound CVE lookups and reads a local NVD store instead (reporting an explicit coverage gap in the scan rather than a silent clean; in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS), and `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / a local Ollama endpoint enable the opt-in AI analysis pass.
+The two that change behaviour most: `NSAUDITOR_OFFLINE_ONLY=1` forbids outbound CVE lookups and reads a local NVD store instead (reporting an explicit coverage gap in the scan rather than a silent clean; from Enterprise 1.2.1 that gap fails, as an evidence gap, the compliance controls the CVE rows map to), and `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / a local Ollama endpoint enable the opt-in AI analysis pass.
 
 ## Developing Plugins
 
@@ -906,6 +902,7 @@ Tests use Node.js built-in `--test` runner with the `assert` module — no exter
 | SYN scan requires root | Run with `sudo` or use TCP connect scanner (plugin 003) instead |
 | Webhook URL rejected | Private/loopback/cloud metadata blocked by SSRF guard. `NSA_ALLOW_ALL_HOSTS` does not lift this guard: use a public webhook URL |
 | EE plugins not loading | Verify `@nsasoft/nsauditor-ai-ee` is installed and license key is set |
+| An Enterprise package that fails to load (e.g. installed beside a Community older than its `peerDependencies` floor) | Since CE 0.2.56 it is named on stderr and recorded on the scan's conclusion; before that it left its plugins running while the scan skipped its intelligence, analysis-agent and compliance stages without a word. Install the Community version Enterprise requires |
 
 ---
 
@@ -953,7 +950,7 @@ NSAuditor AI is built on a **Zero Data Exfiltration (ZDE)** architecture:
 - **No data processing.** Nsasoft US LLC never sees, stores, or processes your scan results.
 - **AI is opt-in.** External AI calls use your own API keys. Redaction runs locally first, on by default (`OPENAI_REDACT=false` turns it off).
 - **License validation is offline.** JWT signature verified locally with an embedded public key.
-- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap in the scan rather than a silent clean when the store cannot answer (in Enterprise 1.2.0 that gap reaches no compliance control, so a control only the missing CVE rows would fail can read PASS). Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
+- **Air-gappable, once configured for it.** Scanning, analysis, license verification and evidence-pack generation all run with no outbound network access; Enterprise adds offline CVE matching from a local NVD store under `NSAUDITOR_OFFLINE_ONLY=1`, which emits an explicit coverage gap in the scan rather than a silent clean when the store cannot answer (from Enterprise 1.2.1 that gap fails, as an evidence gap, the compliance controls the CVE rows map to). Stated precisely because it matters operationally: a **default** scan still attempts NVD egress unless that variable is set. The other outbound paths — AI enrichment, the GRC push, the continuous-monitoring webhook, the opt-in RFC 3161 timestamping path (`NSAUDITOR_TSA_URL`, no default ever), and the AWS KMS signing path that ships but is not yet wired — are opt-in and off by default; the paths that are *not* optional are the scan target itself, your own cloud provider's APIs during a cloud scan, and DNS resolution of the target. All of them are enumerated with their trigger and default state in the egress register (EE `docs/architecture.md` §14.1.1), which is generated from code and guarded in both directions — deliberately, so this sentence never again has to carry a completeness claim that prose alone cannot keep true. Populating the local NVD store is the operator's; no feed data is delivered with the product. The prior absolute form of this bullet — *"Fully air-gappable. Every feature works without internet access (Enterprise includes offline NVD feeds)"* — is **WITHDRAWN** (CE 0.2.33): quoted here so the withdrawal record stays on this page now that release history lives in the [CHANGELOG](./CHANGELOG.md).
 
 Nsasoft US LLC is not a data processor, data controller, or business associate under any data protection regulation. You own and control all data produced by NSAuditor AI.
 

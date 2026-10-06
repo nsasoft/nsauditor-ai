@@ -18,10 +18,11 @@
 // A finding may be called RESOLVED only when its host, plugin, scope and framework enumeration
 // were in scope in BOTH runs. Otherwise it goes to NOT-COMPARABLE **with its reason** — never
 // into `resolved`, and never silently dropped.
-// ⚠️ 1.2.0 limit, boarded for 1.2.1: "plugin" is a PLUGIN row's own producer. An analysis agent's or the
-// CVE mapper's row is derived from other plugins' output, and whether those were requested in both runs
-// is NOT checked — narrow `--plugins` in one run and such a row goes into `resolved` (or `new`).
-// AGENT_SCOPE_FROM_TIER discloses it; tests/build6_delta_scope_honesty.test.mjs pins it until the check exists.
+// "plugin" is a PLUGIN row's own producer. An analysis agent's or the CVE mapper's row is derived from other
+// plugins' output: from Enterprise 1.2.1 a scan that left one of those plugins out RECORDS it (an input-gap record),
+// and the producer-gap leg refuses the row. A run made before EE 1.2.1 could not record that, so against one such a
+// row still goes into `resolved` (or `new`) — the legacy limit. AGENT_SCOPE_FROM_TIER and the row's Basis cell
+// disclose it; tests/build6_delta_scope_honesty.test.mjs pins both pairs.
 // Integrity is a fact about BYTES ON DISK, so the caller measures it with `utils/run_chain.mjs`
 // and passes the verdict in. Keeping it out of this module means the comparability rules can be
 // driven without a filesystem, and the chain can be driven without the delta.
@@ -930,11 +931,10 @@ export const SCOPE_NOT_EVALUATED =
 // away from — a digest over volatile prose reintroduces the volatility through the digest.
 export const AGENT_SCOPE_FROM_TIER =
   'Agent-produced findings: their scope is derived from the run TIER, plus the records a run writes when '
-  + 'Enterprise failed on a host, an agent did not run, or a requested plugin it reads did not complete — the '
-  + 'agent set is a function of the licensed capabilities, and a tier difference refuses the comparison outright '
-  + 'rather than narrowing it. What is NOT compared is whether the plugins an analysis agent or the CVE mapper '
-  + 'reads were REQUESTED in both runs: when the two runs requested different --plugins, such a row can read '
-  + 'resolved or new with nothing changed. Keep --plugins identical between compared runs. '
+  + 'Enterprise failed on a host, an agent did not run, or a plugin it reads was left out of the scan or did not '
+  + 'complete — the agent set is a function of the licensed capabilities, and a tier difference refuses the comparison '
+  + 'outright rather than narrowing it. A run made before EE 1.2.1 could not record a plugin left out of it, so in a '
+  + 'comparison with one, an agent row that run lacks is not refused; the row\'s Basis cell says so. '
   + 'Their IDENTITY is also narrower than a plugin finding\'s: an agent finding is keyed on host, '
   + 'producer, port and title, and on nothing else — it carries no object (resource), no region, '
   + 'no rule qualifier and NO CONTENT DIGEST. So two agent findings that differ only in text the '
@@ -981,11 +981,12 @@ function incomparabilityReason(f, mine, theirs, names) {
   // mode this engine was built to avoid on the other axis. Its scope is the run TIER, and the two
   // whole-comparison refusals above (`ee-presence-differs`, `tier-differs`) guarantee that by the
   // time control reaches here both sides carry Enterprise and the SAME tier, so the agent SET is
-  // identical on both. ⚠️ THAT DOES NOT MAKE AN AGENT ROW COMPARABLE (1.2.0 limit, boarded for
-  // 1.2.1): the agent — and the CVE mapper — derives its rows from other plugins' output, and those
-  // can differ at the same tier when `--plugins` was narrowed in one run. Nothing here checks them,
-  // so such a row reads resolved or new; AGENT_SCOPE_FROM_TIER says so. That per-finding INPUT check
-  // CAN fail through the shipped path — it is owed, not dead code.
+  // identical on both. ⚠️ THAT DOES NOT MAKE AN AGENT ROW COMPARABLE BY ITSELF: the agent — and the
+  // CVE mapper — derives its rows from other plugins' output, and those can differ at the same tier
+  // when `--plugins` was narrowed in one run. From Enterprise 1.2.1 the narrowed run RECORDS it (an
+  // input-gap record naming the plugin not requested) and the producer-gap leg below refuses the row;
+  // a run made before EE 1.2.1 records nothing, so against one such a row reads resolved or new —
+  // AGENT_SCOPE_FROM_TIER and the row's Basis cell say so.
   if (f.producerKind !== 'agent' && !theirs.plugins.has(f.plugin)) {
     // ⚠️ THE NOUN HERE IS A LITERAL `plugin` AND THAT IS CORRECT — but only because of the
     // `producerKind !== 'agent'` guard on this very line, which makes the branch unreachable for

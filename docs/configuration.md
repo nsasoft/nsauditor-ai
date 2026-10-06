@@ -118,9 +118,9 @@ rename will never happen.
 ```ini
 NSAUDITOR_OFFLINE_ONLY=1          # Exact match on '1'. Forbids outbound: CVE matching reads a local
                                   # NVD store and reports an explicit coverage gap in the scan rather
-                                  # than a silent clean (in Enterprise 1.2.0 that gap reaches no
-                                  # compliance control, so a control only the missing CVE rows would
-                                  # fail can read PASS). Also VETOES the two settings below —
+                                  # than a silent clean (from Enterprise 1.2.1 that gap fails, as an
+                                  # evidence gap, the compliance controls the CVE rows map to). Also
+                                  # VETOES the two settings below —
                                   # configuring an offline posture and an outbound destination
                                   # together is a startup error, never a quiet downgrade to weaker
                                   # evidence.

@@ -6,6 +6,231 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 0.2.57 (⏳ PRE-PUBLISH — opened 2026-10-05, NOT YET ON npm) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.2.1
+
+**The release:** the Pro delta no longer reads an analysis agent's row as fixed or new because one scan left out the
+plugin the agent reads — Enterprise 1.2.1 records the omission and the delta refuses the row — and a CVE or end-of-life
+row on a TCP port whose service the other scan could not identify is refused too; the client report's Basis cell says,
+row by row, what was checked. One table grades every finding a service check leaves on a record, and the Markdown report,
+SARIF, the CSV, `--fail-on`, the history count and the `--watch` webhook all read it; the concluder reaches the adapters
+it missed, and a check that did not run says NOT TESTED. The SSRF guard compares addresses by value in any spelling,
+checks every address a name resolves to, and checks a host the scanned target names before following it. **Two exit
+codes can move a pipeline:** `--fail-on` gates findings it never read, so a pipeline that passed may fail on findings
+that were always there; and `nsauditor-ai mcp verify-call <id>` without `--response` exits 3, not 0. **Enterprise 1.2.1
+requires this release** (`nsauditor-ai >= 0.2.57`): it imports names that first ship here (`tcpServiceMeasurement`,
+`IDENTIFYING_PRODUCERS`), and its MTTR reads this release's identity-basis declarations by value. Plugin counts UNCHANGED
+at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED. **This supersedes the 0.2.56 entry's "Not refused in
+this release" sentence** about scans run with different `--plugins`: from Enterprise 1.2.1 an analysis agent whose
+input plugin was left out of a scan records an input gap, so its rows are refused (`evidence-gap`). **Still not
+refused:** a scan made before Enterprise 1.2.1 could not record a plugin left out of it, so in a comparison with one, an
+agent's row that scan lacks is not refused — the report's Basis cell says so on the row; and a scan that discovered
+ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's row on a port it did not measure
+can read RESOLVED — include the port scanner (003).
+
+- **The client report's Basis cell says, row by row, what the delta checked.** The *Since Last Scan* table printed one
+  Basis sentence — host, plugin and scope present in both runs — beside every resolved, new and changed row, including
+  an analysis agent's or the CVE mapper's, whose plugin leg is never checked. A plugin's row keeps it. An agent's row
+  drops the plugin leg and names the run that LACKS the row — the baseline for a NEW row, this run for a RESOLVED one —
+  as having recorded no evidence gap from its producer covering it (the delta refuses the row when that run recorded
+  one, so the cell names one run, never "either"). A CVE or end-of-life row on a TCP port also carries the measurement:
+  the TCP decision's own basis (the service identified by program and version) or the closed-port basis — derived,
+  never typed. Where the run lacking an agent row predates Enterprise 1.2.1, the cell adds *"limit: … predates EE 1.2.1,
+  so it could not record an input plugin left out of the scan: an agent row it lacks is not refused"*; a run that
+  records no EE version says that instead. Versions compare numerically (`1.10.0` after `1.2.1`). **The delta result
+  gains two fields,** append-only under `SCAN_DELTA_SCHEMA = 1`: `baselineEeVersion` and `currentEeVersion`, each from
+  its own run record (`null` when it records none); README's `report --since` row documents the cell. New exports:
+  `NOT_REQUESTED_RECORD_SINCE_EE` (`'1.2.1'`), `tcpPortClosedBasis`.
+- **A CVE or end-of-life row on a TCP port whose service the other scan could not identify is NOT COMPARABLE.** The CVE
+  mapper matches on a service's program AND version, and Enterprise's service agent judges end-of-life on them; neither
+  writes anything for a service it cannot identify. With the SSH probe (002) left out, 22/tcp concludes `Unknown` /
+  `Unknown`, and every baseline CVE and end-of-life row on it read RESOLVED. Such a row on a TCP port the other scan's
+  port scanner saw open, where no open TCP record there carries a program and a version, now reads `port-not-measured`
+  in both directions, the detail naming the unidentified program and version — never RESOLVED, never NEW. 0.2.56's UDP
+  rule already held this for UDP. `tcpServiceMeasurement(port, producer, services, runName)` is exported beside
+  `udpPortMeasurement`, with `IDENTIFYING_PRODUCERS` (the CVE mapper, the service agent), so Enterprise's MTTR applies
+  the same decision. **Stated limits:** without the other scan's port scanner (003) or its service set the rule is
+  silent; the service agent's rows are held on TCP only (every program its table lists is TCP-served);
+  `vulnerability-data-changed`, the "newly attributed" note and the lookup-gap rule stay the CVE mapper's alone.
+  `NOT_COMPARABLE_REASONS` is unchanged (eleven members).
+- **Three Enterprise 1.2.1 title changes are declared, so a customer takes them as one straddle, once.** In the delta
+  an agent's identity is its title (host · producer · port · title), and a corrected title changes a row's identity.
+  Enterprise 1.2.1 makes the exposure agent's titles port-keyed (`Management port 22 (ssh) open` → `Management port 22
+  open`), so a label move like `(ssh)` → `(unknown)` is no longer a different finding; drops the version from the
+  service agent's end-of-life titles (`End-of-life OpenSSH 6.6p1 on port 22` → `End-of-life OpenSSH on port 22`), so a
+  version move that stays end-of-life is no longer one row resolved and one new; and corrects plugin 1160's
+  dimension-4 title, withdrawing a routing claim no rule matched. `IDENTITY_BASIS_CHANGED_AT` declares
+  `exposure_agent`, `service_agent` and `1160` at `'1.2.1'` in one release block: across the upgrade each such row reads
+  NOT COMPARABLE (`identity-basis-changed`), naming its producer; two scans on the same side of 1.2.1 compare as before.
+- **A CVE-mapper coverage NOTE that ended is never read as a fix, and Enterprise's new `cve_listed_without_version`
+  row is a note.** A note is the mapper's record of what it could not show on a service: a truncation (`[COVERAGE NOTE]
+  … CVEs truncated for <protocol>/<service>`) or, from Enterprise 1.2.1, a CVE NVD lists for a product only at version
+  NA (`-`), recorded as one `cve_listed_without_version` row instead of being attributed to every version. A note in the
+  baseline and absent now is NOT COMPARABLE (`evidence-gap`), its detail naming the class and saying nothing was fixed —
+  whether or not the service changed, since an upgrade also ends a note without remediating anything; a lookup-gap row
+  on one side only is already refused this way. An appearing note stays NEW, then UNCHANGED. `cve_listed_without_version`
+  is classified `note`, never `lookup-failed`: that kind refuses every CVE row on the port, and an NA-only CVE is on
+  every scan of its product, so the product's other CVEs could never resolve. `isEngineNoteRow` is exported beside
+  `isEngineLookupGap`. Supersedes the 0.2.56 limit "the mapper's coverage-note rows are outside the rule". **Stated
+  limit (one-time):** a baseline from Enterprise 1.2.0 or earlier holds an NA-only CVE as an ordinary CVE row; against a
+  scan whose service VERSION changed it reads RESOLVED (on an unchanged identity, `vulnerability-data-changed` refuses
+  it).
+- **The client executive report no longer carries the operator's directory layout from an Enterprise load error.** A
+  not-comparable detail embedded the load or enrichment error verbatim, absolute paths included. Each absolute path —
+  POSIX or Windows, `file://`, quoted (spaces included), unquoted ending in a module file, or with its closing quote cut
+  off — is reduced to its tail after the last `node_modules`, else to its basename when that is a file name (with an
+  extension) in a path of at least three components, else to `<local path>`, before the 200-character cap. The row
+  still names the module by its package-relative tail; the raw JSON and stderr keep the full message. **Stated
+  limits:** an unquoted path holding a space and no module extension is reduced only up to its first space
+  (`C:\Program Files\nsauditor\state` → `<local path> Files\nsauditor\state`) — Node quotes such paths, a hand-composed
+  message might not; a UNC path passes through; a short file path loses its name (`/etc/hosts` → `<local path>`).
+- **One table grades every service-check finding, and every reader reads it.** The Markdown report, SARIF, the CSV,
+  `--fail-on`, the history count and the webhook each kept their own list: `--fail-on` read neither weak TLS nor SNMP,
+  and none read the MCP flags, a self-signed or expired certificate, an SMB null session, or the TLS-certificate (040),
+  debug-endpoint (050) and DNS-security (060) audits. `utils/service_flags.mjs` grades each flag once, one finding PER
+  ITEM (a method, an algorithm, a protocol, a cipher, an audit entry), with its title, SARIF rule id and CSV token.
+  Grades: unchanged where one existed; an SNMP default community High; the MCP flags at the grades the MCP scanner
+  declares; a self-signed certificate Medium and an expired one High (Enterprise's crypto agent's grades); an SMB null
+  session High, provisionally, marked so on its row; each 040 / 050 / 060 entry at its own grade, and 060's SPF / DMARC
+  / NS verdict for the domain whether or not an unrelated port answered. **Behaviour changes:** `--fail-on` gates all of
+  these when those plugins run, so a pipeline that passes today may fail on findings that were always there; the
+  Markdown report lists one row per item (*Weak TLS protocol enabled: TLSv1.0*, *…: TLSv1.1*) where it grouped them,
+  and the CSV prints `weak_algorithms:<names>` where it printed a count; the four SARIF rule ids SARIF already graded are
+  unchanged. An open port is inventory: SARIF's *service detected* result is `note` (it was a Medium `warning` per
+  port), and `--fail-on` reads the same Info grade. Supersedes the 0.2.56 limits "SARIF and `--fail-on` read four flags
+  only" and "SARIF grades an open service medium", and its sentence that a default scan never trips `--fail-on high`.
+  **Stated limit:** one expired certificate can carry two grades — the TLS scanner (011) grades it High, the
+  certificate auditor (040) grades its own `cert_expired` Critical, and it is graded once, by 040 where 040's audit
+  landed — so it reads High when only 011 ran and Critical when 040 audited it. Re-grading 040 to match would make
+  `report --since` report every expired or self-signed certificate as changed across the upgrade, with nothing changed.
+- **What the concluder used to miss now reaches `scan_host`, the Markdown report and every reader.** It looked adapters
+  up by the slug of the plugin's NAME and read only a named `conclude`, so the NetBIOS/SMB scanner (014), the Nmap SYN
+  scanner (024) and the 040 / 050 / 060 auditors were never reached. It now resolves by plugin id — Community before
+  Enterprise before a custom `NSAUDITOR_PLUGIN_PATH` plugin reusing an id — reads `conclude` named or on the default
+  object, and lands what it reaches namespaced, never in a service's identity fields: 040's audit under `certAudit`
+  (no longer the negotiated protocol as a version), 050's findings under `tribeHealth` in one record (its per-finding
+  records, the CRITICAL among them, were dropped), 060's under `dnsSecurity` — on the 53/udp record when the scan found
+  a 53/udp service, else in the conclusion's evidence — and the SYN scanner's ports as program `Unknown`, not `nmap`;
+  a record without a positive port is evidence, never a service row. The HTTP probe (006) gains an adapter that lands
+  its record exactly where the fallback did and adds `methodsTested` / `allowedMethods` / `dangerousMethods`, so no key,
+  CPE, service count or delta identity moves. With Enterprise, its zero-trust assessment (1023) arrives as one score line
+  in the evidence; its per-dimension findings do not. UPnP and mDNS host names are read by plugin id (the UPnP lookup
+  had been unreachable). The Markdown report has its OS, Hostname and summary rows on a real scan, and `scan_host`'s
+  `pluginsRan` counts plugins that ran, from the manifest — not one per port plus error and skip envelopes. Supersedes
+  the 0.2.56 limit "the six unreachable adapters and 006's missing one".
+- **A check that did not run, or could not complete, reads NOT TESTED — never "none", "denied" or "refused".** Dangerous
+  HTTP methods read `[]` when OPTIONS failed or carried no Allow header; a zone-transfer timeout, TCP error, parse error
+  or empty close read `axfrAllowed: false` with a row saying "denied"; an FTP server that never greeted with 220 or
+  never answered read `anonymousLogin: false`; and an SMB null session read "refused" when the check was off, timed
+  out, hit a socket error or had its negotiate rejected. Each result is now `null` unless measured, with its state
+  beside it — `methodsTested` (true only where an Allow header was read), `axfrTested`, `anonymousLoginTested`,
+  `nullSessionTested`: `true` when measured, else the reason (`opt-in-off`, `no-domain`, `no-answer`). A measurement is
+  what the server said: records, an error RCODE, TCP/53 refusing the connection, a USER/PASS answer, a denied session
+  setup. The zone-transfer row reads *not measured — <why>*; the NetBIOS adapter's default for a missing result is
+  `null`, not `false`. The Markdown report prints one NOT TESTED line per check and reason with its targets (open
+  services only), and a record an earlier release wrote reads *did not record whether the check ran*. NOT TESTED is
+  never a finding: dangerous methods count (Medium) and trip `--fail-on` only where an Allow header was read.
+- **The `[ScanHistory]` line sees a service-check finding appear, clear, or go unmeasured.** It compared names,
+  versions and a net count, so a dangerous method appearing on a port was invisible. Each line written to
+  `scan_history.jsonl` now carries, per service, the table's comparison identity for each finding and, per applicable
+  check, whether it was measured, plus host-level checks (a domain's DNS posture) and a basis stamp. An item gone reads
+  CLEARED only where its check was measured this run, else NOT COMPARED with the reason; an item new reads APPEARED only
+  where its check was measured on the baseline, else FIRST OBSERVED; a check first measured now with nothing found is
+  said, not counted as a change; a weak cipher's absence never proves it cleared; a service absent now has its checks
+  said NOT COMPARED by port; one expired or self-signed certificate keeps one identity whether 011 or 040 graded it.
+  The first scan after upgrading says once that the baseline predates the release that first recorded the checks.
+  **Stated limit:** the history finding count and `report --since` read producers' findings and Enterprise's queue,
+  never a service record's flags — at Pro and Enterprise the analysis agents turn anonymous FTP, an SNMP default
+  community, weak TLS / SSH and the certificate flags into queue findings, which they do read; a dangerous method, a
+  zone transfer, an SMB null session or an MCP flag is seen there at no tier, and at the Community tier no flag is.
+- **`--watch` compares each host's real scan, and its webhook alerts a host that changed.** The loop compared each
+  host's scan OUTPUT, which carries no services, finding count or tier, so stdout read *No significant changes
+  detected.* over a real change and the webhook gate opened only when the host set changed. Now stdout names the change,
+  and a host alerts when its scan changed (a service, its finding count, or a service check alone) AND it carries a
+  finding at or above `--alert-severity`; the webhook posts one detail per FINDING with its own grade (it posted every
+  SERVICE at info), and a host with no such finding gets no alert. The first cycle sets the baseline and alerts nobody;
+  the new `--alert-every-cycle` alerts every host carrying such a finding on every cycle, the first included. A host
+  whose scan failed, or whose summary is missing on either side, is reported not comparable on stdout — never "No
+  changes", never "removed" — and does not alert in this release. A repeated host (`--host h,h`, or one also inside a
+  listed CIDR) made watch mode go silent with no error; it now scans each distinct host once per cycle (exact string,
+  first-occurrence order), the banner names the duplicates dropped, and a one-shot `--host X,X` still scans X twice.
+  Supersedes the 0.2.56 note that the webhook does not fire on a service, version or finding change. **Stated limit:**
+  the scheduler has no per-host timeout, so a scan that hangs stalls watch mode the same silent way.
+- **The SSRF guard compares addresses by value in any spelling, and refuses a name if ANY address it resolves to is
+  blocked.** `0:0:0:0:0:0:0:1`, `::ffff:7f00:1`, `::ffff:a9fe:a9fe`, `febf::1`, `0x7f000001`, `0177.0.0.1` and
+  `2130706433` read as not blocked, and a name was judged by its first answer. Always refused now: loopback,
+  unspecified, link-local, the metadata addresses (169.254.169.254, 100.100.100.200, fd00:ec2::254) and IPv4-compatible
+  `::/96`; private: 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7 — an IPv4 rule also matches the IPv4-mapped form.
+  Every answer is checked and a name that does not resolve is refused, the webhook guard included. On the CLI a
+  digits-only target (`6425673729`, which the OS truncates to 127.0.0.1) is resolved, not skipped. Over MCP the resolved
+  address is checked whether or not `NSA_ALLOW_ALL_HOSTS` is set — which admits private ranges only, never loopback,
+  link-local or metadata — and one host is taken: a CIDR or URL-shaped string is refused. `NSA_ALLOW_ALL_HOSTS` turns
+  on only for `1`, `true`, `yes` or `on` (any case), on the CLI and over MCP (`0` and `false` used to lift both
+  guards); on the CLI it still lifts the whole scan-entry guard, as documented. The LAN-only plugins (ARP, mDNS, UPnP,
+  WSD, ping) recognise private addresses in every spelling. Supersedes the 0.2.56 description under which a name
+  resolving to loopback or metadata got through over MCP with `NSA_ALLOW_ALL_HOSTS` set. **Stated limits:** the answer
+  is not pinned, so DNS rebinding between the check and the scan is not caught; a NAT64 `64:ff9b::/96` address
+  embedding a blocked IPv4 address is not classified.
+- **A host the scanned target names is checked before anything is fetched from it.** The webapp detector (010) follows
+  redirects itself, at most 5 hops: a hop to the host you named (any port, http or https) is followed; any other host
+  goes through the MCP guard's policy; another scheme is refused; a refused hop is a data row and no request is made.
+  `HTTP_EXTRA_HEADERS` go only to the origin you named — once a hop leaves it (host, scheme or port), none is sent
+  again, even when the chain comes back. The UPnP scanner (028) fetches a device description only over http or https
+  from the answering device's own address (`descriptionRefused` in the row and banner otherwise), and drops an
+  `ssdp:alive` announcement whose LOCATION is not on its sender before the UPnP library acts on it — deciding on the
+  library's own parse, refusing every announcement if that parser is missing, and counting the drops
+  (`upnpRefusedAnnouncements`). The OpenSearch scanner no longer follows redirects. The README's SSRF sentences say what
+  the guard covers. **Stated limit:** a checked name is resolved again by the request (no DNS pin).
+- **A credential or session token a scan meets no longer reaches its artifacts.** With `SNMP_COMMUNITY` set, the
+  operator's community string reached the raw result, the evidence row, the record, SARIF and every reader, and the
+  CSV printed it as `default_community:<secret>`. A community is now recorded by name only when it is a default (a
+  default answering IS the finding); any other string is recorded as `custom`, and one that answered sets
+  `communityCustom: true`; the CSV prints `default_community` only for a default. The HTTP probe (006) kept
+  `Set-Cookie` among its fingerprinting headers, so session tokens reached the raw results written to the artifacts:
+  each cookie's VALUE is now `<redacted>` (name and attributes kept, every cookie, every occurrence) and a `Location`
+  URL loses its query and fragment, at the producer — and the AI redactor redacts Set-Cookie values in every string it
+  scrubs. **Stated limits:** the webapp detector (010) still reflects its response headers in its own results, so for
+  it only the AI path is redacted; a raw result an earlier release wrote is not rewritten — the SNMP adapter masks the
+  community field and carries that result's evidence rows as written.
+- **A hostname, OS string or banner a network host chose renders as text in the Markdown report.** Those values — an
+  mDNS or UPnP name, a `Server` header — reach the OS, Hostname and summary rows and the service cells, and the escaper
+  covered only `|`, the backtick and newlines, so a hostile name rendered as a live link, a remote image or a script.
+  Every cell now backslash-escapes `\`, the backtick, `*`, `_`, `[`, `]`, `<`, `>`, `!`, `|` and `~` (dots, slashes,
+  hyphens and colons untouched); a finding's heading, which can carry a host-chosen program and version, is escaped as a
+  whole; a value's own backslash cannot unescape the escape.
+- **`nsauditor-ai mcp verify-call` checks the response TEXT, not only its id — an id alone now exits 3, not 0.** A hit
+  in `~/.nsauditor/mcp-calls.log` used to verify, so a real logged id pasted under a fabricated response passed. The
+  server now also logs a SHA-256 digest of each response body (never printed; the footer reads `── MCP call receipt ──`)
+  and `verify-call <id> --response <file|->` recomputes it, ignoring whitespace and word-exact, cutting at the LAST
+  receipt marker so a body that itself carries the marker still verifies. Exit **0** verified (with the tool and the
+  call's age), **1** refuted (never issued, or different text — re-copy the raw output), **2** usage, **3** the id was
+  issued but no text was supplied, or the call predates response binding. ⚠️ A script reading exit 0 from `verify-call
+  <id>` now reads 3. **Stated limits:** a rendered copy refutes; whitespace-only differences inside code blocks are not
+  seen; a verbatim replay of an OLD genuine response verifies, with its age shown.
+- **Liveness is decided on an answer; silence reads "no evidence", never "down".** The host-up check's UDP leg counted
+  a successful send as UP; it now settles on an ICMP port-unreachable, a reply, an error, or a 3-second timeout (*no
+  evidence either way*). The port scan (003) now runs even when nothing earlier found the host up, and its `up` means a
+  port answered, open or refused — timeouts, unreachables and other socket errors no longer count. Skips and the summary
+  read *no evidence the host is up* where they read "host not up" / "Host appears DOWN". **Cost:** up to 3 s on each run
+  of the host-up check (005) in which nothing answers on UDP; 005 runs only when nothing before it said up.
+- **The HTTP probe keeps `Strict-Transport-Security` on its HTTPS record, and `--ports` reaches the webapp detector.**
+  No plugin supplied an HTTP response header, so Enterprise's crypto agent's Missing-HSTS check never fired. The HTTP
+  probe (006) now carries that one header on its port-443 HTTPS record, only where a response arrived (no response, no
+  `headers` key — an empty map would fabricate "Missing HSTS"), never for port 80, with its service name unchanged. The
+  CLI's `--ports` string now reaches the webapp detector (010): each added TCP port is tried after `https:443` and
+  `http:80`, both schemes; a `/udp` entry adds no URL. **Stated limits:** the header is read on port 443 only, and only
+  where the HTTPS response was received (a certificate the client rejects needs `--insecure-https`); 010 runs only when
+  TCP 80 or 443 is open and stops at the first URL that answers, so an added port is tried only when neither answers.
+- **Smaller corrections.** The output-directory collision warning says the other scan *finished its plugin runs* in the
+  same second, not "started" — superseding the 0.2.56 note that it still said "started". A working-directory
+  `config/services.json` that exists but yields no ports (unparseable, empty, or unknown keys) still falls back to the
+  package's port set, now with one stderr warning naming it by its relative path — never the absolute working
+  directory, and not when the scan is refused. A UDP row opens its port for a `udp_open`-gated plugin only when it
+  answered: its own status decides (`open` only; `no-response` and `closed` do not), else positive text screened for
+  negatives, so *No UDP response* and *No SNMP response for community …* no longer run a gated plugin over a silent port
+  (an extra run, never a false clean). A plugin the manager skips on its requirements or a missing capability reads
+  `skipped` in `pluginRunStatus`, where it had no entry — the state reserved for "never requested"; on the shipped
+  plugin set the wrong reading was latent.
+
 ## 0.2.56 (2026-10-04) — the delta refuses five more ways a finding could read as fixed without being fixed; paired with Enterprise 1.2.0
 
 **The release:** the Pro delta refuses five more ways a finding could read as fixed without being fixed: a UDP service
