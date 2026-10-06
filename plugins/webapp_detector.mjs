@@ -2,7 +2,9 @@
 // New plugin: Webapp Detector
 // Uses the in-house zero-dep fingerprinter (utils/tech_fingerprint.mjs) to identify
 // web applications present on a host.
-// Tries HTTPS first (port 443), then HTTP (port 80), and can also try custom ports via opts.ports.
+// Tries https:443, then http:80, then each TCP port --ports adds (both schemes), and stops at the first that answers.
+// THE REACH, stated: 010 runs only when TCP 80 or 443 is open; an added port is tried after https:443 and http:80 and
+// only if neither answers (1.2.1 item 12 — the CLI's --ports string never reached this plugin before).
 // NOTE: Unlike http_probe, undici/fetch cannot ignore TLS easily per-request, so self-signed
 // HTTPS will usually fail and the plugin will fall back to HTTP.
 //
@@ -29,6 +31,7 @@
 
 import { fingerprint } from '../utils/tech_fingerprint.mjs';
 import { canonicalIp, classifyAddress, resolveAndValidate, allowAllHosts } from '../utils/net_validation.mjs';
+import { parsePortsSpec } from '../utils/ports_spec.mjs';
 
 const DEBUG =
   String(process.env.DEBUG_MODE || '').toLowerCase() === '1' ||
@@ -139,6 +142,17 @@ async function fetchOnce(url, signal) {
   }
 }
 
+/**
+ * The TCP ports --ports adds, in every form a caller passes: the CLI's string ('8443,9090/udp'), an array, or
+ * { tcp, udp }. One grammar with the port scanner (utils/ports_spec.mjs); a /udp entry adds no URL.
+ */
+export function addedTcpPorts(spec) {
+  if (typeof spec === 'string') return parsePortsSpec(spec).tcp;
+  if (Array.isArray(spec)) return parsePortsSpec(spec.join(',')).tcp;
+  if (spec && typeof spec === 'object' && Array.isArray(spec.tcp)) return parsePortsSpec(spec.tcp.join(',')).tcp;
+  return [];
+}
+
 async function tryDetectAt(url) {
   const ctrl = new AbortController();
   const timeoutMs = Number(process.env.WAPPALYZER_TIMEOUT_MS || 15000);
@@ -195,8 +209,9 @@ export default {
 
   /**
    * @param {string} host - target hostname or IP
-   * @param {number} port - optional hint (ignored; detection tries 443 then 80 unless opts.ports provided)
-   * @param {object} opts - options: { ports?: number[] }
+   * @param {number} port - the port the manager dispatched (ignored: each run walks the whole candidate list — the double
+   *   fetch when 80 and 443 are both open is boarded with the per-port dispatch)
+   * @param {object} opts - options: { ports?: string | number[] | { tcp, udp } } — the CLI passes its --ports string
    */
   async run(host, port = 0, opts = {}) {
     const result = {
@@ -220,8 +235,8 @@ export default {
       set.add(`${proto}://${target}${portPart}/`);
     };
 
-    // If specific ports given, try both schemes for each; else default to 443 then 80
-    const ports = Array.isArray(opts.ports) && opts.ports.length ? opts.ports : [443, 80];
+    // https:443 and http:80 first, then each TCP port --ports ADDS (both schemes) — never in place of the defaults.
+    const ports = [443, 80, ...addedTcpPorts(opts.ports).filter((p) => p !== 443 && p !== 80)];
     for (const p of ports) {
       if (p === 443) addUrl('https', 443);
       else if (p === 80) addUrl('http', 80);
