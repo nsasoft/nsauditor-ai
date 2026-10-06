@@ -119,6 +119,16 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   had been unreachable). The Markdown report has its OS, Hostname and summary rows on a real scan, and `scan_host`'s
   `pluginsRan` counts plugins that ran, from the manifest — not one per port plus error and skip envelopes. Supersedes
   the 0.2.56 limit "the six unreachable adapters and 006's missing one".
+- **The DNS-posture audit (060) declines an IP-address target.** It audits a domain's SPF, DMARC, DKIM, NS, DNSSEC, CAA
+  and wildcard records, and it runs on every default scan. Given an IP literal it queried the address as a name, and
+  each NXDOMAIN answer became a finding: missing SPF, missing DMARC and no NS records (HIGH), no DKIM selector and no
+  DNSSEC (MEDIUM), no CAA (LOW). Through 0.2.56 none of these reached `--fail-on`, and the concluder recorded an open
+  53/tcp `dns` service on the address that no probe had touched. With the concluder change above, that port is no
+  longer invented and the six findings reached the graded table, so `--fail-on high` exited 1 on every default scan of
+  an IP address. 060 now returns a recorded decline instead — status `skipped`, reason "DNS posture needs a domain name
+  — <host> is an IP address, which has no SPF, DMARC or NS records to audit" — and makes no DNS query. A hostname that
+  resolves to an address, `localhost` included, is a domain and still runs. The history line's count already included
+  these findings through 0.2.56 (it counts the audit's informational result too); for an IP target it now counts none.
 - **A check that did not run, or could not complete, reads NOT TESTED — never "none", "denied" or "refused".** Dangerous
   HTTP methods read `[]` when OPTIONS failed or carried no Allow header; a zone-transfer timeout, TCP error, parse error
   or empty close read `axfrAllowed: false` with a row saying "denied"; an FTP server that never greeted with 220 or

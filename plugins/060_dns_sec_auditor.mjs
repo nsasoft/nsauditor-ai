@@ -842,6 +842,13 @@ export default {
 
   // ── Main Execution ──────────────────────────────────────────────────────
   async run(host, port, opts = {}) {
+    // 0.2.57: an IP LITERAL is DECLINED, with its reason on the plugin's status. Queried as a name it answers NXDOMAIN to
+    // every record type, and each absence became a finding (missing SPF / DMARC / NS at HIGH) on every default scan of
+    // an address. Only the literal is declined: a hostname that resolves to an address — localhost too — is a domain.
+    if (net.isIP(String(host)) !== 0) {
+      return { up: false, skipped: true,
+        reason: `DNS posture needs a domain name — ${host} is an IP address, which has no SPF, DMARC or NS records to audit` };
+    }
     const config = loadConfig(opts);
     const startTime = Date.now();
 
