@@ -379,3 +379,19 @@ test('(s2) the open-service grade is ONE declared constant, and both readers mov
     assert.match(src, /\bOPEN_SERVICE_SEVERITY\b/, `${rel} uses the constant, not only imports it`);
   }
 });
+
+// ── PINNED, NOT ENDORSED — one certificate, two grades (board: the cross-producer severity ruling, with Q3) ──────────
+// 011's expired-certificate flag grades High (derived from Enterprise crypto_agent's grade of the same flag); 040 grades
+// its own `cert_expired` CRITICAL. With the dedupe, the SAME expired certificate on the SAME port reads High when only
+// 011 ran and Critical when 040 audited it. Aligning 040 here was ruled and then CORRECTED: 040's raw findings feed
+// `report --since`, which pairs on identity and reports a severity move as `changed`, so a producer regrade would report
+// every expired certificate as improved across 1.2.0 → 1.2.1 with nothing changed on the estate. The straddle
+// declaration (a refusal for a regraded check across the boundary) is the PREREQUISITE of the operator's single ruling
+// across 011, 040, crypto_agent and the queue. When it lands, this leg flips to EQUALITY — re-state it, never delete it.
+test('PINNED, NOT ENDORSED: the same expired certificate grades High from 011 alone and Critical when 040 audited it', () => {
+  const onlyTls = graded({ certExpiry: PAST });
+  const withAudit = graded({ certExpiry: PAST, certAudit: { severity: 'critical',
+    issues: [{ severity: 'critical', check: 'cert_expired', detail: 'expired' }] } });
+  assert.deepEqual(onlyTls.map((f) => [f.key, f.severity]), [['certExpiry', 'High']]);
+  assert.deepEqual(withAudit.map((f) => [f.key, f.severity]), [['certAudit', 'Critical']]);
+});
