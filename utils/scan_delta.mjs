@@ -349,6 +349,12 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // rows one count-free title with the count in details. Both put new values into `keyOf` — `port`, `title` — which
   // CHANGES WHAT THOSE FINDINGS ARE, so the straddle is declared like 1040's region stamp.
   1023: '1.1.0',
+  // ⚠️ 1160 JOINS AT 1.2.1 — THE 1110 KIND, A TEXT CORRECTION (B4-8a). Its dimension-4 row (endpoint type substrate) said
+  // "Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation", and no rule in any pack matches that title;
+  // the claim was WITHDRAWN at 1.2.1. The issue IS the title, so every dim-4 row straddling the upgrade would otherwise read
+  // as one finding resolved and a new one appearing. Enterprise's instrument cannot measure this mover — its corpus account
+  // has no VPC endpoints — so it is premised there on REACH (the 1023 precedent), and the premise goes false the day it can.
+  1160: '1.2.1',
   // ⚠️ AN ANALYSIS AGENT, NOT A PLUGIN, AND THE FIRST NON-NUMERIC KEY THIS TABLE HAS HELD. A
   // finding from Enterprise's finding QUEUE emits no resource, no region, no identity qualifier
   // and no content digest, so `keyOf` reduces to `host · producer · port · TITLE` — the title IS

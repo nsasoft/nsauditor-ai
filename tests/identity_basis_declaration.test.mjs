@@ -147,6 +147,32 @@ test('ONE-DIRECTIONAL — and the OTHER way: a NEWER baseline against an OLDER c
   assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed']);
 });
 
+// ── 1160: THE 1110 KIND AT 1.2.1 — its dimension-4 text claimed a routing no pack makes (B4-8a) ─────────────────────
+// The type-substrate row said "Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation"; no rule in any
+// pack matches that title, so the claim was WITHDRAWN at 1.2.1. The issue IS the title, so the row's identity moved:
+// every dim-4 row straddling the upgrade would otherwise read as one finding resolved and a new one appearing.
+const OLD_1160 = "VPC endpoint 'vpce-1' is a Interface-type endpoint for service 'svc' in VPC 'vpc-1'. Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation — traffic to the named service routes internally via ENIs in the listed subnets.";
+const NEW_1160 = "VPC endpoint 'vpce-1' is a Interface-type endpoint for service 'svc' in VPC 'vpc-1' — traffic to the named service routes internally via ENIs in the listed subnets. Substrate disclosure only: this row is routed to no control.";
+const D1160 = (title, over = {}) => F({ plugin: '1160', pluginName: 'vpce', resource: 'vpce-1', title, severity: 'INFO', contentDigest: title, ...over });
+const side1160 = (record, findings) => ({ ...side(record, findings), pluginStatus: [{ host: 'aws', plugin: '1160', status: 'ran' }] });
+const REC1160 = (eeVersion) => REC({ eeVersion, pluginsRequested: ['1160'] });
+
+test('1160 — a 1.2.0 dimension-4 row whose TEXT was corrected at 1.2.1 is IDENTITY-BASIS-CHANGED, never resolved', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT['1160'], '1.2.1');
+  const d = buildScanDelta({ baseline: side1160(REC1160('1.2.0'), [D1160(OLD_1160)]), current: side1160(REC1160('1.2.1'), [D1160(NEW_1160)]) });
+  assert.equal(d.resolved.length, 0, 'the row did not go away — its routing claim was withdrawn');
+  assert.equal(d.newFindings.length, 0);
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
+  for (const nc of d.notComparable) assert.match(nc.detail, /1160/);
+});
+
+test('1160, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old text', () => {
+  const after = buildScanDelta({ baseline: side1160(REC1160('1.2.1'), [D1160(NEW_1160)]), current: side1160(REC1160('1.2.1'), []) });
+  assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
+  const before = buildScanDelta({ baseline: side1160(REC1160('1.2.0'), [D1160(OLD_1160)]), current: side1160(REC1160('1.2.0'), []) });
+  assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
+});
+
 test('the TABLE is exported and every entry names a version the comparison can order', () => {
   assert.ok(IDENTITY_BASIS_CHANGED_AT && typeof IDENTITY_BASIS_CHANGED_AT === 'object');
   const entries = Object.entries(IDENTITY_BASIS_CHANGED_AT);
@@ -352,14 +378,19 @@ test('the DECLARED SET is exactly this, and a deletion fails as loudly as an add
   // MOVED DELIBERATELY at EE 1.1.0 build 12: 1023 ADDED — its port-gated rows gained `port` and its exposure rows lost
   // the count from their title, both components of `keyOf` (audit seat ruling (B), batched with the rest at 1.1.0 so
   // 1023 takes ONE straddle). Fourteen producers: thirteen plugins, one agent.
-  const EXPECTED = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
+  // MOVED DELIBERATELY at 1.2.1 (B4-8a): 1160 ADDED at '1.2.1' — the 1110 kind, a TEXT correction: its dimension-4 row's
+  // "Privacy + CC6.6" routing claim was withdrawn, and the issue is the title. The first member declared at a release
+  // other than 1.1.0, so the pin now carries each member's VERSION rather than assuming one. Fifteen producers:
+  // fourteen plugins, one agent.
+  const AT_1_1_0 = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
-  assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), [...EXPECTED].sort(),
+  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1' };
+  assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), Object.keys(EXPECTED).sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
     + 'REMOVED, stop: every finding that straddles its change silently becomes comparable again, '
     + 'which is the false-remediation class this whole table exists to prevent.');
-  for (const k of EXPECTED) {
-    assert.equal(IDENTITY_BASIS_CHANGED_AT[k], '1.1.0',
-      `${k} is declared at a version other than the one this release ships`);
+  for (const [k, version] of Object.entries(EXPECTED)) {
+    assert.equal(IDENTITY_BASIS_CHANGED_AT[k], version,
+      `${k} is declared at a version other than the release whose change it records`);
   }
 });
