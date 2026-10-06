@@ -1084,14 +1084,20 @@ function incomparabilityReason(f, mine, theirs, names) {
   // ⚠️ THE SAME PROGRAM AND VERSION ANSWERED IN BOTH RUNS, AND ONE OF THEM HOLDS A CVE ROW THE OTHER DOES NOT (1.2.0
   // build 2). DISAPPEARED only: a newly attributed CVE is new knowledge about an exposure that is real now, so it stays
   // NEW and carries a basis note instead (`withNewBasis`). After the port and UDP legs, so a port that was not measured
-  // keeps its own reason; the mapper's CVE rows only — its gap and note rows carry a `gapClass` and are not attributions.
-  if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && port > 0 && names.mine === RUN_NAMES.baseline) {
+  // keeps its own reason; the mapper's CVE rows — and, since 1.2.1 (B6-4f), its coverage NOTES, which are its account of
+  // what it could not show on the service, so one that vanished on an unchanged service is the data changing too. Its
+  // LOOKUP-GAP rows stay outside: their own leg refuses them as evidence-gap.
+  const mapperNote = f.gapClass != null && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'note';
+  if (f.plugin === CVE_MAPPER_PRODUCER && (!f.gapClass || mapperNote) && port > 0 && names.mine === RUN_NAMES.baseline) {
     const was = serviceIdentityAt(mine.portState?.get(hostKey(f.host))?.services, port, f.protocol);
     const now = serviceIdentityAt(theirs.portState?.get(hostKey(f.host))?.services, port, f.protocol);
     if (sameServiceIdentity(was, now)) {
       return { reason: VULNERABILITY_DATA_CHANGED_REASON,
         detail: `the same ${now.program} ${now.version} answered on ${port}/${now.transport} on ${f.host} in both runs, and `
-          + 'the CVE mapper attributes a CVE on the program and version alone — so this row\'s absence is a change in the '
+          + (mapperNote
+            ? 'this is the CVE mapper\'s coverage note — its account of what it could not show on that service, drawn from '
+              + 'the program and version alone — so its absence is a change in the '
+            : 'the CVE mapper attributes a CVE on the program and version alone — so this row\'s absence is a change in the ')
           + 'vulnerability data it was matched against, not a remediation. Vulnerability data — '
           + `${names.mine}: ${vulnerabilityDataSource(mine.nvdCache)}; ${names.theirs}: ${vulnerabilityDataSource(theirs.nvdCache)}. `
           + 'It is NOT reported as fixed — confirm against the vendor\'s advisory.' };
