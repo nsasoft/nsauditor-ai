@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { responseDigest, RECEIPT_MARKER } from './utils/mcp_call_digest.mjs';
 import { appendFile, mkdir, chmod } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -175,10 +176,11 @@ export function buildScanCloudRegionIntent(regions) {
 //   1. Embedded in the response text (Claude cannot omit; it's the payload)
 //   2. Persisted to ~/.nsauditor/mcp-calls.log (append-only, mode 0600)
 //
-// Customer verification: paste the UUID from Claude into
-//   nsauditor-ai mcp verify-call <uuid>
-// If it appears in the local log → real call. If not → hallucinated.
-// (See cli.mjs `verify-call` subcommand.)
+// Customer verification: save the response (footer included) and run
+//   nsauditor-ai mcp verify-call <uuid> --response <file>
+// The id alone proves only that this server issued it once — an AI client that has seen an earlier response can paste
+// a real id under a fabricated one. So the server also logs a digest of each response BODY (utils/mcp_call_digest.mjs),
+// and verify-call recomputes it from the saved text (1.2.1 (s6)). See cli.mjs `verify-call`.
 const MCP_CALL_LOG_PATH = join(homedir(), '.nsauditor', 'mcp-calls.log');
 
 async function recordToolCall(toolName) {
@@ -200,11 +202,20 @@ async function recordToolCall(toolName) {
 }
 
 function appendCallSentinel(text, callId) {
+  // The digest of the BODY — the text the receipt is appended to — is what binds this response to its id. It is
+  // logged, never printed: a digest in the footer would replay together with the id. Best-effort like the id line: a
+  // failed write leaves the call verifiable only as "issued", never as a false ✓.
+  try {
+    _nodeFs.appendFileSync(MCP_CALL_LOG_PATH, JSON.stringify({ call_id: callId, digest: responseDigest(text) }) + '\n', { encoding: 'utf8' });
+  } catch (err) {
+    process.stderr.write(`[nsauditor-mcp] call-log digest write failed: ${err.message}\n`);
+  }
   return (
-    `${text}\n\n── Verified MCP call ──\n` +
+    `${text}\n\n${RECEIPT_MARKER}\n` +
     `call_id: ${callId}\n` +
-    `Verify (proves Claude actually called this server, not hallucinated):\n` +
-    `  nsauditor-ai mcp verify-call ${callId}`
+    `To check that this exact response came from this server, save the whole response (footer included)\n` +
+    `to a file and run:\n` +
+    `  nsauditor-ai mcp verify-call ${callId} --response <file>`
   );
 }
 
@@ -891,10 +902,9 @@ export function createServer() {
       };
     }
 
-    // CE 0.1.36 (Thread L Phase 2): mint a per-call sentinel UUID and
-    // log it BEFORE the Pro-gate so even denials prove the call hit
-    // the server. Fabricated responses cannot include a UUID that
-    // exists in the customer's local log file.
+    // CE 0.1.36 (Thread L Phase 2): mint a per-call UUID and log it BEFORE the Pro-gate, so even a denial shows the
+    // call hit the server. The id alone does NOT authenticate a response — a fabricated response can carry a real id
+    // copied from an earlier one — so the receipt also logs a digest of the body (appendCallSentinel, 1.2.1 (s6)).
     const callId = await recordToolCall(name);
 
     // Gate Pro-tier tools at the MCP dispatch layer

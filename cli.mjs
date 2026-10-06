@@ -2678,29 +2678,44 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         }
       }
     } else if (subCmd === 'verify-call') {
-      // CE 0.1.36 (Thread L Phase 2): cryptographic ground truth for
-      // "did Claude actually call the MCP server, or hallucinate a
-      // response?" Server mints a fresh UUID per tools/call, embeds it
-      // in the response text, AND appends to ~/.nsauditor/mcp-calls.log.
-      // Customer pastes the UUID here; we grep the log. UUID present →
-      // proven real call. UUID absent → fabricated (or log was rotated/
-      // deleted; we say "unverifiable" rather than "fake").
+      // 1.2.1 (s6): BIND THE RESPONSE TEXT, not only the id. The server logs each call's id and a digest of the response
+      // body (utils/mcp_call_digest.mjs); this recomputes the digest from the text the user saved. The id alone proves
+      // only that the server issued it once — an AI client that has seen an earlier response can paste a real id under
+      // a fabricated one — so an id with no text is INDETERMINATE, never "verified".
+      // Exit: 0 verified · 1 refuted (never issued, or the text does not match) · 2 usage · 3 indeterminate.
       const { readFile, stat } = await import('node:fs/promises');
       const { join: _join } = await import('node:path');
       const { homedir: _homedir } = await import('node:os');
+      const { responseDigest, bodyOf } = await import('./utils/mcp_call_digest.mjs');
       const logPath = _join(_homedir(), '.nsauditor', 'mcp-calls.log');
       const uuid = rawArgs[2];
-      if (!uuid) {
-        console.error('Usage: nsauditor-ai mcp verify-call <uuid>');
-        console.error('  Paste the call_id from the MCP tool response footer.');
+      const respAt = rawArgs.indexOf('--response');
+      const respPath = respAt > 0 ? rawArgs[respAt + 1] : null;
+      if (!uuid || (respAt > 0 && !respPath)) {
+        console.error('Usage: nsauditor-ai mcp verify-call <uuid> --response <file|->');
+        console.error('  Save the whole tool response (footer included) to a file, or pipe it in with --response -.');
         process.exit(2);
       }
-      // Conservative UUID v4 shape check — avoid grepping the log with
-      // arbitrary user input.
+      // Conservative UUID v4 shape check — avoid grepping the log with arbitrary user input.
       if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(uuid)) {
         console.error(`✗ Not a valid UUID: ${uuid}`);
         console.error('  Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
         process.exit(2);
+      }
+      let responseText = null;
+      if (respPath) {
+        try {
+          if (respPath === '-') {
+            const chunks = [];
+            for await (const c of process.stdin) chunks.push(c);
+            responseText = Buffer.concat(chunks).toString('utf8');
+          } else {
+            responseText = await readFile(respPath, 'utf8');
+          }
+        } catch (err) {
+          console.error(`✗ Could not read the response from ${respPath}: ${err.message}`);
+          process.exit(2);
+        }
       }
       let logExists = false;
       try { await stat(logPath); logExists = true; } catch { /* missing */ }
@@ -2714,33 +2729,50 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       const raw = await readFile(logPath, 'utf8');
       // Look for an exact JSON-string match on call_id to avoid prefix collisions.
       const needle = `"call_id":"${uuid.toLowerCase()}"`;
-      const lines = raw.split('\n').filter((l) => l.includes(needle));
-      if (lines.length === 0) {
+      const entries = raw.split('\n').filter((l) => l.includes(needle))
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      if (entries.length === 0) {
         console.log(`✗ call_id not found in ${logPath}`);
         console.log('');
         console.log(`  ${uuid}`);
         console.log('');
         console.log('  This UUID was NOT issued by this MCP server. Most likely cause:');
-        console.log('  Claude Desktop fabricated the response without invoking the server.');
-        console.log('  (See README §"Verifying that Claude actually called the MCP server".)');
+        console.log('  the AI client fabricated the response without invoking the server.');
+        console.log('  (See docs/mcp-verification.md.)');
         process.exit(1);
       }
-      try {
-        const entry = JSON.parse(lines[lines.length - 1]);
-        console.log(`✓ Verified MCP call`);
-        console.log(`  call_id: ${entry.call_id}`);
-        console.log(`  tool:    ${entry.tool}`);
-        console.log(`  ts:      ${entry.ts}`);
-        console.log(`  log:     ${logPath}`);
-        console.log('');
-        console.log('  This UUID was issued by the local MCP server, so the response');
-        console.log('  bearing it was a genuine tool call (not a hallucination).');
-        process.exit(0);
-      } catch {
-        console.log(`✓ Verified MCP call (matched ${lines.length} log line(s) for this UUID)`);
+      const issued = entries.find((e) => e.tool) ?? entries[0];
+      const ago = (() => {
+        const ms = Date.now() - Date.parse(issued.ts ?? '');
+        if (!Number.isFinite(ms)) return 'at an unrecorded time';
+        const units = [['day', 86400000], ['hour', 3600000], ['minute', 60000]];
+        for (const [u, n] of units) if (ms >= n) { const k = Math.floor(ms / n); return `${k} ${u}${k === 1 ? '' : 's'} ago`; }
+        return 'less than a minute ago';
+      })();
+      const issuedLine = `${issued.tool ?? 'an unrecorded tool'}, issued ${ago} (${issued.ts ?? 'no timestamp'})`;
+      const digests = entries.map((e) => e.digest).filter((d) => typeof d === 'string');
+      if (digests.length === 0) {
+        console.log(`? call_id ${uuid} was issued by this server for ${issued.tool ?? 'an unrecorded tool'} ${ago} (${issued.ts ?? 'no timestamp'}).`);
+        console.log('  This call predates response binding: no digest of its response was recorded, so the text');
+        console.log('  cannot be bound to it. The id alone does not verify a response.');
+        process.exit(3);
+      }
+      if (responseText == null) {
+        console.log(`? call_id ${uuid} was issued by this server for ${issued.tool ?? 'an unrecorded tool'} ${ago} (${issued.ts ?? 'no timestamp'}).`);
+        console.log('  That alone does not verify the text you are reading: an id from an earlier response can be');
+        console.log('  pasted under a fabricated one. Save the raw tool response and run:');
+        console.log(`    nsauditor-ai mcp verify-call ${uuid} --response <file>`);
+        process.exit(3);
+      }
+      if (digests.includes(responseDigest(bodyOf(responseText)))) {
+        console.log(`✓ This response text was produced by this server for that call — ${issuedLine}.`);
         console.log(`  log: ${logPath}`);
         process.exit(0);
       }
+      console.log(`✗ The text does not match what this server sent for that call (${issuedLine}).`);
+      console.log('  Either it was altered after copying (rendering, re-wrapping) or it was not produced by this');
+      console.log('  call — re-copy the RAW tool output and verify again.');
+      process.exit(1);
     } else {
       console.log('Usage:');
       console.log('  nsauditor-ai mcp install-key            Generate a new key, persist, print Claude config');
@@ -2749,7 +2781,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('  nsauditor-ai mcp rotate-key             Replace the stored key with a fresh one');
       console.log('  nsauditor-ai mcp status                 Show storage source without revealing the key');
       console.log('  nsauditor-ai mcp tier                   Print actual MCP server tier (ground truth, bypasses Claude AI synthesis)');
-      console.log('  nsauditor-ai mcp verify-call <uuid>     Prove a tool response came from the real MCP server (not Claude hallucination)');
+      console.log('  nsauditor-ai mcp verify-call <uuid> --response <file|->   Check that a saved tool response is the text this server produced for that call');
       console.log('');
       console.log('Environment variables:');
       console.log(`  ${MCP_AUTH_ENV_VAR}        Read by mcp_server.mjs at startup; client supplies via Claude config`);
