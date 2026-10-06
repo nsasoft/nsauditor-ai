@@ -1024,6 +1024,17 @@ function incomparabilityReason(f, mine, theirs, names) {
         + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol} (${f.gapClass}), present in only one of the `
         + 'two runs — a coverage gap that opened or cleared, not an exposure that appeared or was fixed.' };
   }
+  // ⚠️ A COVERAGE NOTE THAT ENDED IS NOT A REMEDIATION (1.2.1, the audit seat's ruling P — the precedent just above). A
+  // note is the mapper's own record of what it could not show on a service (a truncation; a CVE NVD lists for the product
+  // only at version NA). Its ending fixed nothing, whether or not the service changed: an upgrade ends a note without
+  // remediating anything, and the CVE rows carry the upgrade's signal — so this is answered BEFORE the identity rule. The
+  // VANISHED direction only: a note that appears is a disclosure to be seen, and stays NEW.
+  if (isEngineNoteRow(f) && names.mine === RUN_NAMES.baseline) {
+    return { reason: 'evidence-gap',
+      detail: `this is a coverage note of the CVE mapper (${f.gapClass}) on ${f.port}/`
+        + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol}, present in ${names.mine} only — it recorded `
+        + 'what the mapper could not show there, so its ending is not a remediation: nothing was fixed.' };
+  }
   if (f.plugin === CVE_MAPPER_PRODUCER && Number(f.port) > 0) {
     const lookupGap = theirs.engineLookupGaps?.get(engineLookupGapKey(f.host, f.port, f.protocol));
     if (lookupGap) {
@@ -1084,20 +1095,15 @@ function incomparabilityReason(f, mine, theirs, names) {
   // ⚠️ THE SAME PROGRAM AND VERSION ANSWERED IN BOTH RUNS, AND ONE OF THEM HOLDS A CVE ROW THE OTHER DOES NOT (1.2.0
   // build 2). DISAPPEARED only: a newly attributed CVE is new knowledge about an exposure that is real now, so it stays
   // NEW and carries a basis note instead (`withNewBasis`). After the port and UDP legs, so a port that was not measured
-  // keeps its own reason; the mapper's CVE rows — and, since 1.2.1 (B6-4f), its coverage NOTES, which are its account of
-  // what it could not show on the service, so one that vanished on an unchanged service is the data changing too. Its
-  // LOOKUP-GAP rows stay outside: their own leg refuses them as evidence-gap.
-  const mapperNote = f.gapClass != null && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'note';
-  if (f.plugin === CVE_MAPPER_PRODUCER && (!f.gapClass || mapperNote) && port > 0 && names.mine === RUN_NAMES.baseline) {
+  // keeps its own reason; the mapper's CVE rows only — its gap and note rows carry a `gapClass`, are not attributions, and
+  // are answered earlier (`isEngineLookupGap`, `isEngineNoteRow`).
+  if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && port > 0 && names.mine === RUN_NAMES.baseline) {
     const was = serviceIdentityAt(mine.portState?.get(hostKey(f.host))?.services, port, f.protocol);
     const now = serviceIdentityAt(theirs.portState?.get(hostKey(f.host))?.services, port, f.protocol);
     if (sameServiceIdentity(was, now)) {
       return { reason: VULNERABILITY_DATA_CHANGED_REASON,
         detail: `the same ${now.program} ${now.version} answered on ${port}/${now.transport} on ${f.host} in both runs, and `
-          + (mapperNote
-            ? 'this is the CVE mapper\'s coverage note — its account of what it could not show on that service, drawn from '
-              + 'the program and version alone — so its absence is a change in the '
-            : 'the CVE mapper attributes a CVE on the program and version alone — so this row\'s absence is a change in the ')
+          + 'the CVE mapper attributes a CVE on the program and version alone — so this row\'s absence is a change in the '
           + 'vulnerability data it was matched against, not a remediation. Vulnerability data — '
           + `${names.mine}: ${vulnerabilityDataSource(mine.nvdCache)}; ${names.theirs}: ${vulnerabilityDataSource(theirs.nvdCache)}. `
           + 'It is NOT reported as fixed — confirm against the vendor\'s advisory.' };
@@ -1149,6 +1155,8 @@ export const ENGINE_GAP_CLASS_KIND = Object.freeze({
 /** A CVE-mapper lookup-gap row, port-scoped. Written as plain `f.` reads so the boundary contract sees them. */
 export const isEngineLookupGap = (f) => f != null && f.plugin === CVE_MAPPER_PRODUCER
   && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'lookup-failed' && Number(f.port) > 0;
+/** A CVE-mapper coverage NOTE (1.2.1, ruling P): its class is classified 'note'. Its ending is never a remediation. */
+export const isEngineNoteRow = (f) => f != null && f.plugin === CVE_MAPPER_PRODUCER && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'note';
 /** The key a lookup gap and the CVE rows it covers share: host (as `hostKey`), port, and the TRANSPORT of the label. */
 export const engineLookupGapKey = (host, port, protocol) =>
   `${hostKey(host)}|${Number(port)}|${TRANSPORT_OF_LABEL[String(protocol ?? '').toLowerCase()] ?? `label:${String(protocol ?? '').toLowerCase()}`}`;
