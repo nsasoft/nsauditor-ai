@@ -137,9 +137,11 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   match. The finding is kept, because a client connecting by address does see the mismatch, and graded LOW, its detail
   saying the certificate names DNS names only and that the mismatch is expected where the service is reached by name. A
   DNS-name target the certificate does not name, a certificate naming a different address, and one with no
-  subjectAltName stay HIGH. On the 1.3.0 release-gate scan of a router, `Hostname "192.168.1.1" does not match
-  certificate names: www.routerlogin.net` was HIGH and `--fail-on high` counted it; that router still exits 1, because
-  its certificate is self-signed (HIGH). (3) With a chain the CA store verified and only the name wrong, Node reports
+  subjectAltName stay HIGH. The case was found on the 1.3.0 release-gate scan of a router, where `Hostname
+  "192.168.1.1" does not match certificate names: www.routerlogin.net` was HIGH and `--fail-on high` counted it. That
+  router's certificate carries no subjectAltName at all (its name is in the CN only), so its mismatch stays HIGH under
+  this rule, as does its `self_signed` finding: it still exits 1. The change reaches an IP target whose certificate
+  carries DNS SANs. (3) With a chain the CA store verified and only the name wrong, Node reports
   `ERR_TLS_CERT_ALTNAME_INVALID`, and 040 added `ca_not_trusted` (MEDIUM, "not trusted by system CA store") for a chain
   the store had trusted. That exact code no longer raises it; a chain that fails reports its own code and keeps the
   finding. A CA-signed IP-target scan no longer carries a false CA-trust finding.
