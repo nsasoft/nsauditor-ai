@@ -60,16 +60,16 @@ test('zero findings: the markdown says its SCOPE and that zero is not "no known 
   assert.doesNotMatch(md, /_No security findings\._/, 'the build-2 placeholder, which read as a clean verdict, is gone');
   // Nor may it say the service checks found NOTHING: 040 / 060 did find things on the router, and they are dropped.
   assert.doesNotMatch(md, /No findings from the service checks/);
-  assert.match(md, /_None of the counted service-check flags fired\./);
+  assert.match(md, /_None of the counted service checks found anything\./);
   assert.match(md, /not a statement that the host has no known vulnerabilities/);
-  assert.match(md, /\*\*Scope:\*\* counts only these service-check flags/);
+  assert.match(md, /\*\*Scope:\*\* counts only these service-check findings/);
   assert.match(md, /does not look up CVEs/);
   assert.match(md, /TLS-certificate/); assert.match(md, /DNS-security/); assert.match(md, /MCP server checks/);
 });
 
 test('with findings too: the scope line is there, because the limit holds whatever the count', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: flagged });
-  assert.match(md, /\*\*Scope:\*\* counts only these service-check flags/);
+  assert.match(md, /\*\*Scope:\*\* counts only these service-check findings/);
   assert.match(md, /does not look up CVEs/);
 });
 
@@ -88,14 +88,17 @@ test('the description lists the HTTP probe\'s methods among what the records car
   for (const re of [/014/, /1023/, /FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /off by default/, /self-signed/, /cpe is null/]) assert.match(d, re);
 });
 
-test('the Scope line\'s COUNTED list names only flags a conclusion can carry, and says two checks are opt-in', () => {
+// 1.2.1 (s1): the counted list is DERIVED from the shared service-flag table's labels, so it names exactly what is
+// graded; each opt-in check is named with its switch.
+test('the Scope line\'s COUNTED list names what the table grades, each opt-in check with its switch', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: services });
-  const counted = /counts only these service-check flags:([^.]*)\./.exec(md)?.[1];
+  const counted = /counts only these service-check findings:([^.]*)\./.exec(md)?.[1];
   assert.ok(counted, 'the Scope line has its counted list');
   assert.match(counted, /dangerous HTTP methods/, 'counted since 1.2.1 (a4) — the conclusion carries them');
   assert.match(counted, /Allow header/, 'and only where an Allow header was read');
-  assert.match(counted, /FTP_CHECK_ANON/);
-  assert.match(md, /self-signed/);
+  for (const sw of [/FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /SMB_NULL_SESSION/]) assert.match(counted, sw);
+  for (const re of [/self-signed/, /SMB null session/, /MCP server checks/, /TLS-certificate audit/, /debug-endpoint audit/,
+    /DNS-security audit/]) assert.match(counted, re, `counted since 1.2.1 (s1): ${re}`);
 });
 
 // 1.2.1 lane 3: the concluder REACHES 006 / 014 / 040 / 050 / 060 now, so the description names them among what the records

@@ -2,6 +2,7 @@
 // Generate SARIF 2.1.0 output from nsauditor scan results.
 
 import { createRequire } from 'node:module';
+import { flagFindings, conclusionFindings } from './service_flags.mjs';
 const require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = require('../package.json');
 
@@ -62,101 +63,31 @@ function buildServiceMessage(svc, host) {
 }
 
 /**
- * Build SARIF result entries for security findings on a service.
- * @param {object} svc
+ * SARIF rule + result entries for graded findings. Every grade comes from the shared service-flag table
+ * (utils/service_flags.mjs, 1.2.1 (s1)); the rule ids of the four flags SARIF graded before 1.2.1 are unchanged, since a
+ * code-scanning alert is keyed on its rule id.
+ * @param {object[]} findings - from the table, each with key/severity/title/ruleId/evidence
  * @param {string} host
+ * @param {string} where - the location text in the message (host:port/protocol, or the host for an evidence payload)
  * @returns {{ results: object[], rules: object[] }}
  */
-function securityFindingsFromService(svc, host) {
+function sarifEntries(findings, host, where) {
   const results = [];
   const rules = [];
-
-  const makeResult = (ruleId, level, message) => ({
-    ruleId,
-    level,
-    message: { text: message },
-    locations: [{
-      physicalLocation: {
-        artifactLocation: { uri: host }
-      }
-    }]
-  });
-
-  // anonymousLogin: true
-  if (svc.anonymousLogin === true) {
-    const ruleId = 'ftp-anonymous-login';
+  for (const f of findings) {
     rules.push({
-      id: ruleId,
-      shortDescription: { text: 'FTP anonymous login enabled' },
-      helpUri: `${TOOL_URI}`,
-      properties: { severity: 'Critical' }
+      id: f.ruleId,
+      shortDescription: { text: f.key === 'cves' ? `Known vulnerability: ${f.ruleId}` : f.title },
+      helpUri: f.key === 'cves' ? `https://nvd.nist.gov/vuln/detail/${f.ruleId}` : TOOL_URI,
+      properties: { severity: f.severity }
     });
-    results.push(makeResult(ruleId, 'error',
-      `FTP anonymous login is enabled on ${host}:${svc.port}. This allows unauthenticated access to the FTP server.`));
-  }
-
-  // axfrAllowed: true
-  if (svc.axfrAllowed === true) {
-    const ruleId = 'dns-zone-transfer';
-    rules.push({
-      id: ruleId,
-      shortDescription: { text: 'DNS zone transfer (AXFR) allowed' },
-      helpUri: `${TOOL_URI}`,
-      properties: { severity: 'Critical' }
+    results.push({
+      ruleId: f.ruleId,
+      level: severityToLevel(f.severity),
+      message: { text: `${f.title} on ${where}.${f.evidence ? ` ${f.evidence}` : ''}` },
+      locations: [{ physicalLocation: { artifactLocation: { uri: host } } }]
     });
-    results.push(makeResult(ruleId, 'error',
-      `DNS zone transfer (AXFR) is allowed on ${host}:${svc.port}. This can expose the entire DNS zone to attackers.`));
   }
-
-  // weakAlgorithms: [...]
-  if (Array.isArray(svc.weakAlgorithms) && svc.weakAlgorithms.length > 0) {
-    for (const algo of svc.weakAlgorithms) {
-      const algoName = typeof algo === 'string' ? algo : (algo?.algorithm || algo?.name || String(algo));
-      const ruleId = `weak-algorithm-${algoName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-      rules.push({
-        id: ruleId,
-        shortDescription: { text: `Weak algorithm: ${algoName}` },
-        helpUri: `${TOOL_URI}`,
-        properties: { severity: 'Medium' }
-      });
-      results.push(makeResult(ruleId, 'warning',
-        `Weak algorithm "${algoName}" is supported on ${host}:${svc.port}/${svc.protocol || 'tcp'}.`));
-    }
-  }
-
-  // dangerousMethods: [...]
-  if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length > 0) {
-    for (const method of svc.dangerousMethods) {
-      const ruleId = `http-dangerous-method-${String(method).toLowerCase()}`;
-      rules.push({
-        id: ruleId,
-        shortDescription: { text: `Dangerous HTTP method: ${method}` },
-        helpUri: `${TOOL_URI}`,
-        properties: { severity: 'Medium' }
-      });
-      results.push(makeResult(ruleId, 'warning',
-        `Dangerous HTTP method "${method}" is allowed on ${host}:${svc.port}.`));
-    }
-  }
-
-  // CVE data (if service has cves or cve array)
-  const cves = svc.cves || svc.cve || [];
-  if (Array.isArray(cves)) {
-    for (const cve of cves) {
-      const cveId = typeof cve === 'string' ? cve : (cve?.id || cve?.cveId || String(cve));
-      const cveSeverity = cve?.severity || 'High';
-      const ruleId = cveId;
-      rules.push({
-        id: ruleId,
-        shortDescription: { text: `Known vulnerability: ${cveId}` },
-        helpUri: `https://nvd.nist.gov/vuln/detail/${cveId}`,
-        properties: { severity: cveSeverity }
-      });
-      results.push(makeResult(ruleId, severityToLevel(cveSeverity),
-        `${cveId} affects ${svc.program || svc.service}${svc.version && svc.version !== 'Unknown' ? ' ' + svc.version : ''} on ${host}:${svc.port}.`));
-    }
-  }
-
   return { results, rules };
 }
 
@@ -200,11 +131,21 @@ export function buildSarifLog(scanData) {
     });
 
     // Security findings
-    const { results: secResults, rules: secRules } = securityFindingsFromService(svc, host);
+    const where = `${host}:${svc.port}/${svc.protocol || 'tcp'}`;
+    const { results: secResults, rules: secRules } = sarifEntries(flagFindings(svc, { target: where }), host, where);
     for (const sr of secResults) sarifResults.push(sr);
     for (const rule of secRules) {
       if (!rulesMap.has(rule.id)) rulesMap.set(rule.id, rule);
     }
+  }
+
+  // An adapter payload that landed in EVIDENCE (no port — a domain's DNS posture when no 53/udp service was found) is
+  // graded too, located at the host: its grade must not depend on whether an unrelated port answered.
+  const onEvidence = conclusionFindings({ evidence: conclusion?.result?.evidence ?? [] }, host);
+  const { results: evResults, rules: evRules } = sarifEntries(onEvidence, host, String(host));
+  for (const sr of evResults) sarifResults.push(sr);
+  for (const rule of evRules) {
+    if (!rulesMap.has(rule.id)) rulesMap.set(rule.id, rule);
   }
 
   return {

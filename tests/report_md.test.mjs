@@ -105,8 +105,11 @@ test('buildMarkdownReport: Findings section enumerates security flags', () => {
   assert.match(md, /FTP anonymous login enabled/);
   assert.match(md, /DNS zone transfer \(AXFR\) allowed/);
   assert.match(md, /SNMP default community string: public/);
-  assert.match(md, /Weak protocol\(s\) enabled: TLSv1\.0, TLSv1\.1/);
-  assert.match(md, /Dangerous HTTP method\(s\) allowed: PUT, DELETE/);
+  // 1.2.1 (s1): one finding per ITEM, graded by the shared service-flag table — every reader counts the same units.
+  assert.match(md, /Weak TLS protocol enabled: TLSv1\.0/);
+  assert.match(md, /Weak TLS protocol enabled: TLSv1\.1/);
+  assert.match(md, /Dangerous HTTP method allowed: PUT/);
+  assert.match(md, /Dangerous HTTP method allowed: DELETE/);
   assert.match(md, /CVE-2023-38408 — OpenSSH 8\.2p1/);
 });
 
@@ -124,7 +127,7 @@ test('buildMarkdownReport: findings sorted descending by severity (Critical firs
 // host whose CVEs this renderer never looks up (tests/scan_host_scope_honesty.test.mjs). It now names its scope.
 test('buildMarkdownReport: no findings renders italicized placeholder', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: conclusionWithServices });
-  assert.match(md, /_None of the counted service-check flags fired\./);
+  assert.match(md, /_None of the counted service checks found anything\./);
   assert.match(md, /\*\*Security findings:\*\* 0/);
 });
 
@@ -180,7 +183,7 @@ test('buildMarkdownReport: tolerates conclusion with no result/services key', ()
   const md = buildMarkdownReport({ host: 'h', conclusion: {} });
   assert.match(md, /\*\*Services detected:\*\* 0/);
   assert.match(md, /_No services detected\._/);
-  assert.match(md, /_None of the counted service-check flags fired\./);
+  assert.match(md, /_None of the counted service checks found anything\./);
 });
 
 test('buildMarkdownReport: tolerates entirely missing conclusion', () => {
@@ -337,12 +340,13 @@ test('buildMarkdownReport: evidence containing ``` survives — fences upgrade t
   // renderer. So we exercise this through a conclusion shape that produces such
   // evidence: a CVE id in canonical form whose evidence URL is fixed.
   //
-  // Direct approach: write a fixture where weakCiphers contains a 3-backtick
-  // string; the Medium-severity finding's evidence is built from `weakCiphers.slice(0, 5).join(', ')`.
+  // Direct approach (1.2.1 (s1)): the evidence a REMOTE host writes is the MCP tool list — a server names its own
+  // tools, and the finding's evidence is built from them. (This leg used weak ciphers until a cipher became one
+  // finding per item, carried in the escaped title rather than in evidence.)
   const conclusion = {
     result: {
       services: [
-        { port: 443, service: 'https', weakCiphers: ['cipher-A', '```injected```'] },
+        { port: 6274, service: 'mcp', mcpAnonymousToolList: ['tool-A', '```injected```'] },
       ],
     },
   };
@@ -350,14 +354,14 @@ test('buildMarkdownReport: evidence containing ``` survives — fences upgrade t
   // The 4-tick fence must wrap the evidence so the embedded triple-backtick doesn't escape
   assert.match(md, /  ````\n[\s\S]*```injected```[\s\S]*\n  ````\n/);
   // And 3-tick fence must NOT be the wrapper around this evidence
-  assert.doesNotMatch(md, /  ```\n  cipher-A, ```injected```/);
+  assert.doesNotMatch(md, /  ```\n  Tools: tool-A, ```injected```/);
 });
 
 test('buildMarkdownReport: evidence containing 4 backticks → 5-tick fence', () => {
   const conclusion = {
     result: {
       services: [
-        { port: 443, service: 'https', weakCiphers: ['````four-tick````'] },
+        { port: 6274, service: 'mcp', mcpAnonymousToolList: ['````four-tick````'] },
       ],
     },
   };
@@ -372,13 +376,14 @@ test('buildMarkdownReport: closing fence always matches opening fence length', (
   const conclusion = {
     result: {
       services: [
-        { port: 80, service: 'http', weakCiphers: ['short ` here', 'longer ``` there'] },
+        { port: 6274, service: 'mcp', mcpAnonymousToolList: ['short ` here', 'longer ``` there'] },
       ],
     },
   };
   const md = buildMarkdownReport({ host: 'h', conclusion });
   // Find every fence pair and confirm matched lengths
   const fences = md.match(/^  (`{3,})$/gm) || [];
+  assert.ok(fences.length >= 2, 'positive control: the evidence is fenced at all');
   // Should appear in pairs
   assert.equal(fences.length % 2, 0, `fence count must be even, got ${fences.length}`);
   for (let i = 0; i < fences.length; i += 2) {
@@ -507,8 +512,9 @@ const httpSvc = (fields) => ({ result: { services: [{ port: 80, protocol: 'http'
 
 test('(a4) dangerous methods read from an Allow header are a counted Medium finding, and the Scope line counts them', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: httpSvc({ methodsTested: true, dangerousMethods: ['PUT', 'DELETE'] }) });
-  assert.match(md, /### \[Medium\] Dangerous HTTP method\(s\) allowed: PUT, DELETE/);
-  const counted = /counts only these service-check flags:([^.]*)\./.exec(md)?.[1];
+  assert.match(md, /### \[Medium\] Dangerous HTTP method allowed: PUT/);
+  assert.match(md, /### \[Medium\] Dangerous HTTP method allowed: DELETE/);
+  const counted = /counts only these service-check findings:([^.]*)\./.exec(md)?.[1];
   assert.match(counted, /dangerous HTTP methods/);
   assert.doesNotMatch(md, /HTTP methods not tested/);
 });

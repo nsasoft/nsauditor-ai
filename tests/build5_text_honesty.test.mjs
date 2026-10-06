@@ -79,10 +79,12 @@ test('A. the watch-mode webhook text matches what the delta gate does (README + 
   assert.ok(row, 'README has its --watch row');
   assert.match(row, /not on a service, version or finding change/, 'the README --watch row does not state the limit');
   assert.match(CTEM, DISCLOSED, 'the Continuous Monitoring section does not state the limit');
-  // At `info` every service counts: DERIVED from SEVERITY_RANK.info and the per-service filter.
+  // At `info` every FINDING counts: DERIVED from SEVERITY_RANK.info and the per-finding filter (1.2.1 (s1): the alert lists
+  // the shared table's findings, one per item — it listed every service, finding or not, until then).
   const rank = CLI.match(/const SEVERITY_RANK = \{[^}]*\binfo:\s*(\d+)\s*\}/);
-  assert.ok(rank && /return svcSev >= sevRank;/.test(CLI), 'TRIPWIRE: SEVERITY_RANK or the per-service alert filter changed');
-  if (Number(rank[1]) === 0) assert.match(CTEM, /at `info`, every service counts/, 'at info the filter passes every service; the section must say so');
+  assert.ok(rank && /\.filter\(\(f\) => flagSeverityRank\(f\.severity\) >= sevRank\)/.test(CLI),
+    'TRIPWIRE: SEVERITY_RANK or the per-finding alert filter changed');
+  if (Number(rank[1]) === 0) assert.match(CTEM, /at `info`, every finding counts; a host with none gets no alert/, 'at info the filter passes every finding; the section must say so');
 });
 
 // ── B. webhook retry wording DERIVED from the call site and the sender.

@@ -120,7 +120,8 @@ const cert = { expired: false, daysToExpiry: 90, selfSigned: true, hostnameValid
   issuer: 'CN=x', names: [], validFrom: '', validTo: '', signatureAlgorithm: 'sha256', keyType: 'RSA', keyBits: 2048 };
 const auditorResult = (port) => ({ up: true, portResults: [{ port, service: 'https', severity: 'high', certificate: cert,
   negotiation: { protocol: 'TLSv1.2', cipher: 'X', forwardSecrecy: false }, chain: { depth: 1 }, authorized: false,
-  issues: [{ severity: 'high', detail: 'hostname mismatch MARKER-040' }, { severity: 'info', detail: 'not actionable' }] }] });
+  issues: [{ severity: 'high', check: 'hostname_mismatch', detail: 'hostname mismatch MARKER-040' },
+    { severity: 'info', check: 'not_tls13', detail: 'not actionable' }] }] });
 
 test('014 (NetBIOS/SMB): the null session lands on 445/tcp', async () => {
   const { default: p } = await importPlugin('netbios_scanner.mjs');
@@ -147,7 +148,8 @@ test('040 (TLS certificate): on a port 011 did not conclude, the audit lands und
   assert.ok(rec, '8443 is concluded');
   assert.equal(rec.source, 'tls-cert-auditor');
   assert.equal(rec.certAudit?.severity, 'high');
-  assert.deepEqual(rec.certAudit?.issues, ['hostname mismatch MARKER-040']);
+  // 1.2.1 (s1): each issue keeps its own severity and check (the 050 / 060 shape), so it can be graded one by one.
+  assert.deepEqual(rec.certAudit?.issues, [{ severity: 'high', check: 'hostname_mismatch', detail: 'hostname mismatch MARKER-040' }]);
 });
 
 test('040 on 011\'s 443: the audit LANDS on the authoritative record and changes none of its identity', async () => {

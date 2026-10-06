@@ -698,10 +698,15 @@ export default {
         status = "valid";
       }
 
-      // Filter actionable issues (skip PASS and INFO for conclude)
+      // Actionable issues (skip PASS and INFO), each with its OWN severity and check — 1.2.1 (s1): the shared
+      // service-flag table grades one finding per issue, and a detail string alone left only the port's roll-up.
       const actionableIssues = pr.issues
         .filter((i) => i.severity !== SEVERITY.PASS && i.severity !== SEVERITY.INFO)
-        .map((i) => i.detail);
+        .map((i) => ({ severity: i.severity, check: i.check, detail: i.detail }));
+      // The roll-up is DERIVED from the issues carried here, never copied from the port result: a second copy of a datum
+      // is a copy that can disagree. Null when nothing is actionable.
+      const rollUp = [SEVERITY.CRITICAL, SEVERITY.HIGH, SEVERITY.MEDIUM, SEVERITY.LOW]
+        .find((sev) => actionableIssues.some((i) => i.severity === sev)) ?? null;
 
       // 1.2.1: the audit travels under `certAudit`, never in identity. This record wrote program "TLS" and the
       // NEGOTIATED protocol as the service version, and once the concluder reached it, that version would have
@@ -720,7 +725,7 @@ export default {
           pr.certificate.hostnameValid ? null : "hostname-mismatch",
         ].filter(Boolean).join(" | "),
         certAudit: {
-          severity: pr.severity,
+          severity: rollUp,
           certStatus: status,
           negotiatedProtocol: pr.negotiation.protocol,
           issues: actionableIssues,

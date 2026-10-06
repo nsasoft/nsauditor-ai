@@ -1,7 +1,7 @@
 // utils/export_csv.mjs
 // Export scan results as CSV.
 
-import { DEFAULT_COMMUNITIES } from '../plugins/snmp_scanner.mjs';
+import { csvTokens, PAYLOAD_KEYS } from './service_flags.mjs';
 
 /**
  * Escape a CSV field value.
@@ -26,33 +26,13 @@ export function escapeCsvField(value) {
 const COLUMNS = ['host', 'port', 'protocol', 'service', 'program', 'version', 'status', 'cpe', 'security_findings'];
 
 /**
- * Build a security_findings string from a service record.
- * @param {object} svc
+ * The security_findings cell for a record: the shared service-flag table's tokens (utils/service_flags.mjs, 1.2.1 (s1)),
+ * one per key that fired with its items joined by ';'. A custom SNMP community is never a finding and never printed.
+ * @param {object} record
  * @returns {string}
  */
-function buildFindings(svc) {
-  const parts = [];
-
-  if (Array.isArray(svc.weakAlgorithms) && svc.weakAlgorithms.length) {
-    parts.push(`weak_algorithms:${svc.weakAlgorithms.length}`);
-  }
-  if (svc.anonymousLogin) {
-    parts.push('anonymous_login');
-  }
-  if (svc.axfrAllowed) {
-    parts.push('axfr_allowed');
-  }
-  if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length) {
-    parts.push(`dangerous_methods:${svc.dangerousMethods.join(';')}`);
-  }
-  // Only a DEFAULT community is a finding, and only a default community is ever printed: an operator's own community
-  // string is a credential, so a record carrying any other value prints nothing here (the SNMP plugin no longer writes
-  // one; this is the reader-side half of that fix).
-  if (DEFAULT_COMMUNITIES.includes(svc.community)) {
-    parts.push(`default_community:${svc.community}`);
-  }
-
-  return parts.join(',');
+function buildFindings(record) {
+  return csvTokens(record).join(',');
 }
 
 /**
@@ -82,6 +62,13 @@ export function buildCsv(scanData) {
     ];
     return fields.map(escapeCsvField).join(',');
   });
+  // An adapter payload that landed in evidence (no port — a domain's DNS posture when no 53/udp service was found) gets
+  // its own row, with no port: its findings must not depend on whether an unrelated port answered.
+  for (const e of conclusion?.result?.evidence ?? []) {
+    if (!PAYLOAD_KEYS.some((k) => e?.[k] != null)) continue;
+    const payload = Object.fromEntries(PAYLOAD_KEYS.filter((k) => e[k] != null).map((k) => [k, e[k]]));
+    rows.push([host, '', '', e.from ?? '', '', '', '', '', buildFindings(payload)].map(escapeCsvField).join(','));
+  }
 
   return [header, ...rows].join('\r\n') + '\r\n';
 }

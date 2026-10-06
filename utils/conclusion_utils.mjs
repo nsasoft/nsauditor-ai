@@ -80,7 +80,7 @@ function resolveLiveness(base, other) {
 
 // What a service IS (or how it was merged) — the fields authority governs. Everything else on a record is an adapter's
 // finding or flag, and a merge must not drop it.
-const IDENTITY_FIELDS = new Set(['port', 'protocol', 'service', 'program', 'version', 'cpe', 'status', 'info', 'banner',
+export const IDENTITY_FIELDS = new Set(['port', 'protocol', 'service', 'program', 'version', 'cpe', 'status', 'info', 'banner',
   'source', 'evidence', 'authoritative', '__authoritative']);
 
 // Merge by protocol:port with basic authority precedence.

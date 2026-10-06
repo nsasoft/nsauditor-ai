@@ -82,7 +82,7 @@ function byDeclaredName(registry) {
 
 // Adapter payloads that travel under a namespace. A record without a positive port is evidence, not a service row,
 // and these ride along onto its evidence entry so moving it there loses nothing.
-const ADAPTER_PAYLOAD_KEYS = ['certAudit', 'tribeHealth', 'dnsSecurity'];
+export const ADAPTER_PAYLOAD_KEYS = ['certAudit', 'tribeHealth', 'dnsSecurity'];
 
 function scoreOsLabel(label) {
   const s = String(label||'').toLowerCase();

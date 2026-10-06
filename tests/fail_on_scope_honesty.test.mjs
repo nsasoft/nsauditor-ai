@@ -8,9 +8,10 @@
 // exit 0 for every threshold but `info` and exit 1 for `info` — so a pipeline gated on `--fail-on high` passes a host
 // that exposes SNMP `public`, and one gated on `info` fails every host it can reach.
 //
-// Build 3 ships honest TEXT (operator ruling); widening the gated set is boarded for 1.2.1. The behaviour legs below are
-// PINNED, NOT ENDORSED: when 1.2.1 widens the set they go red, and the README, the help text and the skill's CI section
-// must be re-stated in the same commit.
+// Build 3 shipped honest TEXT (operator ruling) and boarded the widening for 1.2.1. 1.2.1 (s1) WIDENS IT: the gate reads
+// the shared service-flag table (utils/service_flags.mjs), the same findings the Markdown, SARIF and CSV reports count, so
+// the PINNED legs that held the blind spot were inverted (not deleted) and the README and help were re-stated in the same
+// commit. The skill's CI section is owed at release prep.
 //
 // FOURTH QUADRANT FIRST: the flags the gate DOES read still gate.
 import { test } from 'node:test';
@@ -41,14 +42,17 @@ test('(q) the gated flags still gate: anonymous FTP / zone transfer are critical
   assert.equal(gate({ dangerousMethods: ['PUT'] }), RANK.medium);
 });
 
-// ── PINNED, NOT ENDORSED (boarded for 1.2.1) ─────────────────────────────────────────────────────
-test('PINNED: the SNMP community, weak TLS and MCP flags do not raise --fail-on above info', () => {
-  for (const svc of [{ community: 'public' }, { weakProtocols: ['TLSv1.0'] }, { weakCiphers: ['RC4-SHA'] },
+// ── (s1): THE BLIND SPOT IS CLOSED — inverted from the build-3 PINNED leg ───────────────────────────────────────
+test('(s1) the SNMP community, weak TLS, MCP, null-session and certificate flags gate at the table\'s grade', () => {
+  for (const [svc, rank] of [[{ community: 'public' }, RANK.high], [{ weakProtocols: ['TLSv1.0'] }, RANK.medium],
+    [{ weakCiphers: ['RC4-SHA'] }, RANK.medium], [{ nullSessionAllowed: true }, RANK.high],
+    [{ certSelfSigned: true }, RANK.medium], [{ certExpiry: '2001-01-01T00:00:00Z' }, RANK.high],
     // The five flags plugin 070's adapter really spreads onto its service record (plugins/mcp_scanner.mjs).
-    { mcpAnonymousAccess: true, mcpAnonymousToolList: ['exec'], mcpCleartextTransport: true,
-      mcpDeprecatedProtocol: '2024-11-05', mcpInspectorExposed: true }]) {
-    assert.equal(gate(svc), RANK.info, `${JSON.stringify(svc)} — if this moved, re-state the README, help and skill CI text`);
+    [{ mcpAnonymousAccess: true, mcpAnonymousToolList: ['exec'], mcpCleartextTransport: true,
+      mcpDeprecatedProtocol: '2024-11-05', mcpInspectorExposed: true }, RANK.critical]]) {
+    assert.equal(gate(svc), rank, JSON.stringify(svc));
   }
+  assert.equal(gate({ community: 'custom', communityCustom: true }), RANK.info, 'a custom community is not a finding');
 });
 
 test('PINNED: any concluded scan is at least info, so --fail-on info fails every host it reaches', () => {
@@ -66,21 +70,26 @@ test('the help text no longer says "any finding"', () => {
   assert.match(entry, /not a clean host/);
 });
 
-test('the README row names the flags --fail-on reads, and the ones it does not', () => {
+test('the README row names what --fail-on reads — the reports\' findings — and what it does not', () => {
   const r = failOnRow();
   for (const re of [/anonymous FTP/, /zone transfer/, /critical/, /SSH/, /dangerous HTTP methods/, /medium/,
-    /`--fail-on info` fails every/, /SNMP/, /TLS/, /MCP/, /CVE/, /agent/, /exit 0 is not a clean host/, /exit 2/]) {
+    /`--fail-on info` fails every/, /SNMP/, /TLS/, /MCP/, /null session/, /self-signed/, /expired certificate/,
+    /\(040\)/, /\(050\)/, /\(060\)/, /CVE/, /agent/, /exit 0 is not a clean host/, /exit 2/]) {
     assert.match(r, re);
   }
-  assert.doesNotMatch(r, /counted service-check flag/, 'the md report counts MORE flags than --fail-on reads');
+  assert.match(r, /same findings the Markdown, SARIF and CSV reports count/);
+  assert.match(r, /may fail on findings that were always there/, 'the behaviour change is said where the flag is documented');
 });
 
-test('the README row and --help say the two critical checks are opt-in, so a default scan never trips --fail-on high', () => {
+// (s1): a default scan CAN trip --fail-on high now (SNMP `public` alone grades high), so "never exit 1" is gone; what stays
+// true is that the three opt-in checks are named with their switches.
+test('the README row and --help name each opt-in check\'s switch, and no longer promise a default scan never trips high', () => {
   const r = failOnRow();
-  assert.match(r, /FTP_CHECK_ANON/); assert.match(r, /DNS_CHECK_AXFR/);
-  assert.match(r, /never exit 1/);
+  for (const sw of [/FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /SMB_NULL_SESSION/]) assert.match(r, sw);
+  assert.doesNotMatch(r, /never exit 1/);
   const at = CLI.indexOf('  --fail-on <severity>');
-  assert.match(CLI.slice(at, CLI.indexOf('\n  --', at + 5)), /FTP_CHECK_ANON/);
+  const help = CLI.slice(at, CLI.indexOf('\n  --', at + 5));
+  for (const sw of [/FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /SMB_NULL_SESSION/]) assert.match(help, sw);
 });
 
 // 1.2.1 lane 3 (a4): dangerous HTTP methods REACH the conclusion now (the HTTP probe's adapter), so --fail-on gates on them —

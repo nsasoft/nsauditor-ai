@@ -42,6 +42,17 @@ export const MCP_CANDIDATE_PORTS = [1967, 3000, 3005, 5173, 6274, 6277, 8000, 80
 // network-reachable. Detection on a non-loopback target = MEDIUM finding.
 export const MCP_INSPECTOR_PORTS = new Set([5173, 6274, 6277]);
 
+// The grade of each security flag buildFindings() sets, declared beside the code that sets it (the research grades in
+// its comments). The shared service-flag table (utils/service_flags.mjs) reads this, so every reader grades a flag the
+// moment it is added here — and tests/service_flag_table.test.mjs fails if buildFindings sets a flag this does not grade.
+export const MCP_FLAG_SEVERITY = Object.freeze({
+  mcpAnonymousAccess: 'Critical',
+  mcpAnonymousToolList: 'Critical',
+  mcpCleartextTransport: 'High',
+  mcpDeprecatedProtocol: 'High',
+  mcpInspectorExposed: 'Medium',
+});
+
 // MCP RPC method paths (in priority order — try canonical mountpoints first)
 export const MCP_PROBE_PATHS = ['/', '/mcp', '/jsonrpc', '/sse', '/messages'];
 
@@ -454,8 +465,8 @@ export function conclude({ result }) {
       detection.tools.length ? `tools=${detection.tools.length}` : null,
     ].filter(Boolean).join(' '),
     authoritative: true,
-    // Security flags. scan_host returns them on this record; the Markdown report, SARIF, CSV and --fail-on do NOT read
-    // them yet (1.2.0 build 3 states it; boarded for 1.2.1).
+    // Security flags, graded by MCP_FLAG_SEVERITY through the shared service-flag table — the Markdown report, SARIF,
+    // the CSV and --fail-on all read them there (1.2.1 (s1)).
     ...flags,
     // Evidence fields per N.5 FindingSchema
     evidence: { cwe, owasp, mitre },

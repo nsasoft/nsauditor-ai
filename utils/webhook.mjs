@@ -168,7 +168,8 @@ export function buildAlertPayload(host, findings, severity = 'high') {
     summary: `${items.length} finding(s) detected on ${host} at severity ${severity} or above`,
     details: items.map((f) => ({
       port: f.port ?? null,
-      protocol: f.protocol ?? 'tcp',
+      // A finding with no port (a domain's DNS posture) carries protocol null — no transport — and keeps it.
+      protocol: f.protocol === null ? null : (f.protocol ?? 'tcp'),
       service: f.service ?? null,
       description: f.description ?? f.summary ?? null,
       severity: f.severity ?? severity,

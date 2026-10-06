@@ -9,7 +9,9 @@
 // minimal report (header + "no services detected") rather than throwing, so callers
 // don't need to guard before invocation.
 
-const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+import { conclusionFindings, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
+
+const SEVERITIES = SEVERITY_ORDER;
 
 /**
  * Escape Markdown special characters that would break table cell rendering.
@@ -39,114 +41,19 @@ function cell(value) {
 }
 
 /**
- * Extract security findings from per-service fields.
- * Mirrors the per-service finding extraction used by sarif.mjs and export_csv.mjs:
- * findings are derived from service flags (anonymousLogin, weakAlgorithms, cves, etc.),
- * not from a separate findings array on the conclusion (which doesn't exist today).
+ * The security findings a conclusion carries — every one graded by the shared service-flag table
+ * (utils/service_flags.mjs, 1.2.1 (s1)), so this report, SARIF, the CSV and --fail-on count the same units.
+ * `evidence` is the conclusion's evidence list: an adapter payload that landed there (a domain's DNS posture when the
+ * scan found no 53/udp service) is graded too, targeting the host.
  *
  * @param {object[]} services
  * @param {string} host
+ * @param {object[]} [evidence]
  * @returns {Array<{ severity: string, title: string, target: string, evidence: string|null }>}
  */
-function extractFindings(services, host) {
-  const findings = [];
-
-  for (const svc of services) {
-    const target = `${host}:${svc.port}/${svc.protocol || 'tcp'}`;
-
-    if (svc.anonymousLogin === true) {
-      findings.push({
-        severity: 'Critical',
-        title: 'FTP anonymous login enabled',
-        target,
-        evidence: `${svc.service || 'ftp'} on ${target} accepts anonymous authentication.`,
-      });
-    }
-
-    if (svc.axfrAllowed === true) {
-      findings.push({
-        severity: 'Critical',
-        title: 'DNS zone transfer (AXFR) allowed',
-        target,
-        evidence: `Zone transfer permitted on ${target}; entire zone may be enumerated.`,
-      });
-    }
-
-    if (svc.community && (svc.community === 'public' || svc.community === 'private')) {
-      findings.push({
-        severity: 'High',
-        title: `SNMP default community string: ${svc.community}`,
-        target,
-        evidence: `SNMP responds to community "${svc.community}" on ${target}.`,
-      });
-    }
-
-    if (Array.isArray(svc.weakAlgorithms) && svc.weakAlgorithms.length > 0) {
-      const algos = svc.weakAlgorithms
-        .map((a) => (typeof a === 'string' ? a : a?.algorithm || a?.name || ''))
-        .filter(Boolean);
-      findings.push({
-        severity: 'Medium',
-        title: `Weak algorithm(s) supported: ${algos.join(', ')}`,
-        target,
-        evidence: null,
-      });
-    }
-
-    if (Array.isArray(svc.weakProtocols) && svc.weakProtocols.length > 0) {
-      findings.push({
-        severity: 'Medium',
-        title: `Weak protocol(s) enabled: ${svc.weakProtocols.join(', ')}`,
-        target,
-        evidence: null,
-      });
-    }
-
-    if (Array.isArray(svc.weakCiphers) && svc.weakCiphers.length > 0) {
-      findings.push({
-        severity: 'Medium',
-        title: `Weak cipher(s) supported: ${svc.weakCiphers.length} cipher(s)`,
-        target,
-        evidence: svc.weakCiphers.slice(0, 5).join(', '),
-      });
-    }
-
-    if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length > 0) {
-      findings.push({
-        severity: 'Medium',
-        title: `Dangerous HTTP method(s) allowed: ${svc.dangerousMethods.join(', ')}`,
-        target,
-        evidence: null,
-      });
-    }
-
-    const cves = svc.cves || svc.cve || [];
-    if (Array.isArray(cves)) {
-      for (const cve of cves) {
-        const cveId = typeof cve === 'string' ? cve : (cve?.id || cve?.cveId || '');
-        if (!cveId) continue;
-        const sev = (typeof cve === 'object' && cve?.severity) ? String(cve.severity) : 'High';
-        findings.push({
-          severity: normalizeSeverity(sev),
-          title: `${cveId} — ${svc.program || svc.service || 'service'}${svc.version && svc.version !== 'Unknown' ? ' ' + svc.version : ''}`,
-          target,
-          evidence: `See https://nvd.nist.gov/vuln/detail/${cveId}`,
-        });
-      }
-    }
-  }
-
-  return findings;
-}
-
-function normalizeSeverity(sev) {
-  if (!sev) return 'Info';
-  const s = String(sev).trim().toLowerCase();
-  if (s.startsWith('crit')) return 'Critical';
-  if (s.startsWith('hi'))   return 'High';
-  if (s.startsWith('med'))  return 'Medium';
-  if (s.startsWith('lo'))   return 'Low';
-  return 'Info';
+function extractFindings(services, host, evidence = []) {
+  return conclusionFindings({ services, evidence }, host)
+    .map((f) => ({ severity: f.severity, title: f.title, target: f.target, evidence: f.evidence }));
 }
 
 function severityRank(sev) {
@@ -230,7 +137,7 @@ export function buildMarkdownReport(scanData) {
   }
   lines.push(`- **Services detected:** ${services.length}`);
 
-  const findings = extractFindings(services, host);
+  const findings = extractFindings(services, host, conclusion?.result?.evidence ?? conclusion?.evidence ?? []);
   if (findings.length > 0) {
     const counts = {};
     for (const sev of SEVERITIES) counts[sev] = 0;
@@ -249,19 +156,13 @@ export function buildMarkdownReport(scanData) {
     lines.push(`- **HTTP methods not tested:** ${methodsNotTested.map((s) => escapeCell(`${s.port}/${s.protocol || 'tcp'}`)).join(', ')}`
       + ' — no Allow header was read, so dangerous methods were not checked there (not "none")');
   }
-  // 1.2.0 build 3: this renderer's findings are the service-check FLAGS only — nothing on the scan path fills a service's
-  // CVEs, and Enterprise's analysis agents and exploit intelligence write elsewhere. Without this line "Security findings:
-  // 0" read as a clean verdict over a host whose CLI run carried 16 CVEs (the Gate 3-A preparation's P8).
-  // The counted list names only flags a conclusion can carry. Since 1.2.1 the HTTP probe's adapter puts dangerousMethods on
-  // its record (only where an Allow header was read), so they are counted; 014's, 040's, 050's and 060's results are
-  // carried too, but this report does not count them yet, so the line names them as carried and not counted.
-  lines.push('- **Scope:** counts only these service-check flags: weak SSH algorithms, SNMP default community, weak TLS '
-    + 'protocols / ciphers, dangerous HTTP methods (only where an Allow header was read), and anonymous FTP login and DNS '
-    + 'zone transfer when the scan\'s environment enables those two checks (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
-    + 'DNS_AXFR_DOMAIN — both off by default). It does not count a self-signed certificate, the MCP server checks, SMB null '
-    + 'sessions or the TLS-certificate, DNS-security and debug-endpoint auditors\' results (all carried in the scan\'s '
-    + 'conclusion); '
-    + 'it does not look up CVEs, and does not include Enterprise analysis-agent findings or exploit intelligence (a CLI scan '
+  // 1.2.0 build 3: without this line "Security findings: 0" read as a clean verdict over a host whose CLI run carried 16
+  // CVEs (the Gate 3-A preparation's P8). Since 1.2.1 (s1) the counted list is DERIVED from the shared service-flag table's
+  // labels, so it names exactly what is graded — it cannot run ahead of the table or fall behind it.
+  const counted = [...new Set(SERVICE_FLAGS.map((r) => r.label).filter(Boolean))];
+  lines.push(`- **Scope:** counts only these service-check findings: ${counted.join(', ')}. `
+    + 'The opt-in checks are off by default. '
+    + 'It does not look up CVEs, and does not include Enterprise analysis-agent findings or exploit intelligence (a CLI scan '
     + 'with the Enterprise package and a Pro or Enterprise licence records CVE and agent findings in scan_finding_queue.json, '
     + 'when there are any).');
   lines.push('');
@@ -294,9 +195,9 @@ export function buildMarkdownReport(scanData) {
   lines.push(`## Findings`);
   lines.push('');
   if (findings.length === 0) {
-    lines.push('_None of the counted service-check flags fired. This is not a statement that the host has no known '
-      + 'vulnerabilities — CVE lookups, analysis-agent findings, the MCP server checks and several checks\' results are not '
-      + 'part of this count (see Scope above), and anonymous FTP login and zone transfer are tested only when enabled._');
+    lines.push('_None of the counted service checks found anything. This is not a statement that the host has no known '
+      + 'vulnerabilities — CVE lookups and analysis-agent findings are not part of this count (see Scope above), and '
+      + 'anonymous FTP login, zone transfer and the SMB null session are tested only when enabled._');
     lines.push('');
   } else {
     findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));

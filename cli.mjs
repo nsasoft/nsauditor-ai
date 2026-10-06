@@ -17,6 +17,7 @@ import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
+import { conclusionFindings, maxRank, severityRank as flagSeverityRank } from './utils/service_flags.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
@@ -1119,15 +1120,8 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     }
 
     const services = conclusion?.result?.services ?? [];
-    const serviceFindingsCount = services.reduce((n, svc) => {
-      if (svc.anonymousLogin === true) n++;
-      if (svc.axfrAllowed === true) n++;
-      if (Array.isArray(svc.weakAlgorithms)) n += svc.weakAlgorithms.length;
-      if (Array.isArray(svc.dangerousMethods)) n += svc.dangerousMethods.length;
-      const cves = svc.cves || svc.cve || [];
-      if (Array.isArray(cves)) n += cves.length;
-      return n;
-    }, 0);
+    // The legacy fallback's service share, graded by the shared service-flag table (1.2.1 (s1)) like every other reader.
+    const serviceFindingsCount = conclusionFindings(conclusion, host).length;
     // review fold R-1: cloud plugins emit findings on `results[].result.findings`,
     // NOT as service-level attrs — so a cloud (--host aws) scan recorded
     // findingsCount:0 in scan_history over a 201-finding scan (a false-clean
@@ -1253,13 +1247,6 @@ function aggregateStoreLoad(writtenOutputs, field, label) {
 
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
-/**
- * Determine the maximum severity level present in a conclusion's services.
- * Checks security findings (anonymousLogin, axfrAllowed, weakAlgorithms,
- * dangerousMethods, CVEs) as well as open service status.
- * @param {object} conclusion
- * @returns {number} highest severity rank found (0-4)
- */
 async function readSecretFromStdin(keyName) {
   if (!process.stdin.isTTY) {
     // Piped input
@@ -1281,33 +1268,16 @@ async function readSecretFromStdin(keyName) {
   });
 }
 
+/**
+ * The highest severity rank (0-4) among the findings a conclusion carries — the `--fail-on` gate.
+ * @param {object} conclusion
+ * @returns {number} highest severity rank found (0-4); any concluded scan is at least info (0)
+ */
 export function maxSeverityInConclusion(conclusion) {
-  const services = conclusion?.result?.services || [];
-  let max = 0;
-
-  for (const svc of services) {
-    // anonymousLogin or axfrAllowed → Critical
-    if (svc.anonymousLogin === true) max = Math.max(max, SEVERITY_RANK.critical);
-    if (svc.axfrAllowed === true) max = Math.max(max, SEVERITY_RANK.critical);
-
-    // weakAlgorithms or dangerousMethods → Medium
-    if (Array.isArray(svc.weakAlgorithms) && svc.weakAlgorithms.length > 0) max = Math.max(max, SEVERITY_RANK.medium);
-    if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length > 0) max = Math.max(max, SEVERITY_RANK.medium);
-
-    // CVEs
-    const cves = svc.cves || svc.cve || [];
-    if (Array.isArray(cves)) {
-      for (const cve of cves) {
-        const sev = typeof cve === 'string' ? 'high' : String(cve?.severity || 'high').toLowerCase();
-        max = Math.max(max, SEVERITY_RANK[sev] ?? SEVERITY_RANK.high);
-      }
-    }
-
-    // Open service → Info (baseline)
-    if (svc.status === 'open') max = Math.max(max, SEVERITY_RANK.info);
-  }
-
-  return max;
+  // Every grade comes from the shared service-flag table (utils/service_flags.mjs, 1.2.1 (s1)) — the gate reads what the
+  // Markdown report, SARIF and the CSV read, including a payload that landed in the conclusion's evidence. Any concluded
+  // scan is at least info.
+  return Math.max(SEVERITY_RANK.info, maxRank(conclusionFindings(conclusion, '')));
 }
 
 /**
@@ -1693,14 +1663,18 @@ Scan options:
                                a range such as 1-1000 is not parsed and adds nothing)
   --out <dir>                  Output directory for scan artifacts
   --parallel <n>               Parallel host concurrency (default 1)
-  --fail-on <severity>         Exit 1 if a gated flag ≥ severity: anonymous FTP / zone
-                               transfer (critical; tested only with FTP_CHECK_ANON /
-                               DNS_CHECK_AXFR set), weak SSH algorithms (medium), and
-                               Dangerous HTTP methods (medium) only where an Allow
-                               header was read — not tested never trips it; any
-                               concluded scan is info. Not SNMP community,
-                               weak TLS, MCP checks, CVEs or agent findings — exit 0 is
-                               not a clean host. Exit 2: unknown severity or no conclusion.
+  --fail-on <severity>         Exit 1 if a finding ≥ severity — the findings the md /
+                               SARIF / CSV reports count, graded by one shared table:
+                               SNMP default community, weak SSH / TLS, MCP checks, SMB
+                               null session, self-signed / expired certificates, the
+                               040 / 050 / 060 audits (060: the domain's SPF / DMARC /
+                               NS), and Dangerous HTTP methods (medium) only where an
+                               Allow header was read. Anonymous FTP / zone transfer /
+                               null session only with FTP_CHECK_ANON / DNS_CHECK_AXFR /
+                               SMB_NULL_SESSION set; not tested never trips it; any
+                               concluded scan is info. Not CVEs or agent findings —
+                               exit 0 is not a clean host. Exit 2: unknown severity or
+                               no conclusion.
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
   --watch                      CTEM continuous ALERTING mode: re-scan on --interval,
@@ -3242,16 +3216,12 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
               if (!scanOut?.conclusion) continue;
               const hostSev = maxSeverityInConclusion(scanOut.conclusion);
               if (hostSev >= sevRank) {
-                const services = scanOut.conclusion?.result?.services || [];
-                const findings = services.filter((svc) => {
-                  let svcSev = 0;
-                  if (svc.anonymousLogin === true || svc.axfrAllowed === true) svcSev = SEVERITY_RANK.critical;
-                  if (Array.isArray(svc.weakAlgorithms) && svc.weakAlgorithms.length) svcSev = Math.max(svcSev, SEVERITY_RANK.medium);
-                  if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length) svcSev = Math.max(svcSev, SEVERITY_RANK.medium);
-                  const cves = svc.cves || svc.cve || [];
-                  if (Array.isArray(cves) && cves.length) svcSev = Math.max(svcSev, SEVERITY_RANK.high);
-                  return svcSev >= sevRank;
-                });
+                // One detail per FINDING at or above the alert severity, each with its own grade — from the shared
+                // service-flag table (1.2.1 (s1)), so the alert names what --fail-on and the reports name.
+                const findings = conclusionFindings(scanOut.conclusion, h)
+                  .filter((f) => flagSeverityRank(f.severity) >= sevRank)
+                  .map((f) => ({ port: f.port, protocol: f.protocol, service: f.service, description: f.title,
+                    severity: f.severity.toLowerCase() }));
 
                 if (findings.length > 0) {
                   const payload = buildAlertPayload(h, findings, alertSeverity);

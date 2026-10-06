@@ -102,6 +102,7 @@ const COMPUTED_SITES = new Map([
   ['plugins/syn_scanner.mjs :: protocol: proto', 'nmap XML `protocol="…"` under `-sS` only (buildNmapArgs) — tcp'],
   ['plugins/webapp_detector.mjs :: probe_protocol: proto', 'url.startsWith(\'https:\') ? \'https\' : \'http\''],
   ['utils/report_inputs.mjs :: protocol: null', 'the PLUGIN path\'s declared null — no transport on a plugin finding'],
+  ['utils/service_flags.mjs :: protocol: null', 'a finding graded from an adapter payload that landed in EVIDENCE — no port, so no transport'],
   ['utils/report_inputs.mjs :: protocol: typeof q?.target?.protocol === \'string\' ? q.target.protocol : null',
     'the QUEUE path: a queue producer\'s target.protocol verbatim — Enterprise\'s agents and engine, whose writes Enterprise\'s census holds'],
   ['utils/scan_history.mjs :: protocol: svc.protocol', 'passthrough of a service\'s label into the history record'],
