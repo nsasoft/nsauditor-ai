@@ -171,3 +171,13 @@ for (const [label, content] of [['a typo\'d key {"ports":[8080]}', JSON.stringif
     } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
   });
 }
+
+test("(B6-4j) a REFUSED scan does not also warn about an ignored override — the refusal already names both files", async () => {
+  // The audit seat's nit: the order (refuse first, then warn) was stated in code and not pinned.
+  const root = floorRoot(JSON.stringify({}));
+  const cwd = cwdWith("{}");
+  try {
+    const { lines } = await warned(() => assert.rejects(portScanner.run("127.0.0.1", 0, { _servicesFloorRoot: root, _servicesCwd: cwd }), REFUSAL));
+    assert.deepEqual(lines, []);
+  } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
+});

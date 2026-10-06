@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PluginManager } from '../plugin_manager.mjs';
+import fs from 'node:fs';
 
 const SKIP_ENVELOPE = { up: false, skipped: true, findings: [], data: [] };
 
@@ -141,4 +142,20 @@ test('(B6-4c) a row\'s own STATUS decides over its text, in both directions — 
   // phrase does not.
   assert.equal(await gatedStatus(emits('952', 'Generic UDP Probe', [row('DNS answer received', { status: 'open' })])), 'ran');
   assert.equal(await gatedStatus(emits('952', 'Generic UDP Probe', [row('UDP response (truncated)', { status: 'no-response' })])), 'skipped');
+});
+
+// The port scanner writes a THIRD UDP status — 'closed', the ICMP port-unreachable answer (its `udpClosed` bucket) — and
+// the status branch was pinned with 'open' and 'no-response' only, so `=== 'open'` → `!== 'no-response'` survived and
+// would read a port MEASURED CLOSED as open (the audit seat's mutant). DERIVED from the scanner's own bucket filters, so
+// a fourth status cannot arrive unpinned: every UDP status it writes other than 'open' reads unanswered, even beside a
+// positive-looking phrase.
+test('(B6-4c) EVERY UDP status the port scanner writes other than \'open\' leaves the gated plugin skipped — derived from its bucket filters', async () => {
+  const src = fs.readFileSync(new URL('../plugins/port_scanner.mjs', import.meta.url), 'utf8');
+  const statuses = [...new Set([...src.matchAll(/probe_protocol === "udp" && d\.status === "([a-z-]+)"/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(statuses.filter((x) => x !== 'open').length >= 2 && statuses.includes('closed') && statuses.includes('open'), true,
+    `positive control: the scanner's UDP statuses are read from its source (${statuses})`);
+  for (const status of statuses) {
+    const want = status === 'open' ? 'ran' : 'skipped';
+    assert.equal(await gatedStatus(emits('952', 'Generic UDP Probe', [row('UDP response', { status })])), want, `status '${status}'`);
+  }
 });
