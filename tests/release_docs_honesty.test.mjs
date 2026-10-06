@@ -50,10 +50,13 @@ function codeRegions(md) {
     const f = /^\s*(`{3,}|~{3,})/.exec(line);
     if (fence) {
       if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null;
-      // a shell / JS comment line is prose: only its inline code spans are commands (stated limit: an UNQUOTED
-      // command inside a comment is not read)
+      // a shell / JS comment line is prose: only its inline code spans are commands — unless the comment IS a command,
+      // commented out (`# npx …`, `# $ npx …`), which is read whole (v77-9, 1.2.1). Prose that merely names npx mid-line
+      // ("when npx does not find that bin") is not a command and is not read.
       else if (/^\s*(?:#|\/\/)/.test(line)) {
-        for (const s of line.matchAll(/`([^`]+)`/g)) out.push({ start: off + s.index + 1, text: s[1] });
+        const cmd = /^(\s*(?:#|\/\/)\s*(?:\$\s*)?)(npx\b.*)$/.exec(line);
+        if (cmd) out.push({ start: off + cmd[1].length, text: cmd[2] });
+        else for (const s of line.matchAll(/`([^`]+)`/g)) out.push({ start: off + s.index + 1, text: s[1] });
       } else out.push({ start: off, text: line });
     } else if (f) {
       fence = f[1];
@@ -88,15 +91,20 @@ test('(q) npx: the forms that run OUR packages, a warning, and prose naming npx 
     'Build it with `npx nsauditor-ai-agent-skill build-zip --out ~/Desktop`.',
     'Run the installed bin, never `npx nsauditor-ai-mcp`: when npx does not find that bin it asks the registry.',
     '```bash', '# Never `npx nsauditor-ai-mcp`: the server is a bin inside the nsauditor-ai package, and when npx does not', '# find that bin it looks the name up (no global install), which never starts this server', '```',
+    // v77-9 (1.2.1): a COMMENTED-OUT command is read as a command — and one that runs OUR package stays green.
+    '```bash', '# npx nsauditor-ai scan --host 192.0.2.1', '```',
   ].join('\n'));
   assert.deepEqual(bad, []);
-  assert.equal(ok.length, 4, ok.join(' | '));
+  assert.equal(ok.length, 5, ok.join(' | '));
 });
 
 test('npx: an unowned name in any command position is red — bare, -y, after `--`, inline, and a Desktop npx block', () => {
   for (const md of [
     '```bash\nnpx nsauditor-ai-mcp\n```',
     '```bash\nnpx -y nsauditor-ai-mcp\n```',
+    // v77-9 (1.2.1): a commented-out command — the guard read only backtick spans inside a comment, so these were invisible.
+    '```bash\n# npx nsauditor-ai-mcp\n```',
+    '```bash\n# $ npx -y nsauditor-ai-mcp\n```',
     '```bash\nclaude mcp add nsauditor-ai \\\n  -- npx nsauditor-ai-mcp\n```',
     'Or run `npx nsauditor-ai-mcp` with no global install.',
     'Use `npx --yes someone-elses-package`.',
