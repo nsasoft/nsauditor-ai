@@ -84,9 +84,14 @@ async function readPortSet(fp) {
  * purpose must not silently get the full set back.
  */
 export async function loadConfigPortsFromServicesJson(cwd = process.cwd(), pkgRoot = PKG_ROOT) {
-  const override = await readPortSet(path.join(cwd, "config", "services.json"));
+  const overridePath = path.join(cwd, "config", "services.json");
+  const override = await readPortSet(overridePath);
   if (override.tcp.length || override.udp.length) return { ...override, source: "override" };
-  return { ...(await readPortSet(path.join(pkgRoot, "config", "services.json"))), source: "package" };
+  const floor = { ...(await readPortSet(path.join(pkgRoot, "config", "services.json"))), source: "package" };
+  // B6-4j (1.2.1): a cwd file that EXISTS and yields nothing is ignored OUT LOUD (run() warns), named by its RELATIVE path —
+  // the working directory's absolute path is the operator's layout, which does not travel in a log.
+  const present = await fsp.access(overridePath).then(() => true, () => false);
+  return present ? { ...floor, overrideIgnored: path.join("config", "services.json") } : floor;
 }
 
 function classifyTcpError(err) {
@@ -253,6 +258,10 @@ export default {
           + `${path.join(floorRoot, "config", "services.json")} yielded a port. An empty port set means `
           + `the surface cannot be measured, not that nothing is listening. Check that the file is `
           + `readable (it ships mode 0644), or pass the ports explicitly.`);
+      }
+      if (cfg.overrideIgnored) {
+        console.warn(`[port_scanner] WARNING: ${cfg.overrideIgnored} in the working directory yields no ports — it lists none in `
+          + `the forms read here (a "services" array, or "tcp" / "udp" arrays) — so the package's default port set is scanned instead.`);
       }
     }
 

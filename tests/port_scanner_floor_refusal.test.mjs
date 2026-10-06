@@ -114,3 +114,60 @@ test("THROUGH THE MANAGER — a refused floor is recorded as status `error` with
     assert.match(String(entry.reason), REFUSAL);
   } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
 });
+
+// ── B6-4j (1.2.1): A CWD OVERRIDE THAT YIELDS NO PORTS IS IGNORED OUT LOUD ───────────────────────────────────────────
+// The fall-through is deliberate (a foreign or empty `config/services.json` must not empty the sweep), but it was SILENT:
+// an operator's typo'd narrowing file (`{"ports":[8080]}`) got the full package sweep without a word. The loader now says
+// it ignored the file, and run() prints ONE warning naming it by its RELATIVE path — an absolute one would carry the
+// operator's directory layout into a log that leaves the machine (B6-4a's class). FOURTH QUADRANT FIRST.
+const ONE_PORT_FLOOR = () => floorRoot(JSON.stringify({ tcp: [9] }));
+const cwdWith = (content) => {
+  const cwd = EMPTY_CWD();
+  fs.mkdirSync(path.join(cwd, "config"));
+  fs.writeFileSync(path.join(cwd, "config", "services.json"), content);
+  return cwd;
+};
+async function warned(fn) {
+  const lines = [];
+  const real = console.warn;
+  console.warn = (...a) => { lines.push(a.join(" ")); };
+  try { return { value: await fn(), lines }; } finally { console.warn = real; }
+}
+
+test("(B6-4j, fourth quadrant first) NO cwd file → the package floor, no `overrideIgnored`, and run() warns nothing", async () => {
+  const root = ONE_PORT_FLOOR();
+  const cwd = EMPTY_CWD();
+  try {
+    const set = await loadConfigPortsFromServicesJson(cwd, root);
+    assert.deepEqual(set, { tcp: [9], udp: [], source: "package" });
+    const { lines } = await warned(() => portScanner.run("127.0.0.1", 0, { _servicesFloorRoot: root, _servicesCwd: cwd, timeoutMs: 200 }));
+    assert.deepEqual(lines, []);
+  } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test("(B6-4j, fourth quadrant) a VALID cwd override still REPLACES the set, with no warning", async () => {
+  const root = ONE_PORT_FLOOR();
+  const cwd = cwdWith(JSON.stringify({ tcp: [8080] }));
+  try {
+    assert.deepEqual(await loadConfigPortsFromServicesJson(cwd, root), { tcp: [8080], udp: [], source: "override" });
+    const { lines } = await warned(() => portScanner.run("127.0.0.1", 0, { _servicesFloorRoot: root, _servicesCwd: cwd, timeoutMs: 200 }));
+    assert.deepEqual(lines, []);
+  } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+for (const [label, content] of [['a typo\'d key {"ports":[8080]}', JSON.stringify({ ports: [8080] })], ["an empty {}", "{}"], ["unparseable text", "not json"]]) {
+  test(`(B6-4j) a cwd config/services.json holding ${label} → the package floor, \`overrideIgnored\`, and ONE warning naming it by its RELATIVE path`, async () => {
+    const root = ONE_PORT_FLOOR();
+    const cwd = cwdWith(content);
+    try {
+      assert.deepEqual(await loadConfigPortsFromServicesJson(cwd, root),
+        { tcp: [9], udp: [], source: "package", overrideIgnored: path.join("config", "services.json") });
+      const { value, lines } = await warned(() => portScanner.run("127.0.0.1", 0, { _servicesFloorRoot: root, _servicesCwd: cwd, timeoutMs: 200 }));
+      assert.equal(value.type, "port-scan", "positive control: the scan ran on the package floor");
+      assert.equal(lines.length, 1, lines.join(" | "));
+      assert.match(lines[0], /config[\\/]services\.json/);
+      assert.match(lines[0], /yields no ports/);
+      assert.equal(lines[0].includes(cwd), false, "the working directory's absolute path is not in the warning");
+    } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
+  });
+}
