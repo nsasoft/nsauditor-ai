@@ -95,6 +95,10 @@ test('(q7) the shared decision: identified (program AND version) is measured; a 
   assert.equal(measure(22, 'intelligence_engine', [svc('OpenSSH', '9.8', 'closed')], 'this run').measured, false, 'a CLOSED record\'s identity is not an open service');
   assert.equal(measure(22, 'intelligence_engine', [svc('Unknown', '9.8')], 'this run').measured, false, 'a version alone is not an identity');
   assert.equal(measure(22, 'intelligence_engine', [], 'this run').measured, false, 'an empty set is a set: nothing on the port');
+  // U1 (the audit seat's survivor): the ONLY identified record on the port is keyed by a non-`tcp` TCP-transport label —
+  // 010's `(https, 443)` record carries the app's program and version. The label MAP decides transport, never the raw field.
+  const appOnly = measure(443, 'intelligence_engine', [svc('WordPress', '6.4', 'open', 443, 'wordpress', 'https')], 'this run');
+  assert.deepEqual([appOnly.measured, appOnly.basis], [true, '443/tcp answered in this run (wordpress open · WordPress 6.4)']);
 });
 
 test('(q8) 443 keyed `https` by the HTTP probe (program Unknown) BESIDE `tcp` by the port scanner (identified): the rule looks past the unidentified record', () => {
