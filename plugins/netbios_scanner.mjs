@@ -452,19 +452,23 @@ async function probeMdnsSmb(){
 }
 
 // SMB2 null session probe — attempts anonymous auth, IPC$ tree connect, and share/user enum
-async function probeNullSession(host){
-  const result = { nullSessionAllowed: false, shares: [], users: [] };
-  if (!ENABLE_NULL_SESSION) return result;
+// `port`, `enabled` and `timeoutMs` default to production's 445, SMB_NULL_SESSION and SMB_NULL_SESSION_TIMEOUT; they are
+// parameters so the outcomes can be driven against a loopback listener.
+export async function probeNullSession(host, { port = 445, enabled = ENABLE_NULL_SESSION, timeoutMs = NULL_SESSION_TIMEOUT } = {}){
+  // 1.2.1 (s3): null unless MEASURED; nullSessionTested is true when it was, else the reason it was not.
+  const result = { nullSessionAllowed: null, nullSessionTested: enabled ? 'no-answer' : 'opt-in-off', shares: [], users: [] };
+  if (!enabled) return result;
+  const measured = (allowed) => { result.nullSessionAllowed = allowed; result.nullSessionTested = true; };
 
   return new Promise(resolve => {
     let resolved = false;
     const safeResolve = (v) => { if (resolved) return; resolved = true; resolve(v); };
 
-    const sock = net.createConnection({ host, port: 445 });
+    const sock = net.createConnection({ host, port });
     const to = setTimeout(() => {
       try { sock.destroy(); } catch {}
       safeResolve(result);
-    }, NULL_SESSION_TIMEOUT);
+    }, timeoutMs);
 
     let phase = 'negotiate'; // negotiate | session-setup-1 | session-setup-2 | tree-connect | done
     let sessionIdLo = 0;
@@ -517,23 +521,25 @@ async function probeNullSession(host){
             // Some servers accept directly (guest/anonymous)
             sessionIdLo = hdr.sessionIdLo;
             sessionIdHi = hdr.sessionIdHi;
-            result.nullSessionAllowed = true;
+            measured(true);
             phase = 'tree-connect';
             try { sock.write(wrapNbss(buildSmb2TreeConnect(host, sessionIdLo, sessionIdHi))); } catch { finish(); }
           } else {
-            // ACCESS_DENIED or other — null session not allowed
+            // ACCESS_DENIED or other — null session not allowed (the server answered: a measurement)
             dlog('null-session: session setup denied, status=0x' + hdr.status.toString(16));
+            measured(false);
             finish();
           }
         } else if (phase === 'session-setup-2') {
           if (hdr.status === STATUS_SUCCESS) {
-            result.nullSessionAllowed = true;
+            measured(true);
             sessionIdLo = hdr.sessionIdLo; // H2 fix: unconditional assign, not ||
             sessionIdHi = hdr.sessionIdHi;
             phase = 'tree-connect';
             try { sock.write(wrapNbss(buildSmb2TreeConnect(host, sessionIdLo, sessionIdHi))); } catch { finish(); }
           } else {
             dlog('null-session: session auth denied, status=0x' + hdr.status.toString(16));
+            measured(false);
             finish();
           }
         } else if (phase === 'tree-connect') {
@@ -638,28 +644,37 @@ export default {
       }
     }catch{ /* best-effort only */ }
 
-    // SMB2 null session enumeration (opt-in via SMB_NULL_SESSION env)
-    let nullSessionAllowed = false;
+    // SMB2 null session enumeration (opt-in via SMB_NULL_SESSION env). 1.2.1 (s3): null unless measured, with its state.
+    let nullSessionAllowed = null;
+    let nullSessionTested = ENABLE_NULL_SESSION ? 'no-answer' : 'opt-in-off';
     let shares = [];
     let users = [];
 
     try {
       const ns = await probeNullSession(host);
       nullSessionAllowed = ns.nullSessionAllowed;
+      nullSessionTested = ns.nullSessionTested;
       shares = ns.shares;
       users = ns.users;
-      if (nullSessionAllowed) {
+      if (nullSessionAllowed === true) {
         data.push({
           probe_protocol: 'tcp',
           probe_port: 445,
           probe_info: 'WARNING: SMB null session authentication succeeded',
           response_banner: `Null session allowed. Shares: ${shares.length}, Users: ${users.length}`
         });
-      } else if (ENABLE_NULL_SESSION) {
+      } else if (nullSessionAllowed === false) {
         data.push({
           probe_protocol: 'tcp',
           probe_port: 445,
           probe_info: 'SMB null session denied (good)',
+          response_banner: null
+        });
+      } else if (ENABLE_NULL_SESSION) {
+        data.push({
+          probe_protocol: 'tcp',
+          probe_port: 445,
+          probe_info: 'SMB null session not measured — the exchange did not complete',
           response_banner: null
         });
       }
@@ -680,6 +695,7 @@ export default {
       version,
       type: 'netbios/smb',
       nullSessionAllowed,
+      nullSessionTested,
       shares,
       users,
       data
@@ -706,7 +722,9 @@ export async function conclude({ host, result }){
     program: result?.program || 'Unknown',
     version: result?.version || 'Unknown',
     status, info, banner,
-    nullSessionAllowed: result?.nullSessionAllowed ?? false,
+    // 1.2.1 (s3): null unless measured — the old default `false` read "refused" for a check that never ran.
+    nullSessionAllowed: result?.nullSessionAllowed ?? null,
+    nullSessionTested: result?.nullSessionTested ?? null,
     shares: result?.shares ?? [],
     users: result?.users ?? [],
     source: 'netbios',
@@ -725,6 +743,7 @@ export async function conclude({ host, result }){
       status: 'open', info: 'WARNING: SMB null session allowed — anonymous enumeration possible',
       banner: `Shares: ${(result.shares||[]).join(', ') || 'none'}, Users: ${(result.users||[]).join(', ') || 'none'}`,
       nullSessionAllowed: true,
+      nullSessionTested: true,
       shares: result?.shares ?? [],
       users: result?.users ?? [],
       source: 'netbios',

@@ -9,7 +9,7 @@
 // minimal report (header + "no services detected") rather than throwing, so callers
 // don't need to guard before invocation.
 
-import { conclusionFindings, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
+import { conclusionFindings, conclusionNotTested, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
 
 const SEVERITIES = SEVERITY_ORDER;
 
@@ -150,11 +150,16 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
-  // 1.2.1 (a4): a service whose HTTP methods were NOT tested (no Allow header was read) is said to be so — never "none".
-  const methodsNotTested = services.filter((s) => s.methodsTested === false);
-  if (methodsNotTested.length > 0) {
-    lines.push(`- **HTTP methods not tested:** ${methodsNotTested.map((s) => escapeCell(`${s.port}/${s.protocol || 'tcp'}`)).join(', ')}`
-      + ' — no Allow header was read, so dangerous methods were not checked there (not "none")');
+  // 1.2.1 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
+  // never "none" and never "refused". One line per check and reason, from the shared table, with every target it covers.
+  const notTested = new Map();
+  for (const n of conclusionNotTested(conclusion)) {
+    const k = `${n.check}\u0000${n.reason}`;
+    if (!notTested.has(k)) notTested.set(k, { ...n, targets: [] });
+    notTested.get(k).targets.push(n.target);
+  }
+  for (const n of notTested.values()) {
+    lines.push(`- **${n.check} not tested:** ${n.targets.map((t) => escapeCell(t)).join(', ')} — ${escapeCell(n.reason)}`);
   }
   // 1.2.0 build 3: without this line "Security findings: 0" read as a clean verdict over a host whose CLI run carried 16
   // CVEs (the Gate 3-A preparation's P8). Since 1.2.1 (s1) the counted list is DERIVED from the shared service-flag table's

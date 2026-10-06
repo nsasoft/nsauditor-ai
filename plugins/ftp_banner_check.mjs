@@ -24,7 +24,9 @@ export default {
       let banner = '';
       let up = false;
       let anonState = 'banner'; // banner | send-user | send-pass | done
-      let anonymousLogin = false;
+      // 1.2.1 (s3): null unless MEASURED; anonTested is true when it was, else the reason it was not.
+      let anonymousLogin = null;
+      let anonTested = anonEnabled ? 'no-answer' : 'opt-in-off';
       let bannerCollected = false;
       let resolved = false;
       const safeResolve = (value) => { if (resolved) return; resolved = true; resolve(value); };
@@ -77,7 +79,7 @@ export default {
           response_banner: parsed.bannerTrimmed || null
         }];
 
-        if (anonEnabled && anonymousLogin) {
+        if (anonEnabled && anonymousLogin === true) {
           evidenceRows.push({
             probe_protocol: 'tcp',
             probe_port: port,
@@ -94,9 +96,8 @@ export default {
           data: evidenceRows
         };
 
-        if (anonEnabled) {
-          result.anonymousLogin = anonymousLogin;
-        }
+        result.anonymousLogin = anonymousLogin;
+        result.anonymousLoginTested = anonTested;
 
         dlog(`FTP Banner Check result: up=${up}, program=${parsed.program}, version=${parsed.version}, os=${parsed.os}, anonymousLogin=${anonymousLogin}, banner=${parsed.bannerTrimmed || 'none'}`);
         return result;
@@ -138,20 +139,22 @@ export default {
           } else if (response.startsWith('230')) {
             // Logged in without password
             anonymousLogin = true;
+            anonTested = true;
             anonState = 'done';
             socket.end();
           } else {
-            // Unexpected response, treat as denied
+            // The server answered USER with something else — a refusal it made, so a measurement
+            anonymousLogin = false;
+            anonTested = true;
             anonState = 'done';
             socket.end();
           }
         } else if (anonState === 'send-pass') {
           const response = chunk.trim();
           dlog(`Anon PASS response: ${response}`);
-          if (response.startsWith('230')) {
-            anonymousLogin = true;
-          }
-          // 530/421 or anything else = denied
+          // 230 = accepted; 530/421 or anything else the server answered = refused. Either is a measurement.
+          anonymousLogin = response.startsWith('230');
+          anonTested = true;
           anonState = 'done';
           socket.end();
         }
@@ -170,6 +173,8 @@ export default {
           program: 'Unknown',
           version: 'Unknown',
           os: null,
+          anonymousLogin: null,
+          anonymousLoginTested: anonTested,
           data: [{
             probe_protocol: 'tcp',
             probe_port: port,
@@ -194,6 +199,8 @@ export default {
           program: 'Unknown',
           version: 'Unknown',
           os: null,
+          anonymousLogin: null,
+          anonymousLoginTested: anonTested,
           data: [{
             probe_protocol: 'tcp',
             probe_port: port,
@@ -237,9 +244,10 @@ export async function conclude({ host, result }) {
     authoritative: true
   };
 
-  if (result?.anonymousLogin != null) {
-    record.anonymousLogin = result.anonymousLogin;
-  }
+  // 1.2.1 (s3): the result and its tested state, on every FTP record — null with no state is a result an earlier release
+  // wrote, which did not record whether the check ran.
+  record.anonymousLogin = result?.anonymousLogin ?? null;
+  record.anonymousLoginTested = result?.anonymousLoginTested ?? null;
 
   return [record];
 }

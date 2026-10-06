@@ -202,11 +202,14 @@ function sendAxfrQuery(host, domain, port=53, timeoutMs=TIMEOUT){
     let done = false;
     const records = [];
 
-    const finish = (ok, info) => {
+    // `outcome` is what was MEASURED (1.2.1 (s3)): 'allowed' (records came back), 'refused' (an error RCODE, or TCP/53
+    // refused the connection — no transfer can be had), or 'no-answer' (a timeout, a TCP error, a parse error, a close with
+    // nothing received) — nothing was measured, and that is never "denied".
+    const finish = (ok, info, outcome = ok ? 'allowed' : 'no-answer') => {
       if (done) return;
       done = true;
       try { s.destroy(); } catch {}
-      resolve({ ok, info, records });
+      resolve({ ok, info, outcome, records });
     };
 
     const t = setTimeout(() => finish(false, 'AXFR timeout'), timeoutMs);
@@ -224,7 +227,7 @@ function sendAxfrQuery(host, domain, port=53, timeoutMs=TIMEOUT){
           const rr = parseResponse(msg);
           if (rr.rcode !== 0) {
             clearTimeout(t);
-            return finish(false, `AXFR refused (rcode=${rr.rcode})`);
+            return finish(false, `AXFR refused (rcode=${rr.rcode})`, 'refused');
           }
           records.push(...rr.answers);
           if (records.length > MAX_AXFR_RECORDS) {
@@ -237,7 +240,7 @@ function sendAxfrQuery(host, domain, port=53, timeoutMs=TIMEOUT){
         }
       }
     });
-    s.on('error', err => { clearTimeout(t); finish(false, String(err?.code || 'TCP error')); });
+    s.on('error', err => { clearTimeout(t); finish(false, String(err?.code || 'TCP error'), err?.code === 'ECONNREFUSED' ? 'refused' : 'no-answer'); });
     s.on('close', () => {
       clearTimeout(t);
       if (records.length > 0) finish(true, `AXFR success: ${records.length} records`);
@@ -325,24 +328,28 @@ export default {
       data.push(entry);
     }
 
-    // 4) AXFR zone transfer (opt-in via env)
+    // 4) AXFR zone transfer (opt-in via env). 1.2.1 (s3): `axfrTested` records whether it ran and MEASURED — true, or the
+    // reason it did not ('opt-in-off', 'no-domain', 'no-answer'); `axfrAllowed` is null unless a measurement was made.
     const checkAxfr = /^(1|true|yes|on)$/i.test(String(process.env.DNS_CHECK_AXFR || ''));
     const axfrDomain = String(process.env.DNS_AXFR_DOMAIN || opts.axfrDomain || '');
     let axfrAllowed = null;
+    let axfrTested = !checkAxfr ? 'opt-in-off' : !axfrDomain ? 'no-domain' : 'no-answer';
 
     if (checkAxfr && axfrDomain) {
       const axfrRes = await sendAxfrQuery(host, axfrDomain, targetPort, timeoutMs);
-      axfrAllowed = axfrRes.ok;
+      if (axfrRes.outcome !== 'no-answer') { axfrAllowed = axfrRes.outcome === 'allowed'; axfrTested = true; }
       data.push({
         probe_protocol: 'tcp',
         probe_port: targetPort,
         probe_service: 'dns',
-        probe_info: axfrRes.ok ? `AXFR ${axfrDomain} allowed` : `AXFR ${axfrDomain} denied`,
+        probe_info: axfrRes.outcome === 'allowed' ? `AXFR ${axfrDomain} allowed`
+          : axfrRes.outcome === 'refused' ? `AXFR ${axfrDomain} denied`
+            : `AXFR ${axfrDomain} not measured — ${axfrRes.info}`,
         response_banner: axfrRes.info
       });
     }
 
-    return { up, type:'dns', program, version, axfrAllowed, data };
+    return { up, type:'dns', program, version, axfrAllowed, axfrTested, data };
   }
 };
 
@@ -362,6 +369,7 @@ export async function conclude({ host, result }){
     version: result?.version || 'Unknown',
     status, info, banner,
     axfrAllowed: result?.axfrAllowed ?? null,
+    axfrTested: result?.axfrTested ?? null,
     source: 'dns',
     evidence: rows,
     authoritative: true

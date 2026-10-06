@@ -123,11 +123,51 @@ export const SERVICE_FLAGS = Object.freeze([
 ]);
 export const FLAG_KEYS = Object.freeze(SERVICE_FLAGS.map((r) => r.key));
 
+// ── (s3) NOT TESTED ──────────────────────────────────────────────────────────────────────────────────────────────
+// A check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason — never "none", never
+// "refused". The producer records the state beside the result (`axfrTested`, `anonymousLoginTested`, `nullSessionTested`:
+// `true` when measured, else the reason code); the HTTP probe's is `methodsTested`. A record that carries the result as
+// null and no state was written before 1.2.1, so whether the check ran was not recorded.
+const REASONS = {
+  'opt-in-off': (sw) => `the check is off (${sw} is unset)`,
+  'no-domain': () => 'no domain was given (DNS_AXFR_DOMAIN is unset)',
+  'no-answer': () => 'the exchange did not complete, so nothing was measured',
+  'no-allow-header': () => 'no Allow header was read, so dangerous methods were not checked there (not "none")',
+  'not-recorded': () => 'the scan that wrote this record did not record whether the check ran',
+};
+const optIn = (key, stateKey, check, sw) => ({ key, check, notTested: (s) => {
+  if (!(key in s) || s[key] === true || s[key] === false) return null;
+  const code = s[stateKey] in REASONS ? s[stateKey] : 'not-recorded';
+  return REASONS[code](sw);
+} });
+export const NOT_TESTED_CHECKS = Object.freeze([
+  optIn('axfrAllowed', 'axfrTested', 'DNS zone transfer', 'DNS_CHECK_AXFR'),
+  optIn('anonymousLogin', 'anonymousLoginTested', 'Anonymous FTP login', 'FTP_CHECK_ANON'),
+  optIn('nullSessionAllowed', 'nullSessionTested', 'SMB null session', 'SMB_NULL_SESSION'),
+  { key: 'dangerousMethods', check: 'HTTP methods', notTested: (s) => (s.methodsTested === false ? REASONS['no-allow-header']() : null) },
+]);
+
+/** The checks a record's service did not test, each with its reason. Only an OPEN service is listed: a service that did
+ * not answer had nothing for the check to run against, and the services table already says so. */
+export function notTestedChecks(record) {
+  if (!record || typeof record !== 'object' || record.status !== 'open') return [];
+  return NOT_TESTED_CHECKS.map((c) => ({ key: c.key, check: c.check, reason: c.notTested(record) })).filter((c) => c.reason);
+}
+
+/** Every NOT TESTED check across a conclusion's services, each with the service it was not tested on. */
+export function conclusionNotTested(conclusion) {
+  const r = conclusion?.result ?? conclusion ?? {};
+  return list(r.services).flatMap((s) => notTestedChecks(s).map((c) => ({ ...c, target: `${s.port}/${s.protocol || 'tcp'}` })));
+}
+
 /** Keys an adapter lands that are NOT findings — each with the reason, so the census cannot be satisfied silently. */
 export const DECLARED_NON_FINDING_KEYS = Object.freeze({
   algorithms: 'the SSH algorithm inventory the server offered; weakAlgorithms is its graded subset',
   allowedMethods: 'the methods the Allow header listed; dangerousMethods is its graded subset',
   methodsTested: 'whether an Allow header was read — the tested state of dangerousMethods, not a finding',
+  axfrTested: 'whether the zone-transfer check ran and measured — true, or the reason it did not (NOT TESTED, never "denied")',
+  anonymousLoginTested: 'whether the anonymous-FTP check ran and measured — true, or the reason it did not (NOT TESTED)',
+  nullSessionTested: 'whether the SMB null-session check ran and measured — true, or the reason it did not (NOT TESTED)',
   tls: 'a TLS handshake was observed on the port — the condition under which the TLS rows are measured',
   shares: 'the shares an SMB null session enumerated — evidence for nullSessionAllowed, never a separate finding',
   users: 'the users an SMB null session enumerated — evidence for nullSessionAllowed, never a separate finding',
