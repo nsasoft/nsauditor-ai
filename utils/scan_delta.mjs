@@ -109,6 +109,18 @@ export const isUdpTransport = (label) => typeof label === 'string' && TRANSPORT_
 // The queue producer whose rows are CVE matches over a service's IDENTITY (program + version). Community cannot import
 // Enterprise, so the name is declared here and Enterprise's test holds it equal to its `INTELLIGENCE_ENGINE_SOURCE`.
 export const CVE_MAPPER_PRODUCER = 'intelligence_engine';
+// THE PRODUCERS THAT ATTRIBUTE ON A SERVICE'S IDENTITY (1.2.1, lane 6 — F2 (b)). Each writes a row only for a service
+// whose program AND version it can read — the CVE mapper matches CVEs on them, Enterprise's service agent judges
+// end-of-life on them — so a service the run could not identify gives it nothing to attribute, and its silence there
+// is not a measurement. Read at exactly two sites: `tcpServiceMeasurement`'s producer branch, and the delta's reach gate
+// that calls it for a TCP port the other run saw open. The mapper's other sites (its lookup gaps and notes,
+// `vulnerability-data-changed`, the "newly attributed" basis note) are CVE semantics and do NOT read this set.
+// Each member names its own row in the refusal sentence; the set is this table's keys, so no member lacks one.
+const IDENTIFYING_ROW = Object.freeze({
+  [CVE_MAPPER_PRODUCER]: Object.freeze({ row: 'a CVE row', denied: 'the CVE mapper nothing to match' }),
+  service_agent: Object.freeze({ row: 'an end-of-life row', denied: 'the service agent nothing to judge' }),
+});
+export const IDENTIFYING_PRODUCERS = Object.freeze(Object.keys(IDENTIFYING_ROW));
 const identified = (program) => typeof program === 'string' && program.trim() !== '' && program.trim().toLowerCase() !== 'unknown';
 
 /**
@@ -160,11 +172,13 @@ export function udpPortMeasurement(port, producer, services, runName = 'the othe
  * decision the delta and Enterprise's MTTR call for a TCP port the run's port scanner saw OPEN; `services` is that run's
  * service set, every transport (the loader's `servicesOf`), or null when it recorded none.
  *
- * - an analysis agent → MEASURED: it reads the fields its probes filled, so an open port is enough (as for UDP).
- * - the CVE MAPPER → MEASURED only when an open TCP-transport record on the port carries an IDENTITY — a program AND a
- *   version (`identityOf`). The mapper returns nothing and records nothing for an unidentified program, so a port that
- *   answered without one gives it nothing to match. MEASURED through the real concluder: with the SSH probe (002) left
- *   out, 22/tcp concludes `Unknown` / `Unknown`, and every CVE row on it read RESOLVED.
+ * - an analysis agent outside `IDENTIFYING_PRODUCERS` → MEASURED: it reads the fields its probes filled, so an open
+ *   port is enough (as for UDP).
+ * - an IDENTIFYING producer (the CVE mapper, the service agent) → MEASURED only when an open TCP-transport record on the
+ *   port carries an IDENTITY — a program AND a version (`identityOf`). Each writes nothing for a service it cannot
+ *   identify, so a port that answered without one gives it nothing to attribute. MEASURED through the real concluder:
+ *   with the SSH probe (002) left out, 22/tcp concludes `Unknown` / `Unknown`, and every CVE row on it read RESOLVED —
+ *   and every end-of-life row the service agent had written there.
  * - no service set at all → `measured: null` (NO ORACLE) — never false: a TCP row with no oracle stays outside, as the TCP
  *   port rule does without 003. A UDP record never stands in for TCP.
  * `runName` has NO default: every caller names the run absolutely (the delta its frame's name, MTTR "this scan"), and a
@@ -176,7 +190,7 @@ export function tcpServiceMeasurement(port, producer, services, runName) {
   if (!Array.isArray(services)) {
     return { measured: null, kind: 'no-oracle', why: `${runName} recorded no service set, so nothing says what answered there` };
   }
-  if (producer !== CVE_MAPPER_PRODUCER) return { measured: true, basis: `${port}/tcp open in ${runName}` };
+  if (!IDENTIFYING_PRODUCERS.includes(producer)) return { measured: true, basis: `${port}/tcp open in ${runName}` };
   const open = services.filter((s) => Number(s?.port) === Number(port) && transportOf(s?.protocol) === 'tcp' && s?.status === 'open');
   const id = open.map((s) => ({ s, id: identityOf(s.program, s.version) })).find((x) => x.id);
   if (id) return { measured: true, basis: `${port}/tcp answered in ${runName} (${id.s.service ?? id.s.protocol} open · ${id.id.program} ${id.id.version})` };
@@ -1110,18 +1124,19 @@ function incomparabilityReason(f, mine, theirs, names) {
           + 'reads TCP ports the port scanner saw open; a UDP-transport finding is judged by its own rule, and a '
           + 'host-wide finding by neither.)' };
     }
-    // ⚠️ THE PORT ANSWERED BUT ITS SERVICE WAS NOT IDENTIFIED (1.2.1, lane 6 — F2's TCP-unidentified sibling). A CVE-mapper
-    // row on a TCP port the OTHER run's port scanner saw OPEN, where `tcpServiceMeasurement` finds no open record there
-    // carrying a program AND a version: the mapper had nothing to match, so the row's absence (or appearance) is not a
-    // measurement. Both directions. After the lookup-gap leg (a `no_version_detected` record is the mapper SAYING so, and
+    // ⚠️ THE PORT ANSWERED BUT ITS SERVICE WAS NOT IDENTIFIED (1.2.1, lane 6 — F2's TCP-unidentified sibling). A row of an
+    // IDENTIFYING producer (`IDENTIFYING_PRODUCERS`: the CVE mapper, the service agent) on a TCP port the OTHER run's port
+    // scanner saw OPEN, where `tcpServiceMeasurement` finds no open record there carrying a program AND a version: the
+    // producer had nothing to attribute, so the row's absence (or appearance) is not a measurement. Both directions. After the lookup-gap leg (a `no_version_detected` record is the mapper SAYING so, and
     // answers first) and the port leg above; before the vulnerability-data rule, which needs an identity on both sides.
     // No service set in the other run → silent, as this TCP rule is without 003 (a stated limit).
-    if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && other?.open?.has(port)) {
+    if (IDENTIFYING_PRODUCERS.includes(f.plugin) && !f.gapClass && other?.open?.has(port)) {
       const m = tcpServiceMeasurement(port, f.plugin, other.services ?? null, names.theirs);
       if (m.measured === false) {
+        const w = IDENTIFYING_ROW[f.plugin];
         return { reason: PORT_NOT_MEASURED_REASON,
-          detail: `${port}/tcp on ${f.host} carries a CVE row in only one of the two runs, and ${m.why}. An unidentified `
-            + 'service gives the CVE mapper nothing to match, so the absence of a CVE row there is not a measurement. It is '
+          detail: `${port}/tcp on ${f.host} carries ${w.row} in only one of the two runs, and ${m.why}. An unidentified `
+            + `service gives ${w.denied}, so the absence of ${w.row} there is not a measurement. It is `
             + 'NOT reported as fixed or as new — rescan once the service\'s program and version can be read.' };
       }
     }
