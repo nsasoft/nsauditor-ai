@@ -11,22 +11,23 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 **The release:** the Pro delta no longer reads an analysis agent's row as fixed or new because one scan left out the
 plugin the agent reads — Enterprise 1.3.0 records the omission and the delta refuses the row — and a CVE or end-of-life
 row on a TCP port whose service the other scan could not identify is refused too; the client report's Basis cell says,
-row by row, what was checked. One table grades every finding a service check leaves on a record, and the Markdown report,
-SARIF, the CSV, `--fail-on`, the history count and the `--watch` webhook all read it; the concluder reaches the adapters
-it missed, and a check that did not run says NOT TESTED. The SSRF guard compares addresses by value in any spelling,
-checks every address a name resolves to, and checks a host the scanned target names before following it. **Two exit
-codes can move a pipeline:** `--fail-on` gates findings it never read, so a pipeline that passed may fail on findings
-that were always there; and `nsauditor-ai mcp verify-call <id>` without `--response` exits 3, not 0. **Enterprise 1.3.0
-requires this release** (`nsauditor-ai >= 0.2.57`): it imports names that first ship here (`tcpServiceMeasurement`,
-`IDENTIFYING_PRODUCERS`), and its MTTR reads this release's identity-basis declarations by value. Plugin counts UNCHANGED
-at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED. **This supersedes the 0.2.56 entry's "Not refused in
-this release" sentence** about scans run with different `--plugins`: from Enterprise 1.3.0 an analysis agent whose
-input plugin was left out of a scan records an input gap, so its rows are refused (`evidence-gap`). **Still not
-refused:** a scan made before Enterprise 1.3.0 could not record a plugin left out of it, so in a comparison with one,
-an agent's row that scan lacks is not refused — the report's Basis cell says so on the row; and a scan that discovered
-ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the CVE mapper's row on a port
-it did not measure can read RESOLVED — include the port scanner (003). The items the 0.2.56 entry boards "for 1.2.1"
-ship with Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1 §9 classes as a minor.
+row by row, what was checked. One table grades every finding a service check leaves on a record, and the Markdown
+report, SARIF, the CSV, `--fail-on`, the history count and the `--watch` webhook all read it; the concluder reaches the
+adapters it missed, and a check that did not run says NOT TESTED. The SSRF guard compares addresses by value in any
+spelling, checks every address a name resolves to, and checks a host the scanned target names before following it.
+**Two exit codes can move a pipeline:** `--fail-on` gates findings it never read, so a pipeline that passed may fail on
+findings that were always there; and `nsauditor-ai mcp verify-call <id>` without `--response` exits 3, not 0.
+**Enterprise 1.3.0 requires this release** (`nsauditor-ai >= 0.2.57`): it imports names that first ship here
+(`tcpServiceMeasurement`, `IDENTIFYING_PRODUCERS`), and its MTTR reads this release's identity-basis declarations by
+value. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED. **This supersedes the
+0.2.56 entry's "Not refused in this release" sentence** about scans run with different `--plugins`: from Enterprise
+1.3.0 an analysis agent whose input plugin was left out of a scan records an input gap, so its rows are refused
+(`evidence-gap`). **Still not refused:** a scan made before Enterprise 1.3.0 could not record a plugin left out of it,
+so in a comparison with one, an agent's row that scan lacks is not refused — the report's Basis cell says so on the
+row; and a scan that discovered ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's
+or the CVE mapper's row on a port it did not measure can read RESOLVED and count as closed in MTTR, and the control it
+failed can read PASS — include the port scanner (003). The items the 0.2.56 entry boards "for 1.2.1" ship with
+Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1 §9 classes as a minor.
 
 - **The client report's Basis cell says, row by row, what the delta checked.** The *Since Last Scan* table printed one
   Basis sentence — host, plugin and scope present in both runs — beside every resolved, new and changed row, including
