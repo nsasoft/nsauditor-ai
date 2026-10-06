@@ -13,6 +13,15 @@ const execFileP = promisify(execFile);
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.HTTP_DEBUG || ""));
 function dlog(...a) { if (DEBUG) console.log("[http-probe]", ...a); }
 
+/**
+ * The response headers 006 keeps on its record — ONE (1.2.1 item 1, ruled): Strict-Transport-Security, for Enterprise's
+ * Missing-HSTS check. A header map is a channel into every consumer of the record (artifacts, AI payloads, the webhook,
+ * GRC), so the set is held by a census over the real concluder's output (tests/service_flag_table.test.mjs), never
+ * widened silently.
+ */
+export const RECORD_HEADERS = Object.freeze(['strict-transport-security']);
+const recordHeaders = (h) => Object.fromEntries(RECORD_HEADERS.filter((k) => h?.[k] != null).map((k) => [k, String(h[k])]));
+
 function buildBanner(status, headers) {
   const lines = [];
   lines.push(`${status.code} ${status.message}`);
@@ -159,6 +168,10 @@ export default {
       const req = mod.request(reqOpts, async (res) => {
         const headers = res.headers;
         const status = { code: res.statusCode, message: res.statusMessage };
+        // 1.2.1 item 1: the allowlisted headers, on an HTTPS response only — a user agent ignores Strict-Transport-Security
+        // over plain HTTP (RFC 6797 §8.1). Set here, where a response ARRIVED: no response, no `headers` key at all, since an
+        // empty map would read as "the header is missing".
+        if (isHttps) result.headers = recordHeaders(headers);
 
         // Initial "up" via response
         result.up = true;
@@ -331,6 +344,11 @@ export function conclude({ result }) {
     banner: row?.response_banner || null,
     source: 'http',
     evidence: rows,
+    // 1.2.1 item 1: the allowlisted response headers, on the HTTPS record only and only when a response arrived (run()
+    // sets `headers` there and nowhere else) — filtered again here, so the record can never carry a header outside
+    // RECORD_HEADERS whatever the result holds.
+    ...(row?.probe_protocol === 'https' && result?.headers && typeof result.headers === 'object'
+      ? { headers: recordHeaders(result.headers) } : {}),
     ...('methodsTested' in (result || {}) ? {
       methodsTested: result.methodsTested === true,
       allowedMethods: result.methodsTested === true ? result.allowedMethods : null,

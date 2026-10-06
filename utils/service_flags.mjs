@@ -259,6 +259,7 @@ export const DECLARED_NON_FINDING_KEYS = Object.freeze({
   users: 'the users an SMB null session enumerated — evidence for nullSessionAllowed, never a separate finding',
   communityCustom: 'a custom (operator-supplied) SNMP community answered — not a finding, and the string is never recorded',
   communitiesTried: 'the SNMP communities tried, as labels (a custom string reads "custom") — what makes a default community measurable',
+  headers: 'the HTTP probe\'s allowlisted response headers (strict-transport-security only), present only when an HTTPS response arrived — read by Enterprise\'s crypto agent for its Missing-HSTS check; no Community reader grades it',
 });
 /** Graded keys no shipped adapter lands, with the reason the row stays. */
 export const UNEMITTED_FLAG_KEYS = Object.freeze({

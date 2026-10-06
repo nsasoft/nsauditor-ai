@@ -287,7 +287,11 @@ const DRIVERS = {
   '004': [{ up: true, program: 'vsftpd', version: '3.0.3', anonymousLogin: true,
     data: [{ probe_protocol: 'tcp', probe_port: 21, probe_info: '220 vsFTPd', response_banner: '220 (vsFTPd 3.0.3)' }] }],
   '006': [{ up: true, program: 'nginx', version: '1.18.0', methodsTested: true, allowedMethods: ['GET', 'PUT'], dangerousMethods: ['PUT'],
-    data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx' }] }],
+    data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx' }] },
+  // An HTTPS response whose result holds MORE than the allowlist (a producer that over-captured): the adapter must land
+  // only strict-transport-security (1.2.1 item 1; the header-key census below).
+  { up: true, program: 'nginx', version: '1.18.0', headers: { 'strict-transport-security': 'max-age=1', server: 'nginx', 'x-extra': 'v' },
+    data: [{ probe_protocol: 'https', probe_port: 443, probe_info: 'Server: nginx' }] }],
   '007': [{ up: true, program: 'Linux', version: '5.10', community: 'public', communitiesTried: ['public'],
     data: [{ probe_protocol: 'udp', probe_port: 161, probe_info: 'SNMP response', response_banner: 'Linux' }] },
   { up: true, program: 'Linux', version: '5.10', community: null, communityCustom: true, communitiesTried: ['custom'],
@@ -418,4 +422,26 @@ test('(census) no record, evidence row or conclusion field from any adapter carr
   const seen = setCookieValues(planted);
   assert.deepEqual([...new Set(seen)], ['sid=planted-value'], 'positive control: a value the producer kept is found through the real concluder');
   assert.ok(seen.length >= 2, `found on the record's banner AND its evidence row, not one place only (${seen.length})`);
+});
+
+// ── (census) THE HEADER CHANNEL: every `headers` map on every adapter's record carries keys ⊆ {strict-transport-security}
+// (1.2.1 item 1, ruled: a header map is a channel into every consumer of the record — artifacts, AI payloads, the
+// webhook, GRC — so a second key is a RED the day someone adds it, not a drift). The key set is written HERE, apart from
+// the producer's RECORD_HEADERS, so widening the producer alone fails this leg.
+test('(census) every `headers` map any adapter lands has keys within {strict-transport-security} — never a second header', async () => {
+  const plugins = await adapterPlugins();
+  const carriers = [];
+  const outside = [];
+  for (const [id, results] of Object.entries(DRIVERS)) {
+    for (const result of results) {
+      const c = await concluder.run([...(id === '060' ? [DNS_009] : []), { id, name: plugins.get(id), result }]);
+      for (const rec of [...c.services, ...c.evidence]) {
+        if (!rec?.headers || typeof rec.headers !== 'object') continue;
+        carriers.push(id);
+        for (const k of Object.keys(rec.headers)) if (k !== 'strict-transport-security') outside.push(`${id}: ${k}`);
+      }
+    }
+  }
+  assert.deepEqual(outside, []);
+  assert.ok(carriers.includes('006'), 'positive control: 006\'s HTTPS record carries headers — the census is not vacuous');
 });
