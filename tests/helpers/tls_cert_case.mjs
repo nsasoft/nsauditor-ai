@@ -15,10 +15,12 @@ const [keyPath, certPath, target, serverJson] = process.argv.slice(2);
 const serverOverrides = serverJson ? JSON.parse(serverJson) : {};
 // 1.3.0 build 5 (F-3b): NSA_TEST_DROP_SIGALG_GETTER=1 removes X509Certificate's signatureAlgorithm getter BEFORE 040
 // loads, which is what Node 20 is (measured: v20.19.6 has no such getter; v24.12.0 has it). Test-only; read here only.
+// It DELETES the getter, leaving no property at all — what Node 20 is — so 040's check for the getter's existence sees
+// the runtime case, not a getter that answered nothing.
 if (process.env.NSA_TEST_DROP_SIGALG_GETTER === '1') {
   const { X509Certificate } = await import('node:crypto');
   delete X509Certificate.prototype.signatureAlgorithm;
-  Object.defineProperty(X509Certificate.prototype, 'signatureAlgorithm', { get() { return undefined; }, configurable: true });
+  if ('signatureAlgorithm' in X509Certificate.prototype) throw new Error('the Node-20 simulation did not remove the getter');
 }
 const { default: auditor } = await import('../../plugins/040_tls_cert_auditor.mjs');
 const { default: concluder } = await import('../../plugins/result_concluder.mjs');

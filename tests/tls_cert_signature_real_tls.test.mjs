@@ -60,6 +60,8 @@ function makeFixtures() {
     sign('leafEcdsaSha1', '/CN=localhost', P256, 'ecroot', 'sha1', LEAF);
     run(['req', '-x509', ...RSA, '-sha1', '-nodes', '-keyout', 'selfSha1.key', '-out', 'selfSha1.pem', '-days', '200',
       '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1']);
+    run(['req', '-x509', ...RSA, '-sha256', '-nodes', '-keyout', 'selfSha256.key', '-out', 'selfSha256.pem', '-days', '200',
+      '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1']);
     return d;
   } catch { return null; }
 }
@@ -99,6 +101,15 @@ test('(q) a SHA-1 self-signed ROOT above SHA-256 certificates: NO chain_weak_sig
   assert.deepEqual(sigChecks(r), []);
 });
 
+test('(q, first of the pair) a SELF-SIGNED SHA-256 leaf: self_signed HIGH with its PLAIN detail — no hint of weakness on a sound signature', (t) => {
+  const r = caseFor(t, { key: 'selfSha256' }); if (!r) return;
+  assert.deepEqual(sigChecks(r), []);
+  assert.equal(r.certAuditSig.signatureAlgorithm, 'sha256WithRSAEncryption', 'the algorithm is recorded');
+  const self = r.graded.find((g) => /self-signed/.test(g.title));
+  assert.ok(self && self.severity === 'High', `graded: ${JSON.stringify(r.graded)}`);
+  assert.equal(self.title, 'TLS certificate: Certificate is self-signed — not trusted by clients');
+});
+
 test('(q) a SELF-SIGNED SHA-1 leaf: self_signed HIGH alone, naming the algorithm and why it is not graded — no weak_signature', (t) => {
   const r = caseFor(t, { key: 'selfSha1' }); if (!r) return;
   assert.deepEqual(sigChecks(r), []);
@@ -136,7 +147,19 @@ test('where Node cannot report the algorithm (Node 20): NOT ASSESSED on certAudi
   for (const [key, ca, server] of [['leaf256', 'root256', null], ['leafSha1', 'root256', SEC0_RSA]]) {
     const r = caseFor(t, { key, ca, server, dropGetter: true }); if (!r) return;
     assert.deepEqual(sigChecks(r), [], `${key}: nothing graded on an unread algorithm`);
-    assert.match(String(r.certAuditSig.signatureStrength), /^not assessed — /, `${key}: ${JSON.stringify(r.certAuditSig)}`);
+    assert.match(String(r.certAuditSig.signatureStrength), /^not assessed — this Node runtime does not report certificate signature algorithms/,
+      `${key}: ${JSON.stringify(r.certAuditSig)}`);
     assert.notEqual(r.certAuditSig.signatureAlgorithm, 'unknown', `${key}: never the old "unknown"`);
   }
+});
+
+// THE REASON IS A CLAIM, so it names the cause it measured (the architect seat's read): the runtime sentence only when the
+// getter does not exist; any other unread algorithm (no DER on the peer object, a parse failure) says it could not be
+// read. A raw-less peer certificate does not occur on a real socket, so this is driven at unit level.
+test('a null algorithm on a runtime that HAS the getter reads "could not be read" — never the runtime sentence', async () => {
+  const { signatureAlgorithmOf, signatureStrengthOf } = await import('../plugins/040_tls_cert_auditor.mjs');
+  assert.equal(signatureAlgorithmOf({}), null, 'no DER on the peer object');
+  assert.equal(signatureAlgorithmOf({ raw: Buffer.from('not a certificate') }), null, 'a parse failure');
+  assert.equal(signatureStrengthOf('sha256WithRSAEncryption'), 'assessed');
+  assert.match(signatureStrengthOf(null), /^not assessed — the certificate's signature algorithm could not be read$/);
 });

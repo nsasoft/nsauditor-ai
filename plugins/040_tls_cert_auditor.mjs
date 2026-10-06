@@ -101,8 +101,15 @@ export function signatureAlgorithmOf(peerCert) {
     return null;
   }
 }
-const SIG_NOT_ASSESSED =
-  "not assessed — this Node runtime does not report certificate signature algorithms (Node 24 does; Node 20 does not)";
+// The reason is a claim, so it names the cause it measured: the runtime sentence only when the getter does not EXIST
+// (checked when the strength is decided, not at load); any other null — no DER on the peer object, a parse failure —
+// says the algorithm could not be read, so an operator is not sent to upgrade Node for a certificate it cannot parse.
+export function signatureStrengthOf(sigAlg) {
+  if (sigAlg) return "assessed";
+  return "signatureAlgorithm" in X509Certificate.prototype
+    ? "not assessed — the certificate's signature algorithm could not be read"
+    : "not assessed — this Node runtime does not report certificate signature algorithms (Node 24 does; Node 20 does not)";
+}
 // A certificate that issued itself: its own signature is verified by no client (an anchor, or a leaf that is its own).
 const selfIssued = (c) => !!c?.issuerCertificate && c.issuerCertificate.fingerprint256 === c.fingerprint256;
 
@@ -498,7 +505,7 @@ async function auditPort(host, port, config) {
   // its own anchor, so no client verifies that signature (option B, ruled) — and the self_signed finding says which
   // algorithm and why, so the skip is visible; the algorithm is recorded either way.
   const sigAlg = signatureAlgorithmOf(cert);
-  const sigStrength = sigAlg ? "assessed" : SIG_NOT_ASSESSED;
+  const sigStrength = signatureStrengthOf(sigAlg);
   if (sigAlg && WEAK_SIG_ALGORITHMS.test(sigAlg)) {
     if (selfSignedIssue) {
       selfSignedIssue.detail += `; signed with ${sigAlg} — not graded on a self-signed certificate, whose signature no `
