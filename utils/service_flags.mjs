@@ -161,7 +161,11 @@ const COMPARISON = {
   certExpiry: { producer: TLS_011, cid: () => CERT_CID.cert_expired, owns: sameAs(CERT_CID.cert_expired), measured: tlsMeasured },
   nullSessionAllowed: { producer: { id: '014', source: 'netbios', marker: 'nullSessionAllowed' }, cid: () => 'nullSessionAllowed',
     owns: sameAs('nullSessionAllowed'), measured: optInMeasured('nullSessionAllowed', 'nullSessionTested') },
-  cves: { producer: { id: null, source: null, marker: 'cves' }, cid: (i) => `cve:${i}`, owns: prefixed('cve'), measured: () => true },
+  // A CVE on a record is a LOOKUP outcome, not an estate fact: an empty list after a lookup that failed, or after the
+  // vulnerability data moved, is not a fix. Until a producer records the lookup's outcome (F1's scope — it must flip this
+  // rule to read it), an absence is NOT COMPARED and an appearance is FIRST OBSERVED.
+  cves: { producer: { id: null, source: null, marker: 'cves' }, cid: (i) => `cve:${i}`, owns: prefixed('cve'),
+    measured: () => 'lookup-not-recorded' },
   certAudit: { producer: { id: '040', source: 'tls-cert-auditor', marker: 'certAudit' }, cid: (i) => CERT_CID[i] ?? `certificate:${i}`,
     owns: prefixed('certificate'), measured: (s) => (s.certAudit != null ? true : 'producer-not-run') },
   tribeHealth: { producer: { id: '050', source: 'tribe-health', marker: 'tribeHealth' }, cid: (i) => `tribeHealth:${i}`,
@@ -199,6 +203,8 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'negotiated-only': () => 'the cipher each TLS version negotiated — an empty list is not proof that no weak cipher is accepted',
   'not-tried': (item) => `${item} was not tried this run`,
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
+  'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
+  'service-not-in-scan': () => 'the service is not in this scan',
 });
 /** The version of what a history line records about service checks. Absent on a line written before 1.2.1. */
 export const FLAGS_BASIS = 'service-flags-v1';

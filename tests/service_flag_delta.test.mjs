@@ -299,3 +299,50 @@ test('the README says what the [ScanHistory] line now reports, and keeps the web
     /first scan after upgrading/]) assert.match(bullet, re);
   assert.match(readme, /webhook does NOT fire on a service, version or finding change/);
 });
+
+// ── THE AUDIT SEAT'S FOLD ON a1c8aab ─────────────────────────────────────────────────────────────────────────────
+// A CVE on a service record is a LOOKUP outcome, not an estate fact: an empty list after a lookup that failed, or after
+// the vulnerability data moved, is not a fix. No shipped producer fills a record's CVEs today (UNEMITTED_FLAG_KEYS), so
+// this is latent — and it goes live the day one does. Until a lookup outcome is recorded (F1's scope), the row's absence
+// is NOT COMPARED and an appearance is FIRST OBSERVED, never cleared or appeared.
+test('a CVE on the baseline and an empty list now is NOT COMPARED — never cleared; a new one is FIRST OBSERVED', () => {
+  const cveLine = (cves) => ({ flagsBasis: T.FLAGS_BASIS, hostFlags: [], hostChecks: {}, findingsCount: 0,
+    findingsCountBasis: FINDINGS_COUNT_BASIS, tier: 'pro', services: [historyServiceEntry({ port: 22, protocol: 'tcp',
+      service: 'ssh', version: '7.2', status: 'open', cves })] });
+  const gone = computeDiff(cveLine([]), cveLine(['CVE-2024-0001']));
+  assert.deepEqual(at(gone, 22).cleared, []);
+  assert.deepEqual(at(gone, 22).notCompared, [{ id: 'cve:CVE-2024-0001', reason: 'the scan did not record whether the CVE lookup ran' }]);
+  const came = computeDiff(cveLine(['CVE-2024-0002']), cveLine([]));
+  assert.deepEqual([at(came, 22).appeared, at(came, 22).firstObserved], [[], ['cve:CVE-2024-0002']]);
+});
+
+test('TLS: a weak protocol on the baseline and an 011 record with NO handshake now is NOT COMPARED — never cleared', async () => {
+  const tls = (fields) => ({ id: '011', name: 'TLS Scanner', result: { up: true, data: [{ probe_port: 443, ...fields }] } });
+  const before = await line([tls({ probe_info: 'TLS: TLSv1.3', tlsEvidence: { supportedVersions: ['TLSv1', 'TLSv1.3'], ciphers: {} } })]);
+  const now = await line([tls({ probe_info: 'TLS: TLSv1.3', tlsEvidence: {} })]);
+  // An 011 record that answered but carries no TLS fields: rebuild the line's record without the handshake marker.
+  const noHandshake = { ...now, services: now.services.map((s) => historyServiceEntry({ port: s.port, protocol: s.protocol,
+    service: s.service, version: s.version, status: 'open', source: 'tls-scanner', tls: false, weakProtocols: [], weakCiphers: [] })) };
+  assert.deepEqual(before.services[0].flags, ['weakProtocols:TLSv1'], 'positive control: the baseline graded it');
+  const d = computeDiff(noHandshake, before);
+  assert.deepEqual(at(d, 443).cleared, []);
+  assert.deepEqual(at(d, 443).notCompared.find((n) => n.id === 'weakProtocols:TLSv1'),
+    { id: 'weakProtocols:TLSv1', reason: 'no TLS handshake was observed this run' });
+});
+
+test('two lines that BOTH carry a basis stamp, and differ, are NOT COMPARED as "basis-changed" — the ratchet for the first bump', async () => {
+  const now = await line([methods(['PUT'])]);
+  const other = { ...now, flagsBasis: 'service-flags-v0' };
+  const d = computeDiff(now, other);
+  assert.deepEqual([d.flagsNotComparable, d.flagsNotComparableReason], [true, 'basis-changed']);
+  assert.match(d.summary, /service checks not compared: the two scans recorded them on a different basis/);
+});
+
+test('a service with checks on the baseline and ABSENT now: its checks are said not compared, by port — not left to "removed"', async () => {
+  const before = await line([methods(['PUT'])]);
+  const now = { ...before, services: [] };
+  const d = computeDiff(now, before);
+  assert.equal(d.removedServices.length, 1, 'positive control: the services diff reports the removal');
+  assert.deepEqual(at(d, 80).notCompared, [{ id: 'dangerousMethods:PUT', reason: 'the service is not in this scan' }]);
+  assert.match(d.summary, /not compared: 80\/http dangerousMethods:PUT — the service is not in this scan/);
+});

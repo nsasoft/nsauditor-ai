@@ -110,6 +110,14 @@ function compareFlags(current, previous) {
   }
   const changedFlags = [];
   const prevByKey = new Map(previous.services.map((s) => [serviceKey(s), s]));
+  const currKeys = new Set(current.services.map((s) => serviceKey(s)));
+  // A service on the baseline and not in this scan: the services diff reports the removal; its checks are said not
+  // compared, by port, rather than left for a reader to infer.
+  for (const p of previous.services) {
+    if (currKeys.has(serviceKey(p)) || !Array.isArray(p.flags) || p.flags.length === 0) continue;
+    changedFlags.push({ port: p.port, protocol: p.protocol ?? 'tcp', appeared: [], cleared: [], firstObserved: [],
+      notCompared: p.flags.map((cid) => ({ id: cid, reason: reasonText('service-not-in-scan') })), firstTestedNothingFound: [] });
+  }
   for (const s of current.services) {
     const p = prevByKey.get(serviceKey(s));
     if (!p) continue; // a new service is reported as one; its checks have no baseline to compare with
