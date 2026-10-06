@@ -190,22 +190,30 @@ export function serviceIdentityAt(services, port, protocol) {
 export const sameServiceIdentity = (a, b) => a != null && b != null
   && a.program.toLowerCase() === b.program.toLowerCase() && a.version === b.version;
 // A message with every ABSOLUTE local path reduced to what a reader needs (1.2.1, B6-4a): its tail after the LAST
-// `node_modules` (the package-relative module, e.g. `@nsasoft/nsauditor-ai-ee/utils/x.mjs`), else its basename. A load
+// `node_modules` (the package-relative module, e.g. `@nsasoft/nsauditor-ai-ee/utils/x.mjs`), else its basename when that is
+// a FILE name at depth >= 3 after the root, else `<local path>` (a home directory's basename is the user's name). A load
 // error names absolute paths, and a client artifact must never carry the operator's directory layout — the rule
 // `vulnerabilityDataSource` below states for its own detail. POSIX and Windows paths and a `file://` URL; a path in
 // quotes may hold spaces, and so may an unquoted one that ends in a module file (Node's "imported from <path>"). A path
 // whose closing quote was cut off is still reduced: an opening quote is a lead for the unquoted rules too.
 // ⚠️ LIMIT, pinned: an UNQUOTED path holding a space and NO module extension reduces only up to its first space
-// (`C:\Program Files\x\state` → `Program Files\x\state`) — nothing marks where such a path ends. Node quotes those paths,
-// so its own messages are covered; a message composed by hand might not be. And the reduction runs BEFORE the caller's
-// length cap, never after: a cap landing inside `/Users/<name>/` would leave fragments of the user's name.
+// (`C:\Program Files\x\state` → `<local path> Files\x\state`) — nothing marks where such a path ends. Node quotes those paths,
+// so its own messages are covered; a message composed by hand might not be. A UNC path (`\\server\share`) matches no
+// rule and passes through. And the reduction runs BEFORE the caller's length cap, never after: a cap landing inside
+// `/Users/<name>/` would leave fragments of the user's name.
 const QUOTED_PATH = /(['"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"`\n]*)\1/g;
 const UNQUOTED_MODULE_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"\n]*?\.(?:mjs|cjs|js|json|node)(?::\d+)*)(?=$|[\s'"),;])/g;
 const UNQUOTED_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^\s'"()]+)/g;
+const LOCAL_PATH = '<local path>';
 function shortPath(p) {
   const s = p.replace(/^file:\/\//, '');
   const i = Math.max(s.lastIndexOf('node_modules/'), s.lastIndexOf('node_modules\\'));
-  return i >= 0 ? s.slice(i + 'node_modules/'.length) : (s.split(/[\\/]/).filter(Boolean).pop() ?? '');
+  if (i >= 0) return s.slice(i + 'node_modules/'.length);
+  // A FILE name below the first component survives; anything else is the layout itself. A home directory's basename IS
+  // the user's name, and a dotted user name (`/Users/j.doe`) carries an "extension" — hence BOTH conditions.
+  const parts = s.replace(/^[A-Za-z]:\\/, '').split(/[\\/]/).filter(Boolean);
+  const base = parts.at(-1) ?? '';
+  return parts.length >= 3 && /\.[A-Za-z0-9]+(?::\d+)*$/.test(base) ? base : LOCAL_PATH;
 }
 export function withoutLocalPaths(text) {
   return String(text)

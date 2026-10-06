@@ -182,8 +182,8 @@ test('(B6-4a) each absolute path becomes its tail after the last node_modules, o
       "ENOENT: no such file or directory, open 'soc2.json'"],
     ["Cannot find module '/Users/a/lib/node_modules/@nsasoft/nsauditor-ai-ee/utils/clo", "Cannot find module '@nsasoft/nsauditor-ai-ee/utils/clo"],
     // A QUOTED path holding a space and no module extension is the quoted rule's own job: no unquoted rule can find its end.
-    ["ENOENT: no such file or directory, mkdir '/Users/a b/out dir'", "ENOENT: no such file or directory, mkdir 'out dir'"],
-    ["EPERM: operation not permitted, mkdir 'C:\\Users\\a b\\out dir'", "EPERM: operation not permitted, mkdir 'out dir'"],
+    ["ENOENT: no such file or directory, mkdir '/Users/a b/out dir'", "ENOENT: no such file or directory, mkdir '<local path>'"],
+    ["EPERM: operation not permitted, mkdir 'C:\\Users\\a b\\out dir'", "EPERM: operation not permitted, mkdir '<local path>'"],
     ['ENOSPC: no space left on device', 'ENOSPC: no space left on device'],
   ];
   for (const [input, want] of cases) assert.equal(SD.withoutLocalPaths(input), want, input);
@@ -237,9 +237,26 @@ test('(B6-4a) the reduction runs BEFORE the 200-character cap — a cap landing 
 
 test('PINNED, NOT ENDORSED (B6-4a): an UNQUOTED path with a space and no module extension reduces only up to its first space', () => {
   // Nothing marks where such a path ends. Node quotes these paths, so its own messages are covered (the table above); a
-  // message composed by hand might not be. The POSIX row also shows the basename rule's own edge: the component before
-  // the space is the home directory, so its basename IS a fragment of the user's name. Stated in the function's comment;
-  // when either is decided, these rows re-state.
-  assert.equal(SD.withoutLocalPaths('cannot open C:\\Program Files\\nsauditor\\state'), 'cannot open Program Files\\nsauditor\\state');
-  assert.equal(SD.withoutLocalPaths('cannot open /Users/qzx op/dev/state dir'), 'cannot open qzx op/dev/state dir');
+  // message composed by hand might not be. What is left after the space is the limit's own residue, unchanged in kind;
+  // the component before it is a home directory, which the next leg's rule writes as `<local path>`. Stated in the
+  // function's comment; when the limit is decided, these rows re-state.
+  assert.equal(SD.withoutLocalPaths('cannot open C:\\Program Files\\nsauditor\\state'), 'cannot open <local path> Files\\nsauditor\\state');
+  assert.equal(SD.withoutLocalPaths('cannot open /Users/qzx op/dev/state dir'), 'cannot open <local path> op/dev/state dir');
+});
+
+test('(B6-4a) outside node_modules, a path keeps its basename only when it is a FILE name below the first component — else <local path>', () => {
+  // A home directory's basename IS the user's name, and a dotted user name looks like a file: so a basename survives only
+  // when it carries an extension AND sits at depth >= 3 after the root (`/`, `X:\`, `file://`). The audit seat's rule.
+  // Mutants: the depth condition removed -> the j.doe row RED; the extension condition removed -> the /home/alice/dev row RED.
+  const rows = [
+    ["mkdir '/Users/alice'", "mkdir '<local path>'"],
+    ["mkdir '/Users/j.doe'", "mkdir '<local path>'"],
+    ["open 'C:\\Users\\alice'", "open '<local path>'"],
+    ['read /home/alice/dev', 'read <local path>'],
+    ["read '/Users/alice/dev/x.json'", "read 'x.json'"],
+    ["open '/etc/hosts'", "open '<local path>'"],   // an accepted loss: a client does not need it
+  ];
+  for (const [input, want] of rows) assert.equal(SD.withoutLocalPaths(input), want, input);
+  // Stated, no work: a UNC path matches no rule and passes through.
+  assert.equal(SD.withoutLocalPaths('open \\\\server\\share\\x'), 'open \\\\server\\share\\x', 'PINNED: UNC passes through');
 });
