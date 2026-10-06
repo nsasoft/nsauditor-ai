@@ -132,7 +132,9 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   these findings through 0.2.56 (it counts the audit's informational result too); for an IP target it now counts none.
   The decline is said where a reader looks: the Markdown report (`scan_host`'s `markdown`, and `--output-format md`)
   carries `DNS-security audit (060) not tested: <host> — <reason>`, read from the plugin's manifest status — never from
-  the absence of `dnsSecurity` — and `scan_host`'s description and the README say the audit lands only for a
+  the absence of `dnsSecurity`. To give the CLI's Markdown branch that manifest, each host's object in the CLI's stdout
+  JSON gains a `pluginStatus` key (additive; the run record already carried it under that name, and `scan_host` returns
+  the same datum as `manifest`). `scan_host`'s description and the README say the audit lands only for a
   domain-name target. Before this the description said it lands on the 53/udp record whenever the scan found one, and
   on a router scanned by address, with a 53/udp service, nothing landed and nothing said why.
 - **The TLS certificate audit (040) grades an IP target's name mismatch by context, reads IP SANs, says when a
