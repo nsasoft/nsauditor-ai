@@ -48,6 +48,8 @@ try {
     port,
     negotiation: (result.portResults?.[0] ?? {}).negotiation ?? null,
     hostname: issues.filter((i) => i.check === 'hostname_mismatch'),
+    // 1.3.0 build 5: the ca_not_trusted DETAIL, whose wording now depends on the code Node reports.
+    caTrust: issues.filter((i) => i.check === 'ca_not_trusted').map((i) => i.detail),
     // Graded issues only: `info` and `pass` never reach a reader (service_flags drops them), and the TLS 1.2 pin adds
     // an info `not_tls13` by design.
     otherChecks: issues.filter((i) => i.check !== 'hostname_mismatch' && i.severity !== 'info' && i.severity !== 'pass')

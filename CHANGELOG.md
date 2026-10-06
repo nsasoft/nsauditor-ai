@@ -175,7 +175,10 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   graded, because no client verifies it — a SHA-1 root above SHA-256 certificates raises nothing, and a self-signed SHA-1
   leaf raises `self_signed` alone, whose detail names the algorithm and why (that router's leaf is self-signed
   `sha1WithRSAEncryption`). Under a trusted CA, Node's verifier also refuses a 1024-bit key or a SHA-1 signature, so
-  `ca_not_trusted` (MEDIUM) rides beside those grades. These grades reach the records, the Markdown, `--fail-on` and
+  `ca_not_trusted` (MEDIUM) rides beside those grades. Node names no reason for that refusal (`UNSPECIFIED`), and the
+  store does hold the CA, so the finding no longer says "not trusted by system CA store": it says the runtime's verifier
+  refused the chain with no named reason, and points at the graded weak key or signature. A named code keeps its
+  wording. These grades reach the records, the Markdown, `--fail-on` and
   `scan_host`; Enterprise does not yet route them to a compliance control.
 - **A check that did not run, or could not complete, reads NOT TESTED — never "none", "denied" or "refused".** Dangerous
   HTTP methods read `[]` when OPTIONS failed or carried no Allow header; a zone-transfer timeout, TCP error, parse error

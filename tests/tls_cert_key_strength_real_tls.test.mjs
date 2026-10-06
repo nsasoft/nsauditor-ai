@@ -50,13 +50,14 @@ function makeFixtures() {
 before(() => { DIR = makeFixtures(); });
 after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
 
-function caseFor(t, name, server = null) {
+function caseFor(t, name, server = null, { trusted = true } = {}) {
   if (!DIR) {
     if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
     t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
     return null;
   }
   const env = { ...process.env, NODE_EXTRA_CA_CERTS: path.join(DIR, 'ca.pem') };
+  if (!trusted) delete env.NODE_EXTRA_CA_CERTS;
   delete env.NODE_TEST_CONTEXT;
   const args = [HELPER, path.join(DIR, `${name}.key`), path.join(DIR, `${name}.pem`), '127.0.0.1', ...(server ? [JSON.stringify(server)] : [])];
   const out = execFileSync(process.execPath, args, { env, encoding: 'utf8', timeout: 30000 });
@@ -93,6 +94,19 @@ test('a 1024-bit RSA key: weak_rsa_key HIGH, graded, and it trips --fail-on high
   assert.ok(r.graded.some((g) => g.severity === 'High' && /RSA key is 1024 bits \(minimum recommended: 2048\)/.test(g.title)),
     `graded: ${JSON.stringify(r.graded)}`);
   assert.equal(r.failOnRank, RANK.high);
+  // The architect seat's ruling on that pin: the store DOES hold the CA, so the detail must not name the CA store as the
+  // cause of a refusal Node reports only as UNSPECIFIED — it states the fact, and points at the graded weak key.
+  assert.equal(r.caTrust.length, 1);
+  assert.doesNotMatch(r.caTrust[0], /CA store/);
+  assert.match(r.caTrust[0], /^Certificate chain refused by this runtime's verifier — Node reports no named reason \(UNSPECIFIED\)/);
+  assert.match(r.caTrust[0], /the graded weak key \/ signature on this certificate is the actionable finding/);
+});
+
+test('(q) a NAMED verify code keeps its wording: an untrusted CA reads "not trusted by system CA store: <code>"', (t) => {
+  const r = caseFor(t, 'rsa2048', null, { trusted: false }); if (!r) return;
+  assert.equal(r.caTrust.length, 1, `otherChecks: ${JSON.stringify(r.otherChecks)}`);
+  assert.match(r.caTrust[0], /^Certificate not trusted by system CA store: [A-Z_]+$/);
+  assert.doesNotMatch(r.caTrust[0], /UNSPECIFIED|actionable finding/, 'no weak grade here, and a named reason');
 });
 
 test('an Ed25519 key — neither RSA nor EC: key strength is NOT ASSESSED on certAudit, with no finding and never silence', (t) => {

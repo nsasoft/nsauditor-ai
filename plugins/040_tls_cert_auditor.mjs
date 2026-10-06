@@ -568,11 +568,21 @@ async function auditPort(host, port, config) {
   // reads authorized=true once its IP SAN matches the target), and this said the store distrusted a chain it trusted.
   // hostname_mismatch carries that fact. Keyed on the EXACT code: a chain that fails reports its own code, so an
   // untrusted chain with a wrong name keeps this finding beside the mismatch.
+  //
+  // 1.3.0 build 5 (the architect seat's ruling): Node reports UNSPECIFIED for a verify error outside its named table —
+  // measured for a 1024-bit leaf key and for a SHA-1 signature under a CA the store DOES hold, both refused by the
+  // verifier's policy. "Not trusted by system CA store" would name a cause that is false there, so UNSPECIFIED states the
+  // fact and no cause; where this certificate carries a graded weak key or signature, it points at that grade (a pointer,
+  // not a causal claim — the refusal's cause is not measured here). Named codes keep their wording.
   if (!probe.authorized && !isSelfSigned && probe.authError !== "ERR_TLS_CERT_ALTNAME_INVALID") {
+    const weakGrade = issues.some((i) => ["weak_rsa_key", "weak_ec_key", "weak_signature", "chain_weak_signature"].includes(i.check));
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "ca_not_trusted",
-      detail: `Certificate not trusted by system CA store: ${probe.authError || "unknown reason"}`,
+      detail: probe.authError === "UNSPECIFIED"
+        ? "Certificate chain refused by this runtime's verifier — Node reports no named reason (UNSPECIFIED)"
+          + (weakGrade ? "; the graded weak key / signature on this certificate is the actionable finding" : "")
+        : `Certificate not trusted by system CA store: ${probe.authError || "unknown reason"}`,
     });
   }
 
