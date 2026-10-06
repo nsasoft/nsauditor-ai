@@ -23,7 +23,7 @@ import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } f
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
-import { buildDeltaReport, formatDeltaSummary, hasSignificantChanges } from './utils/delta_reporter.mjs';
+import { watchCycle } from './utils/watch_cycle.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
 import { isBlockedIp, resolveAndValidate, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
@@ -719,6 +719,8 @@ export async function parseArgs(argv) {
   }
   const alertSev = get('alert-severity') || get('alert_severity') || null;
   args.alertSeverity = (alertSev && alertSev !== true) ? alertSev.toLowerCase() : 'high';
+  // R4: by default a watch cycle alerts only hosts whose scan CHANGED; this restores an alert on every cycle.
+  args.alertEveryCycle = !!(get('alert-every-cycle') || get('alert_every_cycle'));
 
   // Compliance: framework selector + scope file. Forwarded to EE's
   // runCompliancePhase via enrichScan(). No-op without an EE Enterprise license.
@@ -906,7 +908,7 @@ export async function assertScanTargetAllowed(host, env = process.env) {
   }
 }
 
-async function scanSingleHost(pm, host, plugins, opts, promptMode) {
+export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // SSRF guard — block loopback, private ranges, cloud metadata endpoints.
   // Set NSA_ALLOW_ALL_HOSTS=1 to scan RFC 1918 / private ranges (local network auditing).
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
@@ -1047,6 +1049,9 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
+  // The per-host summary [ScanHistory] records — also what a --watch cycle compares (1.2.1 items 4 + 11). Null when the
+  // history step failed before building it; the watch delta reads null as NOT COMPARED, never as an empty scan.
+  let scanSummary = null;
   // Whether THIS host actually landed in the run record's `hostsWritten` — distinct from
   // whether the scan itself succeeded. `appendHostWritten` can fail independently (a
   // malformed argument, a disk fault) while the rest of the scan completes cleanly, and the
@@ -1161,7 +1166,7 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
         + 'legacy sum and marking the line as un-based, so no comparison is made across it.');
     }
 
-    const scanSummary = {
+    scanSummary = {
       timestamp: new Date().toISOString(),
       host,
       servicesCount: services.length,
@@ -1206,6 +1211,8 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff,
     // Additive, consumed only by main()'s top-level KEV/EPSS aggregation for the run record.
     hostAppended, kevDataAsOf, epssDataAsOf, nvdCache,
+    // Additive (1.2.1 items 4 + 11): what a --watch cycle compares, host by host.
+    scanSummary,
   };
 }
 
@@ -1620,7 +1627,7 @@ export async function runReport(args, caps) {
 
 export async function main(testHooks = {}) {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, alertEveryCycle, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -1678,10 +1685,14 @@ Scan options:
                                no conclusion.
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
-  --watch                      CTEM continuous ALERTING mode: re-scan on --interval,
-                               compare each host with its previous scan ([ScanHistory]
-                               lines); --webhook-url does NOT fire on a service, version or
-                               finding change in this release. NOT an evidence cadence —
+  --watch                      CTEM continuous ALERTING mode: re-scan on --interval and
+                               compare each host with the previous cycle. --webhook-url
+                               alerts a host whose scan changed (a service, its finding
+                               count or a service check, or a comparison that could not be
+                               made) and that has a finding at or above --alert-severity.
+                               The first cycle sets the baseline and alerts nobody; a host
+                               whose scan failed is reported on stdout and does not alert in
+                               this release. NOT an evidence cadence —
                                it adds no retention or cross-run aggregation, skips SARIF/
                                CSV/Markdown output and --fail-on, and dies with this process.
                                Each tick is an ordinary scan, so with --compliance it writes
@@ -1692,6 +1703,9 @@ Scan options:
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send --watch alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
+  --alert-every-cycle          Alert every host with a finding at or above --alert-severity
+                               on every --watch cycle, the first included (default: only
+                               hosts whose scan changed)
   --compliance <framework>     Map findings to controls. 'all' = all 8 frameworks, or a CSV of
                                soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr,nist-800-171
                                (aliases nist/pci/iso/cis, and 800-171 or cmmc for nist-800-171 --
@@ -3235,40 +3249,20 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       onCycleComplete: async (results) => {
         console.log(`[CTEM] Cycle complete. Scanned ${results.size} host(s).`);
 
-        // Build delta report
-        if (previousCycleResults) {
-          const delta = buildDeltaReport(results, previousCycleResults);
-          console.log(formatDeltaSummary(delta));
-
-          // Send webhook alerts for significant changes
-          if (webhookUrl && hasSignificantChanges(delta)) {
-            const sevRank = SEVERITY_RANK[alertSeverity] ?? SEVERITY_RANK.high;
-
-            for (const [h, scanOut] of results) {
-              if (!scanOut?.conclusion) continue;
-              const hostSev = maxSeverityInConclusion(scanOut.conclusion);
-              if (hostSev >= sevRank) {
-                // One detail per FINDING at or above the alert severity, each with its own grade — from the shared
-                // service-flag table (1.2.1 (s1)), so the alert names what --fail-on and the reports name.
-                const findings = conclusionFindings(scanOut.conclusion, h)
-                  .filter((f) => flagSeverityRank(f.severity) >= sevRank)
-                  .map((f) => ({ port: f.port, protocol: f.protocol, service: f.service, description: f.title,
-                    severity: f.severity.toLowerCase() }));
-
-                if (findings.length > 0) {
-                  const payload = buildAlertPayload(h, findings, alertSeverity);
-                  const webhookResult = await sendWebhook(webhookUrl, payload, { retries: 2, retryDelayMs: 1000 });
-                  if (webhookResult.success) {
-                    console.log(`[CTEM] Webhook alert sent for ${h}`);
-                  } else {
-                    console.warn(`[CTEM] Webhook alert failed for ${h}: ${webhookResult.error}`);
-                  }
-                }
-              }
+        // What stdout says and whom the webhook alerts, both from ONE predicate (utils/watch_cycle.mjs, 1.2.1 items 4 + 11).
+        const { text, alerts } = watchCycle(results, previousCycleResults,
+          { alertRank: SEVERITY_RANK[alertSeverity] ?? SEVERITY_RANK.high, everyCycle: alertEveryCycle });
+        console.log(text ?? '[CTEM] First cycle complete — it establishes the baseline. Delta reporting begins on the next cycle.');
+        if (webhookUrl) {
+          for (const { host: h, findings } of alerts) {
+            const payload = buildAlertPayload(h, findings, alertSeverity);
+            const webhookResult = await sendWebhook(webhookUrl, payload, { retries: 2, retryDelayMs: 1000 });
+            if (webhookResult.success) {
+              console.log(`[CTEM] Webhook alert sent for ${h}`);
+            } else {
+              console.warn(`[CTEM] Webhook alert failed for ${h}: ${webhookResult.error}`);
             }
           }
-        } else {
-          console.log('[CTEM] First cycle complete. Delta reporting will begin on next cycle.');
         }
 
         previousCycleResults = results;
@@ -3289,7 +3283,8 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     const dropped = scheduler.duplicatesDropped
       ? ` (${scheduler.duplicatesDropped} duplicate host(s) dropped — watch mode scans each host once per cycle)` : '';
     console.log(`[CTEM] Watch mode enabled. Interval: ${intervalMinutes}m, Concurrency: ${parallel}, Hosts: ${scheduler.hosts.length}${dropped}`);
-    if (webhookUrl) console.log(`[CTEM] Webhook URL: ${webhookUrl}, Alert severity: ${alertSeverity}`);
+    if (webhookUrl) console.log(`[CTEM] Webhook URL: ${webhookUrl}, Alert severity: ${alertSeverity}, alerting `
+      + (alertEveryCycle ? 'every host with such a finding, every cycle' : 'hosts whose scan changed (the first cycle sets the baseline)'));
 
     scheduler.start();
     return; // keep process alive via setInterval

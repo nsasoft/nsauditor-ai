@@ -3,6 +3,7 @@
 // Each leg DERIVES the truth from the shipped code, then holds the README / --help / MCP schema
 // text to it. Absent-regexes are keyed on the CLAIM SHAPE, with \s+ across hard wraps.
 // No subprocess: the help text is read from the cli.mjs source (no licence resolver, no Keychain).
+import { watchScan } from './helpers/watch_scan.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -30,29 +31,33 @@ const CTEM = (() => {
   return README.slice(i, j > 0 ? j : undefined);
 })();
 
-// ── A. watch mode: does the webhook fire on a service change? DERIVED by driving the real delta gate
-//    with the shape the watch loop actually hands it (source tripwires on both ends).
-async function webhookFiresOnServiceChange() {
+// ── A. watch mode: does the webhook fire on a service change? DERIVED by driving the REAL producer (scanSingleHost through
+//    Community's PluginManager, tests/helpers/watch_scan.mjs) into the function the watch loop runs (watchCycle), with
+//    source tripwires on the loop's two ends. RE-POINTED at items 4 + 11: this leg used to rebuild scanSingleHost's
+//    return shape from its source — a model of the defect, not a drive of it.
+async function watchBehaviour() {
   assert.match(CLI, /scanFn:\s*async \(h\) => \{\s*const out = await scanSingleHost\([^)]*\);\s*return out;/,
     'TRIPWIRE: scanFn no longer returns scanSingleHost output unmapped — re-derive this leg');
-  assert.match(CLI, /buildDeltaReport\(results, previousCycleResults\)/,
-    'TRIPWIRE: the watch loop no longer calls buildDeltaReport(results, previousCycleResults)');
-  const fn = CLI.slice(CLI.indexOf('async function scanSingleHost('));
-  const ret = fn.match(/\n  return \{([\s\S]*?)\};\n\}/);
-  assert.ok(ret, 'TRIPWIRE: scanSingleHost return block not found');
-  const keys = ret[1].replace(/\/\/[^\n]*/g, '').split(/[,\s]+/).filter((k) => /^[A-Za-z_$][\w$]*$/.test(k));
-  assert.ok(keys.includes('conclusion') && keys.length >= 3, `return keys unreadable: ${keys}`);
-  const shaped = (services) => Object.fromEntries(keys.map((k) => [k,
-    k === 'conclusion' ? { result: { services } } : k === 'host' ? 'h' : null]));
-  const { buildDeltaReport, hasSignificantChanges } =
-    await import(pathToFileURL(path.join(ROOT, 'utils/delta_reporter.mjs')).href);
-  const before = [{ port: 21, protocol: 'tcp', service: 'ftp', version: '1.0' }];
-  const after = [{ port: 21, protocol: 'tcp', service: 'ftp', version: '2.0', anonymousLogin: true },
-    { port: 22, protocol: 'tcp', service: 'ssh', version: '9' }];
-  const top = (services) => ({ services, findingsCount: 0, tier: 'ce' });
-  assert.equal(hasSignificantChanges(buildDeltaReport(new Map([['h', top(after)]]), new Map([['h', top(before)]]))), true,
-    'NEGATIVE CONTROL: the driver cannot see a change even in the shape computeDiff reads');
-  return hasSignificantChanges(buildDeltaReport(new Map([['h', shaped(after)]]), new Map([['h', shaped(before)]])));
+  assert.match(CLI, /watchCycle\(results, previousCycleResults,\s*\{[^}]*everyCycle: alertEveryCycle\s*\}\)/,
+    'TRIPWIRE: the watch loop no longer hands its cycle results, and the --alert-every-cycle choice, to watchCycle');
+  assert.match(CLI, /for \(const \{ host: h, findings \} of alerts\)[\s\S]{0,120}buildAlertPayload\(h, findings, alertSeverity\)/,
+    'TRIPWIRE: the watch loop no longer sends exactly watchCycle\'s alerts');
+  const { scan } = await watchScan();
+  const { watchCycle } = await import(pathToFileURL(path.join(ROOT, 'utils/watch_cycle.mjs')).href);
+  const { severityRank } = await import(pathToFileURL(path.join(ROOT, 'utils/service_flags.mjs')).href);
+  const rank = severityRank('High');
+  const h = '203.0.113.40';
+  const g = '203.0.113.41';
+  const prev = new Map([[h, await scan(h, { ssh: '8.0', ftp: true })]]);
+  const cur = new Map([[h, await scan(h, { ssh: '8.9', ftp: true })]]);
+  assert.ok(prev.get(h).scanSummary?.services?.length === 2, 'POSITIVE CONTROL: the driver produced a real scan output with its summary');
+  const first = new Map([[g, await scan(g, { ftp: true })]]);
+  return {
+    fires: watchCycle(cur, prev, { alertRank: rank }).alerts.length > 0,
+    firstSilent: watchCycle(first, null, { alertRank: rank }).alerts.length === 0,
+    everyFromFirst: watchCycle(first, null, { alertRank: rank, everyCycle: true }).alerts.length > 0,
+    failedSilent: watchCycle(new Map([[h, { error: 'down' }]]), cur, { alertRank: rank, everyCycle: true }).alerts.length === 0,
+  };
 }
 
 // Claim shape: a webhook/alert that FIRES or SENDS on/when a change — not preceded by a negation.
@@ -64,25 +69,42 @@ const OVERCLAIM_WATCH = [
 const DISCLOSED = /does\s+(?:NOT|not)\s+fire\s+on\s+a\s+service,\s+version\s+or\s+finding\s+change/;
 
 test('A. the watch-mode webhook text matches what the delta gate does (README + --help)', async () => {
-  const fires = await webhookFiresOnServiceChange();
+  const b = await watchBehaviour();
   const surfaces = { 'README.md': README, '--help': HELP };
-  if (fires) {
-    // PINNED, NOT ENDORSED: when the gate is fixed, every disclosure must flip in the same commit.
-    for (const [n, s] of Object.entries(surfaces)) assert.doesNotMatch(s, DISCLOSED, `${n} still says the webhook does not fire — the gate now fires`);
-    return;
-  }
-  for (const [n, s] of Object.entries(surfaces)) {
-    for (const re of OVERCLAIM_WATCH) assert.doesNotMatch(s, re, `${n} promises a change alert the gate never sends: ${re}`);
-  }
-  assert.match(flagBlock(HELP, '--watch'), DISCLOSED, '--help --watch does not say the webhook does not fire on a change');
+  const watchHelp = flagBlock(HELP, '--watch');
   const row = README.split('\n').find((l) => l.startsWith('| `--watch` |'));
   assert.ok(row, 'README has its --watch row');
-  assert.match(row, /not on a service, version or finding change/, 'the README --watch row does not state the limit');
-  assert.match(CTEM, DISCLOSED, 'the Continuous Monitoring section does not state the limit');
+  if (b.fires) {
+    // Every disclosure of the old limit flipped in the same commit — and the trigger is stated EXACTLY (scout risk (c)):
+    // a changed host with a finding at or above the severity, a silent first cycle, the every-cycle flag, a failed scan.
+    for (const [n, s] of Object.entries(surfaces)) assert.doesNotMatch(s, DISCLOSED, `${n} still says the webhook does not fire — the gate now fires`);
+    assert.match(watchHelp, /alerts a host whose scan changed[\s\S]*?finding at or above --alert-severity/, '--help --watch names the trigger');
+    assert.match(row, /webhook for a host whose scan changed and that carries a finding at or above `--alert-severity`/, 'the README row names the trigger');
+    if (b.firstSilent) {
+      assert.match(watchHelp, /first cycle sets the\s+baseline and alerts nobody/, '--help says the first cycle alerts nobody');
+      assert.match(row, /the first cycle sets the baseline and alerts nobody/, 'the README row says the first cycle alerts nobody');
+      assert.match(CTEM, /The first cycle establishes the baseline and does not alert, whatever it finds/, 'the section says the first cycle is silent');
+    }
+    if (b.everyFromFirst) {
+      assert.match(flagBlock(HELP, '--alert-every-cycle'), /on every --watch cycle, the first included/, '--help names the every-cycle flag');
+      assert.match(CTEM, /`--alert-every-cycle` alerts every host carrying such a finding on every cycle, the first included/, 'the section names it');
+    }
+    if (b.failedSilent) {
+      assert.match(watchHelp, /whose scan failed is reported on stdout and does not alert/, '--help says a failed scan does not alert');
+      assert.match(CTEM, /A host whose scan failed is reported on stdout and does not alert in this release/, 'the section says so');
+    }
+  } else {
+    for (const [n, s] of Object.entries(surfaces)) {
+      for (const re of OVERCLAIM_WATCH) assert.doesNotMatch(s, re, `${n} promises a change alert the gate never sends: ${re}`);
+    }
+    assert.match(watchHelp, DISCLOSED, '--help --watch does not say the webhook does not fire on a change');
+    assert.match(row, /not on a service, version or finding change/, 'the README --watch row does not state the limit');
+    assert.match(CTEM, DISCLOSED, 'the Continuous Monitoring section does not state the limit');
+  }
   // At `info` every FINDING counts: DERIVED from SEVERITY_RANK.info and the per-finding filter (1.2.1 (s1): the alert lists
   // the shared table's findings, one per item — it listed every service, finding or not, until then).
   const rank = CLI.match(/const SEVERITY_RANK = \{[^}]*\binfo:\s*(\d+)\s*\}/);
-  assert.ok(rank && /\.filter\(\(f\) => flagSeverityRank\(f\.severity\) >= sevRank\)/.test(CLI),
+  assert.ok(rank && /\.filter\(\(f\) => severityRank\(f\.severity\) >= alertRank\)/.test(read('utils/watch_cycle.mjs')),
     'TRIPWIRE: SEVERITY_RANK or the per-finding alert filter changed');
   if (Number(rank[1]) === 0) assert.match(CTEM, /at `info`, every finding counts; a host with none gets no alert/, 'at info the filter passes every finding; the section must say so');
 });

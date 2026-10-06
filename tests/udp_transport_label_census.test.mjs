@@ -107,6 +107,7 @@ const COMPUTED_SITES = new Map([
   ['utils/report_inputs.mjs :: protocol: typeof q?.target?.protocol === \'string\' ? q.target.protocol : null',
     'the QUEUE path: a queue producer\'s target.protocol verbatim — Enterprise\'s agents and engine, whose writes Enterprise\'s census holds'],
   ['utils/scan_history.mjs :: protocol: svc.protocol', 'passthrough of a service\'s label into the history record'],
+  ['utils/watch_cycle.mjs :: protocol: f.protocol', 'passthrough of a shared-table finding\'s label into a watch alert detail (a service\'s label, or the table\'s declared null)'],
   ['utils/report_inputs.mjs :: protocol: String(s.protocol).toLowerCase()',
     'udpServicesOf: a service label already admitted by isUdpTransport — the table\'s own keys, lower-cased'],
 ]);

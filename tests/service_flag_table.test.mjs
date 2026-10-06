@@ -266,7 +266,9 @@ test('no reader reads a graded key itself — every grade comes from the table',
 test('the history fallback count and the webhook filter are computed from the table', () => {
   const cli = code(fs.readFileSync(path.join(ROOT, 'cli.mjs'), 'utf8'));
   assert.match(cli, /serviceFindingsCount\s*=\s*conclusionFindings\(/);
-  assert.match(cli, /conclusionFindings\(scanOut\.conclusion/);
+  // 1.2.1 items 4 + 11: the watch loop's alert filter moved into utils/watch_cycle.mjs, which the loop calls.
+  assert.match(cli, /watchCycle\(results, previousCycleResults,/);
+  assert.match(code(fs.readFileSync(path.join(ROOT, 'utils', 'watch_cycle.mjs'), 'utf8')), /conclusionFindings\(out\.conclusion/);
 });
 
 // ── THE CENSUS — every key an adapter lands is graded or declared, and every graded key has an emitter ───────────

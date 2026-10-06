@@ -53,14 +53,17 @@ test('(fourth quadrant, first) two identical 1.2.1 scans compare quiet — no fl
   assert.equal(significant(b, a), false, 'the second scan after the upgrade is quiet');
 });
 
-test('(fourth quadrant) an object with no services array (the --watch scan output) states nothing about flags and stays quiet', () => {
-  // buildDeltaReport hands computeDiff SCAN OUTPUTS, which carry no top-level `services` — README's Continuous
-  // Monitoring section says the --watch gate finds no services there in this release (lane 5 / R4). B must not change it.
+test('(fourth quadrant) an object with no services array states nothing about flags; a scan output WITHOUT its summary is NOT COMPARED, never quiet', () => {
+  // computeDiff over a value with no top-level `services` states nothing about flags (B). RE-STATED at items 4 + 11:
+  // this leg pinned that the --watch delta stayed quiet over a scan output — the shipped defect, since the output carried
+  // no summary. The output now carries `scanSummary`; one WITHOUT it is not compared (tests/watch_cycle.test.mjs).
   const scanOut = { host: 'h', results: [], conclusion: { result: { services: [{ port: 80, protocol: 'http', dangerousMethods: ['PUT'] }] } } };
   const d = computeDiff(scanOut, scanOut);
   assert.equal(d.flagsNotComparable, false);
   assert.deepEqual(d.changedFlags, []);
-  assert.equal(hasSignificantChanges(buildDeltaReport(new Map([['h', scanOut]]), new Map([['h', scanOut]]))), false);
+  const report = buildDeltaReport(new Map([['h', scanOut]]), new Map([['h', scanOut]]));
+  assert.equal(report.hostDiffs.get('h').notCompared, 'no-summary');
+  assert.equal(hasSignificantChanges(report), true, 'a comparison that could not be made is news, never "no change"');
 });
 
 test('a MALFORMED line — the basis stamp without a services array — is not read, and nothing throws', async () => {
@@ -97,7 +100,7 @@ test('a dangerous method APPEARING between two 1.2.1 scans is reported, per item
 
 test('the CLI writes its history line through both builders — the line a test builds is the line a scan writes', () => {
   const cli = fs.readFileSync(path.join(ROOT, 'cli.mjs'), 'utf8');
-  const at = cli.indexOf('const scanSummary = {');
+  const at = cli.indexOf('scanSummary = {');
   assert.ok(at > 0, 'the scan summary is found');
   const block = cli.slice(at, cli.indexOf('};', at));
   assert.match(block, /services: services\.map\(historyServiceEntry\)/);
@@ -288,16 +291,17 @@ test('the webhook payload keeps a portless finding portless — port null and pr
 });
 
 // ── WHAT THE README SAYS, against what B reaches ──────────────────────────────────────────────────────────────────
-// B reaches the [ScanHistory] line. It does NOT reach the --watch webhook's gate (that compares scan outputs with no
-// `services`, leg 2 above), so the Continuous Monitoring disclosure that the webhook does not fire on a finding change
-// stays TRUE — tests/build5_text_honesty.test.mjs holds that sentence to the gate's behaviour.
-test('the README says what the [ScanHistory] line now reports, and keeps the webhook limit it still has', () => {
+// B reaches the [ScanHistory] line. Items 4 + 11 then made the --watch gate compare each output's summary, so the
+// Continuous Monitoring disclosure that the webhook did not fire on a change is gone and the section states the trigger;
+// tests/build5_text_honesty.test.mjs holds those sentences to the gate's behaviour.
+test('the README says what the [ScanHistory] line now reports, and the webhook\'s change trigger (items 4 + 11 closed its limit)', () => {
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   const bullet = readme.split('\n').find((l) => l.startsWith('- **Change detection**'));
   assert.ok(bullet, 'the Change detection bullet');
   for (const re of [/appeared/, /cleared/, /first observed/, /could not be compared, with the reason/, /never read as cleared/,
     /first scan after upgrading/]) assert.match(bullet, re);
-  assert.match(readme, /webhook does NOT fire on a service, version or finding change/);
+  assert.doesNotMatch(readme, /webhook does NOT fire on a service, version or finding change/);
+  assert.match(readme, /An alert is posted for each changed host carrying a finding at or above `--alert-severity`/);
 });
 
 // ── THE AUDIT SEAT'S FOLD ON a1c8aab ─────────────────────────────────────────────────────────────────────────────

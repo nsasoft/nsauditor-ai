@@ -36,7 +36,7 @@ const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =
 const EXEMPT = new Map([['tests/no_operator_dotenv_census.test.mjs', 'the liveness control arm spawns un-neutralised by design']]);
 
 const CLI_SPEC = /['"](?:\.\.\/)+(?:cli|bin\/nsauditor-ai)\.mjs['"]/g;
-const HELPER_SPEC = /['"]\.\.?\/(?:\.\.\/)*helpers\/no_operator_dotenv\.mjs['"]/g;
+const HELPER_SPEC = /['"]\.\.?\/(?:\.\.\/)*(?:helpers\/)?no_operator_dotenv\.mjs['"]/g;
 const IN_IMPORT = /(?:\bfrom|\bimport\s*\(|\bimport)\s*$/;
 /** Offset of the first module specifier matching `re` that sits in an import statement or import() call, or -1. */
 function firstImport(src, re) {
