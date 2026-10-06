@@ -142,6 +142,17 @@ test('STATED LIMIT: a RENDERED copy (Markdown turned into bullets and bold) is a
   assert.equal(verify([id, '--response', saved('rendered.txt', rendered)]).status, 1);
 });
 
+test('a body that itself CONTAINS the receipt marker still verifies — the footer is cut at the LAST marker', () => {
+  // Host-chosen bytes reach tool output (an mDNS name, a page title), so a genuine body can carry the marker text.
+  // Cutting at the FIRST marker would digest only the text before it and refute a response the server really sent.
+  const id = '2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d';
+  const body = `{"host": "printer.local", "title": "${RECEIPT_MARKER} not a footer"}\n{"services": 3}`;
+  assert.ok(body.includes(RECEIPT_MARKER), 'positive control: the body carries the marker');
+  logLines({ call_id: id, tool: 'scan_host', ts: new Date().toISOString() }, { call_id: id, digest: responseDigest(body) });
+  const r = verify([id, '--response', saved('marker-in-body.txt', `${body}\n\n${RECEIPT_MARKER}\ncall_id: ${id}\n`)]);
+  assert.equal(r.status, 0, r.out);
+});
+
 // ── THE RECEIPT ──────────────────────────────────────────────────────────────────────────────────────────────────
 test('the footer is a RECEIPT: it says how to verify, prints no digest, and does not call itself "Verified"', async () => {
   const { text, id } = await realResponse();
