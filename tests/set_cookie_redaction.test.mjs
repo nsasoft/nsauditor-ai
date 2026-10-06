@@ -83,7 +83,10 @@ for (const port of [80, 443]) {
 // ── REDACTOR ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 test('the AI redactor removes Set-Cookie values from a 006-shaped and a 010-shaped record, banner and evidence alike — names kept', () => {
   const s006 = { port: 443, banner: `200 OK\r\nserver: x\r\nset-cookie: PHPSESSID=${SECRETS[0]}; Path=/`,
-    evidence: [{ response_banner: `200 OK\r\nset-cookie: theme=${SECRETS[1]}` }] };
+    evidence: [{ response_banner: `200 OK\r\nset-cookie: theme=${SECRETS[1]}` },
+      // Node lowercases header names, so no producer emits this spelling — a hand-shaped or composed string could, and
+      // the redactor's match is case-insensitive for it (the audit seat's surviving mutant, /gi → /g).
+      { probe_info: `relayed: SET-COOKIE: up=${SECRETS[2]}` }] };
   // 010 joins its banner lines with a literal backslash-r-backslash-n, and fetch merges several cookies into one value.
   const s010 = { port: 80, banner: `200\\r\\nserver: x\\r\\nset-cookie: sid=${SECRETS[0]}; Path=/, lang=${SECRETS[1]}; Expires=Wed, 21 Oct 2026 07:28:00 GMT\\r\\nx-powered-by: php, build=7` };
   const out = redactSensitiveForAI({ host: 'x', summary: '', services: [s006, s010], evidence: [] }, 'x');
