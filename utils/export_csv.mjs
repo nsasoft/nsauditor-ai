@@ -1,6 +1,8 @@
 // utils/export_csv.mjs
 // Export scan results as CSV.
 
+import { DEFAULT_COMMUNITIES } from '../plugins/snmp_scanner.mjs';
+
 /**
  * Escape a CSV field value.
  * - Wrap in double quotes if contains comma, newline, or double quote
@@ -43,7 +45,10 @@ function buildFindings(svc) {
   if (Array.isArray(svc.dangerousMethods) && svc.dangerousMethods.length) {
     parts.push(`dangerous_methods:${svc.dangerousMethods.join(';')}`);
   }
-  if (svc.community) {
+  // Only a DEFAULT community is a finding, and only a default community is ever printed: an operator's own community
+  // string is a credential, so a record carrying any other value prints nothing here (the SNMP plugin no longer writes
+  // one; this is the reader-side half of that fix).
+  if (DEFAULT_COMMUNITIES.includes(svc.community)) {
     parts.push(`default_community:${svc.community}`);
   }
 

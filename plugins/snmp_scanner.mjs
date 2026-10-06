@@ -4,6 +4,10 @@
 // Returns { up: boolean, program: string, version: string, os: string|null, type: string, data: [{ probe_protocol, probe_port, probe_info, response_banner }], serialNumber: string, hardwareVersion: string, firmwareVersion: string, ip6: string|null, deviceWebPage: string|null, deviceWebPageInstruction: string }.
 
 export const DEFAULT_COMMUNITIES = ['public', 'private'];
+// ⚠️ A COMMUNITY STRING THE OPERATOR SUPPLIED (SNMP_COMMUNITY) IS A CREDENTIAL — it authenticates to their devices — so
+// it is never written into a result, a record or an evidence row. Only a DEFAULT community is recorded by name, because
+// a default community answering IS the finding; any other string is recorded as the word 'custom'.
+export const communityLabel = (comm) => (DEFAULT_COMMUNITIES.includes(comm) ? comm : 'custom');
 export const snmpCommunities = process.env.SNMP_COMMUNITY
   ? String(process.env.SNMP_COMMUNITY).split(',').map(s => s.trim()).filter(Boolean)
   : DEFAULT_COMMUNITIES;
@@ -124,6 +128,7 @@ export default {
     let deviceWebPageInstruction = '';
     let deviceFullName = null;
     let community = null;
+    let communityCustom = false; // a custom (operator-supplied) string ANSWERED — not a finding, and not "not tested"
     const communitiesTried = [];
     const data = [];
 
@@ -137,7 +142,7 @@ export default {
       const useOid = options.oid ? options.oid.split('.').map(Number) : oidTable.default;
 
       for (const comm of snmpCommunities) {
-        communitiesTried.push(comm);
+        communitiesTried.push(communityLabel(comm));
         const s = new Session({ host, community: comm, timeouts: [5000] });
 
         try {
@@ -157,7 +162,7 @@ export default {
           const val = String(vbs?.[0]?.value || '');
           if (val) {
             up = true;
-            community = comm;
+            if (DEFAULT_COMMUNITIES.includes(comm)) community = comm; else communityCustom = true;
             const parsed = fromSysDescr(val);
             program = parsed.family || 'Unknown';
             version = parsed.version || 'Unknown';
@@ -168,7 +173,7 @@ export default {
             else if (/microsoft|windows|linux|unix/i.test(program)) type = 'server';
 
             let probeInfo = `SNMP response received: ${program} ${version}${os ? ` (OS: ${os})` : ''} (Type: ${type})`;
-            if (comm === 'public' || comm === 'private') {
+            if (DEFAULT_COMMUNITIES.includes(comm)) {
               probeInfo += ` WARNING: Default SNMP community string '${comm}' accepted — misconfiguration`;
             }
 
@@ -220,7 +225,7 @@ export default {
             if (hardwareVersion) infoPieces.push(`HW Ver: ${hardwareVersion}`);
             if (firmwareVersion) infoPieces.push(`FW Ver: ${firmwareVersion}`);
             infoPieces.push(')');
-            if (comm === 'public' || comm === 'private') {
+            if (DEFAULT_COMMUNITIES.includes(comm)) {
               infoPieces.push(` WARNING: Default SNMP community string '${comm}' accepted — misconfiguration`);
             }
             data[0].probe_info = infoPieces.join(', ');
@@ -240,7 +245,7 @@ export default {
             data.push({
               probe_protocol: 'udp',
               probe_port: 161,
-              probe_info: `No SNMP response for community "${comm}"`,
+              probe_info: `No SNMP response for community "${communityLabel(comm)}"`,
               response_banner: null
             });
           }
@@ -257,7 +262,7 @@ export default {
       });
     }
 
-    return { up, program, version, os, type, serialNumber, hardwareVersion, firmwareVersion, ip6, deviceWebPage, deviceWebPageInstruction, community, communitiesTried, data };
+    return { up, program, version, os, type, serialNumber, hardwareVersion, firmwareVersion, ip6, deviceWebPage, deviceWebPageInstruction, community, communityCustom, communitiesTried, data };
   }
 };
 
@@ -265,14 +270,18 @@ export async function conclude({ host, result }) {
   const rows = Array.isArray(result?.data) ? result.data : [];
   const row = rows[0] || null;
   const isDefault = DEFAULT_COMMUNITIES.includes(result?.community);
-  const communityInfo = result?.community ? ` [community=${isDefault ? result.community : 'custom'}]` : '';
+  // A result written by an earlier release carries a custom string in `community`; the field is masked here as well.
+  // (Its evidence rows are carried as they were written — this adapter does not rewrite another release's evidence.)
+  const custom = result?.communityCustom === true || (result?.community != null && !isDefault);
+  const communityInfo = isDefault ? ` [community=${result.community}]` : custom ? ' [community=custom]' : '';
   return [{
     port: 161, protocol: 'udp', service: 'snmp',
     program: result?.program || 'Unknown', version: result?.version || 'Unknown',
     status: result?.up ? 'open' : 'no response',
     info: row?.probe_info ? `${row.probe_info}${communityInfo}` : communityInfo || null,
     banner: row?.response_banner ? `${row.response_banner}${communityInfo}` : null,
-    community: result?.community || null,
+    community: isDefault ? result.community : null,
+    ...(custom ? { communityCustom: true } : {}),
     source: 'snmp', evidence: rows, authoritative: true
   }];
 }
