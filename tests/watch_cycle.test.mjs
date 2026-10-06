@@ -138,3 +138,26 @@ test('the not-compared states are a CLOSED set, held two ways against the states
   }
   assert.deepEqual([...produced].sort(), [...WATCH_NOT_COMPARABLE].sort());
 });
+
+// ── The audit seat's two surviving mutants, each effective by drive ────────────────────────────────────────────────────
+test('a FLAG-ONLY change (same version, a weak algorithm newly observed) is a change — and alerts at that finding\'s severity', async () => {
+  const { hostChanged } = await import('../utils/delta_reporter.mjs');
+  const h = '203.0.113.26';
+  const prev = cycle([h, await scan(h, { ssh: '8.0' })]);
+  const cur = cycle([h, await scan(h, { ssh: '8.0', weakSsh: true })]);
+  const r = watchCycle(cur, prev, { alertRank: severityRank('Medium') });
+  const diff = r.delta.hostDiffs.get(h);
+  assert.deepEqual([diff.newServices, diff.removedServices, diff.changedServices], [[], [], []], 'positive control: no service moved');
+  assert.equal(hostChanged(diff), true, 'the service-check channel alone is a change');
+  assert.deepEqual(r.alerts.map((a) => [a.host, a.findings.map((f) => f.severity)]), [[h, ['medium']]]);
+});
+
+test('--alert-every-cycle alerts only a host CARRYING a finding at or above the severity — never one with none', async () => {
+  const a = '203.0.113.27';
+  const b = '203.0.113.28';
+  const prev = cycle([a, await scan(a, { ssh: '8.0' })], [b, await scan(b, { ssh: '8.0', ftp: true })]);
+  const cur = cycle([a, await scan(a, { ssh: '8.9' })], [b, await scan(b, { ssh: '8.0', ftp: true })]);
+  const r = watchCycle(cur, prev, { alertRank: HIGH, everyCycle: true });
+  assert.match(r.text, new RegExp(`${a.replace(/\./g, '\\.')}: 1 service\\(s\\) changed`), 'positive control: A changed');
+  assert.deepEqual(alerted(r), [b], 'A changed but carries no finding at or above High; B carries one');
+});
