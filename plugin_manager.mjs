@@ -274,6 +274,16 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
   });
 }
 
+// A UDP row opens its port only when it ANSWERED (1.2.1, B6-4c). The row's own `status` decides when it carries one (the
+// port scanner's 'open' / 'no-response'); otherwise only POSITIVE text counts, never a negative that CONTAINS a positive
+// phrase: "No UDP response" matched `udp response` and "No SNMP response for community …" matched `snmp response`, so a
+// plugin gated on `udp_open` read 'ran' over a silent port.
+const UDP_NEGATIVE = /^no\b|no response|\berror\b/;
+function udpRowAnswered(d, info) {
+  if (d?.status != null) return String(d.status).toLowerCase() === "open";
+  return !UDP_NEGATIVE.test(info) && /udp response|snmp response|sysdescr|pdu/.test(info);
+}
+
 // Heuristics to update context from any plugin's result
 function updateContextFromResult(mod, result, ctx) {
   try {
@@ -336,9 +346,9 @@ function updateContextFromResult(mod, result, ctx) {
         }
       }
 
-      // UDP hints (rare)
+      // UDP hints (rare) — only a row that ANSWERED opens its port (B6-4c, `udpRowAnswered`).
       if (proto === "udp" && Number.isFinite(port)) {
-        if (/udp response|snmp response|sysdescr|pdu/.test(info)) {
+        if (udpRowAnswered(d, info)) {
           ctx.udpOpen.add(port);
         }
       }
@@ -373,7 +383,8 @@ function updateContextFromResult(mod, result, ctx) {
     }
     if (id === "007" || name.includes("snmp")) {
       const first = rows[0];
-      if (/snmp response/.test(safeLower(first?.probe_info || "")) && Number.isFinite(first?.probe_port)) {
+      const firstInfo = safeLower(first?.probe_info || "");
+      if (udpRowAnswered(first, firstInfo) && /snmp response/.test(firstInfo) && Number.isFinite(first?.probe_port)) {
         ctx.udpOpen.add(Number(first.probe_port));
       }
     }
