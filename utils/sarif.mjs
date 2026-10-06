@@ -2,7 +2,7 @@
 // Generate SARIF 2.1.0 output from nsauditor scan results.
 
 import { createRequire } from 'node:module';
-import { flagFindings, conclusionFindings } from './service_flags.mjs';
+import { flagFindings, conclusionFindings, OPEN_SERVICE_SEVERITY } from './service_flags.mjs';
 const require = createRequire(import.meta.url);
 const { version: TOOL_VERSION } = require('../package.json');
 
@@ -36,13 +36,12 @@ function ruleIdFromService(svc) {
 }
 
 /**
- * Infer severity from a service's status and other indicators.
- * @param {object} svc
+ * The "service detected" result's grade: OPEN_SERVICE_SEVERITY from the shared table (1.2.1 (s2)) — an open port is
+ * inventory, never a warning of its own. A service that is not open is never graded above it.
  * @returns {string}
  */
-function inferServiceSeverity(svc) {
-  if (svc.status === 'open') return 'Medium';
-  return 'Info';
+function inferServiceSeverity() {
+  return OPEN_SERVICE_SEVERITY;
 }
 
 /**
@@ -106,7 +105,7 @@ export function buildSarifLog(scanData) {
   for (const svc of services) {
     // Base service result
     const ruleId = ruleIdFromService(svc);
-    const severity = inferServiceSeverity(svc);
+    const severity = inferServiceSeverity();
     const level = severityToLevel(severity);
     const message = buildServiceMessage(svc, host);
 

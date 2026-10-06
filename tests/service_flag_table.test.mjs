@@ -352,3 +352,30 @@ test('(census, reverse) every graded key and every declared non-finding key is l
   // The declared exception is still unemitted — if a producer starts filling it, the exception goes.
   for (const k of Object.keys(T.UNEMITTED_FLAG_KEYS)) assert.equal(keys.has(k), false, `${k} is landed now — retire its exception`);
 });
+
+// ── (s2): AN OPEN PORT IS INVENTORY, NOT A FINDING — one grade, read by SARIF and --fail-on alike ────────────────────
+// SARIF graded every open service Medium (`warning`, a code-scanning alert per open port) while --fail-on graded the same
+// service info. Both now read OPEN_SERVICE_SEVERITY from the table.
+test('(s2, fourth quadrant first) what is already right stays right: --fail-on grades an open service info, a filtered one is SARIF `note`', () => {
+  assert.equal(maxSeverityInConclusion(conclusionOf([rec({})])), RANK.info);
+  const [base] = buildSarifLog({ host: 'h', conclusion: conclusionOf([rec({ status: 'filtered' })]) }).runs[0].results;
+  assert.equal(base.level, 'note');
+});
+
+test('(s2) an OPEN service with no finding is SARIF `note` — the grade --fail-on gives it, not a warning per open port', () => {
+  const [base] = buildSarifLog({ host: 'h', conclusion: conclusionOf([rec({})]) }).runs[0].results;
+  assert.equal(base.level, 'note');
+});
+
+test('(s2) the open-service grade is ONE declared constant, and both readers move with it', () => {
+  assert.equal(T.OPEN_SERVICE_SEVERITY, 'Info', 'the declared grade: an open port is inventory');
+  const sarif = buildSarifLog({ host: 'h', conclusion: conclusionOf([rec({})]) }).runs[0];
+  assert.equal(sarif.results[0].level, severityToLevel(T.OPEN_SERVICE_SEVERITY));
+  assert.equal(sarif.tool.driver.rules[0].properties.severity, T.OPEN_SERVICE_SEVERITY);
+  // USED, not merely imported: with the constant at Info a reader that hard-codes info behaves identically, so the
+  // behaviour legs cannot tell (a battery mutant did exactly that in cli.mjs) — an occurrence outside the import is read.
+  for (const rel of ['utils/sarif.mjs', 'cli.mjs']) {
+    const src = code(fs.readFileSync(path.join(ROOT, rel), 'utf8')).replace(/^import [^;]*;$/gm, '');
+    assert.match(src, /\bOPEN_SERVICE_SEVERITY\b/, `${rel} uses the constant, not only imports it`);
+  }
+});

@@ -27,6 +27,13 @@ export function normalizeSeverity(sev) {
 /** Info 0 … Critical 4 — the scale `--fail-on` and the webhook compare on. */
 export const severityRank = (sev) => SEVERITY_ORDER.length - 1 - SEVERITY_ORDER.indexOf(normalizeSeverity(sev));
 
+/**
+ * The grade of an OPEN SERVICE that carries no finding (1.2.1 (s2)): an open port is inventory, not a finding. SARIF's
+ * "service detected" result and --fail-on's open-service baseline both read this — SARIF graded every open service
+ * Medium, a code-scanning warning per open port, while --fail-on graded the same service info.
+ */
+export const OPEN_SERVICE_SEVERITY = 'Info';
+
 /** The payloads the concluder carries under a namespace — on a service record, or on an evidence entry when no port. */
 export const PAYLOAD_KEYS = Object.freeze([...ADAPTER_PAYLOAD_KEYS]);
 

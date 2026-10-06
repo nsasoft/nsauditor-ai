@@ -17,7 +17,7 @@ import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
-import { conclusionFindings, maxRank, severityRank as flagSeverityRank } from './utils/service_flags.mjs';
+import { conclusionFindings, maxRank, severityRank as flagSeverityRank, OPEN_SERVICE_SEVERITY } from './utils/service_flags.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
 import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
@@ -1275,9 +1275,11 @@ async function readSecretFromStdin(keyName) {
  */
 export function maxSeverityInConclusion(conclusion) {
   // Every grade comes from the shared service-flag table (utils/service_flags.mjs, 1.2.1 (s1)) — the gate reads what the
-  // Markdown report, SARIF and the CSV read, including a payload that landed in the conclusion's evidence. Any concluded
-  // scan is at least info.
-  return Math.max(SEVERITY_RANK.info, maxRank(conclusionFindings(conclusion, '')));
+  // Markdown report, SARIF and the CSV read, including a payload that landed in the conclusion's evidence. An open service
+  // is graded OPEN_SERVICE_SEVERITY, the grade SARIF gives it ((s2)); any concluded scan is at least info.
+  const open = (conclusion?.result?.services || []).some((s) => s.status === 'open');
+  return Math.max(SEVERITY_RANK.info, open ? flagSeverityRank(OPEN_SERVICE_SEVERITY) : -1,
+    maxRank(conclusionFindings(conclusion, '')));
 }
 
 /**
