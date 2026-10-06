@@ -18,7 +18,7 @@ import { buildSarifLog } from './utils/sarif.mjs';
 import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
 import { conclusionFindings, maxRank, severityRank as flagSeverityRank, OPEN_SERVICE_SEVERITY } from './utils/service_flags.mjs';
-import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE } from './utils/scan_history.mjs';
+import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE, historyServiceEntry, historyHostEntry } from './utils/scan_history.mjs';
 import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } from './utils/capabilities.mjs';
@@ -1177,10 +1177,9 @@ async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       // unreachable in production while its unit tests stay green.
       tier: getTierFromEnv(),
       cloudFindingsCount,
-      services: services.map((s) => ({
-        port: s.port, protocol: s.protocol ?? 'tcp',
-        service: s.service ?? null, version: s.version ?? null,
-      })),
+      services: services.map(historyServiceEntry),
+      // 1.2.1 (s1) B: the basis stamp and the host-level service checks (a domain's DNS posture, wherever it landed).
+      ...historyHostEntry(conclusion),
     };
 
     // Retrieve previous scan for this host before recording the new one

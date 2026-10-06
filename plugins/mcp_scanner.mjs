@@ -465,6 +465,8 @@ export function conclude({ result }) {
       detection.tools.length ? `tools=${detection.tools.length}` : null,
     ].filter(Boolean).join(' '),
     authoritative: true,
+    // The producer's own name for its records — the shared service-flag table keys the MCP rows on it (1.2.1 (s1) B).
+    source: 'mcp',
     // Security flags, graded by MCP_FLAG_SEVERITY through the shared service-flag table — the Markdown report, SARIF,
     // the CSV and --fail-on all read them there (1.2.1 (s1)).
     ...flags,

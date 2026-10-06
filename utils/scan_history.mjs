@@ -4,6 +4,7 @@
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { serviceFlagState, hostFlagState, rowsOwning, SERVICE_FLAGS, NOT_COMPARED_REASONS, FLAGS_BASIS } from './service_flags.mjs';
 
 export const HISTORY_FILE = 'scan_history.jsonl';
 
@@ -14,6 +15,130 @@ export const HISTORY_FILE = 'scan_history.jsonl';
  */
 function serviceKey(svc) {
   return `${svc.port ?? ''}/${svc.protocol ?? 'tcp'}`;
+}
+
+/**
+ * One service's entry on a history line — the fields computeDiff compares. The CLI writes each line through this, so the
+ * line a test builds is the line a scan writes.
+ * @param {object} svc - a concluded service record
+ */
+export function historyServiceEntry(svc) {
+  return {
+    port: svc.port, protocol: svc.protocol ?? 'tcp',
+    service: svc.service ?? null, version: svc.version ?? null,
+    // 1.2.1 (s1) B: the service checks' comparison state — the cids it carries and, per check that applies, whether it
+    // was measured — so computeDiff can tell a finding that APPEARED from one first observed, cleared or not compared.
+    ...serviceFlagState(svc),
+  };
+}
+
+/** The host-level part of a history line: the basis stamp, and host-scope checks (a domain's DNS posture). */
+export function historyHostEntry(conclusion) {
+  return { flagsBasis: FLAGS_BASIS, ...hostFlagState(conclusion) };
+}
+
+// ── (s1) B: compare two lines' service checks as SETS, deciding from the lines alone ──────────────────────────────
+const reasonText = (code, item) => (NOT_COMPARED_REASONS[code] ?? NOT_COMPARED_REASONS['not-recorded'])(item);
+const isMeasured = (st) => st === true || (st != null && typeof st === 'object' && Array.isArray(st.tried) && st.tried.length > 0);
+const itemOf = (cid) => cid.slice(cid.indexOf(':') + 1);
+
+// Was this cid measured on that side? True through ANY row that can produce it (011 or 040 for an expired certificate);
+// otherwise the first owning row's reason.
+function measuredFor(checks, cid) {
+  let reason = null;
+  for (const row of rowsOwning(cid)) {
+    const st = checks?.[row.key];
+    if (st === true) return { ok: true, row };
+    if (st != null && typeof st === 'object' && Array.isArray(st.tried)) {
+      if (st.tried.includes(itemOf(cid))) return { ok: true, row };
+      reason ??= reasonText('not-tried', itemOf(cid));
+      continue;
+    }
+    reason ??= reasonText(st === undefined ? 'producer-not-run' : st);
+  }
+  return { ok: false, reason: reason ?? reasonText('producer-not-run') };
+}
+
+function compareChecks(prevFlags, prevChecks, currFlags, currChecks) {
+  const out = { appeared: [], cleared: [], firstObserved: [], notCompared: [], firstTestedNothingFound: [] };
+  const P = new Set(prevFlags);
+  const C = new Set(currFlags);
+  for (const cid of [...C].filter((x) => !P.has(x)).sort()) {
+    (measuredFor(prevChecks, cid).ok ? out.appeared : out.firstObserved).push(cid);
+  }
+  for (const cid of [...P].filter((x) => !C.has(x)).sort()) {
+    const m = measuredFor(currChecks, cid);
+    if (!m.ok) out.notCompared.push({ id: cid, reason: m.reason });
+    else if (m.row.absenceProves === false) out.notCompared.push({ id: cid, reason: reasonText('negotiated-only') });
+    else out.cleared.push(cid);
+  }
+  // A ROW measured on the baseline and not now (with no item of its own already reported) is a coverage loss; a row
+  // first measured now with no item is "first tested, nothing found" — stated, not a change.
+  const reported = [...out.notCompared.map((n) => n.id), ...out.cleared, ...out.appeared, ...out.firstObserved];
+  for (const row of SERVICE_FLAGS) {
+    const was = prevChecks?.[row.key];
+    const now = currChecks?.[row.key];
+    if (was === undefined && now === undefined) continue;
+    if (isMeasured(was) && !isMeasured(now) && !reported.some((id) => row.owns(id))) {
+      out.notCompared.push({ id: row.key, reason: reasonText(now === undefined ? 'producer-not-run' : now) });
+    }
+    if (!isMeasured(was) && isMeasured(now) && ![...C].some((id) => row.owns(id))) out.firstTestedNothingFound.push(row.key);
+  }
+  return out;
+}
+const isChange = (c) => c.appeared.length + c.cleared.length + c.firstObserved.length + c.notCompared.length > 0;
+const anyEntry = (c) => isChange(c) || c.firstTestedNothingFound.length > 0;
+
+/** Whether a diff's service-check comparison carries a change worth an alert: a refusal, or any item that moved. */
+export function flagsChanged(diff) {
+  return Boolean(diff?.flagsNotComparable) || (Array.isArray(diff?.changedFlags) && diff.changedFlags.some(isChange));
+}
+
+function compareFlags(current, previous) {
+  const none = { changedFlags: [], flagsNotComparable: false, flagsNotComparableReason: null };
+  // A side with no `services` array has nothing to compare. A line carrying the basis stamp without one is MALFORMED
+  // (the CLI writes both together), and is not read rather than thrown on.
+  if (!Array.isArray(current?.services) || !Array.isArray(previous?.services)) return none;
+  const bc = current?.flagsBasis ?? null;
+  const bp = previous?.flagsBasis ?? null;
+  // Neither side recorded service checks: two lines written before 1.2.1 — and the --watch gate's scan OUTPUTS, which
+  // carry no basis stamp either (and no `services`), so that gate is not changed by this comparison.
+  if (bc === null && bp === null) return none;
+  if (bc !== bp) {
+    return { changedFlags: [], flagsNotComparable: true,
+      flagsNotComparableReason: bp === null ? 'baseline-predates' : 'basis-changed' };
+  }
+  const changedFlags = [];
+  const prevByKey = new Map(previous.services.map((s) => [serviceKey(s), s]));
+  for (const s of current.services) {
+    const p = prevByKey.get(serviceKey(s));
+    if (!p) continue; // a new service is reported as one; its checks have no baseline to compare with
+    const c = compareChecks(p.flags ?? [], p.checks ?? {}, s.flags ?? [], s.checks ?? {});
+    if (anyEntry(c)) changedFlags.push({ port: s.port, protocol: s.protocol ?? 'tcp', ...c });
+  }
+  const h = compareChecks(previous.hostFlags ?? [], previous.hostChecks ?? {}, current.hostFlags ?? [], current.hostChecks ?? {});
+  if (anyEntry(h)) changedFlags.push({ port: null, protocol: null, ...h });
+  return { changedFlags, flagsNotComparable: false, flagsNotComparableReason: null };
+}
+
+function flagSummary(flags) {
+  if (flags.flagsNotComparable) {
+    return [flags.flagsNotComparableReason === 'baseline-predates'
+      ? 'service checks not compared: the baseline predates 1.2.1, which first recorded them; the next scan compares them'
+      : 'service checks not compared: the two scans recorded them on a different basis'];
+  }
+  const where = (c) => (c.port == null ? 'host' : `${c.port}/${c.protocol}`);
+  const say = (label, pick) => {
+    const items = flags.changedFlags.flatMap((c) => pick(c).map((x) => `${where(c)} ${x}`));
+    return items.length ? [`${label}: ${items.join(', ')}`] : [];
+  };
+  return [
+    ...say('appeared', (c) => c.appeared),
+    ...say('first observed', (c) => c.firstObserved),
+    ...say('cleared', (c) => c.cleared),
+    ...say('not compared', (c) => c.notCompared.map((n) => `${n.id} — ${n.reason}`)),
+    ...say('first tested, nothing found', (c) => c.firstTestedNothingFound),
+  ];
 }
 
 /**
@@ -120,6 +245,9 @@ export function computeDiff(current, previous) {
       newFindings: current?.findingsCount ?? 0,
       findingsNotComparable: false,
       findingsNotComparableReason: null,
+      changedFlags: [],
+      flagsNotComparable: false,
+      flagsNotComparableReason: null,
       summary: 'No previous scan for comparison.',
     };
   }
@@ -242,6 +370,9 @@ export function computeDiff(current, previous) {
     parts.push(`findings delta: ${sign}${findingsDelta}`);
   }
 
+  const flags = compareFlags(current, previous);
+  parts.push(...flagSummary(flags));
+
   const summary = parts.length > 0
     ? parts.join(', ') + '.'
     : 'No changes detected since last scan.';
@@ -256,6 +387,7 @@ export function computeDiff(current, previous) {
     newFindings: findingsDelta,
     findingsNotComparable: !findingsComparable,
     findingsNotComparableReason,
+    ...flags,
     summary,
   };
 }

@@ -59,7 +59,7 @@ const MCP_TITLES = {
  * returns that key's findings — ONE PER ITEM where the key holds a list (a method, an algorithm, a protocol, a cipher, an
  * audit entry), so every reader counts the same units.
  */
-export const SERVICE_FLAGS = Object.freeze([
+const GRADED = [
   { key: 'anonymousLogin', label: 'anonymous FTP login (tested only when FTP_CHECK_ANON is set)', token: 'anonymous_login',
     grade: (s, { target }) => once(s.anonymousLogin === true, () => finding('Critical', 'FTP anonymous login enabled', 'ftp-anonymous-login',
       `${s.service || 'ftp'} on ${target} accepts anonymous authentication.`)) },
@@ -120,8 +120,88 @@ export const SERVICE_FLAGS = Object.freeze([
   { key: 'dnsSecurity', label: 'the DNS-security audit of the domain (060)', token: 'dns_security_findings',
     grade: (s) => list(s.dnsSecurity?.findings).filter(actionable).map((f) => finding(normalizeSeverity(f.severity),
       `DNS security: ${f.detail || f.check}`, `dns-security-${ruleSafe(f.check)}`, null, String(f.check))) },
-]);
+];
+
+// ── (s1) B — WHAT THE COMPARISON CHANNEL COMPARES ──────────────────────────────────────────────────────────────────
+// Each row also declares how a scan-to-scan comparison reads it:
+//   producer — the plugin that writes the row's fields: its record `source`, and a `marker` field its adapter always
+//              writes (so a payload merged onto another producer's record is still recognised). `applies` keys on this,
+//              never on a service LABEL.
+//   cid      — the comparison identity of one item. One declared form per row; two rows that see the SAME fact share a
+//              cid (011's and 040's expired certificate are both `certificate:expired`), so the dedupe that decides
+//              which producer GRADES it can never make the identity switch between runs.
+//   owns     — which cids the row can produce.
+//   measured — read from RECORD STATE only, never from configuration: true, a reason code from NOT_COMPARED_REASONS,
+//              or `{ tried: [...] }` where measurement is per item (an SNMP default community is measured only if tried).
+//   scope    — 'host' for a fact about the host's domain, compared at host level wherever the concluder put it.
+// A row whose absence proves nothing (`absenceProves: false`) is never CLEARED.
+const fromState = (state) => (state in NOT_TESTED_CODES ? state : 'not-recorded');
+const NOT_TESTED_CODES = { 'opt-in-off': 1, 'no-domain': 1, 'no-answer': 1 };
+const optInMeasured = (key, stateKey) => (s) => (s[key] === true || s[key] === false ? true : fromState(s[stateKey]));
+const sameAs = (c) => (cid) => cid === c;
+const prefixed = (p) => (cid) => cid.startsWith(`${p}:`);
+const tlsMeasured = (s) => (s.tls === true ? true : 'no-handshake');
+const TLS_011 = { id: '011', source: 'tls-scanner', marker: 'tls' };
+const CERT_CID = { cert_expired: 'certificate:expired', self_signed: 'certificate:self_signed' };
+const COMPARISON = {
+  anonymousLogin: { producer: { id: '004', source: 'ftp', marker: 'anonymousLogin' }, cid: () => 'anonymousLogin',
+    owns: sameAs('anonymousLogin'), measured: optInMeasured('anonymousLogin', 'anonymousLoginTested') },
+  axfrAllowed: { producer: { id: '009', source: 'dns', marker: 'axfrAllowed' }, cid: () => 'axfrAllowed',
+    owns: sameAs('axfrAllowed'), measured: optInMeasured('axfrAllowed', 'axfrTested') },
+  community: { producer: { id: '007', source: 'snmp', marker: 'community' }, cid: (i) => `community:${i}`, owns: prefixed('community'),
+    measured: (s) => (Array.isArray(s.communitiesTried) ? { tried: [...s.communitiesTried] } : 'not-recorded') },
+  weakAlgorithms: { producer: { id: '002', source: 'ssh', marker: 'weakAlgorithms' }, cid: (i) => `weakAlgorithms:${i}`,
+    owns: prefixed('weakAlgorithms'), measured: (s) => (s.algorithms != null ? true : 'no-algorithms') },
+  weakProtocols: { producer: TLS_011, cid: (i) => `weakProtocols:${i}`, owns: prefixed('weakProtocols'), measured: tlsMeasured },
+  weakCiphers: { producer: TLS_011, cid: (i) => `weakCiphers:${i}`, owns: prefixed('weakCiphers'), measured: tlsMeasured,
+    absenceProves: false },
+  dangerousMethods: { producer: { id: '006', source: 'http', marker: 'methodsTested' }, cid: (i) => `dangerousMethods:${i}`,
+    owns: prefixed('dangerousMethods'), measured: (s) => (s.methodsTested === true ? true : 'no-allow-header') },
+  certSelfSigned: { producer: TLS_011, cid: () => CERT_CID.self_signed, owns: sameAs(CERT_CID.self_signed), measured: tlsMeasured },
+  certExpiry: { producer: TLS_011, cid: () => CERT_CID.cert_expired, owns: sameAs(CERT_CID.cert_expired), measured: tlsMeasured },
+  nullSessionAllowed: { producer: { id: '014', source: 'netbios', marker: 'nullSessionAllowed' }, cid: () => 'nullSessionAllowed',
+    owns: sameAs('nullSessionAllowed'), measured: optInMeasured('nullSessionAllowed', 'nullSessionTested') },
+  cves: { producer: { id: null, source: null, marker: 'cves' }, cid: (i) => `cve:${i}`, owns: prefixed('cve'), measured: () => true },
+  certAudit: { producer: { id: '040', source: 'tls-cert-auditor', marker: 'certAudit' }, cid: (i) => CERT_CID[i] ?? `certificate:${i}`,
+    owns: prefixed('certificate'), measured: (s) => (s.certAudit != null ? true : 'producer-not-run') },
+  tribeHealth: { producer: { id: '050', source: 'tribe-health', marker: 'tribeHealth' }, cid: (i) => `tribeHealth:${i}`,
+    owns: prefixed('tribeHealth'), measured: (s) => (s.tribeHealth?.state === 'up' ? true : 'payload-down') },
+  dnsSecurity: { producer: { id: '060', source: 'dns-sec-auditor', marker: 'dnsSecurity' }, cid: (i) => `dnsSecurity:${i}`,
+    owns: prefixed('dnsSecurity'), measured: () => true, scope: 'host' },
+};
+const MCP_COMPARISON = (key) => ({ producer: { id: '070', source: 'mcp', marker: null }, cid: () => `mcp:${key}`,
+  owns: sameAs(`mcp:${key}`), measured: () => true });
+
+export const SERVICE_FLAGS = Object.freeze(GRADED.map((row) => {
+  const cmp = COMPARISON[row.key] ?? (row.key in MCP_FLAG_SEVERITY ? MCP_COMPARISON(row.key) : null);
+  if (!cmp) return Object.freeze({ ...row });
+  const { producer } = cmp;
+  return Object.freeze({ scope: 'service', absenceProves: true, ...row, ...cmp,
+    applies: (rec) => Boolean(rec) && ((producer.marker != null && producer.marker in rec)
+      || (producer.source != null && rec.source === producer.source)) });
+}));
 export const FLAG_KEYS = Object.freeze(SERVICE_FLAGS.map((r) => r.key));
+export const rowOf = (key) => SERVICE_FLAGS.find((r) => r.key === key);
+/** The rows that can produce a comparison identity. */
+export const rowsOwning = (cid) => SERVICE_FLAGS.filter((r) => typeof r.owns === 'function' && r.owns(cid));
+
+/** Why an item, or a row, was NOT COMPARED — a closed vocabulary, each with the sentence a reader sees. */
+export const NOT_COMPARED_REASONS = Object.freeze({
+  'service-not-answering': () => 'the service did not answer this run',
+  'producer-not-run': () => 'the check did not run on this service this run',
+  'opt-in-off': () => 'the check was off this run',
+  'no-domain': () => 'no domain was given this run',
+  'no-answer': () => 'the exchange did not complete this run',
+  'not-recorded': () => 'the scan did not record whether the check ran',
+  'no-allow-header': () => 'no Allow header was read this run',
+  'no-algorithms': () => 'the SSH algorithms were not collected this run',
+  'no-handshake': () => 'no TLS handshake was observed this run',
+  'negotiated-only': () => 'the cipher each TLS version negotiated — an empty list is not proof that no weak cipher is accepted',
+  'not-tried': (item) => `${item} was not tried this run`,
+  'payload-down': () => 'the debug-endpoint probe did not complete this run',
+});
+/** The version of what a history line records about service checks. Absent on a line written before 1.2.1. */
+export const FLAGS_BASIS = 'service-flags-v1';
 
 // ── (s3) NOT TESTED ──────────────────────────────────────────────────────────────────────────────────────────────
 // A check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason — never "none", never
@@ -172,6 +252,7 @@ export const DECLARED_NON_FINDING_KEYS = Object.freeze({
   shares: 'the shares an SMB null session enumerated — evidence for nullSessionAllowed, never a separate finding',
   users: 'the users an SMB null session enumerated — evidence for nullSessionAllowed, never a separate finding',
   communityCustom: 'a custom (operator-supplied) SNMP community answered — not a finding, and the string is never recorded',
+  communitiesTried: 'the SNMP communities tried, as labels (a custom string reads "custom") — what makes a default community measurable',
 });
 /** Graded keys no shipped adapter lands, with the reason the row stays. */
 export const UNEMITTED_FLAG_KEYS = Object.freeze({
@@ -181,7 +262,8 @@ export const UNEMITTED_FLAG_KEYS = Object.freeze({
 /** The findings one record (a service record, or an evidence entry carrying a payload) carries. */
 export function flagFindings(record, { target = '', now = new Date() } = {}) {
   if (!record || typeof record !== 'object') return [];
-  return SERVICE_FLAGS.flatMap((row) => row.grade(record, { target, now }).map((f) => ({ key: row.key, ...f })));
+  return SERVICE_FLAGS.flatMap((row) => row.grade(record, { target, now })
+    .map((f) => ({ key: row.key, ...f, cid: row.cid ? row.cid(f.item) : null })));
 }
 
 /**
@@ -221,3 +303,36 @@ export function csvTokens(record, opts) {
 
 /** The highest rank among findings, or -1 when there are none. */
 export const maxRank = (findings) => findings.reduce((m, f) => Math.max(m, severityRank(f.severity)), -1);
+
+// ── (s1) B — WHAT A HISTORY LINE RECORDS ─────────────────────────────────────────────────────────────────────────
+/**
+ * One service's comparison state: the cids of the findings it carries, and for each row that APPLIES to it, whether that
+ * row was measured. A service that did not answer measured nothing. Host-scope rows are left to hostFlagState.
+ */
+export function serviceFlagState(record, opts) {
+  const answered = record?.status === 'open';
+  const checks = {};
+  for (const row of SERVICE_FLAGS) {
+    if (row.scope !== 'service' || !row.applies(record)) continue;
+    checks[row.key] = answered ? row.measured(record) : 'service-not-answering';
+  }
+  const flags = new Set(flagFindings(record, opts).filter((f) => rowOf(f.key).scope === 'service').map((f) => f.cid));
+  return { flags: [...flags].sort(), checks };
+}
+
+/** The host-level comparison state: host-scope rows (a domain's DNS posture), wherever the concluder put the payload. */
+export function hostFlagState(conclusion, opts) {
+  const r = conclusion?.result ?? conclusion ?? {};
+  const hostRows = SERVICE_FLAGS.filter((row) => row.scope === 'host');
+  const flags = new Set();
+  const checks = {};
+  for (const rec of [...list(r.services), ...list(r.evidence)]) {
+    for (const row of hostRows) {
+      if (rec?.[row.producer.marker] == null) continue;
+      const only = { [row.producer.marker]: rec[row.producer.marker] };
+      if (checks[row.key] !== true) checks[row.key] = row.measured(only);
+      for (const f of flagFindings(only, opts)) if (f.key === row.key) flags.add(f.cid);
+    }
+  }
+  return { hostFlags: [...flags].sort(), hostChecks: checks };
+}

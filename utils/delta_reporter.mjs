@@ -1,7 +1,7 @@
 // utils/delta_reporter.mjs
 // Delta reporting: compare two full scan cycles across multiple hosts.
 
-import { computeDiff } from './scan_history.mjs';
+import { computeDiff, flagsChanged } from './scan_history.mjs';
 
 /**
  * Compare two full scan cycle results and produce a delta report.
@@ -77,7 +77,7 @@ export function formatDeltaSummary(deltaReport) {
         // "no change since last scan". That is the false clean this item is about, one layer out.
         // A comparison we cannot make is news: it is what tells an operator to rescan.
         if (diff.newServices?.length || diff.removedServices?.length || diff.changedServices?.length
-            || diff.newFindings || diff.findingsNotComparable) {
+            || diff.newFindings || diff.findingsNotComparable || flagsChanged(diff)) {
           anyChange = true;
           break;
         }
@@ -110,6 +110,7 @@ export function hasSignificantChanges(deltaReport) {
       if (diff.changedServices?.length > 0) return true;
       if (diff.newFindings && diff.newFindings !== 0) return true;
       if (diff.findingsNotComparable) return true;   // see the note in formatDeltaSummary
+      if (flagsChanged(diff)) return true;          // 1.2.1 (s1) B: a service check appeared, cleared, or could not be compared
     }
   }
 

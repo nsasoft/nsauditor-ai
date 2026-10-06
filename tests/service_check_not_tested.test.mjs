@@ -217,6 +217,22 @@ test('the NetBIOS adapter carries the state, and an old result with no state is 
   assert.deepEqual([old.nullSessionAllowed, old.nullSessionTested], [null, null]);
 });
 
+// The FTP and DNS twins of the NetBIOS leg above (the audit seat's fold): an adapter handed a result an earlier release
+// wrote — no state field — must say it was NOT RECORDED. Defaulting the state to 'opt-in-off' names a switch that may well
+// have been set: a false reason, which two surviving mutants showed nothing caught.
+test('the FTP and DNS adapters: an old result with no state is null → "not recorded", never a reason it did not record', async () => {
+  const [ftpRec] = await ftpConclude({ host: 'h', result: { up: true, program: 'vsftpd', version: '3.0.3',
+    data: [{ probe_protocol: 'tcp', probe_port: 21, probe_info: '220 vsFTPd', response_banner: '220 (vsFTPd 3.0.3)' }] } });
+  assert.equal(ftpRec.status, 'open', 'positive control: an answering FTP record');
+  assert.deepEqual([ftpRec.anonymousLogin, ftpRec.anonymousLoginTested], [null, null]);
+  assert.deepEqual(T.notTestedChecks(ftpRec).map((n) => n.reason), ['the scan that wrote this record did not record whether the check ran']);
+  const [dnsRec] = await dnsConclude({ host: 'h', result: { up: true, program: 'BIND', version: '9.18',
+    data: [{ probe_protocol: 'udp', probe_port: 53, probe_info: 'version.bind', response_banner: '9.18' }] } });
+  assert.equal(dnsRec.status, 'open', 'positive control: an answering DNS record');
+  assert.deepEqual([dnsRec.axfrAllowed, dnsRec.axfrTested], [null, null]);
+  assert.deepEqual(T.notTestedChecks(dnsRec).map((n) => n.reason), ['the scan that wrote this record did not record whether the check ran']);
+});
+
 // ── WHERE A READER LEARNS WHAT A NULL MEANS ─────────────────────────────────────────────────────────────────────────
 // scan_host returns the records as they are, so the AI client reading `nullSessionAllowed: null` is told what that
 // means — and the README says it for operators. Tied to the fields the table reads, so the sentence names what lands.
