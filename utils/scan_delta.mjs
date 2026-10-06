@@ -189,6 +189,26 @@ export function serviceIdentityAt(services, port, protocol) {
 /** The same identified program AND version — both present. Program is compared case-insensitively, version exactly. */
 export const sameServiceIdentity = (a, b) => a != null && b != null
   && a.program.toLowerCase() === b.program.toLowerCase() && a.version === b.version;
+// A message with every ABSOLUTE local path reduced to what a reader needs (1.2.1, B6-4a): its tail after the LAST
+// `node_modules` (the package-relative module, e.g. `@nsasoft/nsauditor-ai-ee/utils/x.mjs`), else its basename. A load
+// error names absolute paths, and a client artifact must never carry the operator's directory layout — the rule
+// `vulnerabilityDataSource` below states for its own detail. POSIX and Windows paths and a `file://` URL; a path in
+// quotes may hold spaces, and so may an unquoted one that ends in a module file (Node's "imported from <path>"). A path
+// whose closing quote was cut off is still reduced: an opening quote is a lead for the unquoted rules too.
+const QUOTED_PATH = /(['"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"`\n]*)\1/g;
+const UNQUOTED_MODULE_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"\n]*?\.(?:mjs|cjs|js|json|node)(?::\d+)*)(?=$|[\s'"),;])/g;
+const UNQUOTED_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^\s'"()]+)/g;
+function shortPath(p) {
+  const s = p.replace(/^file:\/\//, '');
+  const i = Math.max(s.lastIndexOf('node_modules/'), s.lastIndexOf('node_modules\\'));
+  return i >= 0 ? s.slice(i + 'node_modules/'.length) : (s.split(/[\\/]/).filter(Boolean).pop() ?? '');
+}
+export function withoutLocalPaths(text) {
+  return String(text)
+    .replace(QUOTED_PATH, (_, q, p) => `${q}${shortPath(p)}${q}`)
+    .replace(UNQUOTED_MODULE_PATH, (_, lead, p) => `${lead}${shortPath(p)}`)
+    .replace(UNQUOTED_PATH, (_, lead, p) => `${lead}${shortPath(p)}`);
+}
 /**
  * WHERE A RUN'S VULNERABILITY DATA CAME FROM, in words, from its run record's `nvdCache` — never a local path, which
  * would carry the operator's directory layout into a client artifact. `state` is the offline store's (`absent` means
@@ -909,7 +929,7 @@ function incomparabilityReason(f, mine, theirs, names) {
       const what = stage.loadError ? 'failed to load' : 'failed during enrichment';
       return { reason: 'evidence-gap',
         detail: `Enterprise ${what} on ${f.host} in ${which} — none of its analysis agents or its CVE mapper ran there, so `
-          + `this ${producerNoun(f)}'s rows were not looked for (${String(stage.loadError ?? stage.enrichmentError).slice(0, 200)})` };
+          + `this ${producerNoun(f)}'s rows were not looked for (${withoutLocalPaths(stage.loadError ?? stage.enrichmentError).slice(0, 200)})` };
     }
   }
   // ⚠️ THE PRODUCER CHANGED WHAT IT NAMES BETWEEN THESE TWO RELEASES, so its two keys for one

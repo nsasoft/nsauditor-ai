@@ -18,6 +18,9 @@ import path from 'node:path';
 import * as SD from '../utils/scan_delta.mjs';
 import * as RI from '../utils/report_inputs.mjs';
 import { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord, readRunRecord } from '../utils/run_record.mjs';
+import { pathToFileURL } from 'node:url';
+import { loadEnterprise } from '../utils/ee_load.mjs';
+import { renderExecutiveReport } from '../utils/executive_report.mjs';
 
 const { buildScanDelta, NOT_COMPARABLE_REASONS } = SD;
 const HOST = '192.0.2.1';
@@ -139,5 +142,79 @@ test('THROUGH loadRun: a baseline crypto_agent row, and a current run whose raw 
     const d = buildScanDelta({ baseline: await load(a), current: cur });
     assert.equal(d.resolved.length, 0, 'an Enterprise that did not load fixed nothing');
     assert.equal(d.notComparable.find((n) => n.title === q[0].title)?.reason, 'evidence-gap');
+  } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
+});
+
+// ── B6-4a (1.2.1): THE CLIENT ARTIFACT NEVER CARRIES THE OPERATOR'S DIRECTORY LAYOUT ─────────────────────────────────
+// The not-comparable detail embedded the load error verbatim, and a load error names ABSOLUTE paths — the Gate 3-B
+// executive HTML carried the operator's install prefix eight times. The rule `vulnerabilityDataSource` already states for
+// its own detail ("never a local path, which would carry the operator's directory layout into a client artifact") now
+// holds for this one: each absolute path becomes its tail after the last `node_modules`, or its basename. The raw JSON
+// and stderr stay local and keep the full path. The message is NODE'S OWN: a truncated install (the entry imports a
+// module that is not there) under a scratch prefix whose path holds a SPACE, loaded through the real `loadEnterprise`.
+const ABS = [/(?:^|[\s'"(=])(?:file:\/\/)?\/(?:Users|home|private|tmp|var|opt|root)\//, /[A-Za-z]:\\/];
+const hasLocalPath = (text) => ABS.some((re) => re.test(String(text)));
+async function realLoadError(prefix) {
+  const pkg = path.join(prefix, 'lib', 'node_modules', '@nsasoft', 'nsauditor-ai-ee');
+  fs.mkdirSync(pkg, { recursive: true });
+  fs.writeFileSync(path.join(pkg, 'index.mjs'), "export * from './utils/cloud_scope_report.mjs';\n", 'utf8');
+  const { loadError } = await loadEnterprise({ importEE: () => import(pathToFileURL(path.join(pkg, 'index.mjs')).href) });
+  return loadError;
+}
+
+test('(B6-4a, fourth quadrant first) a load or enrichment error that names no local path reaches the detail UNCHANGED', () => {
+  for (const stage of [LOAD, ENRICH]) {
+    const d = buildScanDelta({ baseline: side('A', [agent('No transport encryption: ftp on port 21')]), current: side('B', [], { [HOST]: stage }) });
+    assert.ok(d.notComparable[0]?.detail.endsWith(`(${stage.loadError ?? stage.enrichmentError})`), d.notComparable[0]?.detail);
+  }
+  assert.equal(SD.withoutLocalPaths(LOAD.loadError), LOAD.loadError, 'a package specifier is not a local path');
+});
+
+test('(B6-4a) each absolute path becomes its tail after the last node_modules, or its basename — every shape Node prints', () => {
+  const cases = [
+    ["Cannot find module '/Users/a b/.nvm/v/lib/node_modules/@nsasoft/nsauditor-ai-ee/utils/x.mjs' imported from /Users/a b/.nvm/v/lib/node_modules/@nsasoft/nsauditor-ai-ee/index.mjs",
+      "Cannot find module '@nsasoft/nsauditor-ai-ee/utils/x.mjs' imported from @nsasoft/nsauditor-ai-ee/index.mjs"],
+    ["Cannot find module 'C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\@nsasoft\\nsauditor-ai-ee\\utils\\x.mjs'",
+      "Cannot find module '@nsasoft\\nsauditor-ai-ee\\utils\\x.mjs'"],
+    ['failed at file:///home/a/.pnpm/node_modules/.pnpm/x@1/node_modules/@nsasoft/nsauditor-ai-ee/index.mjs:12',
+      'failed at @nsasoft/nsauditor-ai-ee/index.mjs:12'],
+    ["ENOENT: no such file or directory, open '/home/a/dev/nsauditor-ai-ee/data/compliance/soc2.json'",
+      "ENOENT: no such file or directory, open 'soc2.json'"],
+    ["Cannot find module '/Users/a/lib/node_modules/@nsasoft/nsauditor-ai-ee/utils/clo", "Cannot find module '@nsasoft/nsauditor-ai-ee/utils/clo"],
+    // A QUOTED path holding a space and no module extension is the quoted rule's own job: no unquoted rule can find its end.
+    ["ENOENT: no such file or directory, mkdir '/Users/a b/out dir'", "ENOENT: no such file or directory, mkdir 'out dir'"],
+    ["EPERM: operation not permitted, mkdir 'C:\\Users\\a b\\out dir'", "EPERM: operation not permitted, mkdir 'out dir'"],
+    ['ENOSPC: no space left on device', 'ENOSPC: no space left on device'],
+  ];
+  for (const [input, want] of cases) assert.equal(SD.withoutLocalPaths(input), want, input);
+});
+
+test('(B6-4a) THROUGH loadRun AND the executive renderer: Node\'s own load error names no local path in the detail or the client HTML — the raw keeps it', async () => {
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-eestage-path-'));
+  try {
+    const loadError = await realLoadError(path.join(outRoot, 'opera tor prefix'));
+    assert.ok(hasLocalPath(loadError) && /cloud_scope_report\.mjs/.test(loadError), `positive control: Node's message names the absolute path: ${loadError}`);
+    const q = [{ category: 'CRYPTO', status: 'UNVERIFIED', severity: 'MEDIUM', title: 'No transport encryption: ftp on port 21',
+      target: { host: HOST, port: 21, protocol: 'tcp', service: 'ftp' }, evidence: { source: 'crypto_agent', cve: [], mitre: [], raw: {} } }];
+    const a = await sealedRun(outRoot, 'a', { queue: q, startedAt: '2026-09-21T00:00:00.000Z', finishedAt: '2026-09-21T00:10:00.000Z' });
+    const b = await sealedRun(outRoot, 'b', { conclusionResult: { eeLoadError: loadError }, startedAt: '2026-09-22T00:00:00.000Z', finishedAt: '2026-09-22T00:10:00.000Z' });
+    const load = async (runId) => {
+      const l = await RI.loadRun(outRoot, { runId, allowPartial: false }, { tier: 'enterprise' });
+      return { record: await readRunRecord(outRoot, runId), findings: l.model.findings, pluginStatus: l.model.plugins.byHost, integrity: 'chain-verified' };
+    };
+    const cur = await load(b);
+    assert.equal(cur.pluginStatus[0].eeStage.loadError, loadError, 'the raw, which stays local, keeps the full message');
+    const d = buildScanDelta({ baseline: await load(a), current: cur });
+    const nc = d.notComparable.find((n) => n.title === q[0].title);
+    assert.equal(nc?.reason, 'evidence-gap');
+    assert.match(nc.detail, /Enterprise failed to load on 192\.0\.2\.1/, 'the row still says what failed, and where');
+    assert.match(nc.detail, /@nsasoft\/nsauditor-ai-ee\/utils\/cloud_scope_report\.mjs/, 'and names the module by its package-relative tail');
+    assert.equal(hasLocalPath(nc.detail), false, `the detail carries a local path: ${nc.detail}`);
+    const html = renderExecutiveReport({ runId: b, startedAt: '2026-09-22T00:00:00.000Z', findings: [],
+      coverage: { requested: 1, written: 1, partial: false, incomplete: false, missing: [] }, hosts: [] }, {},
+    { renderedAt: new Date('2026-09-22T01:00:00Z'), delta: d });
+    assert.ok(html.includes('cloud_scope_report.mjs'), 'positive control: the client HTML renders the row');
+    assert.equal(hasLocalPath(html), false, 'the client HTML carries the operator\'s directory layout');
+    assert.equal(html.includes('opera tor prefix'), false, 'not even the prefix\'s own words');
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
 });
