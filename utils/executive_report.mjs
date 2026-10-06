@@ -29,7 +29,7 @@
 import { escapeHtml } from './brand.mjs';
 // The two evaluability SENTINELS, imported so the per-row basis is keyed on identity rather
 // than on prose. `scan_delta.mjs` imports nothing from here, so there is no cycle.
-import { SCOPE_NOT_EVALUATED, FRAMEWORK_MOVEMENT_NOT_EVALUATED } from './scan_delta.mjs';
+import { SCOPE_NOT_EVALUATED, FRAMEWORK_MOVEMENT_NOT_EVALUATED, RUN_NAMES, NOT_REQUESTED_RECORD_SINCE_EE, cmpVersion } from './scan_delta.mjs';
 
 /* ------------------------------------------------------------------------------------------
  * egressViolations — deny-by-default. Two levels: every TAG, then EVERY attribute of it
@@ -625,15 +625,42 @@ function describeBrand(v) {
 //
 // ⚠️ KEYED ON THE EXPORTED SENTINELS, NEVER ON PROSE. Matching the limit text would rot the first
 // time somebody copy-edits a sentence, and it would rot SILENTLY in the direction that overstates.
-function deltaBasis(delta) {
+//
+// ⚠️ PER ROW (1.2.1, lane 6 — deltaBasis). The sentence used to be ONE for the whole table, so an analysis agent's or the
+// CVE mapper's row read "host, plugin, scope … present in both runs" although an agent is not a requested plugin and its
+// "plugin" leg was never checked. Now:
+//   - a plugin's row keeps the legs above;
+//   - an agent's row (`producerKind: 'agent'`) names the run that LACKS it — the baseline for a NEW row, this run for a
+//     RESOLVED one — as having recorded no evidence gap from its producer covering the row. TRUE BY CONSTRUCTION: the
+//     delta refuses a row when that run recorded such a gap, and reads it in that run only (a gap explains what a run is
+//     missing, never what it holds), so "either run" would be false;
+//   - where that lacking run predates EE 1.2.1 it could not record an input plugin LEFT OUT of the scan, so the row is
+//     not refused, and the cell says so; a run that records no EE version says that instead — never assumed either way.
+//     Keyed through `cmpVersion`, the delta's one comparator, on the version each run's own record carries.
+function deltaBasis(delta, f = null, bucket = null) {
   const limits = delta.limits ?? [];
   const scopeEvaluated = !limits.includes(SCOPE_NOT_EVALUATED);
   const fwEvaluated = !limits.includes(FRAMEWORK_MOVEMENT_NOT_EVALUATED);
-  const legs = ['host', 'plugin', scopeEvaluated ? 'scope' : null].filter(Boolean).join(', ');
+  const agent = f?.producerKind === 'agent';
+  const legs = ['host', agent ? null : 'plugin', scopeEvaluated ? 'scope' : null].filter(Boolean).join(', ');
   const fw = fwEvaluated ? 'present in both runs' : 'not evaluated';
   // BOTH sides' integrity: the run being REPORTED is as alterable as the one compared against.
   const integrity = `baseline ${delta.baselineIntegrity} · current ${delta.currentIntegrity ?? 'not recorded'}`;
-  return `comparable: ${legs} present in both runs; framework enumeration: ${fw}; ${integrity}`;
+  const lacking = bucket === 'new' ? { name: RUN_NAMES.baseline, ee: delta.baselineEeVersion }
+    : bucket === 'resolved' ? { name: RUN_NAMES.current, ee: delta.currentEeVersion } : null;
+  const producer = !agent ? ''
+    : lacking ? `; producer: ${f.plugin} — ${lacking.name} recorded no evidence gap from it covering this row`
+      : `; producer: ${f.plugin} — the row is in both runs`;
+  let limit = '';
+  if (agent && lacking && lacking.ee !== undefined) {
+    if (lacking.ee === null) {
+      limit = `; limit: ${lacking.name} records no EE version, so whether an input plugin was left out of it is not known`;
+    } else if (cmpVersion(lacking.ee, NOT_REQUESTED_RECORD_SINCE_EE) < 0) {
+      limit = `; limit: ${lacking.name} predates EE ${NOT_REQUESTED_RECORD_SINCE_EE}, so it could not record an input plugin left `
+        + 'out of the scan: an agent row it lacks is not refused';
+    }
+  }
+  return `comparable: ${legs} present in both runs${producer}; framework enumeration: ${fw}; ${integrity}${limit}`;
 }
 
 // What a not-comparable row's direction means, in the words a client reads.
@@ -682,9 +709,9 @@ ${escapeHtml(delta.refusal.detail)}</p>
   const rows = [
     // A UDP row carries WHY its port counts as measured (1.1.1 — `basisNote`, e.g. "53/udp answered in the other run
     // (dns open · dnsmasq 2.79)"), so a resolved UDP row shows its work on the row, never in a footer.
-    ...delta.resolved.map((f) => deltaRow('resolved', f, `${deltaBasis(delta)}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
-    ...delta.newFindings.map((f) => deltaRow('new', f, `${deltaBasis(delta)}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
-    ...delta.changed.map((f) => deltaRow('changed', f, `${deltaBasis(delta)}; severity ${escapeHtml(String(f.from))} → ${escapeHtml(String(f.to))}`)),
+    ...delta.resolved.map((f) => deltaRow('resolved', f, `${deltaBasis(delta, f, 'resolved')}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
+    ...delta.newFindings.map((f) => deltaRow('new', f, `${deltaBasis(delta, f, 'new')}${f.basisNote ? `; ${f.basisNote}` : ''}`)),
+    ...delta.changed.map((f) => deltaRow('changed', f, `${deltaBasis(delta, f, 'changed')}; severity ${escapeHtml(String(f.from))} → ${escapeHtml(String(f.to))}`)),
     // The reason rides the row, not a legend.
     // ⚠️ THE CODE IS PRINTED VERBATIM, AND THAT IS THE DESIGN. A render-time label map was tried
     // here and reverted: it moved this seam and left the terminal's, so one outcome carried two

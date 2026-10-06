@@ -121,6 +121,11 @@ const IDENTIFYING_ROW = Object.freeze({
   service_agent: Object.freeze({ row: 'an end-of-life row', denied: 'the service agent nothing to judge' }),
 });
 export const IDENTIFYING_PRODUCERS = Object.freeze(Object.keys(IDENTIFYING_ROW));
+// THE RELEASE THAT ADDED THE NOT-REQUESTED CAUSE (1.2.1, lane 6 — F2). From EE 1.2.1 an analysis agent whose input plugin
+// was LEFT OUT of the scan records an input-gap record, so its rows there are refused; a run before it could not record
+// that (its input-gap record, since EE 1.1.0 build 5, covered a plugin that was requested and did not complete). The
+// client's Basis cell keys its legacy sentence on this, through `cmpVersion`, against the run that LACKS the row.
+export const NOT_REQUESTED_RECORD_SINCE_EE = '1.2.1';
 const identified = (program) => typeof program === 'string' && program.trim() !== '' && program.trim().toLowerCase() !== 'unknown';
 
 /**
@@ -1256,6 +1261,24 @@ function withUdpBasis(f, theirs, theirName) {
   const m = udpPortMeasurement(port, f.plugin, theirs.portState?.get(hostKey(f.host))?.udpServices ?? null, theirName);
   return m.measured ? { ...f, basisNote: m.basis } : f;
 }
+/** The closed-port oracle's basis for a TCP row: the other run's port scanner measured the port CLOSED. */
+export const tcpPortClosedBasis = (port, runName) => `${port}/tcp closed in ${runName}`;
+// A TCP row of an IDENTIFYING producer that RESOLVED or APPEARED (1.2.1, lane 6 — deltaBasis) shows the measurement that
+// made it comparable: the TCP decision's OWN basis where the other run saw the port open and identified the service, or
+// the closed-port basis — never a sentence of its own, so the cell cannot say "identified" about a port nobody identified.
+// An analysis agent outside the set needs no more than an open port, and its cell claims no more.
+function withTcpBasis(f, theirs, theirName) {
+  const port = Number(f.port);
+  if (!(port > 0) || f.gapClass || !IDENTIFYING_PRODUCERS.includes(f.plugin)) return f;
+  const ps = theirs.portState?.get(hostKey(f.host));
+  if (ps?.closed?.has(port)) return { ...f, basisNote: tcpPortClosedBasis(port, theirName) };
+  if (ps?.open?.has(port)) {
+    const m = tcpServiceMeasurement(port, f.plugin, ps.services ?? null, theirName);
+    if (m.measured === true) return { ...f, basisNote: m.basis };
+  }
+  return f;
+}
+const withMeasuredBasis = (f, theirs, theirName) => (isUdpTransport(f.protocol) ? withUdpBasis(f, theirs, theirName) : withTcpBasis(f, theirs, theirName));
 
 // A CVE row that APPEARED on a service identified the same in both runs (1.2.0 build 2 — MANDATORY, the audit seat's
 // ruling): it stays NEW, and says the service did not change, because "new exposure on my estate" and "new knowledge
@@ -1270,7 +1293,7 @@ function withNewBasis(f, mine, theirs) {
         + `in ${RUN_NAMES.baseline}; the service is unchanged, the vulnerability data is not` };
     }
   }
-  return withUdpBasis(f, theirs, RUN_NAMES.baseline);
+  return withMeasuredBasis(f, theirs, RUN_NAMES.baseline);
 }
 
 // The oracle test, separated from the per-finding check so its ABSENCE has somewhere to be
@@ -1538,7 +1561,7 @@ export function buildScanDelta({ baseline, current }) {
     }
     const why = incomparabilityReason(f, bScope, cScope, FRAME_DISAPPEARED);
     if (why) notComparable.push({ ...f, direction: 'disappeared', ...why });
-    else resolved.push(withUdpBasis(f, cScope, RUN_NAMES.current));
+    else resolved.push(withMeasuredBasis(f, cScope, RUN_NAMES.current));
   }
   for (const [k, f] of cMap) {
     if (bMap.has(k)) continue;
@@ -1553,6 +1576,9 @@ export function buildScanDelta({ baseline, current }) {
     schema: SCAN_DELTA_SCHEMA, comparable: true, refusal: null,
     newFindings, resolved, unchanged, changed, notComparable,
     baselineIntegrity, currentIntegrity, limits,
+    // Each run's EE version, read off its own record (null when it records none) — append-only. Read by the executive
+    // report's Basis cell, which keys its legacy sentence on the run that LACKS an agent row.
+    baselineEeVersion: bEE, currentEeVersion: cEE,
     coverage: {
       hostsOnlyInBaseline: [...bScope.hosts].filter((h) => !cScope.hosts.has(h)).map((h) => shownHost(bScope, h)),
       hostsOnlyInCurrent: [...cScope.hosts].filter((h) => !bScope.hosts.has(h)).map((h) => shownHost(cScope, h)),

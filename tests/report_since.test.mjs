@@ -288,10 +288,11 @@ test('SCOPE — a host that was REQUESTED and never WRITTEN was not scanned, wha
 });
 
 test('SCOPE — two runs at DIFFERENT TIERS are refused outright, because the producer population differs', async () => {
-  // Agent-produced findings have no per-agent run record: `agents/agent_runner.mjs` derives the
-  // agent set from CAPABILITIES, so the only oracle for "was this producer in scope" is the run's
-  // TIER. An enterprise baseline against a pro current silently drops the exposure agent's
-  // findings, and every one of them would read as remediation.
+  // Whether an agent RAN AT ALL is read from the run's TIER: `agents/agent_runner.mjs` derives the agent set from
+  // CAPABILITIES, and an agent appears in no `pluginsRequested` list. (Whether it could READ ITS INPUTS is a different
+  // question, answered by Enterprise's own records on the row's host — its not-run record, and since EE 1.2.1 an input
+  // plugin left out of the scan — which the delta refuses on.) An enterprise baseline against a pro current silently
+  // drops the exposure agent's findings, and every one of them would read as remediation.
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tier-'));
   const baseline = await mkRun(outRoot, { startedAt: '2026-09-01T10:00:00.000Z', findings: [s3('bucket-a')],
     tier: 'enterprise', queue: [{ id: 'F-1', severity: 'HIGH', title: 'Exposed management interface',
@@ -339,7 +340,9 @@ test('SCOPE — at the SAME tier an agent-produced finding IS comparable, so a f
 
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /1 resolved/,
-    'the agent runs on every run at this tier, so a finding it no longer reports was genuinely fixed');
+    'resolved, and WHY: at the same tier the agent ran in both runs, the current run recorded no evidence gap from it, and '
+    + 'both runs requested the same plugins ([\'010\']) so no input was left out of one — these 1.0.0 runs could not have '
+    + 'recorded that if it had been, which the row\'s Basis cell states as a limit');
   assert.doesNotMatch(r.stdout, /plugin-not-run/,
     'adjudicating an agent against `pluginsRequested` buckets every EE finding for ever — safe and useless');
   assert.match(r.stdout, /derived from the run TIER/,
