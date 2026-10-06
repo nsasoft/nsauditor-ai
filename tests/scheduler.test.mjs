@@ -220,3 +220,58 @@ test('calling start twice does not create duplicate intervals', async () => {
   // Should have only one cycle's worth of scans
   assert.equal(log.length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// 1.2.1 lane 4, item 10 — a duplicated host must not stall watch mode forever
+// ---------------------------------------------------------------------------
+// The cycle resolved on `results.size === hosts.length`, and `results` is keyed by host, so a duplicate (`--host h,h`,
+// or a host inside an overlapping CIDR) could never reach the count: runCycle never resolved, _cycleInProgress stayed
+// true and no later tick started. Watch mode went silent with no error. The scheduler dedupes once and resolves on a
+// completion counter.
+
+/** Resolve the cycle or fail after 1 s — a hang must read as a failure, never as a stuck test run. */
+const withinOneSecond = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('the cycle never completed')), 1000).unref())]);
+
+test('(fourth quadrant, first) distinct hosts are untouched — scanned once each, nothing reported dropped', { timeout: 3000 }, async () => {
+  const log = [];
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['a', 'b'], scanFn: mockScanFn(log) });
+  const results = await withinOneSecond(s.runOnce());
+  assert.equal(results.size, 2);
+  assert.deepEqual(s.hosts, ['a', 'b']);
+  assert.equal(s.duplicatesDropped, 0);
+});
+
+test('a DUPLICATED host completes the cycle — scanned once, onCycleComplete fires once', { timeout: 3000 }, async () => {
+  const log = [];
+  let cycles = 0;
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['a', 'a'], scanFn: mockScanFn(log), onCycleComplete: () => { cycles++; } });
+  const results = await withinOneSecond(s.runOnce());
+  assert.deepEqual(log, ['a'], 'one scan per distinct host');
+  assert.equal(results.size, 1);
+  assert.equal(cycles, 1);
+});
+
+test('an OVERLAPPING list (a host inside a CIDR it is also listed beside) completes, first-occurrence order kept', { timeout: 3000 }, async () => {
+  const log = [];
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['10.0.0.1', '10.0.0.0', '10.0.0.1'], scanFn: mockScanFn(log) });
+  await withinOneSecond(s.runOnce());
+  assert.deepEqual(log, ['10.0.0.1', '10.0.0.0']);
+  assert.deepEqual(s.hosts, ['10.0.0.1', '10.0.0.0'], 'the distinct list the banner prints');
+  assert.equal(s.duplicatesDropped, 1);
+});
+
+test('dedupe is EXACT-string: two spellings are two hosts (the scheduler cannot know they are one)', { timeout: 3000 }, async () => {
+  const log = [];
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['A.example', 'a.example'], scanFn: mockScanFn(log) });
+  await withinOneSecond(s.runOnce());
+  assert.deepEqual(log.sort(), ['A.example', 'a.example']);
+  assert.equal(s.duplicatesDropped, 0);
+});
+
+test('a scan that THROWS still counts toward completion', { timeout: 3000 }, async () => {
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['ok', 'boom'],
+    scanFn: async (h) => { if (h === 'boom') throw new Error('socket exploded'); return { h }; } });
+  const results = await withinOneSecond(s.runOnce());
+  assert.equal(results.size, 2);
+  assert.match(results.get('boom').error, /socket exploded/);
+});

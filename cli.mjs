@@ -1687,6 +1687,8 @@ Scan options:
                                Each tick is an ordinary scan, so with --compliance it writes
                                that tick's artifacts; nothing relates them across ticks. For
                                SOC 2 Type II history use a scheduler (cron/systemd/CI).
+                               Watch mode scans each distinct host once per cycle; a
+                               one-shot --host X,X scans X twice.
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send --watch alerts (must be public; private/loopback blocked)
   --alert-severity <sev>       Min severity to alert on (default: high)
@@ -3217,9 +3219,6 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   // --- CTEM: continuous watch mode ---
   if (watch) {
     const intervalMs = intervalMinutes * 60 * 1000;
-    console.log(`[CTEM] Watch mode enabled. Interval: ${intervalMinutes}m, Concurrency: ${parallel}, Hosts: ${hosts.length}`);
-    if (webhookUrl) console.log(`[CTEM] Webhook URL: ${webhookUrl}, Alert severity: ${alertSeverity}`);
-
     let previousCycleResults = null;
 
     const scheduler = createScheduler({
@@ -3285,6 +3284,12 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+
+    // The banner reads the scheduler's own distinct list: a cycle scans each host once (1.2.1 lane 4, item 10).
+    const dropped = scheduler.duplicatesDropped
+      ? ` (${scheduler.duplicatesDropped} duplicate host(s) dropped — watch mode scans each host once per cycle)` : '';
+    console.log(`[CTEM] Watch mode enabled. Interval: ${intervalMinutes}m, Concurrency: ${parallel}, Hosts: ${scheduler.hosts.length}${dropped}`);
+    if (webhookUrl) console.log(`[CTEM] Webhook URL: ${webhookUrl}, Alert severity: ${alertSeverity}`);
 
     scheduler.start();
     return; // keep process alive via setInterval

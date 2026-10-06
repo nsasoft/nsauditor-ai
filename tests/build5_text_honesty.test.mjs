@@ -195,3 +195,29 @@ test('F. the README states no Desktop tool-call limit as fact, and gives the dat
   assert.match(README, new RegExp('`CLOUD_PLUGIN_TIMEOUT_MS` \\(default `?' + cloudDefault));
   assert.match(README, /bounds each plugin, not the call/);
 });
+
+// ── G. a repeated host: once per watch cycle, twice in a one-shot scan (1.2.1 lane 4, item 10) ─────────────────────
+// The two modes DIFFER on the same input — parseHostArg keeps `X,X` (the one-shot path scans it twice into distinct
+// output directories) while the scheduler scans each distinct host once per cycle — so the --watch text must say which.
+// DERIVED by driving the real scheduler with a repeated host.
+test('G. --help and the README --watch row say watch mode scans each distinct host once per cycle', async () => {
+  const { createScheduler } = await import(pathToFileURL(path.join(ROOT, 'utils/scheduler.mjs')).href);
+  const calls = [];
+  const s = createScheduler({ intervalMs: 100_000, hosts: ['h', 'h'], scanFn: async (h) => { calls.push(h); return {}; } });
+  await Promise.race([s.runOnce(), new Promise((r) => setTimeout(r, 1000).unref())]);
+  assert.deepEqual(calls, ['h'], 'positive control: the scheduler scans a repeated host once');
+  const ONCE = /each\s+distinct\s+host\s+once\s+per\s+cycle/;
+  assert.match(flagBlock(HELP, '--watch'), ONCE, '--help --watch does not say a repeated host is scanned once per cycle');
+  const row = README.split('\n').find((l) => l.startsWith('| `--watch` |'));
+  assert.match(row ?? '', ONCE, 'the README --watch row does not say a repeated host is scanned once per cycle');
+});
+
+test('H. TRIPWIRE: the watch banner prints the scheduler\'s distinct count, not the list it was handed', () => {
+  // A source tripwire, in this file's idiom: a CLI spawn of --watch would start a real scan. The banner moved below
+  // createScheduler so it can read the deduped list; reverting it to the raw `hosts.length` would print a count the
+  // cycles never scan.
+  const line = CLI.split('\n').find((l) => l.includes('[CTEM] Watch mode enabled.'));
+  assert.ok(line, 'TRIPWIRE: the watch banner line is gone');
+  assert.match(line, /Hosts: \$\{scheduler\.hosts\.length\}\$\{dropped\}/, 'the banner does not print the scheduler\'s distinct count');
+  assert.ok(CLI.indexOf('const scheduler = createScheduler(') < CLI.indexOf(line), 'the banner is printed before the scheduler exists');
+});

@@ -10,7 +10,8 @@
  * @param {function} opts.scanFn - async (host) => result — performs the scan
  * @param {function} [opts.onScanComplete] - (host, result, diff) => void
  * @param {function} [opts.onCycleComplete] - (results) => void
- * @returns {object} scheduler instance
+ * @returns {object} scheduler instance — `hosts` is the distinct list a cycle scans, `duplicatesDropped` how many
+ *   repeats were removed from the list it was given
  */
 export function createScheduler(opts) {
   const {
@@ -25,6 +26,12 @@ export function createScheduler(opts) {
   if (!intervalMs || intervalMs <= 0) throw new Error('intervalMs must be a positive number');
   if (!Array.isArray(hosts) || hosts.length === 0) throw new Error('hosts must be a non-empty array');
   if (typeof scanFn !== 'function') throw new Error('scanFn must be a function');
+
+  // A cycle scans each host ONCE. A repeated host (`--host h,h`, or one inside a CIDR it is also listed beside) used to
+  // stall watch mode forever: results are keyed by host, so their count could never reach the list's length. Exact
+  // strings only — two spellings of one name are two hosts as far as the scheduler can know (1.2.1 lane 4, item 10).
+  const distinctHosts = Object.freeze([...new Set(hosts)]);
+  const duplicatesDropped = hosts.length - distinctHosts.length;
 
   let _running = false;
   let _timer = null;
@@ -42,18 +49,19 @@ export function createScheduler(opts) {
     const concurrency = Math.max(1, parallel);
     let running = 0;
     let idx = 0;
+    let done = 0; // completion counter: a cycle ends when every scan it started has settled, success or error
 
     await new Promise((resolve) => {
-      if (hosts.length === 0) return resolve();
+      if (distinctHosts.length === 0) return resolve();
 
       const tryNext = () => {
-        while (running < concurrency && idx < hosts.length) {
+        while (running < concurrency && idx < distinctHosts.length) {
           if (_stopRequested) {
             // Don't start new scans, but let in-progress ones finish
             if (running === 0) return resolve();
             return;
           }
-          const h = hosts[idx++];
+          const h = distinctHosts[idx++];
           running++;
           scanFn(h)
             .then((result) => {
@@ -71,7 +79,8 @@ export function createScheduler(opts) {
             })
             .finally(() => {
               running--;
-              if (results.size === hosts.length) return resolve();
+              done++;
+              if (done === distinctHosts.length) return resolve();
               tryNext();
             });
         }
@@ -90,6 +99,9 @@ export function createScheduler(opts) {
   }
 
   const scheduler = {
+    hosts: distinctHosts,
+    duplicatesDropped,
+
     /**
      * Begin periodic scanning.
      */
