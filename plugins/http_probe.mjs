@@ -6,6 +6,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { redactSetCookie, redactLocation } from '../utils/cookie_redaction.mjs';
 
 const execFileP = promisify(execFile);
 
@@ -15,7 +16,12 @@ function dlog(...a) { if (DEBUG) console.log("[http-probe]", ...a); }
 function buildBanner(status, headers) {
   const lines = [];
   lines.push(`${status.code} ${status.message}`);
-  // Capture the most useful fingerprinting headers
+  // Capture the most useful fingerprinting headers. Each VALUE kept here reaches the record, the artifacts and the AI
+  // prompt, so none may be a secret (1.2.1, the audit seat's ruling): a Set-Cookie value is the target's session token —
+  // its NAME is kept, its value redacted; a Location query can carry an SSO ticket or an OAuth code — the URL is kept
+  // without it. The rest describe the product or its configuration: an auth scheme and realm, a server string, a framing
+  // policy, a media type.
+  const redact = { 'set-cookie': redactSetCookie, location: redactLocation };
   const pick = [
     'www-authenticate',
     'server',
@@ -27,10 +33,11 @@ function buildBanner(status, headers) {
   for (const k of pick) {
     const v = headers[k];
     if (!v) continue;
+    const shown = redact[k] ?? String;
     if (Array.isArray(v)) {
-      for (const vv of v) lines.push(`${k}: ${vv}`);
+      for (const vv of v) lines.push(`${k}: ${shown(vv)}`);
     } else {
-      lines.push(`${k}: ${v}`);
+      lines.push(`${k}: ${shown(v)}`);
     }
   }
   return lines.join('\r\n').slice(0, 512); // Limit banner size

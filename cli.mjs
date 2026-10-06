@@ -24,6 +24,7 @@ import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
 import { watchCycle } from './utils/watch_cycle.mjs';
+import { redactSetCookieLines } from './utils/cookie_redaction.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
 import { isBlockedIp, resolveAndValidate, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
@@ -106,6 +107,9 @@ export function redactSensitiveForAI(input, targetHost) {
     s = s.replace(/\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b/gi, '[IPv6]');
     // The shared rule; this call site's POLICY keeps private addresses and masks public ones.
     s = scrubIPv4KeepingProductIds(s, (ip) => (isPrivateV4(ip) ? ip : '[IP]'));
+    // A scanned service's Set-Cookie VALUE is its session token: redacted here whatever a producer kept (1.2.1, both
+    // seams ruled — the webapp detector still reflects its headers into the result).
+    s = redactSetCookieLines(s);
     return s;
   };
 

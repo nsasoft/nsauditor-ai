@@ -24,6 +24,7 @@ import { maxSeverityInConclusion } from '../cli.mjs';
 import concluder, { ADAPTER_PAYLOAD_KEYS } from '../plugins/result_concluder.mjs';
 import { IDENTITY_FIELDS } from '../utils/conclusion_utils.mjs';
 import { _internals as mcpInternals, MCP_FLAG_SEVERITY } from '../plugins/mcp_scanner.mjs';
+import { setCookieValues } from '../utils/cookie_redaction.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGINS = path.join(ROOT, 'plugins');
@@ -397,4 +398,24 @@ test('PINNED, NOT ENDORSED: the same expired certificate grades High from 011 al
     issues: [{ severity: 'critical', check: 'cert_expired', detail: 'expired' }] } });
   assert.deepEqual(onlyTls.map((f) => [f.key, f.severity]), [['certExpiry', 'High']]);
   assert.deepEqual(withAudit.map((f) => [f.key, f.severity]), [['certAudit', 'Critical']]);
+});
+
+// ── (census) NO set-cookie VALUE on any adapter's output (1.2.1, the audit seat's ruling: a scanned service's session
+// token is its secret; the NAME is kept). Every adapter is driven through the real concluder, the way the key census
+// drives them; a value planted in a producer's evidence row through the same path proves the census reads every field.
+test('(census) no record, evidence row or conclusion field from any adapter carries an unredacted Set-Cookie value', async () => {
+  const plugins = await adapterPlugins();
+  const found = [];
+  for (const [id, results] of Object.entries(DRIVERS)) {
+    for (const result of results) {
+      const c = await concluder.run([...(id === '060' ? [DNS_009] : []), { id, name: plugins.get(id), result }]);
+      for (const v of setCookieValues(c)) found.push(`${id}: ${v}`);
+    }
+  }
+  assert.deepEqual(found, []);
+  const planted = await concluder.run([{ id: '006', name: plugins.get('006'), result: { up: true, program: 'nginx',
+    data: [{ probe_protocol: 'https', probe_port: 443, probe_info: 'Server: nginx', response_banner: '200 OK\r\nset-cookie: sid=planted-value' }] } }]);
+  const seen = setCookieValues(planted);
+  assert.deepEqual([...new Set(seen)], ['sid=planted-value'], 'positive control: a value the producer kept is found through the real concluder');
+  assert.ok(seen.length >= 2, `found on the record's banner AND its evidence row, not one place only (${seen.length})`);
 });
