@@ -252,6 +252,9 @@ test('(B6-4a) outside node_modules, a path keeps its basename only when it is a 
     ["mkdir '/Users/alice'", "mkdir '<local path>'"],
     ["mkdir '/Users/j.doe'", "mkdir '<local path>'"],
     ["open 'C:\\Users\\alice'", "open '<local path>'"],
+    // The drive root is stripped BEFORE depth is counted: left in, `C:` is a component and the dotted Windows home dir reads
+    // as depth 3 with an "extension" -> `'j.doe'` (the audit seat's survivor; the undotted row above cannot see it).
+    ["open 'C:\\Users\\j.doe'", "open '<local path>'"],
     ['read /home/alice/dev', 'read <local path>'],
     ["read '/Users/alice/dev/x.json'", "read 'x.json'"],
     ["open '/etc/hosts'", "open '<local path>'"],   // an accepted loss: a client does not need it
