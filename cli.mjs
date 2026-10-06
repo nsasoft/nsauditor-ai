@@ -1217,6 +1217,9 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     hostAppended, kevDataAsOf, epssDataAsOf, nvdCache,
     // Additive (1.3.0 items 4 + 11): what a --watch cycle compares, host by host.
     scanSummary,
+    // Additive (1.3.0 build 4, Gate 3-A F-1): the plugin manifest, so the Markdown report says an audit that did not run
+    // — 060's decline of an IP address — the same way scan_host's does. The run record already carries it.
+    pluginStatus,
   };
 }
 
@@ -3496,6 +3499,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         host: scanOut.host,
         conclusion: scanOut.conclusion,
         toolVersion: TOOL_VERSION,
+        manifest: scanOut.pluginStatus ?? [],
       });
       const mdFileName = scanOutputs.length > 1
         ? `scan_${safeHost(scanOut.host)}.md`

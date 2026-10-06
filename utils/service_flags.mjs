@@ -246,6 +246,24 @@ export function conclusionNotTested(conclusion) {
   return list(r.services).flatMap((s) => notTestedChecks(s).map((c) => ({ ...c, target: `${s.port}/${s.protocol || 'tcp'}` })));
 }
 
+// ⚠️ A HOST-LEVEL AUDIT THAT DID NOT RUN IS READ FROM ITS PLUGIN STATUS, NEVER FROM ITS PAYLOAD'S ABSENCE (1.3.0 build 4,
+// Gate 3-A F-1). The DNS-security audit (060) declines an IP-address target and says why on its manifest entry; its
+// payload (`dnsSecurity`) is then simply absent — and an absence where a reader expects a result reads as "no DNS
+// issues". So the status decides: `ran` adds nothing (its findings are graded by the table above); `skipped`, `timeout`
+// or `error` adds the audit as NOT TESTED with the manifest's own reason; and an audit ABSENT from the manifest adds
+// nothing, because it was not requested, which is not a decline.
+export const HOST_AUDITS = Object.freeze([{ id: '060', key: 'dnsSecurity', check: 'DNS-security audit (060)' }]);
+
+/** The host-level audits a run's manifest says did not run, each with the host as its target and the manifest's reason. */
+export function manifestNotTested(manifest, host) {
+  return list(manifest).flatMap((m) => {
+    const audit = HOST_AUDITS.find((a) => a.id === String(m?.id ?? ''));
+    if (!audit || !m.status || m.status === 'ran') return [];
+    return [{ key: audit.key, check: audit.check, target: String(host ?? ''),
+      reason: m.reason || `the plugin's status is ${m.status}, and it recorded no reason` }];
+  });
+}
+
 /** Keys an adapter lands that are NOT findings — each with the reason, so the census cannot be satisfied silently. */
 export const DECLARED_NON_FINDING_KEYS = Object.freeze({
   algorithms: 'the SSH algorithm inventory the server offered; weakAlgorithms is its graded subset',

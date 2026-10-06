@@ -9,7 +9,7 @@
 // minimal report (header + "no services detected") rather than throwing, so callers
 // don't need to guard before invocation.
 
-import { conclusionFindings, conclusionNotTested, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
+import { conclusionFindings, conclusionNotTested, manifestNotTested, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
 
 const SEVERITIES = SEVERITY_ORDER;
 
@@ -152,8 +152,10 @@ export function buildMarkdownReport(scanData) {
   }
   // 1.3.0 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
   // never "none" and never "refused". One line per check and reason, from the shared table, with every target it covers.
+  // Build 4 (Gate 3-A F-1): a host-level audit that did not run — the DNS-security audit (060) declines an IP-address
+  // target — is read from the run's MANIFEST, which both callers hand in; without one nothing is inferred from absence.
   const notTested = new Map();
-  for (const n of conclusionNotTested(conclusion)) {
+  for (const n of [...conclusionNotTested(conclusion), ...manifestNotTested(scanData.manifest, host)]) {
     const k = `${n.check}\u0000${n.reason}`;
     if (!notTested.has(k)) notTested.set(k, { ...n, targets: [] });
     notTested.get(k).targets.push(n.target);

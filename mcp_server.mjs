@@ -259,20 +259,19 @@ export const TOOLS = [
       + ' the flags the service checks leave on each service record — weak SSH algorithms, SNMP default community, weak '
       + 'TLS protocols / ciphers and a self-signed certificate, the MCP server checks, and anonymous FTP login and DNS '
       + 'zone transfer only when the server\'s environment enables them (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
-      + 'DNS_AXFR_DOMAIN — both off by default). The records also carry the HTTP probe\'s methods (006, dangerousMethods '
-      + 'with methodsTested — false when no Allow header was read: not tested, never "none"), the NetBIOS/SMB '
-      + 'null-session check (014, nullSessionAllowed and shares; opt-in, SMB_NULL_SESSION) and the TLS-certificate (040, certAudit) and '
-      + 'debug-endpoint (050, tribeHealth) audits; the DNS-security audit (060, dnsSecurity) lands on the 53/udp record '
-      + 'when the scan found a 53/udp service, otherwise in the conclusion\'s evidence. Opt-in checks carry '
-      + 'axfrTested / anonymousLoginTested / nullSessionTested; a null result is NOT TESTED, never "refused". With the Enterprise '
-      + 'package, the zero-trust assessment (1023) reaches the conclusion only as one score line in its evidence, not '
-      + 'its per-dimension findings. It does NOT look up '
+      + 'DNS_AXFR_DOMAIN — both off by default). The records also carry the HTTP probe\'s methods (006, dangerousMethods; '
+      + 'methodsTested false is not tested, never "none"), the NetBIOS/SMB null-session check (014, nullSessionAllowed; '
+      + 'opt-in, SMB_NULL_SESSION) and the TLS-certificate (040, certAudit) and debug-endpoint (050, tribeHealth) audits. For a domain-name target the DNS-security audit (060, dnsSecurity) lands '
+      + 'on a 53/udp record if the scan found one, else in the conclusion\'s evidence; an IP-address target is DECLINED '
+      + '(manifest: skipped, with the reason; markdown: NOT TESTED), so DNS posture is unknown, not clean. Opt-in checks carry '
+      + 'axfrTested / anonymousLoginTested / nullSessionTested; a null result is NOT TESTED, never "refused". Enterprise\'s '
+      + 'zero-trust assessment (1023) reaches the conclusion only as one score line in its evidence, not its '
+      + 'per-dimension findings. It does NOT look up '
       + 'CVEs and does NOT run the Enterprise analysis agents or exploit intelligence — so zero findings here is NOT a '
       + 'statement that the host has no known vulnerabilities. For CVEs, call get_vulnerabilities (Pro) with each '
       + 'service\'s cpe where it names a concrete version; a service whose cpe is null gets no lookup, so its CVE coverage'
-      + ' is unknown, not clean. With the Enterprise package and a Pro or Enterprise licence, the CLI scan (nsauditor-ai '
-      + 'scan --host <host>) runs the CVE mapper and the analysis agents, and joins exploit intelligence when a KEV / '
-      + 'EPSS store is configured.',
+      + ' is unknown, not clean. The CLI scan (Enterprise package, Pro or Enterprise licence) runs the CVE mapper, the '
+      + 'analysis agents and, with a KEV / EPSS store, exploit intelligence.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -494,6 +493,8 @@ export async function handleScanHost(args) {
         host: output.host,
         conclusion: output.conclusion,
         toolVersion: TOOL_VERSION,
+        // Build 4 (Gate 3-A F-1): the manifest, so an audit that did not run — 060's decline of an IP address — is said.
+        manifest: output.manifest ?? [],
       });
     }
   } catch { /* swallow — markdown is best-effort */ }

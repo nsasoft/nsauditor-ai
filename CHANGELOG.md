@@ -110,8 +110,9 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   Enterprise before a custom `NSAUDITOR_PLUGIN_PATH` plugin reusing an id — reads `conclude` named or on the default
   object, and lands what it reaches namespaced, never in a service's identity fields: 040's audit under `certAudit`
   (no longer the negotiated protocol as a version), 050's findings under `tribeHealth` in one record (its per-finding
-  records, the CRITICAL among them, were dropped), 060's under `dnsSecurity` — on the 53/udp record when the scan found
-  a 53/udp service, else in the conclusion's evidence — and the SYN scanner's ports as program `Unknown`, not `nmap`;
+  records, the CRITICAL among them, were dropped), 060's under `dnsSecurity` — for a domain-name target, on the 53/udp
+  record when the scan found a 53/udp service, else in the conclusion's evidence (an IP address is declined; next
+  entry) — and the SYN scanner's ports as program `Unknown`, not `nmap`;
   a record without a positive port is evidence, never a service row. The HTTP probe (006) gains an adapter that lands
   its record exactly where the fallback did and adds `methodsTested` / `allowedMethods` / `dangerousMethods`, so no key,
   CPE, service count or delta identity moves. With Enterprise, its zero-trust assessment (1023) arrives as one score line
@@ -129,6 +130,11 @@ Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1
   — <host> is an IP address, which has no SPF, DMARC or NS records to audit" — and makes no DNS query. A hostname that
   resolves to an address, `localhost` included, is a domain and still runs. The history line's count already included
   these findings through 0.2.56 (it counts the audit's informational result too); for an IP target it now counts none.
+  The decline is said where a reader looks: the Markdown report (`scan_host`'s `markdown`, and `--output-format md`)
+  carries `DNS-security audit (060) not tested: <host> — <reason>`, read from the plugin's manifest status — never from
+  the absence of `dnsSecurity` — and `scan_host`'s description and the README say the audit lands only for a
+  domain-name target. Before this the description said it lands on the 53/udp record whenever the scan found one, and
+  on a router scanned by address, with a 53/udp service, nothing landed and nothing said why.
 - **The TLS certificate audit (040) grades an IP target's name mismatch by context, reads IP SANs, says when a
   certificate carries no subjectAltName, judges TLS 1.3 forward secrecy by the protocol, and no longer calls a name
   mismatch a CA-trust failure.** Five changes, each measured on a real TLS server. (1) Node prints an IP SAN as `IP

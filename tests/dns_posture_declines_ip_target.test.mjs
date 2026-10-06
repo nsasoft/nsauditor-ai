@@ -88,13 +88,13 @@ const STUB = fileURLToPath(new URL('./helpers/dns_nxdomain_stub.mjs', import.met
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-dns-posture-ip-'));
 after(() => fs.rmSync(WORK, { recursive: true, force: true }));
 
-function scanCli(host, name) {
+function scanCli(host, name, extra = []) {
   const out = path.join(WORK, name);
   const env = { ...process.env, AI_ENABLED: 'false' };
   delete env.NODE_TEST_CONTEXT;
   return new Promise((resolve) => {
     const child = cp.spawn(process.execPath, ['--import', STUB, CLI, 'scan', '--host', host, '--plugins', '060', '--fail-on', 'high',
-      '--out', out], { cwd: WORK, env: withNoDotenv(env) });
+      '--out', out, ...extra], { cwd: WORK, env: withNoDotenv(env) });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('close', (code) => {
@@ -103,7 +103,9 @@ function scanCli(host, name) {
       const hist = fs.existsSync(path.join(out, 'scan_history.jsonl'))
         ? JSON.parse(fs.readFileSync(path.join(out, 'scan_history.jsonl'), 'utf8').trim().split('\n').pop()) : null;
       const q = /\[dns-stub\] queries (\d+)/.exec(stderr);
-      resolve({ code, stderr, raw, hist, queries: q ? Number(q[1]) : null });
+      const mdPath = path.join(out, 'scan_report.md');
+      const md = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : null;
+      resolve({ code, stderr, raw, hist, md, queries: q ? Number(q[1]) : null });
     });
   });
 }
@@ -111,6 +113,13 @@ function scanCli(host, name) {
 test('(q) THE CLI over a DOMAIN: the posture findings still reach --fail-on — exit 1 at high', async () => {
   const r = await scanCli('example.test', 'domain');
   assert.ok(r.queries > 0, `the stub answered the audit's queries: ${r.stderr.slice(-300)}`);
+  // ⚠️ The exit code alone cannot carry this leg: the SSRF guard refusing the name ALSO exits 1, after one query of its
+  // own, and until 1.3.0 build 4 that is exactly what this leg measured. So it asserts the audit RAN and was concluded.
+  assert.doesNotMatch(r.stderr, /SSRF guard/, 'the guard admitted the domain');
+  const st = (r.raw?.pluginStatus ?? []).find((p) => String(p.id) === '060');
+  assert.equal(st?.status, 'ran', 'the DNS-posture audit ran on the domain');
+  const res = r.raw?.conclusion?.result ?? {};
+  assert.ok([...(res.services ?? []), ...(res.evidence ?? [])].some((e) => e.dnsSecurity), 'its findings were concluded');
   assert.equal(r.code, 1, `a domain with no SPF / DMARC / NS records fails --fail-on high: ${r.stderr.slice(-300)}`);
 });
 
@@ -126,4 +135,22 @@ test('THE CLI over an IP: 060 declined, no DNS query, no service, no open port, 
   const st = (r.raw?.pluginStatus ?? []).find((p) => String(p.id) === '060');
   assert.deepEqual([st?.status, DECLINE.test(st?.reason ?? '')], ['skipped', true], 'the decline is on the run record with its reason');
   assert.deepEqual([r.hist?.findingsCount, r.hist?.openPorts], [0, []], 'the history line counts nothing for the address');
+});
+
+// 1.3.0 build 4 (Gate 3-A F-1): the CLI's Markdown report reads the same renderer as scan_host, and it is handed the
+// manifest too, so the decline is said there as well. The renderer's own legs: dns_posture_decline_not_tested.test.mjs.
+const NOT_TESTED_060 = /^- \*\*DNS-security audit \(060\) not tested:\*\* (.+?) — (.+)$/m;
+test('(q) THE CLI\'s --output-format md over a DOMAIN: no not-tested line — the audit ran', async () => {
+  const r = await scanCli('example.test', 'domain-md', ['--output-format', 'md']);
+  assert.ok(r.md, `the Markdown report was written: ${r.stderr.slice(-300)}`);
+  assert.doesNotMatch(r.md, NOT_TESTED_060);
+});
+
+test('THE CLI\'s --output-format md over an IP: the report says the DNS-security audit was NOT TESTED, with the decline reason', async () => {
+  const r = await scanCli('192.0.2.1', 'ip-md', ['--output-format', 'md']);
+  assert.ok(r.md, `the Markdown report was written: ${r.stderr.slice(-300)}`);
+  const m = NOT_TESTED_060.exec(r.md);
+  assert.ok(m, 'the not-tested line is in the CLI\'s Markdown report');
+  assert.equal(m[1], '192.0.2.1');
+  assert.match(m[2], DECLINE);
 });
