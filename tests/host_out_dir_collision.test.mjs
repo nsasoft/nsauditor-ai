@@ -87,6 +87,10 @@ test('(a) SAME second → the second directory is suffixed `_2`, the first is ne
     // naming only the new directory passed. Each path is asserted in its own role.
     assert.ok(out.lines[0].includes(`${a} already exists`), `the warning names the EXISTING directory: ${out.lines[0]}`);
     assert.ok(out.lines[0].includes(`writes to ${b} instead`), `the warning names the NEW directory: ${out.lines[0]}`);
+    // v77-8 (1.2.1): the directory is stamped AFTER the plugin runs, so two scans collide when their runs FINISH in the same
+    // second — they may have started minutes apart. README:35 says so; the warning said "started".
+    assert.doesNotMatch(out.lines[0], /started in the same second/);
+    assert.match(out.lines[0], /finished[^.]* the same second/);
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 

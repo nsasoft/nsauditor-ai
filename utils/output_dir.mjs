@@ -116,8 +116,10 @@ export async function createHostOutDir(baseOutDir, host, { stamp = nowStamp, log
       throw e;
     }
     if (n > 1) {
-      log(`[scan] WARNING: ${path.join(baseOutDir, first)} already exists — another scan of ${host} started in the same `
-        + `second — so this scan writes to ${dir} instead. Neither run's evidence overwrites the other's.`);
+      // v77-8 (1.2.1): the directory is stamped after the plugin runs, so the collision is two runs that FINISHED in the same
+      // second — they may have started minutes apart (README: "whose plugin runs finished in the same second").
+      log(`[scan] WARNING: ${path.join(baseOutDir, first)} already exists — another scan of ${host} finished its plugin runs in `
+        + `the same second — so this scan writes to ${dir} instead. Neither run's evidence overwrites the other's.`);
     }
     return dir;
   }
