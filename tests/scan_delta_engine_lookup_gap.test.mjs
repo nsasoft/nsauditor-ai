@@ -47,6 +47,10 @@ test('the classification TABLE: every lookup class is `lookup-failed`, the note 
     assert.equal(t[c], 'lookup-failed', c);
   }
   assert.equal(t.truncated_low_severity_cves, 'note');
+  // 1.2.1 (B6-4b, ruled A1): a CVE NVD lists for the product with NO version (CPE NA) — the lookup WORKED, one CVE could not
+  // be decided from the banner. A note, never `lookup-failed`: that kind refuses every CVE row on the port, and an NA CVE is
+  // present on every scan of its product, so the product's other CVEs could never resolve.
+  assert.equal(t.cve_listed_without_version, 'note');
   assert.equal(t.input_gap, 'input-gap');
   assert.ok(!NOT_COMPARABLE_REASONS.some((r) => /lookup/.test(r)), 'no new reason token — it reads evidence-gap');
 });
@@ -78,6 +82,15 @@ test('(q1) ANOTHER producer\'s row on the gap\'s port is untouched (the rule is 
 test('(q1) a COVERAGE NOTE (truncated low-severity CVEs) is not a lookup failure → today\'s verdict', () => {
   const d = delta([cve(53, 'udp', 'CVE-4')], [gap(53, 'udp', 'truncated_low_severity_cves')]);
   assert.equal(d.resolved.length, 1);
+});
+
+test('(q1, B6-4b) a cve_listed_without_version NOTE governs no other row: another CVE row on its port keeps today\'s verdict (RESOLVED)', () => {
+  const na = { ...gap(443, 'tcp', 'cve_listed_without_version'), title: '[COVERAGE GAP] cve_listed_without_version — tcp/https (CVE-2025-3891)' };
+  const d = delta([cve(443, 'tcp', 'CVE-2024-38476')], [na]);
+  assert.deepEqual(d.resolved.map((f) => f.title), ['CVE-2024-38476 — tcp/svc']);
+  assert.deepEqual(d.newFindings.map((f) => f.title), [na.title], 'the note itself is NEW the first time it appears');
+  const again = delta([na], [na]);
+  assert.deepEqual([again.unchanged.length, again.newFindings.length, again.resolved.length, again.notComparable.length], [1, 0, 0, 0], 'and UNCHANGED after');
 });
 
 test('(q1) the SAME lookup gap in both runs, no CVE rows either side → it PAIRS (unchanged): nothing new, resolved or refused', () => {

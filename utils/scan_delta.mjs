@@ -1127,6 +1127,9 @@ export const ENGINE_GAP_CLASS_KIND = Object.freeze({
   cpe_map_miss: 'lookup-failed',
   no_version_detected: 'lookup-failed',
   truncated_low_severity_cves: 'note',      // a COVERAGE NOTE: the lookup worked and some LOW rows were folded
+  // 1.2.1 (B6-4b): the lookup worked; NVD lists ONE CVE for the product only at version NA, which no banner can decide. A
+  // note, never `lookup-failed` — that kind refuses every CVE row on the port, and this one is on every scan of the product.
+  cve_listed_without_version: 'note',
   input_gap: 'input-gap',                   // the engine's input gap — an evidence gap, handled by the recorded-gap leg
 });
 /** A CVE-mapper lookup-gap row, port-scoped. Written as plain `f.` reads so the boundary contract sees them. */
