@@ -22,11 +22,11 @@ requires this release** (`nsauditor-ai >= 0.2.57`): it imports names that first 
 at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED. **This supersedes the 0.2.56 entry's "Not refused in
 this release" sentence** about scans run with different `--plugins`: from Enterprise 1.3.0 an analysis agent whose
 input plugin was left out of a scan records an input gap, so its rows are refused (`evidence-gap`). **Still not
-refused:** a scan made before Enterprise 1.3.0 could not record a plugin left out of it, so in a comparison with one, an
-agent's row that scan lacks is not refused — the report's Basis cell says so on the row; and a scan that discovered
-ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's row on a port it did not measure
-can read RESOLVED — include the port scanner (003). The items the 0.2.56 entry boards "for 1.2.1" ship with Enterprise
-1.3.0: that release raises this floor, which Enterprise's contract-v1 §9 classes as a minor.
+refused:** a scan made before Enterprise 1.3.0 could not record a plugin left out of it, so in a comparison with one,
+an agent's row that scan lacks is not refused — the report's Basis cell says so on the row; and a scan that discovered
+ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the CVE mapper's row on a port
+it did not measure can read RESOLVED — include the port scanner (003). The items the 0.2.56 entry boards "for 1.2.1"
+ship with Enterprise 1.3.0: that release raises this floor, which Enterprise's contract-v1 §9 classes as a minor.
 
 - **The client report's Basis cell says, row by row, what the delta checked.** The *Since Last Scan* table printed one
   Basis sentence — host, plugin and scope present in both runs — beside every resolved, new and changed row, including

@@ -27,11 +27,11 @@ the exposure agent's titles no longer name the service, the service agent's no l
 declared in this release, so a row compared across the upgrade reads `identity-basis-changed`, never resolved or new.
 **Two measured limits:** a scan made before EE 1.3.0 could not record a plugin left out of it, so in a comparison with
 one, an agent's row that scan lacks is not refused — its Basis cell says so; and a scan that discovered ports with the
-Nmap plugin (024) alone records no port oracle, so an analysis agent's row on a port it did not measure can read
-resolved — include the port scanner (003). The release also carries this cycle's scanner, report and security fixes;
-the [CHANGELOG](./CHANGELOG.md) lists them. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage
-matrix UNCHANGED; **Enterprise 1.3.0 requires this release** (`nsauditor-ai >= 0.2.57`). The free last-vs-current
-webhook alerting delta is untouched and stays free (see Continuous Monitoring below).
+Nmap plugin (024) alone records no port oracle, so an analysis agent's or the CVE mapper's row on a port it did not
+measure can read resolved — include the port scanner (003). The release also carries this cycle's scanner, report and
+security fixes; the [CHANGELOG](./CHANGELOG.md) lists them. Plugin counts UNCHANGED at 27 Community + 29 Enterprise;
+every coverage matrix UNCHANGED; **Enterprise 1.3.0 requires this release** (`nsauditor-ai >= 0.2.57`). The free
+last-vs-current webhook alerting delta is untouched and stays free (see Continuous Monitoring below).
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
