@@ -91,13 +91,25 @@ const WEAK_SIG_ALGORITHMS  = /sha1WithRSA|md5WithRSA|md2WithRSA|sha1-with-rsa|ds
 
 function validateHostname(cert, hostname) {
   if (isIP(hostname)) {
-    // For IP connections, check IP SANs
-    const ipSans = extractSANs(cert, "IP");
-    return ipSans.includes(hostname);
+    // For IP connections, check IP SANs — as ADDRESSES, never as strings: Node prints an IPv6 SAN expanded
+    // ("0:0:0:0:0:0:0:1") where the target may be written compressed ("::1").
+    const target = canonicalAddress(hostname);
+    return extractSANs(cert, "IP").some((san) => canonicalAddress(san) === target);
   }
 
   const names = getAllNames(cert);
   return names.some((name) => matchesHostname(name, hostname));
+}
+
+// The canonical text of an IP literal (IPv6 compressed, lower-case), or null for anything that is not one.
+function canonicalAddress(addr) {
+  const family = isIP(String(addr));
+  if (!family) return null;
+  try {
+    return new URL(`http://${family === 6 ? `[${addr}]` : addr}/`).hostname;
+  } catch {
+    return null;
+  }
 }
 
 function getAllNames(cert) {
@@ -117,11 +129,16 @@ function getAllNames(cert) {
 
 function extractSANs(cert, type) {
   if (!cert.subjectaltname) return [];
+  // 0.2.57: Node prints an IP SAN as "IP Address:<addr>" (measured — "DNS:a.example, IP Address:127.0.0.1"), so an
+  // "IP:" filter alone never found one and every IP target read as a mismatch. Both spellings are read.
+  const prefixes = type === "IP" ? ["IP Address:", "IP:"] : [`${type}:`];
   return cert.subjectaltname
     .split(",")
     .map((s) => s.trim())
-    .filter((s) => s.startsWith(`${type}:`))
-    .map((s) => s.slice(type.length + 1));
+    .flatMap((s) => {
+      const p = prefixes.find((x) => s.startsWith(x));
+      return p ? [s.slice(p.length)] : [];
+    });
 }
 
 function matchesHostname(pattern, hostname) {
@@ -402,11 +419,26 @@ async function auditPort(host, port, config) {
   const hostnameValid = validateHostname(cert, host);
   if (!hostnameValid) {
     const certNames = getAllNames(cert).join(", ");
-    issues.push({
-      severity: SEVERITY.HIGH,
-      check: "hostname_mismatch",
-      detail: `Hostname "${host}" does not match certificate names: ${certNames}`,
-    });
+    // 0.2.57: graded by the target's form. Scanned by ADDRESS, a certificate that names DNS names only cannot match —
+    // a true finding (a client connecting by address sees the mismatch), kept, but LOW: it is expected wherever the
+    // service is reached by name. LOW, never INFO — the grading table drops `info`, which would hide it from every
+    // reader. HIGH stays HIGH for a DNS-name target the certificate does not name, a certificate naming a DIFFERENT
+    // address, and one naming no SAN at all.
+    const dnsSans = extractSANs(cert, "DNS");
+    const byAddress = isIP(host) !== 0 && dnsSans.length > 0 && extractSANs(cert, "IP").length === 0;
+    issues.push(byAddress
+      ? {
+        severity: SEVERITY.LOW,
+        check: "hostname_mismatch",
+        detail: `Hostname "${host}" does not match certificate names: ${certNames} — the certificate names DNS names only `
+          + `(${dnsSans.join(", ")}); a client connecting by address sees a name mismatch, expected where the service is `
+          + "reached by name",
+      }
+      : {
+        severity: SEVERITY.HIGH,
+        check: "hostname_mismatch",
+        detail: `Hostname "${host}" does not match certificate names: ${certNames}`,
+      });
   }
 
   // ── Wildcard Sprawl ────────────────────────────────────────────────────
@@ -479,7 +511,12 @@ async function auditPort(host, port, config) {
   issues.push(...chainAnalysis.issues);
 
   // ── Node.js authorization check (CA trust store validation) ────────────
-  if (!probe.authorized && !isSelfSigned) {
+  // 0.2.57: NOT on a name mismatch alone. With a chain the CA store VERIFIED and only the name wrong, Node reports
+  // authorized=false with authorizationError ERR_TLS_CERT_ALTNAME_INVALID (measured: the same CA-signed certificate
+  // reads authorized=true once its IP SAN matches the target), and this said the store distrusted a chain it trusted.
+  // hostname_mismatch carries that fact. Keyed on the EXACT code: a chain that fails reports its own code, so an
+  // untrusted chain with a wrong name keeps this finding beside the mismatch.
+  if (!probe.authorized && !isSelfSigned && probe.authError !== "ERR_TLS_CERT_ALTNAME_INVALID") {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "ca_not_trusted",
