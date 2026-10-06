@@ -821,6 +821,9 @@ export class PluginManager {
           reason: describeSkipReason(mod, ctx),
           duration_ms: 0,
         });
+        // Requested and NOT measured: the same three-state map the run path writes below, so a
+        // late consumer cannot read a gated-out upstream as one nobody requested (D26-3).
+        ctx.pluginRunStatus.set(String(mod.id || ''), 'skipped');
         continue;
       }
 
@@ -833,6 +836,7 @@ export class PluginManager {
           reason: `missing capabilities: ${(mod.requiredCapabilities || []).join(',')}`,
           duration_ms: 0,
         });
+        ctx.pluginRunStatus.set(String(mod.id || ''), 'skipped');
         continue;
       }
 

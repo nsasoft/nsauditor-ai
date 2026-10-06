@@ -66,6 +66,49 @@ test('an upstream that ERRORED reads `error`', async () => {
   assert.equal(seen.map?.get('003'), 'error');
 });
 
+// ── 1.2.1 lane 4, D26-3: a plugin the manager SKIPPED was requested and not measured ───────────
+// The two gates in front of a dispatch (requirements, capabilities) pushed a 'skipped' manifest
+// entry and `continue`d past the only map write, so a late consumer read "never requested" for a
+// plugin that was requested and never ran. EE 1023 turns no entry into "the port surface was not
+// in scope" (no gap) and 'skipped' into an evidence gap, so the wrong state is a false clean.
+// Each pair below is one fixture in two states: the gate passes (ran) or it does not (skipped).
+const scanner003 = () => mk('003', 'Port Scanner', async () => ({ up: true, data: [] }),
+  { requirements: { host: 'up' }, priority: 30 });
+const markUp = mk('001', 'Host Up', async () => ({ up: true, data: [] }), { priority: 10 });
+const zeroTrust = () => mk('888', 'Zero Trust Checker', async () => ({ up: true, data: [] }),
+  { requiredCapabilities: ['zeroTrust'], priority: 40 });
+const manifestOf = (out, id) => out.manifest.find((e) => e.id === id);
+
+test('ACCEPT — an upstream whose REQUIREMENTS are met runs and reads `ran`', async () => {
+  const seen = {};
+  const pm = await PluginManager.create({ plugins: [markUp, scanner003(), spy(seen)] });
+  await pm.run('10.0.0.1', 'all', {});
+  assert.equal(seen.map?.get('003'), 'ran');
+});
+
+test('an upstream SKIPPED on its requirements reads `skipped` — requested and not measured, not "never requested"', async () => {
+  const seen = {};
+  const pm = await PluginManager.create({ plugins: [scanner003(), spy(seen)] });
+  const out = await pm.run('10.0.0.1', 'all', {});
+  assert.equal(manifestOf(out, '003')?.status, 'skipped', 'positive control: the requirement gate skipped it');
+  assert.equal(seen.map?.get('003'), 'skipped');
+});
+
+test('ACCEPT — an upstream whose CAPABILITY is granted runs and reads `ran`', async () => {
+  const seen = {};
+  const pm = await PluginManager.create({ plugins: [zeroTrust(), spy(seen)] });
+  await pm.run('10.0.0.1', 'all', { capabilities: { zeroTrust: true } });
+  assert.equal(seen.map?.get('888'), 'ran');
+});
+
+test('an upstream SKIPPED for a missing capability reads `skipped`', async () => {
+  const seen = {};
+  const pm = await PluginManager.create({ plugins: [zeroTrust(), spy(seen)] });
+  const out = await pm.run('10.0.0.1', 'all', { capabilities: {} });
+  assert.match(manifestOf(out, '888')?.reason ?? '', /missing capabilities: zeroTrust/, 'positive control: the capability gate skipped it');
+  assert.equal(seen.map?.get('888'), 'skipped');
+});
+
 test('an upstream NOT REQUESTED has NO entry — absence is the third state, not a fourth', async () => {
   // "Never requested here" must be distinguishable from "requested and failed": the first is not
   // an evidence gap, because the surface was never in scope. The cross-run case is already
