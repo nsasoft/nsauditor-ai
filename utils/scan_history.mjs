@@ -182,11 +182,20 @@ export async function recordScan(outputDir, summary) {
     // scan's findings are machine-visible in history (findingsCount already
     // includes them; this surfaces how many came from cloud auditors).
     cloudFindingsCount: summary.cloudFindingsCount ?? 0,
+    // ⚠️ 1.2.1 (s1) B: the SERVICE-CHECK channel, written as historyHostEntry / historyServiceEntry built it — the basis
+    // stamp, the host-level checks, and each service's flags and checks. This writer used to rebuild the line from a
+    // whitelist that dropped all of them, so every line on disk looked pre-1.2.1 and every [ScanHistory] line said the
+    // checks were not compared because the baseline predates 1.2.1. A summary built without the channel still writes
+    // none of it, and still reads as pre-1.2.1 — which is then true.
+    ...(summary.flagsBasis != null
+      ? { flagsBasis: summary.flagsBasis, hostFlags: summary.hostFlags ?? [], hostChecks: summary.hostChecks ?? {} } : {}),
     services: Array.isArray(summary.services) ? summary.services.map((s) => ({
       port: s.port ?? null,
       protocol: s.protocol ?? 'tcp',
       service: s.service ?? null,
       version: s.version ?? null,
+      ...('flags' in s ? { flags: s.flags } : {}),
+      ...('checks' in s ? { checks: s.checks } : {}),
     })) : [],
   };
   const line = JSON.stringify(entry) + '\n';

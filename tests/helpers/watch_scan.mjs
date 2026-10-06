@@ -12,12 +12,17 @@ const absent = () => { throw Object.assign(new Error('not installed'), { code: '
 const sshResult = (v, weak) => ({ up: true, program: 'OpenSSH', version: v,
   ...(weak ? { algorithms: { kex: ['diffie-hellman-group1-sha1'] }, weakAlgorithms: ['diffie-hellman-group1-sha1'] } : {}),
   data: [{ probe_protocol: 'tcp', probe_port: 22, probe_info: `SSH-2.0-OpenSSH_${v}`, response_banner: `SSH-2.0-OpenSSH_${v}` }] });
+// A domain's DNS posture (060): a HOST-level service check — the payload that fills a history line's hostFlags/hostChecks.
+const dnsSecResult = () => ({ up: true, overallSeverity: 'high', summary: { actionable: 1 },
+  details: { spfRecord: null, dmarcRecord: null, dkimSelectors: [], dnssec: { hasDNSKEY: false } },
+  findings: { spf: [{ severity: 'high', check: 'missing_spf', detail: 'No SPF record' }] } });
 const ftpResult = (anonymousLogin) => ({ up: true, program: 'vsftpd', version: '3.0.3', anonymousLogin,
   data: [{ probe_protocol: 'tcp', probe_port: 21, probe_info: '220 vsFTPd', response_banner: '220 (vsFTPd 3.0.3)' }] });
 
 let harness = null;
-/** `{ scan(host, { ssh = '8.0', ftp = null, weakSsh = false }) }` — FTP is present when `ftp` is given (true = anonymous
- *  login allowed, a Critical finding); `weakSsh` adds a weak SSH algorithm (a Medium finding). */
+/** `{ scan(host, { ssh = '8.0', ftp = null, weakSsh = false, dns = false }) }` — FTP is present when `ftp` is given (true =
+ *  anonymous login allowed, a Critical finding); `weakSsh` adds a weak SSH algorithm (a Medium finding); `dns` adds 060's
+ *  DNS posture, a host-level check (a High missing-SPF finding). */
 export async function watchScan() {
   if (harness) return harness;
   process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence';
@@ -28,10 +33,12 @@ export async function watchScan() {
   const { default: concluder } = await import('../../plugins/result_concluder.mjs');
   const sshMod = await import('../../plugins/ssh_scanner.mjs');
   const ftpMod = await import('../../plugins/ftp_banner_check.mjs');
+  const dnsMod = await import('../../plugins/060_dns_sec_auditor.mjs');
   const stub = (mod, result) => ({ ...mod.default, conclude: mod.conclude, requirements: {}, runStrategy: 'single', run: async () => result });
   harness = {
-    async scan(host, { ssh = '8.0', ftp = null, weakSsh = false } = {}) {
-      const plugins = [stub(sshMod, sshResult(ssh, weakSsh)), ...(ftp === null ? [] : [stub(ftpMod, ftpResult(ftp))]), concluder];
+    async scan(host, { ssh = '8.0', ftp = null, weakSsh = false, dns = false } = {}) {
+      const plugins = [stub(sshMod, sshResult(ssh, weakSsh)), ...(ftp === null ? [] : [stub(ftpMod, ftpResult(ftp))]),
+        ...(dns ? [stub(dnsMod, dnsSecResult())] : []), concluder];
       const pm = await PluginManager.create({ plugins });
       return scanSingleHost(pm, host, 'all', { resolveEE: absent }, 'basic');
     },
