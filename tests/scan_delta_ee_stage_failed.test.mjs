@@ -218,3 +218,28 @@ test('(B6-4a) THROUGH loadRun AND the executive renderer: Node\'s own load error
     assert.equal(html.includes('opera tor prefix'), false, 'not even the prefix\'s own words');
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
 });
+
+test('(B6-4a) the reduction runs BEFORE the 200-character cap — a cap landing inside /Users/<name>/ leaves no fragment of the name', () => {
+  // The mutant this leg exists for: `withoutLocalPaths(String(e).slice(0, 200))` — cap first, then reduce. Driven, it leaves
+  // `'qzx` here: the first three letters of the operator's user name, cut where the cap fell (the audit seat's mutant).
+  const NAME = 'qzxoperator';
+  const head = "Cannot find module '/Users/";
+  const msg = `${'w'.repeat(200 - 3 - head.length - 1)} ${head}${NAME}/vwkdev/lib/node_modules/@nsasoft/nsauditor-ai-ee/utils/`
+    + `cloud_scope_report.mjs' imported from /Users/${NAME}/vwkdev/lib/node_modules/@nsasoft/nsauditor-ai-ee/index.mjs`;
+  assert.ok(msg.indexOf(NAME) < 200 && msg.indexOf(NAME) + NAME.length > 200, 'positive control: the cap falls inside the user name');
+  const d = buildScanDelta({ baseline: side('A', [agent('No transport encryption: ftp on port 21')]),
+    current: side('B', [], { [HOST]: { loadError: msg, enrichmentError: null } }) });
+  const detail = d.notComparable[0]?.detail ?? '';
+  assert.match(detail, /Cannot find module '@nsasoft\//, 'positive control: the row still names what failed');
+  for (const part of ['Users', 'vwkdev']) assert.equal(detail.includes(part), false, `the detail carries the path component ${part}`);
+  for (let k = 2; k <= NAME.length; k += 1) assert.equal(detail.includes(NAME.slice(0, k)), false, `the detail carries ${NAME.slice(0, k)}`);
+});
+
+test('PINNED, NOT ENDORSED (B6-4a): an UNQUOTED path with a space and no module extension reduces only up to its first space', () => {
+  // Nothing marks where such a path ends. Node quotes these paths, so its own messages are covered (the table above); a
+  // message composed by hand might not be. The POSIX row also shows the basename rule's own edge: the component before
+  // the space is the home directory, so its basename IS a fragment of the user's name. Stated in the function's comment;
+  // when either is decided, these rows re-state.
+  assert.equal(SD.withoutLocalPaths('cannot open C:\\Program Files\\nsauditor\\state'), 'cannot open Program Files\\nsauditor\\state');
+  assert.equal(SD.withoutLocalPaths('cannot open /Users/qzx op/dev/state dir'), 'cannot open qzx op/dev/state dir');
+});

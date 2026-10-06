@@ -195,6 +195,10 @@ export const sameServiceIdentity = (a, b) => a != null && b != null
 // `vulnerabilityDataSource` below states for its own detail. POSIX and Windows paths and a `file://` URL; a path in
 // quotes may hold spaces, and so may an unquoted one that ends in a module file (Node's "imported from <path>"). A path
 // whose closing quote was cut off is still reduced: an opening quote is a lead for the unquoted rules too.
+// ⚠️ LIMIT, pinned: an UNQUOTED path holding a space and NO module extension reduces only up to its first space
+// (`C:\Program Files\x\state` → `Program Files\x\state`) — nothing marks where such a path ends. Node quotes those paths,
+// so its own messages are covered; a message composed by hand might not be. And the reduction runs BEFORE the caller's
+// length cap, never after: a cap landing inside `/Users/<name>/` would leave fragments of the user's name.
 const QUOTED_PATH = /(['"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"`\n]*)\1/g;
 const UNQUOTED_MODULE_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^'"\n]*?\.(?:mjs|cjs|js|json|node)(?::\d+)*)(?=$|[\s'"),;])/g;
 const UNQUOTED_PATH = /(^|[\s(='"`])((?:file:\/\/)?(?:\/|[A-Za-z]:\\)[^\s'"()]+)/g;
