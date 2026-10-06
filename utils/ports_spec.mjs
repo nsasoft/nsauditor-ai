@@ -1,5 +1,5 @@
 // utils/ports_spec.mjs
-// The --ports grammar, in one place (1.2.1 lane 4, item 12): the port scanner and the webapp detector both read it, so a
+// The --ports grammar, in one place (1.3.0 lane 4, item 12): the port scanner and the webapp detector both read it, so a
 // form one accepts the other accepts too. Moved here from plugins/port_scanner.mjs, which re-exports parsePortsSpec.
 
 export function uniqInts(arr = []) {

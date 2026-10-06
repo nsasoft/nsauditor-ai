@@ -4,7 +4,7 @@
 // web applications present on a host.
 // Tries https:443, then http:80, then each TCP port --ports adds (both schemes), and stops at the first that answers.
 // THE REACH, stated: 010 runs only when TCP 80 or 443 is open; an added port is tried after https:443 and http:80 and
-// only if neither answers (1.2.1 item 12 — the CLI's --ports string never reached this plugin before).
+// only if neither answers (1.3.0 item 12 — the CLI's --ports string never reached this plugin before).
 // NOTE: Unlike http_probe, undici/fetch cannot ignore TLS easily per-request, so self-signed
 // HTTPS will usually fail and the plugin will fall back to HTTP.
 //
@@ -74,7 +74,7 @@ function normalizeTarget(target) {
   return (target.host || target.hostname || target.name || '').replace(/^https?:\/\//i, '').split('/')[0];
 }
 
-// 1.2.1 lane 2 (R2): redirects are followed HERE, one hop at a time, never by undici. The target chooses
+// 1.3.0 lane 2 (R2): redirects are followed HERE, one hop at a time, never by undici. The target chooses
 // a hop, not the operator, and the scan-entry guard ran once, on the host the operator named — so with
 // `redirect: 'follow'` a target could send the scanner to loopback or cloud metadata and have the
 // answer's headers reflected into the result. A hop to the host the operator named (any port, http or

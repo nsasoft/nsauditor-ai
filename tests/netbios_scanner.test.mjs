@@ -287,7 +287,7 @@ test('conclude adapter handles missing result gracefully', async () => {
   const items = await conclude({ host: '10.0.0.1', result: null });
   assert.ok(Array.isArray(items));
   assert.ok(items.length >= 1);
-  // 1.2.1 (s3): no result says nothing about a null session — null, never the old default false ("refused").
+  // 1.3.0 (s3): no result says nothing about a null session — null, never the old default false ("refused").
   assert.equal(items[0].nullSessionAllowed, null);
   assert.equal(items[0].nullSessionTested, null);
   assert.deepEqual(items[0].shares, []);

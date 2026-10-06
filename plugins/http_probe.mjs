@@ -14,7 +14,7 @@ const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process
 function dlog(...a) { if (DEBUG) console.log("[http-probe]", ...a); }
 
 /**
- * The response headers 006 keeps on its record — ONE (1.2.1 item 1, ruled): Strict-Transport-Security, for Enterprise's
+ * The response headers 006 keeps on its record — ONE (1.3.0 item 1, ruled): Strict-Transport-Security, for Enterprise's
  * Missing-HSTS check. A header map is a channel into every consumer of the record (artifacts, AI payloads, the webhook,
  * GRC), so the set is held by a census over the real concluder's output (tests/service_flag_table.test.mjs), never
  * widened silently.
@@ -26,7 +26,7 @@ function buildBanner(status, headers) {
   const lines = [];
   lines.push(`${status.code} ${status.message}`);
   // Capture the most useful fingerprinting headers. Each VALUE kept here reaches the record, the artifacts and the AI
-  // prompt, so none may be a secret (1.2.1, the audit seat's ruling): a Set-Cookie value is the target's session token —
+  // prompt, so none may be a secret (1.3.0, the audit seat's ruling): a Set-Cookie value is the target's session token —
   // its NAME is kept, its value redacted; a Location query can carry an SSO ticket or an OAuth code — the URL is kept
   // without it. The rest describe the product or its configuration: an auth scheme and realm, a server string, a framing
   // policy, a media type.
@@ -168,7 +168,7 @@ export default {
       const req = mod.request(reqOpts, async (res) => {
         const headers = res.headers;
         const status = { code: res.statusCode, message: res.statusMessage };
-        // 1.2.1 item 1: the allowlisted headers, on an HTTPS response only — a user agent ignores Strict-Transport-Security
+        // 1.3.0 item 1: the allowlisted headers, on an HTTPS response only — a user agent ignores Strict-Transport-Security
         // over plain HTTP (RFC 6797 §8.1). Set here, where a response ARRIVED: no response, no `headers` key at all, since an
         // empty map would read as "the header is missing".
         if (isHttps) result.headers = recordHeaders(headers);
@@ -282,7 +282,7 @@ export default {
 
     // HTTP method testing via OPTIONS. `methodsTested` means AN ALLOW HEADER WAS READ — the probe has no other way to see
     // the method list, so an OPTIONS answer without Allow (a 405, a 200) and no answer at all are both NOT TESTED:
-    // methodsTested false and null arrays, never [] (1.2.1, the audit seat's ruling; all three read [] before, so "not
+    // methodsTested false and null arrays, never [] (1.3.0, the audit seat's ruling; all three read [] before, so "not
     // tested" read as "none dangerous"). Do not widen "tested" to "answered": a per-method probe is a different capability.
     let optResult = null;
     try {
@@ -322,10 +322,10 @@ export default {
   },
 };
 /**
- * Concluder adapter (1.2.1 lane 3 (a4), the audit seat's Option A). The HTTP probe had no adapter, so its methods result
+ * Concluder adapter (1.3.0 lane 3 (a4), the audit seat's Option A). The HTTP probe had no adapter, so its methods result
  * never reached a service record. Its record lands EXACTLY where the concluder's fallback put it — the http / https key,
  * the same program, version, status and source — so no service identity, CPE or Services-detected count moves across
- * 1.2.0 -> 1.2.1; it adds only the methods result. `methodsTested` is true only when an Allow header was READ; otherwise
+ * 1.2.0 -> 1.3.0; it adds only the methods result. `methodsTested` is true only when an Allow header was READ; otherwise
  * both arrays are null (NOT TESTED, never "none"). Merging into the tcp key is a separate, boarded decision.
  */
 export function conclude({ result }) {
@@ -344,7 +344,7 @@ export function conclude({ result }) {
     banner: row?.response_banner || null,
     source: 'http',
     evidence: rows,
-    // 1.2.1 item 1: the allowlisted response headers, on the HTTPS record only and only when a response arrived (run()
+    // 1.3.0 item 1: the allowlisted response headers, on the HTTPS record only and only when a response arrived (run()
     // sets `headers` there and nowhere else) — filtered again here, so the record can never carry a header outside
     // RECORD_HEADERS whatever the result holds.
     ...(row?.probe_protocol === 'https' && result?.headers && typeof result.headers === 'object'

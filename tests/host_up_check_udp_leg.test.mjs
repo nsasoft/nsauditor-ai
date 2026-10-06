@@ -1,5 +1,5 @@
 // tests/host_up_check_udp_leg.test.mjs
-// 1.2.1 lane 1 F — host_up_check's UDP leg marked the host UP on any successful send.
+// 1.3.0 lane 1 F — host_up_check's UDP leg marked the host UP on any successful send.
 //
 // A successful UDP send says only that the local stack accepted the datagram; it is no evidence
 // that anything is listening at the far end. The leg used to set `up = true` in the send callback,

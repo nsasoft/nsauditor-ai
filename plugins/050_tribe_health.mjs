@@ -590,7 +590,7 @@ export default {
   },
 
   // ── Conclude: NSAuditor report items ────────────────────────────────────
-  // 1.2.1: ONE record on 8080, its findings under `tribeHealth`. The per-finding records shared the summary's
+  // 1.3.0: ONE record on 8080, its findings under `tribeHealth`. The per-finding records shared the summary's
   // protocol:port key and were dropped by the merge once the concluder reached this adapter — the CRITICAL among them.
   conclude({ result }) {
     if (!result.up) {

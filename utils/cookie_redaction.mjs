@@ -1,7 +1,7 @@
 // utils/cookie_redaction.mjs
 // A scanned service's Set-Cookie VALUE is that service's secret (a session token); its NAME fingerprints a framework
 // (PHPSESSID, JSESSIONID). A Location header's query string can carry an SSO ticket or an OAuth code the same way.
-// 1.2.1 (the audit seat's ruling (A), at BOTH seams): the HTTP probe redacts them when it builds its banner, and the AI
+// 1.3.0 (the audit seat's ruling (A), at BOTH seams): the HTTP probe redacts them when it builds its banner, and the AI
 // redactor redacts any Set-Cookie value it meets, so the AI path holds even where a producer does not.
 
 export const REDACTED = '<redacted>';

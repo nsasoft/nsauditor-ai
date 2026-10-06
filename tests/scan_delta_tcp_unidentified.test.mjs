@@ -1,4 +1,4 @@
-// A CVE ROW ON A TCP PORT WHOSE SERVICE THE OTHER RUN COULD NOT IDENTIFY WAS NOT MEASURED — `port-not-measured` (1.2.1,
+// A CVE ROW ON A TCP PORT WHOSE SERVICE THE OTHER RUN COULD NOT IDENTIFY WAS NOT MEASURED — `port-not-measured` (1.3.0,
 // lane 6: the TCP-unidentified sibling of F2).
 //
 // The CVE mapper attributes a CVE on a service's program AND version, and returns nothing — no row, no record — for a

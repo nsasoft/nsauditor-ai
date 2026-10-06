@@ -1,5 +1,5 @@
 // tests/mcp_verify_call_binding.test.mjs
-// 1.2.1 lane 3, (s6) — `nsauditor-ai mcp verify-call` must not certify a response it never looked at.
+// 1.3.0 lane 3, (s6) — `nsauditor-ai mcp verify-call` must not certify a response it never looked at.
 //
 // The MCP server appends a call_id to every tool response and logs it to ~/.nsauditor/mcp-calls.log; verify-call
 // grepped the log and, on a hit, printed "✓ Verified MCP call … the response bearing it was a genuine tool call", exit

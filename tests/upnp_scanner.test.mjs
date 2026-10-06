@@ -59,7 +59,7 @@ test('UPnP Scanner: matches target host IP and records rows', async () => {
   process.env.DEBUG_MODE = '1'; 
   process.env.UPNP_INCLUDE_NON_MATCHED = '1';
   globalThis.__upnpFakeFactory = () => makeUpnpFake();
-  // The device descriptions are answered HERE: until 1.2.1 the plugin used node-fetch with no seam and
+  // The device descriptions are answered HERE: until 1.3.0 the plugin used node-fetch with no seam and
   // this leg made a real HTTP GET to 192.168.1.24:1990 and 192.168.1.88:5000 on whatever LAN ran it.
   const realFetch = globalThis.fetch;
   const asked = [];

@@ -10,7 +10,7 @@ const UPNP_BANNER = '{"address":"192.168.1.12","headers":{"USN":"uuid:4d696e69-4
 test('OS Detector: infers OS and version from UPnP Scanner data', async () => {
   // Mock a UPnP Scanner plugin result with OS and version
   const upnpPlugin = {
-    id: '028', // 1.2.1: was '017' (the LLMNR scanner) with a name no plugin bears
+    id: '028', // 1.3.0: was '017' (the LLMNR scanner) with a name no plugin bears
     name: 'Enhanced UPnP Scanner',
     result: {
       up: true,
@@ -44,7 +44,7 @@ test('OS Detector: infers OS and version from UPnP Scanner data', async () => {
 
 test('OS Detector + Concluder: concluder adopts UPnP-derived OS', async () => {
   const upnpPlugin = {
-    id: '028', // 1.2.1: was '017' (the LLMNR scanner) with a name no plugin bears
+    id: '028', // 1.3.0: was '017' (the LLMNR scanner) with a name no plugin bears
     name: 'Enhanced UPnP Scanner',
     result: {
       up: true,

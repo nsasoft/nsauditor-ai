@@ -1,5 +1,5 @@
 // tests/webapp_detector_ports_reach.test.mjs
-// 1.2.1 lane 4, item 12 — how far an added --ports port reaches the webapp detector (010), DRIVEN on loopback.
+// 1.3.0 lane 4, item 12 — how far an added --ports port reaches the webapp detector (010), DRIVEN on loopback.
 //
 // THE REACH (ruled): 010 runs only when TCP 80 or 443 is open; an added port is tried after https:443 and http:80 and
 // only if neither answers — the detector stops at the first URL that answers. So both edges are pinned here, through the

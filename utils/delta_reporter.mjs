@@ -3,7 +3,7 @@
 
 import { computeDiff, flagsChanged } from './scan_history.mjs';
 
-// 1.2.1 lane 4, items 4 + 11. The watch loop hands this module each host's scanSingleHost OUTPUT, which carries no
+// 1.3.0 lane 4, items 4 + 11. The watch loop hands this module each host's scanSingleHost OUTPUT, which carries no
 // services, finding count or tier — so every cycle compared two empty summaries, stdout read "No significant changes
 // detected." and the webhook gate never opened on a change. The output now carries the summary [ScanHistory] records
 // (`scanSummary`), and the cycle compares those. A host whose summary is MISSING is never read as an empty one: that
@@ -130,7 +130,7 @@ export function formatDeltaSummary(deltaReport) {
   if (!deltaReport.newHosts.length && !deltaReport.removedHosts.length) {
     let anyChange = false;
     if (deltaReport.hostDiffs) {
-      // ⚠️ A comparison that could not be made COUNTS AS A CHANGE (board C10; 1.2.1 items 4 + 11): `newFindings` is null
+      // ⚠️ A comparison that could not be made COUNTS AS A CHANGE (board C10; 1.3.0 items 4 + 11): `newFindings` is null
       // when the two scans counted on a different basis, and a host whose scan failed has nothing to compare — without
       // this the operator hears NOTHING, which reads as "no change since last scan". A comparison we cannot make is
       // news: it is what tells an operator to rescan. hostChanged is the one predicate the webhook reads too.

@@ -145,7 +145,7 @@ test('THROUGH loadRun: a baseline crypto_agent row, and a current run whose raw 
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
 });
 
-// ── B6-4a (1.2.1): THE CLIENT ARTIFACT NEVER CARRIES THE OPERATOR'S DIRECTORY LAYOUT ─────────────────────────────────
+// ── B6-4a (1.3.0): THE CLIENT ARTIFACT NEVER CARRIES THE OPERATOR'S DIRECTORY LAYOUT ─────────────────────────────────
 // The not-comparable detail embedded the load error verbatim, and a load error names ABSOLUTE paths — the Gate 3-B
 // executive HTML carried the operator's install prefix eight times. The rule `vulnerabilityDataSource` already states for
 // its own detail ("never a local path, which would carry the operator's directory layout into a client artifact") now

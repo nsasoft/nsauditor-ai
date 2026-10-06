@@ -100,7 +100,7 @@ test("http_probe: handles OPTIONS 405 gracefully — and a 405 with no Allow hea
   });
   try {
     const result = await httpProbe.run("127.0.0.1", port);
-    // 1.2.1: this asserted `[]` — an indeterminate reading as a pass. No Allow header was read, so nothing was observed.
+    // 1.3.0: this asserted `[]` — an indeterminate reading as a pass. No Allow header was read, so nothing was observed.
     assert.equal(result.dangerousMethods, null);
     assert.equal(result.methodsTested, false);
     assert.equal(result.up, true);
@@ -120,7 +120,7 @@ test("http_probe: connection refused path", async () => {
   assert.equal(result.program, null);
 });
 
-// 1.2.1 lane 3 (a4) / (s3), the audit seat's ruling: the methods are TESTED only when an Allow header was READ — the probe
+// 1.3.0 lane 3 (a4) / (s3), the audit seat's ruling: the methods are TESTED only when an Allow header was READ — the probe
 // has no other way to see the list. An OPTIONS answer without Allow (a 405, a 200) and no answer at all are both NOT
 // TESTED: methodsTested false, null arrays, never `[]`. All three used to read `dangerousMethods: []`, so "not tested"
 // read as "none dangerous" to every consumer (scan_host, the Markdown, SARIF, --fail-on) — the indeterminate-as-PASS shape.

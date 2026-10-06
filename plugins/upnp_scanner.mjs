@@ -55,7 +55,7 @@ export function perTargetMx(waitSec) {
 // fetches the description of every device it reports itself. The original is called SYNCHRONOUSLY, so the
 // device is listed exactly when it would have been; only its promise is caught.
 //
-// 1.2.1 lane 2 (R2): the same wrapper also refuses a NOTIFY whose LOCATION names a host other than the
+// 1.3.0 lane 2 (R2): the same wrapper also refuses a NOTIFY whose LOCATION names a host other than the
 // device that sent it. The library fetches the LOCATION of every NOTIFY it keeps with NO host check (its
 // M-SEARCH-answer path does check), so any device on the segment could point it at loopback, cloud
 // metadata or a third host. Such a NOTIFY is dropped before the library sees it, and COUNTED
@@ -112,7 +112,7 @@ export function refusedAnnouncements(upnp) {
 /**
  * Whether a description URL a UPnP device advertised may be fetched: http or https, on the address of the
  * device that answered — never another host, a name, or another scheme. The device chooses this URL, not the
- * operator, so a LOCATION aimed at loopback, cloud metadata or a third host is not followed (1.2.1 lane 2, R2).
+ * operator, so a LOCATION aimed at loopback, cloud metadata or a third host is not followed (1.3.0 lane 2, R2).
  * @param {string} location the advertised LOCATION
  * @param {string} answeringAddress the source address of the SSDP answer
  */

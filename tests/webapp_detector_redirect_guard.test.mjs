@@ -1,5 +1,5 @@
 // tests/webapp_detector_redirect_guard.test.mjs
-// 1.2.1 lane 2, item D (operator ruling R2: the per-hop SSRF guard is IN).
+// 1.3.0 lane 2, item D (operator ruling R2: the per-hop SSRF guard is IN).
 //
 // Plugin 010 fetched with `redirect: 'follow'`: undici follows any 3xx to any host, up to 20 hops, and
 // the scan-entry guard (CLI / MCP) had run once, on the host the OPERATOR named. So a target could send
@@ -14,7 +14,7 @@
 // stub on the default export of node:dns/promises; the last two legs drive REAL undici between two
 // loopback listeners this file starts. Env is restored after each leg.
 //
-// A CARVE-OUT, stated (1.2.1 item 12 made --ports ADDITIVE: the detector always tries https:443 and http:80 first, then
+// A CARVE-OUT, stated (1.3.0 item 12 made --ports ADDITIVE: the detector always tries https:443 and http:80 first, then
 // each added port). These legs are about the chain that starts at http:80, or at an added port, so the DEFAULT URL a leg
 // gives no route is refused with DEFAULT_MISS_REASON, kept out of the recorded calls, and removed from the result by
 // withoutDefaultMisses — keyed on the URL AND the reason together, never on "any refusal", so a hop refusal can never be

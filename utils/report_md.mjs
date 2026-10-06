@@ -20,7 +20,7 @@ const SEVERITIES = SEVERITY_ORDER;
 // Every Markdown- or HTML-active character is backslash-escaped (CommonMark allows a backslash before any
 // ASCII punctuation), so a value a NETWORK HOST chose — a hostname from mDNS or UPnP, an OS or program from a
 // banner, the summary that embeds them — renders as text: no link, image, autolink, emphasis or raw tag.
-// (1.2.1: it escaped only | and `, and the hostname and OS rows, once reachable, rendered live links,
+// (1.3.0: it escaped only | and `, and the hostname and OS rows, once reachable, rendered live links,
 // remote images and <img onerror> in any renderer that allows HTML.)
 const MD_ACTIVE = /[\\`*_[\]<>!|~]/g;
 function escapeCell(value) {
@@ -42,7 +42,7 @@ function cell(value) {
 
 /**
  * The security findings a conclusion carries — every one graded by the shared service-flag table
- * (utils/service_flags.mjs, 1.2.1 (s1)), so this report, SARIF, the CSV and --fail-on count the same units.
+ * (utils/service_flags.mjs, 1.3.0 (s1)), so this report, SARIF, the CSV and --fail-on count the same units.
  * `evidence` is the conclusion's evidence list: an adapter payload that landed there (a domain's DNS posture when the
  * scan found no 53/udp service) is graded too, targeting the host.
  *
@@ -150,7 +150,7 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
-  // 1.2.1 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
+  // 1.3.0 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
   // never "none" and never "refused". One line per check and reason, from the shared table, with every target it covers.
   const notTested = new Map();
   for (const n of conclusionNotTested(conclusion)) {
@@ -162,7 +162,7 @@ export function buildMarkdownReport(scanData) {
     lines.push(`- **${n.check} not tested:** ${n.targets.map((t) => escapeCell(t)).join(', ')} — ${escapeCell(n.reason)}`);
   }
   // 1.2.0 build 3: without this line "Security findings: 0" read as a clean verdict over a host whose CLI run carried 16
-  // CVEs (the Gate 3-A preparation's P8). Since 1.2.1 (s1) the counted list is DERIVED from the shared service-flag table's
+  // CVEs (the Gate 3-A preparation's P8). Since 1.3.0 (s1) the counted list is DERIVED from the shared service-flag table's
   // labels, so it names exactly what is graded — it cannot run ahead of the table or fall behind it.
   const counted = [...new Set(SERVICE_FLAGS.map((r) => r.label).filter(Boolean))];
   lines.push(`- **Scope:** counts only these service-check findings: ${counted.join(', ')}. `

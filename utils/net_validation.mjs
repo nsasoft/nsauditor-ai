@@ -1,7 +1,7 @@
 // utils/net_validation.mjs
 // Shared IP/host validation utilities for SSRF prevention.
 //
-// 1.2.1 lane 1 A: the classifier was a set of string tests — an exact `addr === '::1'`, mapped
+// 1.3.0 lane 1 A: the classifier was a set of string tests — an exact `addr === '::1'`, mapped
 // IPv4 only in dotted notation, `/^fe80:/` for fe80::/10, IPv4 only as four decimal parts — and the
 // resolver read the FIRST answer only. So `0:0:0:0:0:0:0:1`, `::ffff:7f00:1` (127.0.0.1),
 // `::ffff:a9fe:a9fe` (169.254.169.254), `febf::1`, `0x7f000001` and a name answering
@@ -103,7 +103,7 @@ export function isPrivateLike(ip) {
 
 /**
  * Whether the operator has lifted the private-range check (NSA_ALLOW_ALL_HOSTS). Only an explicit
- * truthy word lifts it — "0", "false", "no", "off" and "" do NOT (before 1.2.1 any non-empty value
+ * truthy word lifts it — "0", "false", "no", "off" and "" do NOT (before 1.3.0 any non-empty value
  * did, so "=0" and "=false" silently lifted the guard). Same convention as host_up_check.mjs.
  * @param {Record<string,string|undefined>} [env]
  * @returns {boolean}

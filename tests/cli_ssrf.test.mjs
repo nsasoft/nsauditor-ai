@@ -5,7 +5,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-// The REAL guard, through the namespace so a missing export fails its own legs. Until 1.2.1 this
+// The REAL guard, through the namespace so a missing export fails its own legs. Until 1.3.0 this
 // file tested `applySsrfGuard`, a verbatim COPY of the guard ("we replicate the exact logic"), so
 // no edit to cli.mjs could turn it red — and the copy carried the literal-skip regex that let
 // '6425673729' (the OS reads it as 127.0.0.1) through unresolved.
@@ -63,13 +63,13 @@ test('blocked literals are refused with the pinned message — loopback, metadat
   }
 });
 
-test('every spelling of loopback / metadata is refused (1.2.1 E; passed at 0.2.56)', async () => {
+test('every spelling of loopback / metadata is refused (1.3.0 E; passed at 0.2.56)', async () => {
   for (const h of ['0:0:0:0:0:0:0:1', '[0:0:0:0:0:0:0:1]', '::ffff:7f00:1', '::ffff:a9fe:a9fe', 'febf::1', '0x7f000001', '0177.0.0.1']) {
     await assert.rejects(() => guard(h), /blocked address range/, h);
   }
 });
 
-test('a digits-only string the URL parser rejects is RESOLVED, not skipped — the OS reads 6425673729 as 127.0.0.1 (1.2.1 E)', async () => {
+test('a digits-only string the URL parser rejects is RESOLVED, not skipped — the OS reads 6425673729 as 127.0.0.1 (1.3.0 E)', async () => {
   // It matched the old literal-skip regex /^[\d.:[\]]+$/, so the guard never resolved it, isBlockedIp
   // said "not an address", and the scan's own connect sent it to loopback.
   await withResolver({ '6425673729': '127.0.0.1' }, async (calls) => {
@@ -94,8 +94,8 @@ test('a non-string host does not crash the sentinel check and is refused', async
 });
 
 // ---------------------------------------------------------------------------
-// 1.2.1 lane 1 C — DRIVEN through the real cli.mjs main(), not the mirror above: only an explicit
-// truthy word lifts the CLI guard. Before 1.2.1, `NSA_ALLOW_ALL_HOSTS=0` and `=false` lifted it,
+// 1.3.0 lane 1 C — DRIVEN through the real cli.mjs main(), not the mirror above: only an explicit
+// truthy word lifts the CLI guard. Before 1.3.0, `NSA_ALLOW_ALL_HOSTS=0` and `=false` lifted it,
 // because the check was plain truthiness. LOOPBACK ONLY: plugin 003 against 127.0.0.1 ports 1-2.
 // ---------------------------------------------------------------------------
 async function driveScan(host, allowValue) {

@@ -5,8 +5,8 @@
 // an interrupted run — the delta is practically a wall of NOT-COMPARABLE, and an operator who
 // meets that twice stops reading the feature. So the baseline's id, timestamp and scope are
 // printed BEFORE any verdict. An analysis agent's or the CVE mapper's row whose input plugin a
-// `--plugins` subset dropped is refused too, from Enterprise 1.2.1 (the narrowed run records it);
-// against a run made before EE 1.2.1 it reads resolved or new — see AGENT_SCOPE_FROM_TIER.
+// `--plugins` subset dropped is refused too, from Enterprise 1.3.0 (the narrowed run records it);
+// against a run made before EE 1.3.0 it reads resolved or new — see AGENT_SCOPE_FROM_TIER.
 //
 // ⚠️ AND REFUSING IS NOT STONEWALLING. When the selected baseline cannot support a verdict, this
 // says which earlier records exist and which of them are chain-verified — but it NEVER

@@ -14,21 +14,21 @@ The substituted response is indistinguishable from a real one to the naked eye �
 
 If you act on a fabricated response, you may file a compliance report with phantom evidence or trust a clean result against a host that was never actually probed.
 
-## The mitigation: a per-call receipt, bound to the response text (0.1.36; text binding 1.2.1)
+## The mitigation: a per-call receipt, bound to the response text (0.1.36; text binding 1.3.0)
 
 Every MCP tool call mints a fresh server-side UUID via Node's `crypto.randomUUID()` **at the moment the call hits the server**. The UUID is:
 
 1. Persisted to `~/.nsauditor/mcp-calls.log` (mode 0600, JSON-per-line) **before** the response returns.
 2. Appended to the response text under an `── MCP call receipt ──` footer.
-3. Since 1.2.1, bound to the response: the server also logs a SHA-256 digest of the response body (the text the footer is appended to). The digest is never printed — a printed digest would replay together with the id.
+3. Since 1.3.0, bound to the response: the server also logs a SHA-256 digest of the response body (the text the footer is appended to). The digest is never printed — a printed digest would replay together with the id.
 
-**The id alone does not verify a response.** An AI client that has seen an earlier response in its context can paste that response's real, logged id under a fabricated one. Until 1.2.1, `verify-call <id>` called any logged id "genuine"; it now recomputes the digest from the text you saved:
+**The id alone does not verify a response.** An AI client that has seen an earlier response in its context can paste that response's real, logged id under a fabricated one. Until 1.3.0, `verify-call <id>` called any logged id "genuine"; it now recomputes the digest from the text you saved:
 
 ```bash
 nsauditor-ai mcp verify-call <call_id> --response response.txt   # or: pbpaste | ... --response -
 # exit 0 ✓ this exact text came from that call — the line names the tool and how long ago it was issued
 # exit 1 ✗ the text does not match what the server sent for that call, or the id was never issued
-# exit 3 ? the id was issued, but nothing bound the text to it (no --response, or a call logged before 1.2.1)
+# exit 3 ? the id was issued, but nothing bound the text to it (no --response, or a call logged before 1.3.0)
 # exit 2   usage error
 ```
 
@@ -106,7 +106,7 @@ During internal Claude Desktop integration testing on 2026-05-10:
 
 The likely root cause is timeout: the NSAuditor AI MCP server loads PluginManager + 32 plugins + verifies the license JWT before responding to the first call, which can exceed Claude Desktop's per-call MCP timeout. The AI then silently substitutes a fabricated response from training context rather than surfacing the timeout.
 
-The per-call receipt shipped in 0.1.36 made a fabricated id detectable; since 1.2.1 the receipt is bound to the response text, so a fabricated response carrying a REAL id copied from an earlier one is detectable too. The underlying upstream-client behavior is outside our control and may apply to other MCP servers as well — verifying with a server-issued sentinel is a generally good practice when an MCP response will be acted on.
+The per-call receipt shipped in 0.1.36 made a fabricated id detectable; since 1.3.0 the receipt is bound to the response text, so a fabricated response carrying a REAL id copied from an earlier one is detectable too. The underlying upstream-client behavior is outside our control and may apply to other MCP servers as well — verifying with a server-issued sentinel is a generally good practice when an MCP response will be acted on.
 
 ## Related changelog entries
 

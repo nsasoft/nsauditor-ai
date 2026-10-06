@@ -626,7 +626,7 @@ function describeBrand(v) {
 // ⚠️ KEYED ON THE EXPORTED SENTINELS, NEVER ON PROSE. Matching the limit text would rot the first
 // time somebody copy-edits a sentence, and it would rot SILENTLY in the direction that overstates.
 //
-// ⚠️ PER ROW (1.2.1, lane 6 — deltaBasis). The sentence used to be ONE for the whole table, so an analysis agent's or the
+// ⚠️ PER ROW (1.3.0, lane 6 — deltaBasis). The sentence used to be ONE for the whole table, so an analysis agent's or the
 // CVE mapper's row read "host, plugin, scope … present in both runs" although an agent is not a requested plugin and its
 // "plugin" leg was never checked. Now:
 //   - a plugin's row keeps the legs above;
@@ -634,7 +634,7 @@ function describeBrand(v) {
 //     RESOLVED one — as having recorded no evidence gap from its producer covering the row. TRUE BY CONSTRUCTION: the
 //     delta refuses a row when that run recorded such a gap, and reads it in that run only (a gap explains what a run is
 //     missing, never what it holds), so "either run" would be false;
-//   - where that lacking run predates EE 1.2.1 it could not record an input plugin LEFT OUT of the scan, so the row is
+//   - where that lacking run predates EE 1.3.0 it could not record an input plugin LEFT OUT of the scan, so the row is
 //     not refused, and the cell says so; a run that records no EE version says that instead — never assumed either way.
 //     Keyed through `cmpVersion`, the delta's one comparator, on the version each run's own record carries.
 function deltaBasis(delta, f = null, bucket = null) {

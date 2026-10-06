@@ -1,5 +1,5 @@
 // tests/helpers/watch_scan.mjs
-// REAL scanSingleHost outputs for the --watch legs (1.2.1 lane 4, items 4 + 11): Community's PluginManager with stub
+// REAL scanSingleHost outputs for the --watch legs (1.3.0 lane 4, items 4 + 11): Community's PluginManager with stub
 // plugins that carry the real SSH and FTP modules (their adapters included), the real concluder, and the real
 // scanSingleHost writing into a scratch output root. The target is a documentation-range literal (no DNS), Enterprise is
 // held out through the loader's resolver hook, and the dotenv neutraliser runs before cli.mjs is imported.

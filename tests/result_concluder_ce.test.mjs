@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 test('result_concluder: an Enterprise plugin id that CE does not hold resolves to no adapter, without error', async () => {
-  // 1.2.1: adapters resolve by plugin id (the manager's registry, then the concluder's own directory). Without the
+  // 1.3.0: adapters resolve by plugin id (the manager's registry, then the concluder's own directory). Without the
   // Enterprise package, 1023 is in neither, so its result takes the fallback record — here a port-0 assessment, which
   // is evidence and never a service.
   const { default: concluder } = await import('../plugins/result_concluder.mjs');

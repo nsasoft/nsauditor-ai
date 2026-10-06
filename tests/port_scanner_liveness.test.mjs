@@ -1,5 +1,5 @@
 // tests/port_scanner_liveness.test.mjs
-// 1.2.1 lane 1 F — the port scanner's host-level `up` counts only an ANSWER from the host.
+// 1.3.0 lane 1 F — the port scanner's host-level `up` counts only an ANSWER from the host.
 //
 // `up` was `anyTcpEvidence || anyUdpOpen` with anyTcpEvidence = open || closed || FILTERED, and
 // classifyTcpError files a timeout, EHOSTUNREACH / ENETUNREACH and any other socket error under

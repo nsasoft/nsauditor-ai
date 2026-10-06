@@ -105,7 +105,7 @@ test('buildMarkdownReport: Findings section enumerates security flags', () => {
   assert.match(md, /FTP anonymous login enabled/);
   assert.match(md, /DNS zone transfer \(AXFR\) allowed/);
   assert.match(md, /SNMP default community string: public/);
-  // 1.2.1 (s1): one finding per ITEM, graded by the shared service-flag table — every reader counts the same units.
+  // 1.3.0 (s1): one finding per ITEM, graded by the shared service-flag table — every reader counts the same units.
   assert.match(md, /Weak TLS protocol enabled: TLSv1\.0/);
   assert.match(md, /Weak TLS protocol enabled: TLSv1\.1/);
   assert.match(md, /Dangerous HTTP method allowed: PUT/);
@@ -340,7 +340,7 @@ test('buildMarkdownReport: evidence containing ``` survives — fences upgrade t
   // renderer. So we exercise this through a conclusion shape that produces such
   // evidence: a CVE id in canonical form whose evidence URL is fixed.
   //
-  // Direct approach (1.2.1 (s1)): the evidence a REMOTE host writes is the MCP tool list — a server names its own
+  // Direct approach (1.3.0 (s1)): the evidence a REMOTE host writes is the MCP tool list — a server names its own
   // tools, and the finding's evidence is built from them. (This leg used weak ciphers until a cipher became one
   // finding per item, carried in the escaped title rather than in evidence.)
   const conclusion = {
@@ -392,7 +392,7 @@ test('buildMarkdownReport: closing fence always matches opening fence length', (
 });
 
 // ---------------------------------------------------------------------------
-// 1.2.1 lane 3 (s5): the REAL wrapped conclusion. runConcluder hands callers {id, name, result: <conclusion>},
+// 1.3.0 lane 3 (s5): the REAL wrapped conclusion. runConcluder hands callers {id, name, result: <conclusion>},
 // and both callers (cli --output-format md, scan_host markdown) pass that object — while the report read
 // host and summary one level ABOVE result, so a real scan's Markdown had no OS, Hostname or summary rows.
 // The fixtures above put them beside result, a shape no runConcluder produces, which is why they stayed green.
@@ -416,7 +416,7 @@ test('(s5) the REAL wrapped conclusion renders the OS, Hostname and summary rows
 });
 
 // ---------------------------------------------------------------------------
-// 1.2.1 lane 3 (s5) security fold: the rows (s5) revived carry values a NETWORK HOST chooses — the hostname
+// 1.3.0 lane 3 (s5) security fold: the rows (s5) revived carry values a NETWORK HOST chooses — the hostname
 // from an mDNS txt.fn or a UPnP friendlyName, the OS from banners, and the summary, which embeds both. The
 // shared escapeCell escaped only | ` and newlines, so a name like `[update](https://evil.example)` became a
 // live link, `![](https://…)` a remote image fetched when the report is viewed, and `<img onerror>` raw HTML
@@ -504,7 +504,7 @@ test('(eadb33a fold 2) an attacker\'s OWN backslash cannot unescape ours — in 
 });
 
 // ---------------------------------------------------------------------------
-// 1.2.1 lane 3 (a4): dangerous HTTP methods now REACH a service record (the HTTP probe's adapter), so the report counts
+// 1.3.0 lane 3 (a4): dangerous HTTP methods now REACH a service record (the HTTP probe's adapter), so the report counts
 // them where an Allow header was read — and says NOT TESTED, never "none", where it was not.
 // ---------------------------------------------------------------------------
 const httpSvc = (fields) => ({ result: { services: [{ port: 80, protocol: 'http', service: 'http', program: 'nginx',

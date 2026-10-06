@@ -51,7 +51,7 @@ function codeRegions(md) {
     if (fence) {
       if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null;
       // a shell / JS comment line is prose: only its inline code spans are commands — unless the comment IS a command,
-      // commented out (`# npx …`, `# $ npx …`), which is read whole (v77-9, 1.2.1). Prose that merely names npx mid-line
+      // commented out (`# npx …`, `# $ npx …`), which is read whole (v77-9, 1.3.0). Prose that merely names npx mid-line
       // ("when npx does not find that bin") is not a command and is not read.
       else if (/^\s*(?:#|\/\/)/.test(line)) {
         const cmd = /^(\s*(?:#|\/\/)\s*(?:\$\s*)?)(npx\b.*)$/.exec(line);
@@ -91,7 +91,7 @@ test('(q) npx: the forms that run OUR packages, a warning, and prose naming npx 
     'Build it with `npx nsauditor-ai-agent-skill build-zip --out ~/Desktop`.',
     'Run the installed bin, never `npx nsauditor-ai-mcp`: when npx does not find that bin it asks the registry.',
     '```bash', '# Never `npx nsauditor-ai-mcp`: the server is a bin inside the nsauditor-ai package, and when npx does not', '# find that bin it looks the name up (no global install), which never starts this server', '```',
-    // v77-9 (1.2.1): a COMMENTED-OUT command is read as a command — and one that runs OUR package stays green.
+    // v77-9 (1.3.0): a COMMENTED-OUT command is read as a command — and one that runs OUR package stays green.
     '```bash', '# npx nsauditor-ai scan --host 192.0.2.1', '```',
   ].join('\n'));
   assert.deepEqual(bad, []);
@@ -102,7 +102,7 @@ test('npx: an unowned name in any command position is red — bare, -y, after `-
   for (const md of [
     '```bash\nnpx nsauditor-ai-mcp\n```',
     '```bash\nnpx -y nsauditor-ai-mcp\n```',
-    // v77-9 (1.2.1): a commented-out command — the guard read only backtick spans inside a comment, so these were invisible.
+    // v77-9 (1.3.0): a commented-out command — the guard read only backtick spans inside a comment, so these were invisible.
     '```bash\n# npx nsauditor-ai-mcp\n```',
     '```bash\n# $ npx -y nsauditor-ai-mcp\n```',
     '```bash\nclaude mcp add nsauditor-ai \\\n  -- npx nsauditor-ai-mcp\n```',
@@ -142,8 +142,8 @@ test('below the floor: no shipped .md says the scan runs as Community, and the R
 // ── (3) NSA_ALLOW_ALL_HOSTS ──────────────────────────────────────────────────────────────────────────────────────────
 test('NSA_ALLOW_ALL_HOSTS: the README says what it opens over MCP, and never offers it for a rejected webhook', () => {
   const s = read('README.md');
-  // 1.2.1 lane 1 B: allow-all no longer lifts the resolved-address check over MCP — it admits private
-  // ranges only. The pre-1.2.1 disclosure ("a name that resolves to a loopback or cloud-metadata
+  // 1.3.0 lane 1 B: allow-all no longer lifts the resolved-address check over MCP — it admits private
+  // ranges only. The pre-1.3.0 disclosure ("a name that resolves to a loopback or cloud-metadata
   // address then gets through") became false with that change and must not survive in the README.
   assert.match(s, /It admits private ranges only: loopback, link-local and cloud-metadata addresses stay refused over\s+MCP/);
   assert.doesNotMatch(s, /name that resolves to a loopback or cloud-metadata address then gets\s+through/);

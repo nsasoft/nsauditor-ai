@@ -1,9 +1,9 @@
 // tests/set_cookie_redaction.test.mjs
-// 1.2.1 — a scanned service's Set-Cookie VALUES never reach a record, an artifact or an AI prompt (the audit seat's
+// 1.3.0 — a scanned service's Set-Cookie VALUES never reach a record, an artifact or an AI prompt (the audit seat's
 // ruling (A), at BOTH seams, the SNMP precedent).
 //
 // THE FINDING: the HTTP probe's (006) banner picked `set-cookie` among its fingerprinting headers since CE v0.1.3, so a
-// scanned service's live session token reached the raw result and the scan artifacts; since 1.2.1 (a4) its adapter also
+// scanned service's live session token reached the raw result and the scan artifacts; since 1.3.0 (a4) its adapter also
 // puts that banner and the evidence rows on the service record, so it reached the conclusion and — the AI redactor did not
 // know cookies — the AI prompt. The cookie NAME fingerprints a framework (PHPSESSID, JSESSIONID); the VALUE is the
 // target's secret. Same for a Location header's query string, which can carry an SSO ticket or an OAuth code.

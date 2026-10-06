@@ -110,7 +110,7 @@ export function upsertService(services, next, { authoritative = false } = {}) {
   }
   if (!authoritative && cur.__authoritative) {
     // keep current authoritative, but allow filling blanks — and carry every NON-identity field the authoritative
-    // record lacks (1.2.1): this branch kept only identity, so a non-authoritative adapter that reached an
+    // record lacks (1.3.0): this branch kept only identity, so a non-authoritative adapter that reached an
     // authoritative record (040's certificate audit on 011's 443) landed nothing.
     const carried = {};
     for (const [k, v] of Object.entries(next)) {

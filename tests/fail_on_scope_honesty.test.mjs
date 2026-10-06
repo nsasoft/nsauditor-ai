@@ -8,7 +8,7 @@
 // exit 0 for every threshold but `info` and exit 1 for `info` — so a pipeline gated on `--fail-on high` passes a host
 // that exposes SNMP `public`, and one gated on `info` fails every host it can reach.
 //
-// Build 3 shipped honest TEXT (operator ruling) and boarded the widening for 1.2.1. 1.2.1 (s1) WIDENS IT: the gate reads
+// Build 3 shipped honest TEXT (operator ruling) and boarded the widening for 1.3.0. 1.3.0 (s1) WIDENS IT: the gate reads
 // the shared service-flag table (utils/service_flags.mjs), the same findings the Markdown, SARIF and CSV reports count, so
 // the PINNED legs that held the blind spot were inverted (not deleted) and the README and help were re-stated in the same
 // commit. The skill's CI section is owed at release prep.
@@ -93,7 +93,7 @@ test('the README row and --help name each opt-in check\'s switch, and no longer 
   for (const sw of [/FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /SMB_NULL_SESSION/]) assert.match(help, sw);
 });
 
-// 1.2.1 lane 3 (a4): dangerous HTTP methods REACH the conclusion now (the HTTP probe's adapter), so --fail-on gates on them —
+// 1.3.0 lane 3 (a4): dangerous HTTP methods REACH the conclusion now (the HTTP probe's adapter), so --fail-on gates on them —
 // only where an Allow header was read. Not tested (methodsTested false, null) never trips the gate and is said as such.
 test('(a4) dangerous methods gate at medium where an Allow header was read; NOT TESTED never trips the gate', () => {
   assert.equal(gate({ methodsTested: true, dangerousMethods: ['PUT'] }), RANK.medium);

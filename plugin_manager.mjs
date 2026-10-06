@@ -274,7 +274,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
   });
 }
 
-// A UDP row opens its port only when it ANSWERED (1.2.1, B6-4c). The row's own `status` decides when it carries one (the
+// A UDP row opens its port only when it ANSWERED (1.3.0, B6-4c). The row's own `status` decides when it carries one (the
 // port scanner's 'open' / 'no-response'); otherwise only POSITIVE text counts, never a negative that CONTAINS a positive
 // phrase: "No UDP response" matched `udp response` and "No SNMP response for community …" matched `snmp response`, so a
 // plugin gated on `udp_open` read 'ran' over a silent port.
@@ -401,7 +401,7 @@ function updateContextFromResult(mod, result, ctx) {
  */
 export function describeSkipReason(mod, ctx) {
   const req = mod?.requirements || {};
-  // No probe answered, which is no evidence either way — never "down" (1.2.1 lane 1 F).
+  // No probe answered, which is no evidence either way — never "down" (1.3.0 lane 1 F).
   if (req.host === 'up' && !ctx.hostUp) return 'no evidence the host is up';
   if (req.host === 'down' && ctx.hostUp) return 'host is up (requires down)';
   if (Array.isArray(req.tcp_open) && req.tcp_open.length) {
@@ -703,7 +703,7 @@ export class PluginManager {
   }
 
   /**
-   * The adapter registry handed to the concluder, by plugin ID (1.2.1): every loaded plugin's `conclude` — named or on
+   * The adapter registry handed to the concluder, by plugin ID (1.3.0): every loaded plugin's `conclude` — named or on
    * its default object, as discovery attaches it — with its authoritativePorts and cloudProvider. Ids are a
    * correctness key here, so a built-in wins: CE over EE over a custom NSAUDITOR_PLUGIN_PATH plugin that reuses an id
    * (which would otherwise capture that plugin's records).

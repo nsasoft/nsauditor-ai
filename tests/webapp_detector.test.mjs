@@ -169,7 +169,7 @@ test('detectFromHtml uses the in-house fingerprinter (nginx + WordPress, no netw
   assert.ok(names.includes('WordPress'), 'WordPress detected');
 });
 
-// ── 1.2.1 lane 4, item 12: --ports reaches the detector in the form the CLI passes ─────────────────────────────────────
+// ── 1.3.0 lane 4, item 12: --ports reaches the detector in the form the CLI passes ─────────────────────────────────────
 // The CLI keeps --ports as a STRING ('8443,9090/udp'); the detector read opts.ports only as an ARRAY, so the flag never
 // reached it. A recording fetch stub: 443 and 80 fail, so the loop goes on to the added ports (it stops at the first that
 // answers — the stated reach, item 12's ruling).

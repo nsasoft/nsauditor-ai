@@ -282,7 +282,7 @@ export async function conclude({ host, result }) {
     banner: row?.response_banner ? `${row.response_banner}${communityInfo}` : null,
     community: isDefault ? result.community : null,
     ...(custom ? { communityCustom: true } : {}),
-    // 1.2.1 (s1) B: what was TRIED, as labels — a default community is MEASURED only where it was tried. Re-labelled here,
+    // 1.3.0 (s1) B: what was TRIED, as labels — a default community is MEASURED only where it was tried. Re-labelled here,
     // so a raw result an earlier release wrote (which carried the strings themselves) never puts one on the record.
     communitiesTried: Array.isArray(result?.communitiesTried) ? result.communitiesTried.map(communityLabel) : null,
     source: 'snmp', evidence: rows, authoritative: true

@@ -1,5 +1,5 @@
 // tests/service_check_not_tested.test.mjs
-// 1.2.1 lane 3, (s3) — a check that did not run, or ran and could not complete, is NOT TESTED, said with its reason —
+// 1.3.0 lane 3, (s3) — a check that did not run, or ran and could not complete, is NOT TESTED, said with its reason —
 // never "none", never "denied".
 //
 // Three opt-in checks had no not-tested state, and each wrote a NEGATIVE where nothing was measured:
@@ -48,7 +48,7 @@ test('each not-tested state is said with its reason', () => {
     [['HTTP methods', 'no Allow header was read, so dangerous methods were not checked there (not "none")']]);
 });
 
-test('a record written before 1.2.1 — the result null, no state recorded — is NOT TESTED "not recorded", never refused', () => {
+test('a record written before 1.3.0 — the result null, no state recorded — is NOT TESTED "not recorded", never refused', () => {
   assert.deepEqual(reasons({ axfrAllowed: null }), [['DNS zone transfer', 'the scan that wrote this record did not record whether the check ran']]);
   assert.deepEqual(reasons({ nullSessionAllowed: null }), [['SMB null session', 'the scan that wrote this record did not record whether the check ran']]);
 });

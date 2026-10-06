@@ -1,4 +1,4 @@
-// THE PRODUCERS THAT ATTRIBUTE ON A SERVICE'S IDENTITY — the CVE mapper AND the service agent (1.2.1, lane 6 — F2 (b)).
+// THE PRODUCERS THAT ATTRIBUTE ON A SERVICE'S IDENTITY — the CVE mapper AND the service agent (1.3.0, lane 6 — F2 (b)).
 //
 // The TCP-unidentified rule (`tcpServiceMeasurement`, and the delta's leg that calls it for a TCP port the other run saw
 // OPEN) refused a CVE-mapper row's absence on a port whose service the other run could not identify: the mapper had
@@ -21,8 +21,8 @@ const { buildScanDelta, PORT_NOT_MEASURED_REASON, CVE_MAPPER_PRODUCER, VULNERABI
 const HOST = '192.0.2.23';
 const run = (id) => ({ schema: 1, runId: id, startedAt: '2026-10-06T00:00:00Z', finishedAt: '2026-10-06T01:00:00Z',
   hostsRequested: [HOST], hostsWritten: [{ host: HOST, dir: 'd' }], pluginsRequested: ['003'], portsRequested: null,
-  tier: 'enterprise', ceVersion: '0.2.57', eeVersion: '1.2.1', kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null });
-// The service agent's title since 1.2.1: the version rides target.version, never the title (the identity straddle).
+  tier: 'enterprise', ceVersion: '0.2.57', eeVersion: '1.3.0', kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null });
+// The service agent's title since 1.3.0: the version rides target.version, never the title (the identity straddle).
 const EOL = () => 'End-of-life OpenSSH on port 22';
 const eol = (over = {}) => ({ host: HOST, port: 22, protocol: 'tcp', plugin: 'service_agent', pluginName: 'service_agent',
   producerKind: 'agent', severity: 'HIGH', title: EOL(), evidenceGap: false, gapClass: null, ...over });

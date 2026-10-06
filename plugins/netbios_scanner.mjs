@@ -455,7 +455,7 @@ async function probeMdnsSmb(){
 // `port`, `enabled` and `timeoutMs` default to production's 445, SMB_NULL_SESSION and SMB_NULL_SESSION_TIMEOUT; they are
 // parameters so the outcomes can be driven against a loopback listener.
 export async function probeNullSession(host, { port = 445, enabled = ENABLE_NULL_SESSION, timeoutMs = NULL_SESSION_TIMEOUT } = {}){
-  // 1.2.1 (s3): null unless MEASURED; nullSessionTested is true when it was, else the reason it was not.
+  // 1.3.0 (s3): null unless MEASURED; nullSessionTested is true when it was, else the reason it was not.
   const result = { nullSessionAllowed: null, nullSessionTested: enabled ? 'no-answer' : 'opt-in-off', shares: [], users: [] };
   if (!enabled) return result;
   const measured = (allowed) => { result.nullSessionAllowed = allowed; result.nullSessionTested = true; };
@@ -644,7 +644,7 @@ export default {
       }
     }catch{ /* best-effort only */ }
 
-    // SMB2 null session enumeration (opt-in via SMB_NULL_SESSION env). 1.2.1 (s3): null unless measured, with its state.
+    // SMB2 null session enumeration (opt-in via SMB_NULL_SESSION env). 1.3.0 (s3): null unless measured, with its state.
     let nullSessionAllowed = null;
     let nullSessionTested = ENABLE_NULL_SESSION ? 'no-answer' : 'opt-in-off';
     let shares = [];
@@ -722,7 +722,7 @@ export async function conclude({ host, result }){
     program: result?.program || 'Unknown',
     version: result?.version || 'Unknown',
     status, info, banner,
-    // 1.2.1 (s3): null unless measured — the old default `false` read "refused" for a check that never ran.
+    // 1.3.0 (s3): null unless measured — the old default `false` read "refused" for a check that never ran.
     nullSessionAllowed: result?.nullSessionAllowed ?? null,
     nullSessionTested: result?.nullSessionTested ?? null,
     shares: result?.shares ?? [],

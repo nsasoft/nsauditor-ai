@@ -21,7 +21,7 @@ function pickOptsFromArgs(args) {
 }
 
 // A plugin name as a label — the default `source` of an adapter record that names none. It no longer RESOLVES
-// anything: until 1.2.1 the concluder imported `./<this slug>.mjs` and read only a named `conclude`, so 014 and 024
+// anything: until 1.3.0 the concluder imported `./<this slug>.mjs` and read only a named `conclude`, so 014 and 024
 // (slug ≠ file name) and 040 / 050 / 060 (conclude on the default object) were never reached.
 function nameSlug(name) {
   return String(name || 'plugin').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'plugin';
@@ -342,7 +342,7 @@ export default {
     const hostUp = results.some(r => r?.result?.up === true) || services.some(s => s.status === 'open');
     const open = services.filter(s => s.status === 'open');
     const parts = [];
-    // Not UP means no probe got an answer — no evidence either way, never "DOWN" (1.2.1 lane 1 F).
+    // Not UP means no probe got an answer — no evidence either way, never "DOWN" (1.3.0 lane 1 F).
     parts.push(hostUp ? `Host${hostName ? ` (${hostName})` : ''} is UP` : 'No evidence the host is up');
     if (os) parts.push(`OS: ${os}`);
     if (osVersion) parts.push(`Version: ${osVersion}`);

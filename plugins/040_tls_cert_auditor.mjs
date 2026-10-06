@@ -698,7 +698,7 @@ export default {
         status = "valid";
       }
 
-      // Actionable issues (skip PASS and INFO), each with its OWN severity and check — 1.2.1 (s1): the shared
+      // Actionable issues (skip PASS and INFO), each with its OWN severity and check — 1.3.0 (s1): the shared
       // service-flag table grades one finding per issue, and a detail string alone left only the port's roll-up.
       const actionableIssues = pr.issues
         .filter((i) => i.severity !== SEVERITY.PASS && i.severity !== SEVERITY.INFO)
@@ -708,7 +708,7 @@ export default {
       const rollUp = [SEVERITY.CRITICAL, SEVERITY.HIGH, SEVERITY.MEDIUM, SEVERITY.LOW]
         .find((sev) => actionableIssues.some((i) => i.severity === sev)) ?? null;
 
-      // 1.2.1: the audit travels under `certAudit`, never in identity. This record wrote program "TLS" and the
+      // 1.3.0: the audit travels under `certAudit`, never in identity. This record wrote program "TLS" and the
       // NEGOTIATED protocol as the service version, and once the concluder reached it, that version would have
       // filled the blank on the TLS scanner's authoritative record.
       items.push({

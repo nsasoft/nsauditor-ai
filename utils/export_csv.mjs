@@ -26,7 +26,7 @@ export function escapeCsvField(value) {
 const COLUMNS = ['host', 'port', 'protocol', 'service', 'program', 'version', 'status', 'cpe', 'security_findings'];
 
 /**
- * The security_findings cell for a record: the shared service-flag table's tokens (utils/service_flags.mjs, 1.2.1 (s1)),
+ * The security_findings cell for a record: the shared service-flag table's tokens (utils/service_flags.mjs, 1.3.0 (s1)),
  * one per key that fired with its items joined by ';'. A custom SNMP community is never a finding and never printed.
  * @param {object} record
  * @returns {string}

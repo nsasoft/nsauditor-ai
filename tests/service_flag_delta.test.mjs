@@ -1,5 +1,5 @@
 // tests/service_flag_delta.test.mjs
-// 1.2.1 lane 3, (s1) option B — the comparison channel SEES a service-check finding appear. Each history line carries,
+// 1.3.0 lane 3, (s1) option B — the comparison channel SEES a service-check finding appear. Each history line carries,
 // per service, the table's comparison identities (`flags`, one cid per item) and, per table row that APPLIES to the
 // record, whether it was MEASURED (`checks`: true, or the reason it was not). computeDiff compares them as SETS and
 // decides from the line alone: a net findings count cannot see a method appear while another finding resolves.
@@ -7,7 +7,7 @@
 // The ruled rules: an item gone is CLEARED only if its row was measured this run, else NOT COMPARED with the reason; an
 // item new is APPEARED only if its row was measured on the baseline, else FIRST OBSERVED; a row measured on the baseline
 // and not now is NOT COMPARED (a change); a row first measured now with nothing is "first tested, nothing found" (stated,
-// not a change); a baseline written before 1.2.1 is stated, never read as no flags; a second identical scan is quiet.
+// not a change); a baseline written before 1.3.0 is stated, never read as no flags; a second identical scan is quiet.
 // report --since is (s1b), boarded.
 //
 // FOURTH QUADRANT FIRST: two identical scans compare quiet — the one-time upgrade alert stays one-time.
@@ -43,7 +43,7 @@ const methods = (dangerous) => http006({ methodsTested: true, allowedMethods: ['
 const methodsNotTested = http006({ methodsTested: false, allowedMethods: null, dangerousMethods: null });
 
 // ── THE QUIET QUADRANT ───────────────────────────────────────────────────────────────────────────────────────────
-test('(fourth quadrant, first) two identical 1.2.1 scans compare quiet — no flag change, no alert', async () => {
+test('(fourth quadrant, first) two identical 1.3.0 scans compare quiet — no flag change, no alert', async () => {
   const a = await line([methods(['PUT'])]);
   const b = await line([methods(['PUT'])]);
   const d = computeDiff(b, a);
@@ -75,20 +75,20 @@ test('a MALFORMED line — the basis stamp without a services array — is not r
   }
 });
 
-test('a baseline written before 1.2.1 (no flags on its line) is NOT COMPARED — stated, and counted as a change once', async () => {
+test('a baseline written before 1.3.0 (no flags on its line) is NOT COMPARED — stated, and counted as a change once', async () => {
   const now = await line([methods(['PUT'])]);
   const before = { findingsCount: 0, findingsCountBasis: FINDINGS_COUNT_BASIS, tier: 'pro',
     services: now.services.map(({ port, protocol, service, version }) => ({ port, protocol, service, version })) };
   const d = computeDiff(now, before);
   assert.equal(d.flagsNotComparable, true);
   assert.deepEqual(d.changedFlags, [], 'absent is never [] — nothing is reported appeared');
-  assert.match(d.summary, /service checks not compared: the baseline predates 1\.2\.1/);
+  assert.match(d.summary, /service checks not compared: the baseline predates 1\.3\.0/);
   assert.equal(significant(now, before), true, 'one alert, saying why');
   assert.match(formatDeltaSummary(buildDeltaReport(new Map([['h', now]]), new Map([['h', before]]))), /service checks not compared/);
 });
 
 // ── APPEARED / CLEARED / FIRST OBSERVED / FIRST TESTED ──────────────────────────────────────────────────────────────
-test('a dangerous method APPEARING between two 1.2.1 scans is reported, per item', async () => {
+test('a dangerous method APPEARING between two 1.3.0 scans is reported, per item', async () => {
   const d = computeDiff(await line([methods(['PUT', 'DELETE'])]), await line([methods(['PUT'])]));
   assert.deepEqual(at(d, 80).appeared, ['dangerousMethods:DELETE']);
   assert.match(d.summary, /appeared: 80\/http dangerousMethods:DELETE/);

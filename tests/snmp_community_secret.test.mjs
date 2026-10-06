@@ -1,5 +1,5 @@
 // tests/snmp_community_secret.test.mjs
-// 1.2.1 lane 3, ahead of (s1) — a CREDENTIAL IN AN ARTIFACT. With SNMP_COMMUNITY set, the operator's own community
+// 1.3.0 lane 3, ahead of (s1) — a CREDENTIAL IN AN ARTIFACT. With SNMP_COMMUNITY set, the operator's own community
 // string is a secret: it authenticates to their devices. The SNMP plugin wrote it into its raw result (`community`,
 // `communitiesTried`, and a `No SNMP response for community "<it>"` evidence row) and its adapter copied it onto the
 // service record, so the scan JSON, every evidence row and every reader carried it — and the CSV printed it as

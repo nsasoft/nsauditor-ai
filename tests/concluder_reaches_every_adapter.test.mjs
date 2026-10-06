@@ -1,5 +1,5 @@
 // tests/concluder_reaches_every_adapter.test.mjs
-// 1.2.1 lane 3 — the concluder REACHES every adapter, and what it reaches LANDS. Replaces
+// 1.3.0 lane 3 — the concluder REACHES every adapter, and what it reaches LANDS. Replaces
 // tests/concluder_drops_honesty.test.mjs, which pinned the drops "PINNED, NOT ENDORSED" until this release.
 //
 // (a1) The concluder resolved an adapter by importing `./<slug of the plugin's NAME>.mjs` and reading only a NAMED
@@ -68,7 +68,7 @@ test('(q) a plugin with NO adapter still yields its fallback record (027, mDNS)'
 
 // (a4), the audit seat's Option A: the HTTP probe's adapter lands its record EXACTLY where the fallback did — the
 // http/https key, the same identity, CPE and status — and adds the methods result. Pinned as identity EQUALITY with the
-// fallback record, so no key, program, version, CPE or Services-detected count moves across 1.2.0 -> 1.2.1. (Was: the
+// fallback record, so no key, program, version, CPE or Services-detected count moves across 1.2.0 -> 1.3.0. (Was: the
 // leg that pinned 006 as never reached — inverted, not deleted, so it still proves the adapter is reached.)
 const R006 = (fields) => ({ id: '006', name: 'HTTP Probe', result: { up: true, program: 'nginx', version: '1.18.0', ...fields,
   data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx/1.18.0' }] } });
@@ -148,7 +148,7 @@ test('040 (TLS certificate): on a port 011 did not conclude, the audit lands und
   assert.ok(rec, '8443 is concluded');
   assert.equal(rec.source, 'tls-cert-auditor');
   assert.equal(rec.certAudit?.severity, 'high');
-  // 1.2.1 (s1): each issue keeps its own severity and check (the 050 / 060 shape), so it can be graded one by one.
+  // 1.3.0 (s1): each issue keeps its own severity and check (the 050 / 060 shape), so it can be graded one by one.
   assert.deepEqual(rec.certAudit?.issues, [{ severity: 'high', check: 'hostname_mismatch', detail: 'hostname mismatch MARKER-040' }]);
 });
 

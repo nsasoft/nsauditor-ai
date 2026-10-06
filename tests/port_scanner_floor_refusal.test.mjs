@@ -115,7 +115,7 @@ test("THROUGH THE MANAGER — a refused floor is recorded as status `error` with
   } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
 });
 
-// ── B6-4j (1.2.1): A CWD OVERRIDE THAT YIELDS NO PORTS IS IGNORED OUT LOUD ───────────────────────────────────────────
+// ── B6-4j (1.3.0): A CWD OVERRIDE THAT YIELDS NO PORTS IS IGNORED OUT LOUD ───────────────────────────────────────────
 // The fall-through is deliberate (a foreign or empty `config/services.json` must not empty the sweep), but it was SILENT:
 // an operator's typo'd narrowing file (`{"ports":[8080]}`) got the full package sweep without a word. The loader now says
 // it ignored the file, and run() prints ONE warning naming it by its RELATIVE path — an absolute one would carry the

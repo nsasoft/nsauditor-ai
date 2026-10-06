@@ -26,7 +26,7 @@ export function historyServiceEntry(svc) {
   return {
     port: svc.port, protocol: svc.protocol ?? 'tcp',
     service: svc.service ?? null, version: svc.version ?? null,
-    // 1.2.1 (s1) B: the service checks' comparison state — the cids it carries and, per check that applies, whether it
+    // 1.3.0 (s1) B: the service checks' comparison state — the cids it carries and, per check that applies, whether it
     // was measured — so computeDiff can tell a finding that APPEARED from one first observed, cleared or not compared.
     ...serviceFlagState(svc),
   };
@@ -101,7 +101,7 @@ function compareFlags(current, previous) {
   if (!Array.isArray(current?.services) || !Array.isArray(previous?.services)) return none;
   const bc = current?.flagsBasis ?? null;
   const bp = previous?.flagsBasis ?? null;
-  // Neither side recorded service checks: two lines written before 1.2.1 — and the --watch gate's scan OUTPUTS, which
+  // Neither side recorded service checks: two lines written before 1.3.0 — and the --watch gate's scan OUTPUTS, which
   // carry no basis stamp either (and no `services`), so that gate is not changed by this comparison.
   if (bc === null && bp === null) return none;
   if (bc !== bp) {
@@ -132,7 +132,7 @@ function compareFlags(current, previous) {
 function flagSummary(flags) {
   if (flags.flagsNotComparable) {
     return [flags.flagsNotComparableReason === 'baseline-predates'
-      ? 'service checks not compared: the baseline predates 1.2.1, which first recorded them; the next scan compares them'
+      ? 'service checks not compared: the baseline predates 1.3.0, which first recorded them; the next scan compares them'
       : 'service checks not compared: the two scans recorded them on a different basis'];
   }
   const where = (c) => (c.port == null ? 'host' : `${c.port}/${c.protocol}`);
@@ -182,11 +182,11 @@ export async function recordScan(outputDir, summary) {
     // scan's findings are machine-visible in history (findingsCount already
     // includes them; this surfaces how many came from cloud auditors).
     cloudFindingsCount: summary.cloudFindingsCount ?? 0,
-    // ⚠️ 1.2.1 (s1) B: the SERVICE-CHECK channel, written as historyHostEntry / historyServiceEntry built it — the basis
+    // ⚠️ 1.3.0 (s1) B: the SERVICE-CHECK channel, written as historyHostEntry / historyServiceEntry built it — the basis
     // stamp, the host-level checks, and each service's flags and checks. This writer used to rebuild the line from a
-    // whitelist that dropped all of them, so every line on disk looked pre-1.2.1 and every [ScanHistory] line said the
-    // checks were not compared because the baseline predates 1.2.1. A summary built without the channel still writes
-    // none of it, and still reads as pre-1.2.1 — which is then true.
+    // whitelist that dropped all of them, so every line on disk looked pre-1.3.0 and every [ScanHistory] line said the
+    // checks were not compared because the baseline predates 1.3.0. A summary built without the channel still writes
+    // none of it, and still reads as pre-1.3.0 — which is then true.
     ...(summary.flagsBasis != null
       ? { flagsBasis: summary.flagsBasis, hostFlags: summary.hostFlags ?? [], hostChecks: summary.hostChecks ?? {} } : {}),
     services: Array.isArray(summary.services) ? summary.services.map((s) => ({

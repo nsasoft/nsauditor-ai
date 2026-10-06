@@ -77,7 +77,7 @@ test('buildCsv — includes security findings column with correct formatting', (
 
   // SSH row: weakAlgorithms — findings contain comma so the field gets quoted
   const sshRow = lines[1];
-  // 1.2.1 (s1): the token names each algorithm (the shared table's items), not a count.
+  // 1.3.0 (s1): the token names each algorithm (the shared table's items), not a count.
   assert.ok(sshRow.includes('weak_algorithms:diffie-hellman-group14-sha1'));
 
   // HTTP row: dangerousMethods — findings contain comma so field gets quoted

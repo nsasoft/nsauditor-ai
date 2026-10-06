@@ -1,5 +1,5 @@
 // tests/watch_cycle.test.mjs
-// 1.2.1 lane 4, items 4 + 11 — what one --watch cycle reports on stdout and whom it alerts, driven through the REAL
+// 1.3.0 lane 4, items 4 + 11 — what one --watch cycle reports on stdout and whom it alerts, driven through the REAL
 // producer: Community's PluginManager with stub plugins that carry the real SSH and FTP modules (their adapters
 // included), the real concluder, and the real scanSingleHost writing into a scratch output root.
 //

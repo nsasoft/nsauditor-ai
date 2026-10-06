@@ -222,7 +222,7 @@ test('calling start twice does not create duplicate intervals', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1.2.1 lane 4, item 10 — a duplicated host must not stall watch mode forever
+// 1.3.0 lane 4, item 10 — a duplicated host must not stall watch mode forever
 // ---------------------------------------------------------------------------
 // The cycle resolved on `results.size === hosts.length`, and `results` is keyed by host, so a duplicate (`--host h,h`,
 // or a host inside an overlapping CIDR) could never reach the count: runCycle never resolved, _cycleInProgress stayed

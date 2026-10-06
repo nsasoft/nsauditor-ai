@@ -6,26 +6,27 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.57 (⏳ PRE-PUBLISH — opened 2026-10-05, NOT YET ON npm) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.2.1
+## 0.2.57 (⏳ PRE-PUBLISH — opened 2026-10-05, NOT YET ON npm) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.3.0
 
 **The release:** the Pro delta no longer reads an analysis agent's row as fixed or new because one scan left out the
-plugin the agent reads — Enterprise 1.2.1 records the omission and the delta refuses the row — and a CVE or end-of-life
+plugin the agent reads — Enterprise 1.3.0 records the omission and the delta refuses the row — and a CVE or end-of-life
 row on a TCP port whose service the other scan could not identify is refused too; the client report's Basis cell says,
 row by row, what was checked. One table grades every finding a service check leaves on a record, and the Markdown report,
 SARIF, the CSV, `--fail-on`, the history count and the `--watch` webhook all read it; the concluder reaches the adapters
 it missed, and a check that did not run says NOT TESTED. The SSRF guard compares addresses by value in any spelling,
 checks every address a name resolves to, and checks a host the scanned target names before following it. **Two exit
 codes can move a pipeline:** `--fail-on` gates findings it never read, so a pipeline that passed may fail on findings
-that were always there; and `nsauditor-ai mcp verify-call <id>` without `--response` exits 3, not 0. **Enterprise 1.2.1
+that were always there; and `nsauditor-ai mcp verify-call <id>` without `--response` exits 3, not 0. **Enterprise 1.3.0
 requires this release** (`nsauditor-ai >= 0.2.57`): it imports names that first ship here (`tcpServiceMeasurement`,
 `IDENTIFYING_PRODUCERS`), and its MTTR reads this release's identity-basis declarations by value. Plugin counts UNCHANGED
 at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED. **This supersedes the 0.2.56 entry's "Not refused in
-this release" sentence** about scans run with different `--plugins`: from Enterprise 1.2.1 an analysis agent whose
+this release" sentence** about scans run with different `--plugins`: from Enterprise 1.3.0 an analysis agent whose
 input plugin was left out of a scan records an input gap, so its rows are refused (`evidence-gap`). **Still not
-refused:** a scan made before Enterprise 1.2.1 could not record a plugin left out of it, so in a comparison with one, an
+refused:** a scan made before Enterprise 1.3.0 could not record a plugin left out of it, so in a comparison with one, an
 agent's row that scan lacks is not refused — the report's Basis cell says so on the row; and a scan that discovered
 ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's row on a port it did not measure
-can read RESOLVED — include the port scanner (003).
+can read RESOLVED — include the port scanner (003). The items the 0.2.56 entry boards "for 1.2.1" ship with Enterprise
+1.3.0: that release raises this floor, which Enterprise's contract-v1 §9 classes as a minor.
 
 - **The client report's Basis cell says, row by row, what the delta checked.** The *Since Last Scan* table printed one
   Basis sentence — host, plugin and scope present in both runs — beside every resolved, new and changed row, including
@@ -34,12 +35,12 @@ can read RESOLVED — include the port scanner (003).
   as having recorded no evidence gap from its producer covering it (the delta refuses the row when that run recorded
   one, so the cell names one run, never "either"). A CVE or end-of-life row on a TCP port also carries the measurement:
   the TCP decision's own basis (the service identified by program and version) or the closed-port basis — derived,
-  never typed. Where the run lacking an agent row predates Enterprise 1.2.1, the cell adds *"limit: … predates EE 1.2.1,
+  never typed. Where the run lacking an agent row predates Enterprise 1.3.0, the cell adds *"limit: … predates EE 1.3.0,
   so it could not record an input plugin left out of the scan: an agent row it lacks is not refused"*; a run that
-  records no EE version says that instead. Versions compare numerically (`1.10.0` after `1.2.1`). **The delta result
+  records no EE version says that instead. Versions compare numerically (`1.10.0` after `1.3.0`). **The delta result
   gains two fields,** append-only under `SCAN_DELTA_SCHEMA = 1`: `baselineEeVersion` and `currentEeVersion`, each from
   its own run record (`null` when it records none); README's `report --since` row documents the cell. New exports:
-  `NOT_REQUESTED_RECORD_SINCE_EE` (`'1.2.1'`), `tcpPortClosedBasis`.
+  `NOT_REQUESTED_RECORD_SINCE_EE` (`'1.3.0'`), `tcpPortClosedBasis`.
 - **A CVE or end-of-life row on a TCP port whose service the other scan could not identify is NOT COMPARABLE.** The CVE
   mapper matches on a service's program AND version, and Enterprise's service agent judges end-of-life on them; neither
   writes anything for a service it cannot identify. With the SSH probe (002) left out, 22/tcp concludes `Unknown` /
@@ -52,18 +53,18 @@ can read RESOLVED — include the port scanner (003).
   silent; the service agent's rows are held on TCP only (every program its table lists is TCP-served);
   `vulnerability-data-changed`, the "newly attributed" note and the lookup-gap rule stay the CVE mapper's alone.
   `NOT_COMPARABLE_REASONS` is unchanged (eleven members).
-- **Three Enterprise 1.2.1 title changes are declared, so a customer takes them as one straddle, once.** In the delta
+- **Three Enterprise 1.3.0 title changes are declared, so a customer takes them as one straddle, once.** In the delta
   an agent's identity is its title (host · producer · port · title), and a corrected title changes a row's identity.
-  Enterprise 1.2.1 makes the exposure agent's titles port-keyed (`Management port 22 (ssh) open` → `Management port 22
+  Enterprise 1.3.0 makes the exposure agent's titles port-keyed (`Management port 22 (ssh) open` → `Management port 22
   open`), so a label move like `(ssh)` → `(unknown)` is no longer a different finding; drops the version from the
   service agent's end-of-life titles (`End-of-life OpenSSH 6.6p1 on port 22` → `End-of-life OpenSSH on port 22`), so a
   version move that stays end-of-life is no longer one row resolved and one new; and corrects plugin 1160's
   dimension-4 title, withdrawing a routing claim no rule matched. `IDENTITY_BASIS_CHANGED_AT` declares
-  `exposure_agent`, `service_agent` and `1160` at `'1.2.1'` in one release block: across the upgrade each such row reads
-  NOT COMPARABLE (`identity-basis-changed`), naming its producer; two scans on the same side of 1.2.1 compare as before.
+  `exposure_agent`, `service_agent` and `1160` at `'1.3.0'` in one release block: across the upgrade each such row reads
+  NOT COMPARABLE (`identity-basis-changed`), naming its producer; two scans on the same side of 1.3.0 compare as before.
 - **A CVE-mapper coverage NOTE that ended is never read as a fix, and Enterprise's new `cve_listed_without_version`
   row is a note.** A note is the mapper's record of what it could not show on a service: a truncation (`[COVERAGE NOTE]
-  … CVEs truncated for <protocol>/<service>`) or, from Enterprise 1.2.1, a CVE NVD lists for a product only at version
+  … CVEs truncated for <protocol>/<service>`) or, from Enterprise 1.3.0, a CVE NVD lists for a product only at version
   NA (`-`), recorded as one `cve_listed_without_version` row instead of being attributed to every version. A note in the
   baseline and absent now is NOT COMPARABLE (`evidence-gap`), its detail naming the class and saying nothing was fixed —
   whether or not the service changed, since an upgrade also ends a note without remediating anything; a lookup-gap row

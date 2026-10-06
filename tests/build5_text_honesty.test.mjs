@@ -1,5 +1,5 @@
 // THE README, --help AND THE probe_service SCHEMA SAY WHAT THE CODE DOES (CE 0.2.56 build 5 — the operator's ruling
-// "text now, behaviour 1.2.1"; drafted and adversarially finalized by workflow wf_21d5e8a8-51a).
+// "text now, behaviour 1.3.0"; drafted and adversarially finalized by workflow wf_21d5e8a8-51a).
 // Each leg DERIVES the truth from the shipped code, then holds the README / --help / MCP schema
 // text to it. Absent-regexes are keyed on the CLAIM SHAPE, with \s+ across hard wraps.
 // No subprocess: the help text is read from the cli.mjs source (no licence resolver, no Keychain).
@@ -101,7 +101,7 @@ test('A. the watch-mode webhook text matches what the delta gate does (README + 
     assert.match(row, /not on a service, version or finding change/, 'the README --watch row does not state the limit');
     assert.match(CTEM, DISCLOSED, 'the Continuous Monitoring section does not state the limit');
   }
-  // At `info` every FINDING counts: DERIVED from SEVERITY_RANK.info and the per-finding filter (1.2.1 (s1): the alert lists
+  // At `info` every FINDING counts: DERIVED from SEVERITY_RANK.info and the per-finding filter (1.3.0 (s1): the alert lists
   // the shared table's findings, one per item — it listed every service, finding or not, until then).
   const rank = CLI.match(/const SEVERITY_RANK = \{[^}]*\binfo:\s*(\d+)\s*\}/);
   assert.ok(rank && /\.filter\(\(f\) => severityRank\(f\.severity\) >= alertRank\)/.test(read('utils/watch_cycle.mjs')),
@@ -218,7 +218,7 @@ test('F. the README states no Desktop tool-call limit as fact, and gives the dat
   assert.match(README, /bounds each plugin, not the call/);
 });
 
-// ── G. a repeated host: once per watch cycle, twice in a one-shot scan (1.2.1 lane 4, item 10) ─────────────────────
+// ── G. a repeated host: once per watch cycle, twice in a one-shot scan (1.3.0 lane 4, item 10) ─────────────────────
 // The two modes DIFFER on the same input — parseHostArg keeps `X,X` (the one-shot path scans it twice into distinct
 // output directories) while the scheduler scans each distinct host once per cycle — so the --watch text must say which.
 // DERIVED by driving the real scheduler with a repeated host.

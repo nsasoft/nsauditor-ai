@@ -1,5 +1,5 @@
 // tests/opensearch_scanner_redirect.test.mjs
-// 1.2.1 lane 2, item D (operator ruling R2) — the THIRD redirect-following path, found while building the
+// 1.3.0 lane 2, item D (operator ruling R2) — the THIRD redirect-following path, found while building the
 // call-keyed fetch census: the OpenSearch scanner binds fetch through getFetch() (`doFetch`), passed no
 // redirect option, and so followed any 3xx from the scanned port to any host. It reads the banner and
 // version at `/` and has no need to follow, so it no longer does: a 3xx is recorded as the target's answer.

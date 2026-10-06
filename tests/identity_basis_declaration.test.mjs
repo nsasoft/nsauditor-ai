@@ -147,9 +147,9 @@ test('ONE-DIRECTIONAL — and the OTHER way: a NEWER baseline against an OLDER c
   assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed']);
 });
 
-// ── 1160: THE 1110 KIND AT 1.2.1 — its dimension-4 text claimed a routing no pack makes (B4-8a) ─────────────────────
+// ── 1160: THE 1110 KIND AT 1.3.0 — its dimension-4 text claimed a routing no pack makes (B4-8a) ─────────────────────
 // The type-substrate row said "Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation"; no rule in any
-// pack matches that title, so the claim was WITHDRAWN at 1.2.1. The issue IS the title, so the row's identity moved:
+// pack matches that title, so the claim was WITHDRAWN at 1.3.0. The issue IS the title, so the row's identity moved:
 // every dim-4 row straddling the upgrade would otherwise read as one finding resolved and a new one appearing.
 const OLD_1160 = "VPC endpoint 'vpce-1' is a Interface-type endpoint for service 'svc' in VPC 'vpc-1'. Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation — traffic to the named service routes internally via ENIs in the listed subnets.";
 const NEW_1160 = "VPC endpoint 'vpce-1' is a Interface-type endpoint for service 'svc' in VPC 'vpc-1' — traffic to the named service routes internally via ENIs in the listed subnets. Substrate disclosure only: this row is routed to no control.";
@@ -157,69 +157,69 @@ const D1160 = (title, over = {}) => F({ plugin: '1160', pluginName: 'vpce', reso
 const side1160 = (record, findings) => ({ ...side(record, findings), pluginStatus: [{ host: 'aws', plugin: '1160', status: 'ran' }] });
 const REC1160 = (eeVersion) => REC({ eeVersion, pluginsRequested: ['1160'] });
 
-test('1160 — a 1.2.0 dimension-4 row whose TEXT was corrected at 1.2.1 is IDENTITY-BASIS-CHANGED, never resolved', () => {
-  assert.equal(IDENTITY_BASIS_CHANGED_AT['1160'], '1.2.1');
-  const d = buildScanDelta({ baseline: side1160(REC1160('1.2.0'), [D1160(OLD_1160)]), current: side1160(REC1160('1.2.1'), [D1160(NEW_1160)]) });
+test('1160 — a 1.2.0 dimension-4 row whose TEXT was corrected at 1.3.0 is IDENTITY-BASIS-CHANGED, never resolved', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT['1160'], '1.3.0');
+  const d = buildScanDelta({ baseline: side1160(REC1160('1.2.0'), [D1160(OLD_1160)]), current: side1160(REC1160('1.3.0'), [D1160(NEW_1160)]) });
   assert.equal(d.resolved.length, 0, 'the row did not go away — its routing claim was withdrawn');
   assert.equal(d.newFindings.length, 0);
   assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
   for (const nc of d.notComparable) assert.match(nc.detail, /1160/);
 });
 
-test('1160, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old text', () => {
-  const after = buildScanDelta({ baseline: side1160(REC1160('1.2.1'), [D1160(NEW_1160)]), current: side1160(REC1160('1.2.1'), []) });
+test('1160, FOURTH QUADRANT — both runs at 1.3.0: a vanished row IS resolved; both at 1.2.0: so is one with the old text', () => {
+  const after = buildScanDelta({ baseline: side1160(REC1160('1.3.0'), [D1160(NEW_1160)]), current: side1160(REC1160('1.3.0'), []) });
   assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
   const before = buildScanDelta({ baseline: side1160(REC1160('1.2.0'), [D1160(OLD_1160)]), current: side1160(REC1160('1.2.0'), []) });
   assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
 });
 
-// ── exposure_agent: AN AGENT'S TITLE AT 1.2.1 — the service name left it (lane 6, F2's exposure sibling) ───────────────
+// ── exposure_agent: AN AGENT'S TITLE AT 1.3.0 — the service name left it (lane 6, F2's exposure sibling) ───────────────
 // Its rows were titled `Management port 22 (ssh) open`, embedding the service the probe identified; with the SSH probe left
 // out the same open port titles `Management port 22 (unknown) open`, so a label move read as one row RESOLVED and one NEW.
-// From 1.2.1 the title is `Management port 22 open` (the service rides target.service and the description). An agent's
+// From 1.3.0 the title is `Management port 22 open` (the service rides target.service and the description). An agent's
 // identity IS its title (host · producer · port · title), so every exposure row straddling the upgrade must be declared.
 const EXPOSURE = 'exposure_agent';
 const QX = (title, over = {}) => Q(title, { plugin: EXPOSURE, pluginName: EXPOSURE, port: 22, severity: 'MEDIUM', ...over });
 
-test('exposure_agent — a 1.2.0 row titled with its service and its 1.2.1 port-keyed twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
-  assert.equal(IDENTITY_BASIS_CHANGED_AT[EXPOSURE], '1.2.1');
+test('exposure_agent — a 1.2.0 row titled with its service and its 1.3.0 port-keyed twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT[EXPOSURE], '1.3.0');
   const d = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QX('Management port 22 (ssh) open')]),
-    current: qside(QREC({ eeVersion: '1.2.1' }), [QX('Management port 22 open')]) });
+    current: qside(QREC({ eeVersion: '1.3.0' }), [QX('Management port 22 open')]) });
   assert.deepEqual([d.resolved.length, d.newFindings.length], [0, 0], 'the port did not close and did not open — its title changed');
   assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
   for (const nc of d.notComparable) assert.match(nc.detail, /exposure_agent/);
-  assert.equal(identityBasisChanged(EXPOSURE, '1.2.0', '1.2.1'), true, 'the key resolves, driven rather than read');
-  assert.equal(identityBasisChanged(EXPOSURE, '1.2.1', '1.2.1'), false);
+  assert.equal(identityBasisChanged(EXPOSURE, '1.2.0', '1.3.0'), true, 'the key resolves, driven rather than read');
+  assert.equal(identityBasisChanged(EXPOSURE, '1.3.0', '1.3.0'), false);
 });
 
-test('exposure_agent, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
-  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.1' }), [QX('Management port 22 open')]), current: qside(QREC({ eeVersion: '1.2.1' }), []) });
+test('exposure_agent, FOURTH QUADRANT — both runs at 1.3.0: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
+  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.3.0' }), [QX('Management port 22 open')]), current: qside(QREC({ eeVersion: '1.3.0' }), []) });
   assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
   const before = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QX('Management port 22 (ssh) open')]), current: qside(QREC({ eeVersion: '1.2.0' }), []) });
   assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
 });
 
-// ── service_agent: AN AGENT'S TITLE AT 1.2.1 — the version left it (lane 6, the exposure precedent) ─────────────────────
+// ── service_agent: AN AGENT'S TITLE AT 1.3.0 — the version left it (lane 6, the exposure precedent) ─────────────────────
 // Its rows were titled `End-of-life OpenSSH 6.6p1 on port 22`, embedding the version it judged; an identified move that
 // stayed end-of-life (6.6p1 → 6.7p1) read one row RESOLVED and one NEW, and MTTR closed the first while the host was still
-// end-of-life. From 1.2.1 the title is `End-of-life OpenSSH on port 22` (the version rides target.version and the
+// end-of-life. From 1.3.0 the title is `End-of-life OpenSSH on port 22` (the version rides target.version and the
 // description), so every service-agent row straddling the upgrade is declared — in the SAME release as exposure_agent's.
 const SERVICE = 'service_agent';
 const QS = (title, over = {}) => Q(title, { plugin: SERVICE, pluginName: SERVICE, port: 22, severity: 'HIGH', ...over });
 
-test('service_agent — a 1.2.0 row titled with its version and its 1.2.1 version-free twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
-  assert.equal(IDENTITY_BASIS_CHANGED_AT[SERVICE], '1.2.1');
+test('service_agent — a 1.2.0 row titled with its version and its 1.3.0 version-free twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT[SERVICE], '1.3.0');
   const d = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QS('End-of-life OpenSSH 6.6p1 on port 22')]),
-    current: qside(QREC({ eeVersion: '1.2.1' }), [QS('End-of-life OpenSSH on port 22')]) });
+    current: qside(QREC({ eeVersion: '1.3.0' }), [QS('End-of-life OpenSSH on port 22')]) });
   assert.deepEqual([d.resolved.length, d.newFindings.length], [0, 0], 'the software did not change — its title did');
   assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
   for (const nc of d.notComparable) assert.match(nc.detail, /service_agent/);
-  assert.equal(identityBasisChanged(SERVICE, '1.2.0', '1.2.1'), true, 'the key resolves, driven rather than read');
-  assert.equal(identityBasisChanged(SERVICE, '1.2.1', '1.2.1'), false);
+  assert.equal(identityBasisChanged(SERVICE, '1.2.0', '1.3.0'), true, 'the key resolves, driven rather than read');
+  assert.equal(identityBasisChanged(SERVICE, '1.3.0', '1.3.0'), false);
 });
 
-test('service_agent, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
-  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.1' }), [QS('End-of-life OpenSSH on port 22')]), current: qside(QREC({ eeVersion: '1.2.1' }), []) });
+test('service_agent, FOURTH QUADRANT — both runs at 1.3.0: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
+  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.3.0' }), [QS('End-of-life OpenSSH on port 22')]), current: qside(QREC({ eeVersion: '1.3.0' }), []) });
   assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
   const before = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QS('End-of-life OpenSSH 6.6p1 on port 22')]), current: qside(QREC({ eeVersion: '1.2.0' }), []) });
   assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
@@ -430,19 +430,19 @@ test('the DECLARED SET is exactly this, and a deletion fails as loudly as an add
   // MOVED DELIBERATELY at EE 1.1.0 build 12: 1023 ADDED — its port-gated rows gained `port` and its exposure rows lost
   // the count from their title, both components of `keyOf` (audit seat ruling (B), batched with the rest at 1.1.0 so
   // 1023 takes ONE straddle). Fourteen producers: thirteen plugins, one agent.
-  // MOVED DELIBERATELY at 1.2.1 (B4-8a): 1160 ADDED at '1.2.1' — the 1110 kind, a TEXT correction: its dimension-4 row's
+  // MOVED DELIBERATELY at 1.3.0 (B4-8a): 1160 ADDED at '1.3.0' — the 1110 kind, a TEXT correction: its dimension-4 row's
   // "Privacy + CC6.6" routing claim was withdrawn, and the issue is the title. The first member declared at a release
   // other than 1.1.0, so the pin now carries each member's VERSION rather than assuming one. Fifteen producers:
   // fourteen plugins, one agent.
-  // MOVED DELIBERATELY at 1.2.1 (lane 6): exposure_agent ADDED at '1.2.1' — its titles stopped embedding the service the
+  // MOVED DELIBERATELY at 1.3.0 (lane 6): exposure_agent ADDED at '1.3.0' — its titles stopped embedding the service the
   // probe identified (`Management port 22 (ssh) open` → `Management port 22 open`), and an agent's title IS its identity.
   // Sixteen producers: fourteen plugins, two agents.
-  // MOVED DELIBERATELY at 1.2.1 (lane 6): service_agent ADDED at '1.2.1' — its titles stopped embedding the version it
+  // MOVED DELIBERATELY at 1.3.0 (lane 6): service_agent ADDED at '1.3.0' — its titles stopped embedding the version it
   // judged (`End-of-life OpenSSH 6.6p1 on port 22` → `End-of-life OpenSSH on port 22`), in the same release as
   // exposure_agent's, so a customer takes both straddles in one upgrade. Seventeen producers: fourteen plugins, three agents.
   const AT_1_1_0 = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
-  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1', exposure_agent: '1.2.1', service_agent: '1.2.1' };
+  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.3.0', exposure_agent: '1.3.0', service_agent: '1.3.0' };
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), Object.keys(EXPECTED).sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
     + 'REMOVED, stop: every finding that straddles its change silently becomes comparable again, '

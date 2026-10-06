@@ -247,7 +247,7 @@ export default {
     }
 
     // UDP Probe (send to a likely-closed high port).
-    // 1.2.1 lane 1 F: a successful send is NOT evidence that the host is up — it says only that the
+    // 1.3.0 lane 1 F: a successful send is NOT evidence that the host is up — it says only that the
     // local stack accepted the datagram. The leg used to set `up` in the send callback, clear the wait
     // and close the socket, so a host that never answered read UP and the ICMP port-unreachable that
     // follows a send (the real order on loopback) was discarded with the socket. Evidence of UP is that

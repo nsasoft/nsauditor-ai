@@ -99,7 +99,7 @@ test('runCloud: a cloud plugin that actually runs still counts as audited (contr
   assert.deepEqual(out.auditedProviders, ['aws']);
 });
 
-// ── B6-4c (1.2.1): "No UDP response" IS NOT A UDP-OPEN PORT ────────────────────────────────────────────────────────────
+// ── B6-4c (1.3.0): "No UDP response" IS NOT A UDP-OPEN PORT ────────────────────────────────────────────────────────────
 // The context update read UDP-open from probe_info text with an UNANCHORED pattern, so the port scanner's own NEGATIVE
 // row ("No UDP response", status no-response) matched `udp response`, and the SNMP scanner's "No SNMP response for
 // community …" matched `snmp response` — at both sites, the generic UDP hint and 007's own branch. A plugin gated on

@@ -49,7 +49,7 @@ test('the description no longer promises unqualified "security findings", and sa
   assert.match(d, /NOT a statement that the host has no known vulnerabilities/);
   assert.match(d, /get_vulnerabilities/, 'it names the route that DOES look CVEs up');
   // Build-3 review: scan_host RAN 040 / 050 / 060 but the concluder never reached their adapters, so the description said
-  // so and routed to probe_service. Since 1.2.1 lane 3 they are carried (and 006's methods too), so nothing is left to
+  // so and routed to probe_service. Since 1.3.0 lane 3 they are carried (and 006's methods too), so nothing is left to
   // route: the probe_service sentence is retired, and the carried-fields leg below pins each of them to behaviour.
   assert.match(d, /040/); assert.match(d, /060/); assert.match(d, /050/);
   assert.match(d, /MCP server checks/, 'the flags 070 DOES set are named as returned');
@@ -75,7 +75,7 @@ test('with findings too: the scope line is there, because the limit holds whatev
 
 // ── SECOND REVIEW ROUND: what the conclusion does NOT carry, and the two checks that are OFF by default ────────────
 // tests/concluder_reaches_every_adapter.test.mjs pins what the conclusion carries and drops; tests/fail_on_scope_honesty.test.mjs the gate.
-// What the records CARRY is the part before "It does NOT look up CVEs". Since 1.2.1 (a4) nothing a scan_host plugin produces
+// What the records CARRY is the part before "It does NOT look up CVEs". Since 1.3.0 (a4) nothing a scan_host plugin produces
 // is left un-returned, so there is no "does NOT return" clause; the HTTP probe's methods are carried, and NOT TESTED is
 // said for what it is.
 const carriedPart = (d) => d.slice(0, d.search(/It does NOT look up/));
@@ -88,20 +88,20 @@ test('the description lists the HTTP probe\'s methods among what the records car
   for (const re of [/014/, /1023/, /FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /off by default/, /self-signed/, /cpe is null/]) assert.match(d, re);
 });
 
-// 1.2.1 (s1): the counted list is DERIVED from the shared service-flag table's labels, so it names exactly what is
+// 1.3.0 (s1): the counted list is DERIVED from the shared service-flag table's labels, so it names exactly what is
 // graded; each opt-in check is named with its switch.
 test('the Scope line\'s COUNTED list names what the table grades, each opt-in check with its switch', () => {
   const md = buildMarkdownReport({ host: 'h', conclusion: services });
   const counted = /counts only these service-check findings:([^.]*)\./.exec(md)?.[1];
   assert.ok(counted, 'the Scope line has its counted list');
-  assert.match(counted, /dangerous HTTP methods/, 'counted since 1.2.1 (a4) — the conclusion carries them');
+  assert.match(counted, /dangerous HTTP methods/, 'counted since 1.3.0 (a4) — the conclusion carries them');
   assert.match(counted, /Allow header/, 'and only where an Allow header was read');
   for (const sw of [/FTP_CHECK_ANON/, /DNS_CHECK_AXFR/, /SMB_NULL_SESSION/]) assert.match(counted, sw);
   for (const re of [/self-signed/, /SMB null session/, /MCP server checks/, /TLS-certificate audit/, /debug-endpoint audit/,
-    /DNS-security audit/]) assert.match(counted, re, `counted since 1.2.1 (s1): ${re}`);
+    /DNS-security audit/]) assert.match(counted, re, `counted since 1.3.0 (s1): ${re}`);
 });
 
-// 1.2.1 lane 3: the concluder REACHES 006 / 014 / 040 / 050 / 060 now, so the description names them among what the records
+// 1.3.0 lane 3: the concluder REACHES 006 / 014 / 040 / 050 / 060 now, so the description names them among what the records
 // carry — and this leg ties each name to a field the concluder actually lands, so the sentence cannot run ahead of the
 // code (or fall behind it).
 test('the description names what the conclusion carries (006, 014, 040, 050, 060), each tied to a field that lands', async () => {

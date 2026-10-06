@@ -1,5 +1,5 @@
 // tests/host_up_gate_no_evidence.test.mjs
-// 1.2.1 lane 1 F, ruling (ii) — the port scan is the measurement that decides liveness, so it is not
+// 1.3.0 lane 1 F, ruling (ii) — the port scan is the measurement that decides liveness, so it is not
 // gated on a liveness guess; and nothing renders "no evidence the host is up" as DOWN.
 //
 // Before: port_scanner required `host: "up"`, so with no discovery evidence it was SKIPPED ("host not

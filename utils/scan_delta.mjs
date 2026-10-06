@@ -19,8 +19,8 @@
 // were in scope in BOTH runs. Otherwise it goes to NOT-COMPARABLE **with its reason** — never
 // into `resolved`, and never silently dropped.
 // "plugin" is a PLUGIN row's own producer. An analysis agent's or the CVE mapper's row is derived from other
-// plugins' output: from Enterprise 1.2.1 a scan that left one of those plugins out RECORDS it (an input-gap record),
-// and the producer-gap leg refuses the row. A run made before EE 1.2.1 could not record that, so against one such a
+// plugins' output: from Enterprise 1.3.0 a scan that left one of those plugins out RECORDS it (an input-gap record),
+// and the producer-gap leg refuses the row. A run made before EE 1.3.0 could not record that, so against one such a
 // row still goes into `resolved` (or `new`) — the legacy limit. AGENT_SCOPE_FROM_TIER and the row's Basis cell
 // disclose it; tests/build6_delta_scope_honesty.test.mjs pins both pairs.
 // Integrity is a fact about BYTES ON DISK, so the caller measures it with `utils/run_chain.mjs`
@@ -110,7 +110,7 @@ export const isUdpTransport = (label) => typeof label === 'string' && TRANSPORT_
 // The queue producer whose rows are CVE matches over a service's IDENTITY (program + version). Community cannot import
 // Enterprise, so the name is declared here and Enterprise's test holds it equal to its `INTELLIGENCE_ENGINE_SOURCE`.
 export const CVE_MAPPER_PRODUCER = 'intelligence_engine';
-// THE PRODUCERS THAT ATTRIBUTE ON A SERVICE'S IDENTITY (1.2.1, lane 6 — F2 (b)). Each writes a row only for a service
+// THE PRODUCERS THAT ATTRIBUTE ON A SERVICE'S IDENTITY (1.3.0, lane 6 — F2 (b)). Each writes a row only for a service
 // whose program AND version it can read — the CVE mapper matches CVEs on them, Enterprise's service agent judges
 // end-of-life on them — so a service the run could not identify gives it nothing to attribute, and its silence there
 // is not a measurement. Read at exactly two sites: `tcpServiceMeasurement`'s producer branch, and the delta's reach gate
@@ -122,11 +122,11 @@ const IDENTIFYING_ROW = Object.freeze({
   service_agent: Object.freeze({ row: 'an end-of-life row', denied: 'the service agent nothing to judge' }),
 });
 export const IDENTIFYING_PRODUCERS = Object.freeze(Object.keys(IDENTIFYING_ROW));
-// THE RELEASE THAT ADDED THE NOT-REQUESTED CAUSE (1.2.1, lane 6 — F2). From EE 1.2.1 an analysis agent whose input plugin
+// THE RELEASE THAT ADDED THE NOT-REQUESTED CAUSE (1.3.0, lane 6 — F2). From EE 1.3.0 an analysis agent whose input plugin
 // was LEFT OUT of the scan records an input-gap record, so its rows there are refused; a run before it could not record
 // that (its input-gap record, since EE 1.1.0 build 5, covered a plugin that was requested and did not complete). The
 // client's Basis cell keys its legacy sentence on this, through `cmpVersion`, against the run that LACKS the row.
-export const NOT_REQUESTED_RECORD_SINCE_EE = '1.2.1';
+export const NOT_REQUESTED_RECORD_SINCE_EE = '1.3.0';
 const identified = (program) => typeof program === 'string' && program.trim() !== '' && program.trim().toLowerCase() !== 'unknown';
 
 /**
@@ -174,7 +174,7 @@ export function udpPortMeasurement(port, producer, services, runName = 'the othe
   return { measured: true, basis: `${port}/udp answered in ${runName} (${s.service ?? s.protocol} open${who})` };
 }
 /**
- * WAS THIS TCP SERVICE MEASURED IN A RUN, FOR THIS PRODUCER? (1.2.1, lane 6 — the TCP-unidentified sibling of F2.) The ONE
+ * WAS THIS TCP SERVICE MEASURED IN A RUN, FOR THIS PRODUCER? (1.3.0, lane 6 — the TCP-unidentified sibling of F2.) The ONE
  * decision the delta and Enterprise's MTTR call for a TCP port the run's port scanner saw OPEN; `services` is that run's
  * service set, every transport (the loader's `servicesOf`), or null when it recorded none.
  *
@@ -240,7 +240,7 @@ export function serviceIdentityAt(services, port, protocol) {
 /** The same identified program AND version — both present. Program is compared case-insensitively, version exactly. */
 export const sameServiceIdentity = (a, b) => a != null && b != null
   && a.program.toLowerCase() === b.program.toLowerCase() && a.version === b.version;
-// A message with every ABSOLUTE local path reduced to what a reader needs (1.2.1, B6-4a): its tail after the LAST
+// A message with every ABSOLUTE local path reduced to what a reader needs (1.3.0, B6-4a): its tail after the LAST
 // `node_modules` (the package-relative module, e.g. `@nsasoft/nsauditor-ai-ee/utils/x.mjs`), else its basename when that is
 // a FILE name at depth >= 3 after the root, else `<local path>` (a home directory's basename is the user's name). A load
 // error names absolute paths, and a client artifact must never carry the operator's directory layout — the rule
@@ -400,12 +400,12 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // rows one count-free title with the count in details. Both put new values into `keyOf` — `port`, `title` — which
   // CHANGES WHAT THOSE FINDINGS ARE, so the straddle is declared like 1040's region stamp.
   1023: '1.1.0',
-  // ⚠️ 1160 JOINS AT 1.2.1 — THE 1110 KIND, A TEXT CORRECTION (B4-8a). Its dimension-4 row (endpoint type substrate) said
+  // ⚠️ 1160 JOINS AT 1.3.0 — THE 1110 KIND, A TEXT CORRECTION (B4-8a). Its dimension-4 row (endpoint type substrate) said
   // "Privacy + CC6.6 substrate evidence: PrivateLink connectivity attestation", and no rule in any pack matches that title;
-  // the claim was WITHDRAWN at 1.2.1. The issue IS the title, so every dim-4 row straddling the upgrade would otherwise read
+  // the claim was WITHDRAWN at 1.3.0. The issue IS the title, so every dim-4 row straddling the upgrade would otherwise read
   // as one finding resolved and a new one appearing. Enterprise's instrument cannot measure this mover — its corpus account
   // has no VPC endpoints — so it is premised there on REACH (the 1023 precedent), and the premise goes false the day it can.
-  1160: '1.2.1',
+  1160: '1.3.0',
   // ⚠️ AN ANALYSIS AGENT, NOT A PLUGIN, AND THE FIRST NON-NUMERIC KEY THIS TABLE HAS HELD. A
   // finding from Enterprise's finding QUEUE emits no resource, no region, no identity qualifier
   // and no content digest, so `keyOf` reduces to `host · producer · port · TITLE` — the title IS
@@ -419,18 +419,18 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // actually emits, because a key outside the vocabulary can never match a finding — and a
   // declaration that matches nothing is SILENT while the real producer stays undeclared.
   intelligence_engine: '1.1.0',
-  // ⚠️ exposure_agent JOINS AT 1.2.1 — THE SAME KIND: ITS TITLE IS WHAT IT NAMES (lane 6, F2's exposure sibling). Its rows
+  // ⚠️ exposure_agent JOINS AT 1.3.0 — THE SAME KIND: ITS TITLE IS WHAT IT NAMES (lane 6, F2's exposure sibling). Its rows
   // were titled `Management port 22 (ssh) open` / `Database port 3306 (mysql) open`, embedding the service the probe
   // identified — so with the SSH probe left out the same open port titled `Management port 22 (unknown) open`, and a LABEL
-  // move read as one row RESOLVED and one NEW. From 1.2.1 the title is port-keyed (`Management port 22 open`) and the
+  // move read as one row RESOLVED and one NEW. From 1.3.0 the title is port-keyed (`Management port 22 open`) and the
   // service rides `target.service` and the description, so every exposure row straddling the upgrade is declared once.
-  exposure_agent: '1.2.1',
-  // ⚠️ service_agent JOINS AT 1.2.1 — THE SAME KIND, IN THE SAME RELEASE (lane 6). Its rows were titled `End-of-life OpenSSH
+  exposure_agent: '1.3.0',
+  // ⚠️ service_agent JOINS AT 1.3.0 — THE SAME KIND, IN THE SAME RELEASE (lane 6). Its rows were titled `End-of-life OpenSSH
   // 6.6p1 on port 22`, embedding the version it judged — so an identified move that stayed end-of-life (6.6p1 → 6.7p1) read
-  // one row RESOLVED and one NEW, and MTTR closed the first while the host was still end-of-life. From 1.2.1 the title is
+  // one row RESOLVED and one NEW, and MTTR closed the first while the host was still end-of-life. From 1.3.0 the title is
   // `End-of-life OpenSSH on port 22` and the version rides `target.version` and the description. Declared beside
   // exposure_agent's so a customer takes both agent straddles in one upgrade, said once.
-  service_agent: '1.2.1',
+  service_agent: '1.3.0',
 });
 
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
@@ -933,7 +933,7 @@ export const AGENT_SCOPE_FROM_TIER =
   'Agent-produced findings: their scope is derived from the run TIER, plus the records a run writes when '
   + 'Enterprise failed on a host, an agent did not run, or a plugin it reads was left out of the scan or did not '
   + 'complete — the agent set is a function of the licensed capabilities, and a tier difference refuses the comparison '
-  + 'outright rather than narrowing it. A run made before EE 1.2.1 could not record a plugin left out of it, so in a '
+  + 'outright rather than narrowing it. A run made before EE 1.3.0 could not record a plugin left out of it, so in a '
   + 'comparison with one, an agent row that run lacks is not refused; the row\'s Basis cell says so. '
   + 'Their IDENTITY is also narrower than a plugin finding\'s: an agent finding is keyed on host, '
   + 'producer, port and title, and on nothing else — it carries no object (resource), no region, '
@@ -983,9 +983,9 @@ function incomparabilityReason(f, mine, theirs, names) {
   // time control reaches here both sides carry Enterprise and the SAME tier, so the agent SET is
   // identical on both. ⚠️ THAT DOES NOT MAKE AN AGENT ROW COMPARABLE BY ITSELF: the agent — and the
   // CVE mapper — derives its rows from other plugins' output, and those can differ at the same tier
-  // when `--plugins` was narrowed in one run. From Enterprise 1.2.1 the narrowed run RECORDS it (an
+  // when `--plugins` was narrowed in one run. From Enterprise 1.3.0 the narrowed run RECORDS it (an
   // input-gap record naming the plugin not requested) and the producer-gap leg below refuses the row;
-  // a run made before EE 1.2.1 records nothing, so against one such a row reads resolved or new —
+  // a run made before EE 1.3.0 records nothing, so against one such a row reads resolved or new —
   // AGENT_SCOPE_FROM_TIER and the row's Basis cell say so.
   if (f.producerKind !== 'agent' && !theirs.plugins.has(f.plugin)) {
     // ⚠️ THE NOUN HERE IS A LITERAL `plugin` AND THAT IS CORRECT — but only because of the
@@ -1093,7 +1093,7 @@ function incomparabilityReason(f, mine, theirs, names) {
         + `${TRANSPORT_OF_LABEL[String(f.protocol ?? '').toLowerCase()] ?? f.protocol} (${f.gapClass}), present in only one of the `
         + 'two runs — a coverage gap that opened or cleared, not an exposure that appeared or was fixed.' };
   }
-  // ⚠️ A COVERAGE NOTE THAT ENDED IS NOT A REMEDIATION (1.2.1, the audit seat's ruling P — the precedent just above). A
+  // ⚠️ A COVERAGE NOTE THAT ENDED IS NOT A REMEDIATION (1.3.0, the audit seat's ruling P — the precedent just above). A
   // note is the mapper's own record of what it could not show on a service (a truncation; a CVE NVD lists for the product
   // only at version NA). Its ending fixed nothing, whether or not the service changed: an upgrade ends a note without
   // remediating anything, and the CVE rows carry the upgrade's signal — so this is answered BEFORE the identity rule. The
@@ -1136,7 +1136,7 @@ function incomparabilityReason(f, mine, theirs, names) {
           + 'reads TCP ports the port scanner saw open; a UDP-transport finding is judged by its own rule, and a '
           + 'host-wide finding by neither.)' };
     }
-    // ⚠️ THE PORT ANSWERED BUT ITS SERVICE WAS NOT IDENTIFIED (1.2.1, lane 6 — F2's TCP-unidentified sibling). A row of an
+    // ⚠️ THE PORT ANSWERED BUT ITS SERVICE WAS NOT IDENTIFIED (1.3.0, lane 6 — F2's TCP-unidentified sibling). A row of an
     // IDENTIFYING producer (`IDENTIFYING_PRODUCERS`: the CVE mapper, the service agent) on a TCP port the OTHER run's port
     // scanner saw OPEN, where `tcpServiceMeasurement` finds no open record there carrying a program AND a version: the
     // producer had nothing to attribute, so the row's absence (or appearance) is not a measurement. Both directions. After the lookup-gap leg (a `no_version_detected` record is the mapper SAYING so, and
@@ -1232,7 +1232,7 @@ export const ENGINE_GAP_CLASS_KIND = Object.freeze({
   cpe_map_miss: 'lookup-failed',
   no_version_detected: 'lookup-failed',
   truncated_low_severity_cves: 'note',      // a COVERAGE NOTE: the lookup worked and some LOW rows were folded
-  // 1.2.1 (B6-4b): the lookup worked; NVD lists ONE CVE for the product only at version NA, which no banner can decide. A
+  // 1.3.0 (B6-4b): the lookup worked; NVD lists ONE CVE for the product only at version NA, which no banner can decide. A
   // note, never `lookup-failed` — that kind refuses every CVE row on the port, and this one is on every scan of the product.
   cve_listed_without_version: 'note',
   input_gap: 'input-gap',                   // the engine's input gap — an evidence gap, handled by the recorded-gap leg
@@ -1240,7 +1240,7 @@ export const ENGINE_GAP_CLASS_KIND = Object.freeze({
 /** A CVE-mapper lookup-gap row, port-scoped. Written as plain `f.` reads so the boundary contract sees them. */
 export const isEngineLookupGap = (f) => f != null && f.plugin === CVE_MAPPER_PRODUCER
   && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'lookup-failed' && Number(f.port) > 0;
-/** A CVE-mapper coverage NOTE (1.2.1, ruling P): its class is classified 'note'. Its ending is never a remediation. */
+/** A CVE-mapper coverage NOTE (1.3.0, ruling P): its class is classified 'note'. Its ending is never a remediation. */
 export const isEngineNoteRow = (f) => f != null && f.plugin === CVE_MAPPER_PRODUCER && ENGINE_GAP_CLASS_KIND[f.gapClass] === 'note';
 /** The key a lookup gap and the CVE rows it covers share: host (as `hostKey`), port, and the TRANSPORT of the label. */
 export const engineLookupGapKey = (host, port, protocol) =>
@@ -1264,7 +1264,7 @@ function withUdpBasis(f, theirs, theirName) {
 }
 /** The closed-port oracle's basis for a TCP row: the other run's port scanner measured the port CLOSED. */
 export const tcpPortClosedBasis = (port, runName) => `${port}/tcp closed in ${runName}`;
-// A TCP row of an IDENTIFYING producer that RESOLVED or APPEARED (1.2.1, lane 6 — deltaBasis) shows the measurement that
+// A TCP row of an IDENTIFYING producer that RESOLVED or APPEARED (1.3.0, lane 6 — deltaBasis) shows the measurement that
 // made it comparable: the TCP decision's OWN basis where the other run saw the port open and identified the service, or
 // the closed-port basis — never a sentence of its own, so the cell cannot say "identified" about a port nobody identified.
 // An analysis agent outside the set needs no more than an open port, and its cell claims no more.

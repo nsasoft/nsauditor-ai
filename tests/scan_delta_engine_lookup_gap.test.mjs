@@ -47,7 +47,7 @@ test('the classification TABLE: every lookup class is `lookup-failed`, the note 
     assert.equal(t[c], 'lookup-failed', c);
   }
   assert.equal(t.truncated_low_severity_cves, 'note');
-  // 1.2.1 (B6-4b, ruled A1): a CVE NVD lists for the product with NO version (CPE NA) — the lookup WORKED, one CVE could not
+  // 1.3.0 (B6-4b, ruled A1): a CVE NVD lists for the product with NO version (CPE NA) — the lookup WORKED, one CVE could not
   // be decided from the banner. A note, never `lookup-failed`: that kind refuses every CVE row on the port, and an NA CVE is
   // present on every scan of its product, so the product's other CVEs could never resolve.
   assert.equal(t.cve_listed_without_version, 'note');

@@ -161,7 +161,7 @@ test("FTP anon: FTP_CHECK_ANON not set => no anonymous check, recorded as NOT TE
     try {
       const res = await ftp.run("127.0.0.1", port);
       assert.equal(res.up, true);
-      // 1.2.1 (s3): the check did not run, so the result is null and the state says why — never false ("refused").
+      // 1.3.0 (s3): the check did not run, so the result is null and the state says why — never false ("refused").
       assert.equal(res.anonymousLogin, null, 'anonymousLogin is null when the ANON check is disabled');
       assert.equal(res.anonymousLoginTested, 'opt-in-off');
       assert.equal(res.data.length, 1);

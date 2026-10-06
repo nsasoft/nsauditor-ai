@@ -290,7 +290,7 @@ test('SCOPE — a host that was REQUESTED and never WRITTEN was not scanned, wha
 test('SCOPE — two runs at DIFFERENT TIERS are refused outright, because the producer population differs', async () => {
   // Whether an agent RAN AT ALL is read from the run's TIER: `agents/agent_runner.mjs` derives the agent set from
   // CAPABILITIES, and an agent appears in no `pluginsRequested` list. (Whether it could READ ITS INPUTS is a different
-  // question, answered by Enterprise's own records on the row's host — its not-run record, and since EE 1.2.1 an input
+  // question, answered by Enterprise's own records on the row's host — its not-run record, and since EE 1.3.0 an input
   // plugin left out of the scan — which the delta refuses on.) An enterprise baseline against a pro current silently
   // drops the exposure agent's findings, and every one of them would read as remediation.
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tier-'));

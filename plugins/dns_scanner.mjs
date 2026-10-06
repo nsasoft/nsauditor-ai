@@ -202,7 +202,7 @@ function sendAxfrQuery(host, domain, port=53, timeoutMs=TIMEOUT){
     let done = false;
     const records = [];
 
-    // `outcome` is what was MEASURED (1.2.1 (s3)): 'allowed' (records came back), 'refused' (an error RCODE, or TCP/53
+    // `outcome` is what was MEASURED (1.3.0 (s3)): 'allowed' (records came back), 'refused' (an error RCODE, or TCP/53
     // refused the connection — no transfer can be had), or 'no-answer' (a timeout, a TCP error, a parse error, a close with
     // nothing received) — nothing was measured, and that is never "denied".
     const finish = (ok, info, outcome = ok ? 'allowed' : 'no-answer') => {
@@ -328,7 +328,7 @@ export default {
       data.push(entry);
     }
 
-    // 4) AXFR zone transfer (opt-in via env). 1.2.1 (s3): `axfrTested` records whether it ran and MEASURED — true, or the
+    // 4) AXFR zone transfer (opt-in via env). 1.3.0 (s3): `axfrTested` records whether it ran and MEASURED — true, or the
     // reason it did not ('opt-in-off', 'no-domain', 'no-answer'); `axfrAllowed` is null unless a measurement was made.
     const checkAxfr = /^(1|true|yes|on)$/i.test(String(process.env.DNS_CHECK_AXFR || ''));
     const axfrDomain = String(process.env.DNS_AXFR_DOMAIN || opts.axfrDomain || '');

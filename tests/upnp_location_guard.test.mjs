@@ -1,5 +1,5 @@
 // tests/upnp_location_guard.test.mjs
-// 1.2.1 lane 2, item D (operator ruling R2: the per-hop SSRF guard is IN) — plugin 028's LOCATION fetch.
+// 1.3.0 lane 2, item D (operator ruling R2: the per-hop SSRF guard is IN) — plugin 028's LOCATION fetch.
 //
 // A UPnP device chooses the URL in its SSDP LOCATION header, and 028 fetched it with node-fetch (an
 // undeclared dependency), following redirects, checked against nothing — then stored the first 2000

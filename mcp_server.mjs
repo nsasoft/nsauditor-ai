@@ -180,7 +180,7 @@ export function buildScanCloudRegionIntent(regions) {
 //   nsauditor-ai mcp verify-call <uuid> --response <file>
 // The id alone proves only that this server issued it once — an AI client that has seen an earlier response can paste
 // a real id under a fabricated one. So the server also logs a digest of each response BODY (utils/mcp_call_digest.mjs),
-// and verify-call recomputes it from the saved text (1.2.1 (s6)). See cli.mjs `verify-call`.
+// and verify-call recomputes it from the saved text (1.3.0 (s6)). See cli.mjs `verify-call`.
 const MCP_CALL_LOG_PATH = join(homedir(), '.nsauditor', 'mcp-calls.log');
 
 async function recordToolCall(toolName) {
@@ -413,10 +413,10 @@ export const TOOLS = [
  * private ranges only: loopback, unspecified, link-local and metadata stay refused, by literal or
  * by answer. A name that does not resolve is refused in both arms.
  *
- * ⚠️ LIMIT (stated, 1.2.1): this does NOT pin the resolved address. It returns the NAME, and each
+ * ⚠️ LIMIT (stated, 1.3.0): this does NOT pin the resolved address. It returns the NAME, and each
  * plugin resolves it again when it connects, so a name whose answer changes between this check
- * and the scan (DNS rebinding) is not caught. Pinning is boarded for the next minor (1.2.1 R1).
- * Before 1.2.1 this comment said the resolution "defeats rebinding"; it never did.
+ * and the scan (DNS rebinding) is not caught. Pinning is boarded for a later release; it is not in 1.3.0.
+ * Before 1.3.0 this comment said the resolution "defeats rebinding"; it never did.
  * @param {string} host
  * @returns {Promise<string>} normalised hostname
  */
@@ -904,7 +904,7 @@ export function createServer() {
 
     // CE 0.1.36 (Thread L Phase 2): mint a per-call UUID and log it BEFORE the Pro-gate, so even a denial shows the
     // call hit the server. The id alone does NOT authenticate a response — a fabricated response can carry a real id
-    // copied from an earlier one — so the receipt also logs a digest of the body (appendCallSentinel, 1.2.1 (s6)).
+    // copied from an earlier one — so the receipt also logs a digest of the body (appendCallSentinel, 1.3.0 (s6)).
     const callId = await recordToolCall(name);
 
     // Gate Pro-tier tools at the MCP dispatch layer

@@ -107,7 +107,7 @@ export function redactSensitiveForAI(input, targetHost) {
     s = s.replace(/\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b/gi, '[IPv6]');
     // The shared rule; this call site's POLICY keeps private addresses and masks public ones.
     s = scrubIPv4KeepingProductIds(s, (ip) => (isPrivateV4(ip) ? ip : '[IP]'));
-    // A scanned service's Set-Cookie VALUE is its session token: redacted here whatever a producer kept (1.2.1, both
+    // A scanned service's Set-Cookie VALUE is its session token: redacted here whatever a producer kept (1.3.0, both
     // seams ruled — the webapp detector still reflects its headers into the result).
     s = redactSetCookieLines(s);
     return s;
@@ -887,11 +887,11 @@ export function scanTargetRefusal({ cmd, host, hostFile } = {}) {
 const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
 
 /**
- * The CLI's scan-target SSRF guard (exported so tests drive the REAL code — 1.2.1 lane 1 E).
+ * The CLI's scan-target SSRF guard (exported so tests drive the REAL code — 1.3.0 lane 1 E).
  * Cloud sentinels (aws/gcp/azure) skip it. NSA_ALLOW_ALL_HOSTS (1/true/yes/on only) lifts the WHOLE
  * guard on the CLI, loopback and metadata included — documented, and the local-network smoke tests
  * scan loopback that way. Otherwise a literal is classified by value in any spelling, and anything
- * that is not a literal is resolved with EVERY answer checked. Before 1.2.1 a digits-and-dots string
+ * that is not a literal is resolved with EVERY answer checked. Before 1.3.0 a digits-and-dots string
  * skipped resolution (/^[\\d.:[\\]]+$/), so '6425673729' — which the OS reads as 127.0.0.1 — was
  * scanned unchecked.
  * @param {string} host
@@ -1053,7 +1053,7 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
-  // The per-host summary [ScanHistory] records — also what a --watch cycle compares (1.2.1 items 4 + 11). Null when the
+  // The per-host summary [ScanHistory] records — also what a --watch cycle compares (1.3.0 items 4 + 11). Null when the
   // history step failed before building it; the watch delta reads null as NOT COMPARED, never as an empty scan.
   let scanSummary = null;
   // Whether THIS host actually landed in the run record's `hostsWritten` — distinct from
@@ -1129,7 +1129,7 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     }
 
     const services = conclusion?.result?.services ?? [];
-    // The legacy fallback's service share, graded by the shared service-flag table (1.2.1 (s1)) like every other reader.
+    // The legacy fallback's service share, graded by the shared service-flag table (1.3.0 (s1)) like every other reader.
     const serviceFindingsCount = conclusionFindings(conclusion, host).length;
     // review fold R-1: cloud plugins emit findings on `results[].result.findings`,
     // NOT as service-level attrs — so a cloud (--host aws) scan recorded
@@ -1187,7 +1187,7 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       tier: getTierFromEnv(),
       cloudFindingsCount,
       services: services.map(historyServiceEntry),
-      // 1.2.1 (s1) B: the basis stamp and the host-level service checks (a domain's DNS posture, wherever it landed).
+      // 1.3.0 (s1) B: the basis stamp and the host-level service checks (a domain's DNS posture, wherever it landed).
       ...historyHostEntry(conclusion),
     };
 
@@ -1215,7 +1215,7 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     host, results, conclusion, ai_file_paths, ai_conclusion, ai_status, ai_error, scanDiff,
     // Additive, consumed only by main()'s top-level KEV/EPSS aggregation for the run record.
     hostAppended, kevDataAsOf, epssDataAsOf, nvdCache,
-    // Additive (1.2.1 items 4 + 11): what a --watch cycle compares, host by host.
+    // Additive (1.3.0 items 4 + 11): what a --watch cycle compares, host by host.
     scanSummary,
   };
 }
@@ -1284,7 +1284,7 @@ async function readSecretFromStdin(keyName) {
  * @returns {number} highest severity rank found (0-4); any concluded scan is at least info (0)
  */
 export function maxSeverityInConclusion(conclusion) {
-  // Every grade comes from the shared service-flag table (utils/service_flags.mjs, 1.2.1 (s1)) — the gate reads what the
+  // Every grade comes from the shared service-flag table (utils/service_flags.mjs, 1.3.0 (s1)) — the gate reads what the
   // Markdown report, SARIF and the CSV read, including a payload that landed in the conclusion's evidence. An open service
   // is graded OPEN_SERVICE_SEVERITY, the grade SARIF gives it ((s2)); any concluded scan is at least info.
   const open = (conclusion?.result?.services || []).some((s) => s.status === 'open');
@@ -2698,7 +2698,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         }
       }
     } else if (subCmd === 'verify-call') {
-      // 1.2.1 (s6): BIND THE RESPONSE TEXT, not only the id. The server logs each call's id and a digest of the response
+      // 1.3.0 (s6): BIND THE RESPONSE TEXT, not only the id. The server logs each call's id and a digest of the response
       // body (utils/mcp_call_digest.mjs); this recomputes the digest from the text the user saved. The id alone proves
       // only that the server issued it once — an AI client that has seen an earlier response can paste a real id under
       // a fabricated one — so an id with no text is INDETERMINATE, never "verified".
@@ -3253,7 +3253,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       onCycleComplete: async (results) => {
         console.log(`[CTEM] Cycle complete. Scanned ${results.size} host(s).`);
 
-        // What stdout says and whom the webhook alerts, both from ONE predicate (utils/watch_cycle.mjs, 1.2.1 items 4 + 11).
+        // What stdout says and whom the webhook alerts, both from ONE predicate (utils/watch_cycle.mjs, 1.3.0 items 4 + 11).
         const { text, alerts } = watchCycle(results, previousCycleResults,
           { alertRank: SEVERITY_RANK[alertSeverity] ?? SEVERITY_RANK.high, everyCycle: alertEveryCycle });
         console.log(text ?? '[CTEM] First cycle complete — it establishes the baseline. Delta reporting begins on the next cycle.');
@@ -3283,7 +3283,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
-    // The banner reads the scheduler's own distinct list: a cycle scans each host once (1.2.1 lane 4, item 10).
+    // The banner reads the scheduler's own distinct list: a cycle scans each host once (1.3.0 lane 4, item 10).
     const dropped = scheduler.duplicatesDropped
       ? ` (${scheduler.duplicatesDropped} duplicate host(s) dropped — watch mode scans each host once per cycle)` : '';
     console.log(`[CTEM] Watch mode enabled. Interval: ${intervalMinutes}m, Concurrency: ${parallel}, Hosts: ${scheduler.hosts.length}${dropped}`);

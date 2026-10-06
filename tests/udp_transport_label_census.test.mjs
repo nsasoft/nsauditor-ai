@@ -20,7 +20,7 @@ import * as SD from '../utils/scan_delta.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TABLE = SD.TRANSPORT_OF_LABEL ?? {};
 
-// Comments out, so a label named in prose is not a write — read as a TOKENIZER, not a regex (1.2.1): the regex form opened
+// Comments out, so a label named in prose is not a write — read as a TOKENIZER, not a regex (1.3.0): the regex form opened
 // a "block comment" at the `/*` inside a STRING (`Accept: '*/*'` in the HTTP probe) and closed it at the next real `*/`,
 // so the day that file gained a doc comment the census blanked five label writes between them and called `http` and
 // `https` orphans. Strings, templates and regex literals are skipped as units; newlines are kept.
@@ -74,8 +74,8 @@ export function censusOf(files) {
     }
     // A default parameter is a write too (os_detector's `proto = "os-detector"`).
     for (const m of src.matchAll(/\bproto\s*=\s*(['"])([A-Za-z0-9_-]+)\1/g)) labels.set(m[2], [...(labels.get(m[2]) ?? []), `${rel} (default)`]);
-    // So is a literal FALLBACK on a protocol expression, wherever it flows (1.2.1): os_detector passes
-    // `r?.probe_protocol || "dns"` into evidenceRow. Until 1.2.1 that `dns` was ALSO written literally by 060's
+    // So is a literal FALLBACK on a protocol expression, wherever it flows (1.3.0): os_detector passes
+    // `r?.probe_protocol || "dns"` into evidenceRow. Until 1.3.0 that `dns` was ALSO written literally by 060's
     // per-finding records, so the census never had to see this form; folding those records away made it the
     // only writer, and a census that cannot see it calls a live label an orphan.
     for (const m of src.matchAll(/\b(?:probe_)?protocol\s*\|\|\s*(['"])([A-Za-z0-9_-]+)\1/g)) labels.set(m[2], [...(labels.get(m[2]) ?? []), `${rel} (fallback)`]);

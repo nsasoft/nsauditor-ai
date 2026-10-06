@@ -17,7 +17,7 @@ const toInt = (v, d) => {
   return Number.isFinite(n) && n >= 0 ? n : d;
 };
 
-// parsePortsSpec lives in utils/ports_spec.mjs (1.2.1 item 12: the webapp detector parses --ports the same way) and is
+// parsePortsSpec lives in utils/ports_spec.mjs (1.3.0 item 12: the webapp detector parses --ports the same way) and is
 // re-exported here, where the CLI flag's tests and the build-5 text leg import it.
 export { parsePortsSpec };
 
@@ -88,7 +88,7 @@ export async function loadConfigPortsFromServicesJson(cwd = process.cwd(), pkgRo
   const override = await readPortSet(overridePath);
   if (override.tcp.length || override.udp.length) return { ...override, source: "override" };
   const floor = { ...(await readPortSet(path.join(pkgRoot, "config", "services.json"))), source: "package" };
-  // B6-4j (1.2.1): a cwd file that EXISTS and yields nothing is ignored OUT LOUD (run() warns), named by its RELATIVE path —
+  // B6-4j (1.3.0): a cwd file that EXISTS and yields nothing is ignored OUT LOUD (run() warns), named by its RELATIVE path —
   // the working directory's absolute path is the operator's layout, which does not travel in a log.
   const present = await fsp.access(overridePath).then(() => true, () => false);
   return present ? { ...floor, overrideIgnored: path.join("config", "services.json") } : floor;
@@ -216,7 +216,7 @@ export default {
   priority: 30,
   protocols: ["tcp", "udp"],
   ports: [],
-  // 1.2.1 lane 1 F, ruling (ii): NOT gated on `host: "up"`. The port scan is the measurement that
+  // 1.3.0 lane 1 F, ruling (ii): NOT gated on `host: "up"`. The port scan is the measurement that
   // decides liveness, so it does not wait for a liveness guess: with no discovery evidence it still
   // runs, and its own `up` (a port answered) opens every `host: "up"` gate downstream. Gated, a host
   // that drops ping and the common ports lost its port scan and read "Host appears DOWN" over an
@@ -311,7 +311,7 @@ export default {
     const udpNoResponse = data.filter(d => d.probe_protocol === "udp" && d.status === "no-response").map(d => d.probe_port);
 
     // `up` means a port answered — open or refused; a timeout, an unreachable or a socket error is
-    // not an answer. (1.2.1 lane 1 F: 'filtered' — every timeout, EHOSTUNREACH, ENETUNREACH and other
+    // not an answer. (1.3.0 lane 1 F: 'filtered' — every timeout, EHOSTUNREACH, ENETUNREACH and other
     // socket error, classifyTcpError — used to count too, so a host that answered nothing read UP from
     // its own timeouts; driven against a silent 127.0.0.2: `up: true, tcpFiltered: [22, 8443]`.
     // Ungated, that would read every silent host UP and open every downstream gate.)

@@ -1,6 +1,6 @@
 // tests/http_probe_hsts.test.mjs
-// 1.2.1 lane 4, item 1 — the HTTP probe (006) carries ONE response header, Strict-Transport-Security, on its HTTPS
-// record, so Enterprise's crypto agent can say whether a 443 response lacked it. Until 1.2.1 no plugin supplied a
+// 1.3.0 lane 4, item 1 — the HTTP probe (006) carries ONE response header, Strict-Transport-Security, on its HTTPS
+// record, so Enterprise's crypto agent can say whether a 443 response lacked it. Until 1.3.0 no plugin supplied a
 // header at all, so the Missing-HSTS check never fired.
 //
 // RULED: option (1) — the header rides 006's OWN record, the (https, 443) key where its adapter has always landed it;

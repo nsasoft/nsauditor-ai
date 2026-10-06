@@ -944,7 +944,7 @@ export default {
   },
 
   // ── Conclude ────────────────────────────────────────────────────────────
-  // 1.2.1: ONE record, its findings under `dnsSecurity`, ATTACH-ONLY. This audits a domain's DNS posture and runs on
+  // 1.3.0: ONE record, its findings under `dnsSecurity`, ATTACH-ONLY. This audits a domain's DNS posture and runs on
   // every scan, so it is not a port on the scanned host: it lands on a 53/udp record a port-level probe found, and
   // otherwise becomes evidence. Its per-finding records carried NO port (they keyed to `dns:NaN`), and the summary
   // wrote "DNS-Audit" / "v2" into identity and its verdict into the liveness field.

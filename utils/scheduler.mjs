@@ -29,7 +29,7 @@ export function createScheduler(opts) {
 
   // A cycle scans each host ONCE. A repeated host (`--host h,h`, or one inside a CIDR it is also listed beside) used to
   // stall watch mode forever: results are keyed by host, so their count could never reach the list's length. Exact
-  // strings only — two spellings of one name are two hosts as far as the scheduler can know (1.2.1 lane 4, item 10).
+  // strings only — two spellings of one name are two hosts as far as the scheduler can know (1.3.0 lane 4, item 10).
   const distinctHosts = Object.freeze([...new Set(hosts)]);
   const duplicatesDropped = hosts.length - distinctHosts.length;
 

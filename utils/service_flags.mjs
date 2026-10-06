@@ -1,10 +1,10 @@
 // utils/service_flags.mjs
-// THE SERVICE-FLAG TABLE (1.2.1 (s1)) — the ONLY place a flag a service check leaves on a record is graded.
+// THE SERVICE-FLAG TABLE (1.3.0 (s1)) — the ONLY place a flag a service check leaves on a record is graded.
 //
 // Six readers used to keep their own lists — the Markdown report, SARIF, the CSV, `--fail-on`, the scan-history fallback
 // count and the `--watch` webhook filter — and the lists disagreed: the CSV printed any SNMP community, `--fail-on` read
 // neither weak TLS nor SNMP, and none of them read the MCP flags, a certificate flag, an SMB null session or the
-// 040 / 050 / 060 audits the concluder carries since 1.2.1. A producer added a flag and no reader followed. Every reader
+// 040 / 050 / 060 audits the concluder carries since 1.3.0. A producer added a flag and no reader followed. Every reader
 // now asks this table, `tests/service_flag_table.test.mjs` holds every reader to it, and its census drives every adapter
 // so a key an adapter lands is either graded here or declared not-a-finding below, with the reason.
 //
@@ -28,7 +28,7 @@ export function normalizeSeverity(sev) {
 export const severityRank = (sev) => SEVERITY_ORDER.length - 1 - SEVERITY_ORDER.indexOf(normalizeSeverity(sev));
 
 /**
- * The grade of an OPEN SERVICE that carries no finding (1.2.1 (s2)): an open port is inventory, not a finding. SARIF's
+ * The grade of an OPEN SERVICE that carries no finding (1.3.0 (s2)): an open port is inventory, not a finding. SARIF's
  * "service detected" result and --fail-on's open-service baseline both read this — SARIF graded every open service
  * Medium, a code-scanning warning per open port, while --fail-on graded the same service info.
  */
@@ -206,14 +206,14 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
 });
-/** The version of what a history line records about service checks. Absent on a line written before 1.2.1. */
+/** The version of what a history line records about service checks. Absent on a line written before 1.3.0. */
 export const FLAGS_BASIS = 'service-flags-v1';
 
 // ── (s3) NOT TESTED ──────────────────────────────────────────────────────────────────────────────────────────────
 // A check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason — never "none", never
 // "refused". The producer records the state beside the result (`axfrTested`, `anonymousLoginTested`, `nullSessionTested`:
 // `true` when measured, else the reason code); the HTTP probe's is `methodsTested`. A record that carries the result as
-// null and no state was written before 1.2.1, so whether the check ran was not recorded.
+// null and no state was written before 1.3.0, so whether the check ran was not recorded.
 const REASONS = {
   'opt-in-off': (sw) => `the check is off (${sw} is unset)`,
   'no-domain': () => 'no domain was given (DNS_AXFR_DOMAIN is unset)',

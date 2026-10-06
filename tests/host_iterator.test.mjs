@@ -198,7 +198,7 @@ test('parseHostArg comma list composes with CIDR tokens', async () => {
   assert.deepStrictEqual(hosts, ['aws', '10.0.0.1', '10.0.0.2']);
 });
 
-// 1.2.1 lane 4, item 10 — ACCEPT, written before the watch-mode dedupe. A duplicated host is KEPT here: a one-shot
+// 1.3.0 lane 4, item 10 — ACCEPT, written before the watch-mode dedupe. A duplicated host is KEPT here: a one-shot
 // `--host X,X` deliberately scans twice into distinct output directories (utils/output_dir.mjs). Watch mode dedupes in
 // the scheduler instead, so this list must not change underneath the one-shot path.
 test('parseHostArg KEEPS a duplicated host — the one-shot path scans it twice on purpose', async () => {

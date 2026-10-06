@@ -1,11 +1,11 @@
 // tests/service_flag_table.test.mjs
-// 1.2.1 lane 3, (s1) — ONE table grades every service-check flag, and every reader reads it.
+// 1.3.0 lane 3, (s1) — ONE table grades every service-check flag, and every reader reads it.
 //
 // Six readers each kept their own list of the flags a service record can carry — the Markdown report, SARIF, the CSV,
 // `--fail-on` (maxSeverityInConclusion), the scan-history fallback count and the `--watch` webhook filter — and the lists
 // disagreed: the CSV printed any SNMP community, `--fail-on` did not read weak TLS or SNMP at all, and none of them read
 // the MCP flags, a self-signed or expired certificate, an SMB null session, or the TLS-certificate, debug-endpoint and
-// DNS-security audits (040 / 050 / 060) that the concluder carries since 1.2.1. A producer added a flag and no reader
+// DNS-security audits (040 / 050 / 060) that the concluder carries since 1.3.0. A producer added a flag and no reader
 // followed, five times. `utils/service_flags.mjs` is now the only place a flag is graded.
 //
 // FOURTH QUADRANT FIRST: a clean, fully-tested record is graded NOTHING by the table and by every reader.
@@ -267,7 +267,7 @@ test('no reader reads a graded key itself — every grade comes from the table',
 test('the history fallback count and the webhook filter are computed from the table', () => {
   const cli = code(fs.readFileSync(path.join(ROOT, 'cli.mjs'), 'utf8'));
   assert.match(cli, /serviceFindingsCount\s*=\s*conclusionFindings\(/);
-  // 1.2.1 items 4 + 11: the watch loop's alert filter moved into utils/watch_cycle.mjs, which the loop calls.
+  // 1.3.0 items 4 + 11: the watch loop's alert filter moved into utils/watch_cycle.mjs, which the loop calls.
   assert.match(cli, /watchCycle\(results, previousCycleResults,/);
   assert.match(code(fs.readFileSync(path.join(ROOT, 'utils', 'watch_cycle.mjs'), 'utf8')), /conclusionFindings\(out\.conclusion/);
 });
@@ -289,7 +289,7 @@ const DRIVERS = {
   '006': [{ up: true, program: 'nginx', version: '1.18.0', methodsTested: true, allowedMethods: ['GET', 'PUT'], dangerousMethods: ['PUT'],
     data: [{ probe_protocol: 'http', probe_port: 80, probe_info: 'Server: nginx' }] },
   // An HTTPS response whose result holds MORE than the allowlist (a producer that over-captured): the adapter must land
-  // only strict-transport-security (1.2.1 item 1; the header-key census below).
+  // only strict-transport-security (1.3.0 item 1; the header-key census below).
   { up: true, program: 'nginx', version: '1.18.0', headers: { 'strict-transport-security': 'max-age=1', server: 'nginx', 'x-extra': 'v' },
     data: [{ probe_protocol: 'https', probe_port: 443, probe_info: 'Server: nginx' }] }],
   '007': [{ up: true, program: 'Linux', version: '5.10', community: 'public', communitiesTried: ['public'],
@@ -393,7 +393,7 @@ test('(s2) the open-service grade is ONE declared constant, and both readers mov
 // its own `cert_expired` CRITICAL. With the dedupe, the SAME expired certificate on the SAME port reads High when only
 // 011 ran and Critical when 040 audited it. Aligning 040 here was ruled and then CORRECTED: 040's raw findings feed
 // `report --since`, which pairs on identity and reports a severity move as `changed`, so a producer regrade would report
-// every expired certificate as improved across 1.2.0 → 1.2.1 with nothing changed on the estate. The straddle
+// every expired certificate as improved across 1.2.0 → 1.3.0 with nothing changed on the estate. The straddle
 // declaration (a refusal for a regraded check across the boundary) is the PREREQUISITE of the operator's single ruling
 // across 011, 040, crypto_agent and the queue. When it lands, this leg flips to EQUALITY — re-state it, never delete it.
 test('PINNED, NOT ENDORSED: the same expired certificate grades High from 011 alone and Critical when 040 audited it', () => {
@@ -404,7 +404,7 @@ test('PINNED, NOT ENDORSED: the same expired certificate grades High from 011 al
   assert.deepEqual(withAudit.map((f) => [f.key, f.severity]), [['certAudit', 'Critical']]);
 });
 
-// ── (census) NO set-cookie VALUE on any adapter's output (1.2.1, the audit seat's ruling: a scanned service's session
+// ── (census) NO set-cookie VALUE on any adapter's output (1.3.0, the audit seat's ruling: a scanned service's session
 // token is its secret; the NAME is kept). Every adapter is driven through the real concluder, the way the key census
 // drives them; a value planted in a producer's evidence row through the same path proves the census reads every field.
 test('(census) no record, evidence row or conclusion field from any adapter carries an unredacted Set-Cookie value', async () => {
@@ -425,7 +425,7 @@ test('(census) no record, evidence row or conclusion field from any adapter carr
 });
 
 // ── (census) THE HEADER CHANNEL: every `headers` map on every adapter's record carries keys ⊆ {strict-transport-security}
-// (1.2.1 item 1, ruled: a header map is a channel into every consumer of the record — artifacts, AI payloads, the
+// (1.3.0 item 1, ruled: a header map is a channel into every consumer of the record — artifacts, AI payloads, the
 // webhook, GRC — so a second key is a RED the day someone adds it, not a drift). The key set is written HERE, apart from
 // the producer's RECORD_HEADERS, so widening the producer alone fails this leg.
 test('(census) every `headers` map any adapter lands has keys within {strict-transport-security} — never a second header', async () => {

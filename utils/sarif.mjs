@@ -36,7 +36,7 @@ function ruleIdFromService(svc) {
 }
 
 /**
- * The "service detected" result's grade: OPEN_SERVICE_SEVERITY from the shared table (1.2.1 (s2)) — an open port is
+ * The "service detected" result's grade: OPEN_SERVICE_SEVERITY from the shared table (1.3.0 (s2)) — an open port is
  * inventory, never a warning of its own. A service that is not open is never graded above it.
  * @returns {string}
  */
@@ -63,7 +63,7 @@ function buildServiceMessage(svc, host) {
 
 /**
  * SARIF rule + result entries for graded findings. Every grade comes from the shared service-flag table
- * (utils/service_flags.mjs, 1.2.1 (s1)); the rule ids of the four flags SARIF graded before 1.2.1 are unchanged, since a
+ * (utils/service_flags.mjs, 1.3.0 (s1)); the rule ids of the four flags SARIF graded before 1.3.0 are unchanged, since a
  * code-scanning alert is keyed on its rule id.
  * @param {object[]} findings - from the table, each with key/severity/title/ruleId/evidence
  * @param {string} host

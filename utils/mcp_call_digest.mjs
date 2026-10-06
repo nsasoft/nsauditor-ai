@@ -1,5 +1,5 @@
 // utils/mcp_call_digest.mjs
-// What binds an MCP tool response to its call_id (1.2.1 (s6)). The server logs a digest of the response BODY — the text
+// What binds an MCP tool response to its call_id (1.3.0 (s6)). The server logs a digest of the response BODY — the text
 // the receipt footer is appended to — and `nsauditor-ai mcp verify-call <id> --response <file>` recomputes it from the
 // text the user saved. The digest is never printed: a printed digest would replay together with the id.
 //

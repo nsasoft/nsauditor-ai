@@ -1,5 +1,5 @@
 // THE DELTA'S TEXT SAYS WHAT THE DELTA DOES ABOUT A NARROWED --plugins RUN (CE 0.2.56 build 6 — the operator's ruling
-// "text now, behaviour 1.2.1").
+// "text now, behaviour 1.3.0").
 //
 // F2, measured on the installed trio: an analysis agent and the CVE mapper derive their rows from OTHER plugins' output.
 // Narrow `--plugins` in one of two compared runs and the agent still RUNS, with no input — its rows vanish (or appear),
@@ -9,14 +9,14 @@
 // writers and sealed by the real chain, then `runReport(--since)` — `loadRun` → `buildSinceView` → `buildScanDelta` →
 // `renderExecutiveReport` — and the verdict is read off the ARTIFACT it writes (the HTML row a client receives) and the
 // stdout an operator reads. No loader shape is re-modelled here. Each text leg then holds the text to the verdict in BOTH
-// directions: while the fact holds the text must state the limit, and the day 1.2.1 refuses these rows the limit sentence
+// directions: while the fact holds the text must state the limit, and the day 1.3.0 refuses these rows the limit sentence
 // is false and the leg goes red until it is removed. PINNED, NOT ENDORSED.
 //
-// ⚠️ TWO PAIRS SINCE 1.2.1 (lane 6, the R restatement). From Enterprise 1.2.1 a scan that left an agent's input plugin
+// ⚠️ TWO PAIRS SINCE 1.3.0 (lane 6, the R restatement). From Enterprise 1.3.0 a scan that left an agent's input plugin
 // out RECORDS it (Enterprise's input-gap record, the not-requested cause), and the delta refuses that agent's rows there.
-// A run made before 1.2.1 cannot carry that record, so F2 still holds OF IT. The 1.2.0-stamped pair below is that LEGACY
-// pair (F2_HOLDS_LEGACY); a second pair stamped 1.2.1 carries the record the narrowed scan writes (F2_HOLDS_121). The
-// text legs follow each: the unscoped --plugins limit goes while the 1.2.1 pair is refused; the legacy-scoped limit
+// A run made before 1.3.0 cannot carry that record, so F2 still holds OF IT. The 1.2.0-stamped pair below is that LEGACY
+// pair (F2_HOLDS_LEGACY); a second pair stamped 1.3.0 carries the record the narrowed scan writes (F2_HOLDS_130). The
+// text legs follow each: the unscoped --plugins limit goes while the 1.3.0 pair is refused; the legacy-scoped limit
 // stays exactly while the legacy pair still reads resolved / new. The per-row Basis cell (CE 023f197) names the legacy
 // limit on the row itself.
 import './helpers/no_operator_dotenv.mjs';
@@ -46,7 +46,7 @@ const cveRow = { title: 'CVE-2024-6387 — tcp/ssh', severity: 'HIGH', target: {
 const notRun = { title: '[COVERAGE GAP] AGENT NOT RUN — crypto_agent did not run: timed out; nothing it would have assessed was looked for',
   severity: 'INFO', target: { host: HOST, port: 0, protocol: 'tcp', service: 'analysis-agent', program: 'crypto_agent' },
   evidence: { source: 'crypto_agent', cve: [], raw: { evidenceGap: true, gapClass: 'agent_not_run', cause: 'timed out' } } };
-// The shape of Enterprise 1.2.1's input-gap record for an input plugin LEFT OUT (EE utils/service_set_input_gap.mjs
+// The shape of Enterprise 1.3.0's input-gap record for an input plugin LEFT OUT (EE utils/service_set_input_gap.mjs
 // `agentInputGapRecord(source, host, [], notRequested)`): port 0, the agent's own source, `evidence.raw.evidenceGap`.
 const notRequested = { title: '[COVERAGE GAP] INPUT GAP — crypto_agent: a plugin that feeds the service set was not requested in this scan, so TLS protocols, ciphers, certificates and the HSTS header were NOT assessed on this host',
   severity: 'INFO', target: { host: HOST, port: 0, protocol: 'tcp', service: 'analysis-agent', program: 'crypto_agent' },
@@ -119,26 +119,26 @@ const P = {
   // The per-agent record the delta DOES read: the agent's own not-run record in the current run.
   agentNotRun: await since({ ran: FULL_TLS, tcpOpen: [443], services: https, queue: [tlsRow] },
     { ran: FULL_TLS, tcpOpen: [443], services: https, queue: [notRun] }),
-  // THE 1.2.1 PAIR — the same narrowing, both runs stamped 1.2.1, the narrowed scan carrying the record it writes.
-  agentGone121: await since({ ran: FULL_TLS, tcpOpen: [443], services: https, queue: [tlsRow], eeVersion: '1.2.1' },
-    { ran: NARROW_TLS, tcpOpen: [443], services: https, queue: [notRequested], eeVersion: '1.2.1' }),
-  agentAppeared121: await since({ ran: NARROW_TLS, tcpOpen: [443], services: https, queue: [notRequested], eeVersion: '1.2.1' },
-    { ran: FULL_TLS, tcpOpen: [443], services: https, queue: [tlsRow], eeVersion: '1.2.1' }),
+  // THE 1.3.0 PAIR — the same narrowing, both runs stamped 1.3.0, the narrowed scan carrying the record it writes.
+  agentGone130: await since({ ran: FULL_TLS, tcpOpen: [443], services: https, queue: [tlsRow], eeVersion: '1.3.0' },
+    { ran: NARROW_TLS, tcpOpen: [443], services: https, queue: [notRequested], eeVersion: '1.3.0' }),
+  agentAppeared130: await since({ ran: NARROW_TLS, tcpOpen: [443], services: https, queue: [notRequested], eeVersion: '1.3.0' },
+    { ran: FULL_TLS, tcpOpen: [443], services: https, queue: [tlsRow], eeVersion: '1.3.0' }),
 };
 const F = { agentGone: bucketOf(P.agentGone, tlsRow.title), agentAppeared: bucketOf(P.agentAppeared, tlsRow.title),
-  cveGone: bucketOf(P.cveGone, cveRow.title), agentGone121: bucketOf(P.agentGone121, tlsRow.title),
-  agentAppeared121: bucketOf(P.agentAppeared121, tlsRow.title) };
-// F2 OF A LEGACY PAIR (both runs before EE 1.2.1, no record possible) — and F2 OF A 1.2.1 PAIR (the record written).
+  cveGone: bucketOf(P.cveGone, cveRow.title), agentGone130: bucketOf(P.agentGone130, tlsRow.title),
+  agentAppeared130: bucketOf(P.agentAppeared130, tlsRow.title) };
+// F2 OF A LEGACY PAIR (both runs before EE 1.3.0, no record possible) — and F2 OF A 1.3.0 PAIR (the record written).
 const F2_HOLDS_LEGACY = F.agentGone === 'resolved' || F.agentAppeared === 'new' || F.cveGone === 'resolved';
-const F2_HOLDS_121 = F.agentGone121 === 'resolved' || F.agentAppeared121 === 'new';
-// The legacy-scoped limit, as every surface states it: a run before 1.2.1 could not record a plugin left out of it.
-const LEGACY_LIMIT = (text) => /before\s+(?:EE|Enterprise)\s+1\.2\.1[^.]*could\s+not\s+record\s+(?:an\s+input\s+plugin|a\s+plugin)\s+left\s+out/i.test(text);
+const F2_HOLDS_130 = F.agentGone130 === 'resolved' || F.agentAppeared130 === 'new';
+// The legacy-scoped limit, as every surface states it: a run before 1.3.0 could not record a plugin left out of it.
+const LEGACY_LIMIT = (text) => /before\s+(?:EE|Enterprise)\s+1\.3\.0[^.]*could\s+not\s+record\s+(?:an\s+input\s+plugin|a\s+plugin)\s+left\s+out/i.test(text);
 const READS_AGENT_RECORD = bucketOf(P.agentNotRun, tlsRow.title) === 'evidence-gap';
 
-test('the 1.2.1 pair is REFUSED both ways on the record the narrowed scan writes — and the legacy pair still is not', () => {
-  assert.deepEqual([F.agentGone121, F.agentAppeared121], ['evidence-gap', 'evidence-gap'], 'the not-requested record refuses the row');
-  assert.equal(F2_HOLDS_121, false);
-  assert.equal(F2_HOLDS_LEGACY, true, 'a pair before EE 1.2.1 carries no such record: its rows still read resolved / new (the legacy limit)');
+test('the 1.3.0 pair is REFUSED both ways on the record the narrowed scan writes — and the legacy pair still is not', () => {
+  assert.deepEqual([F.agentGone130, F.agentAppeared130], ['evidence-gap', 'evidence-gap'], 'the not-requested record refuses the row');
+  assert.equal(F2_HOLDS_130, false);
+  assert.equal(F2_HOLDS_LEGACY, true, 'a pair before EE 1.3.0 carries no such record: its rows still read resolved / new (the legacy limit)');
 });
 
 test('controls — the pair is live: a plugin row is refused plugin-not-run, and a same-set agent row resolves', () => {
@@ -160,13 +160,13 @@ const ABSOLUTE = /\bnever\s+(?:be\s+)?(?:called|reported|read|filed|counted)\s+(
 const PLUGIN_SET_LIMIT = (text) => /different\s+`?--plugins`?/i.test(text) && /keep\s+`?--plugins`?\s+identical/i.test(text);
 
 test('README headline — the --plugins limit is stated for the pair it holds of, and no unscoped "never called resolved"', () => {
-  assert.equal(PLUGIN_SET_LIMIT(LATEST), F2_HOLDS_121, F2_HOLDS_121
-    ? 'a 1.2.1 pair still resolves a narrowed-plugins agent row — the **Latest:** paragraph must say so, unscoped'
-    : 'a 1.2.1 pair is refused: the UNSCOPED --plugins limit is false — delete it from the **Latest:** paragraph');
+  assert.equal(PLUGIN_SET_LIMIT(LATEST), F2_HOLDS_130, F2_HOLDS_130
+    ? 'a 1.3.0 pair still resolves a narrowed-plugins agent row — the **Latest:** paragraph must say so, unscoped'
+    : 'a 1.3.0 pair is refused: the UNSCOPED --plugins limit is false — delete it from the **Latest:** paragraph');
   assert.equal(LEGACY_LIMIT(LATEST), F2_HOLDS_LEGACY, F2_HOLDS_LEGACY
-    ? 'a pair before EE 1.2.1 still resolves / news an agent row — the **Latest:** paragraph must state that legacy limit'
+    ? 'a pair before EE 1.3.0 still resolves / news an agent row — the **Latest:** paragraph must state that legacy limit'
     : 'the legacy pair is refused too: remove the legacy limit from the **Latest:** paragraph');
-  if (F2_HOLDS_LEGACY || F2_HOLDS_121) assert.doesNotMatch(LATEST, ABSOLUTE, 'the headline may not claim an absolute the engine does not meet');
+  if (F2_HOLDS_LEGACY || F2_HOLDS_130) assert.doesNotMatch(LATEST, ABSOLUTE, 'the headline may not claim an absolute the engine does not meet');
 });
 
 test('CHANGELOG 0.2.56 — the entry records the narrowed --plugins limit it shipped with (history: one direction)', () => {
@@ -176,7 +176,7 @@ test('CHANGELOG 0.2.56 — the entry records the narrowed --plugins limit it shi
   const j = CL.indexOf('\n## ', i + 5);
   const entry = CL.slice(i, j > 0 ? j : undefined);
   const heading = entry.split('\n')[1];
-  // ⚠️ ONE DIRECTION ON PURPOSE: a release record stays true of the release it records. When 1.2.1 refuses these rows,
+  // ⚠️ ONE DIRECTION ON PURPOSE: a release record stays true of the release it records. When 1.3.0 refuses these rows,
   // 0.2.56 still did not, so this leg goes vacuous rather than red; the NEW entry states the fix.
   // 0.2.56 paired with Enterprise 1.2.0: what held of IT is the legacy pair's verdict.
   if (F2_HOLDS_LEGACY) {
@@ -187,19 +187,19 @@ test('CHANGELOG 0.2.56 — the entry records the narrowed --plugins limit it shi
 
 test('AGENT_SCOPE_FROM_TIER — the limit the operator and the client read says what is and is not compared', () => {
   const says = /same tier[^.]*what makes them comparable/i.test(AGENT_SCOPE_FROM_TIER);
-  assert.ok(!((F2_HOLDS_LEGACY || F2_HOLDS_121) && says), 'the limit tells the reader the shared tier makes agent rows comparable; a narrowed '
+  assert.ok(!((F2_HOLDS_LEGACY || F2_HOLDS_130) && says), 'the limit tells the reader the shared tier makes agent rows comparable; a narrowed '
     + '--plugins run at the same tier resolves them anyway');
-  assert.equal(PLUGIN_SET_LIMIT(AGENT_SCOPE_FROM_TIER), F2_HOLDS_121,
-    F2_HOLDS_121 ? 'the limit must say that whether an agent\'s input plugins were requested is not compared, and to keep --plugins identical'
-      : 'a 1.2.1 pair is refused on the record: remove the unscoped --plugins sentence from AGENT_SCOPE_FROM_TIER');
+  assert.equal(PLUGIN_SET_LIMIT(AGENT_SCOPE_FROM_TIER), F2_HOLDS_130,
+    F2_HOLDS_130 ? 'the limit must say that whether an agent\'s input plugins were requested is not compared, and to keep --plugins identical'
+      : 'a 1.3.0 pair is refused on the record: remove the unscoped --plugins sentence from AGENT_SCOPE_FROM_TIER');
   assert.equal(LEGACY_LIMIT(AGENT_SCOPE_FROM_TIER), F2_HOLDS_LEGACY, F2_HOLDS_LEGACY
-    ? 'a pair before EE 1.2.1 still resolves these rows: AGENT_SCOPE_FROM_TIER must state the legacy limit'
+    ? 'a pair before EE 1.3.0 still resolves these rows: AGENT_SCOPE_FROM_TIER must state the legacy limit'
     : 'the legacy pair is refused too: remove the legacy limit from AGENT_SCOPE_FROM_TIER');
   // ⚠️ POLARITY, NOT PRESENCE. The two phrases above survive an inversion — "What IS compared is whether the plugins …"
   // carries both and says the opposite (the build-6 battery's one survivor). The NEGATION must govern the comparison of
   // the input plugins' being REQUESTED, exactly while F2 holds.
-  assert.equal(/\bNOT\s+compared\s+is\s+whether\s+the\s+plugins\b[^.]*\bREQUESTED\b/i.test(AGENT_SCOPE_FROM_TIER), F2_HOLDS_121,
-    F2_HOLDS_121 ? 'the limit must DENY that the input plugins\' being requested is compared — a sentence carrying the right words '
+  assert.equal(/\bNOT\s+compared\s+is\s+whether\s+the\s+plugins\b[^.]*\bREQUESTED\b/i.test(AGENT_SCOPE_FROM_TIER), F2_HOLDS_130,
+    F2_HOLDS_130 ? 'the limit must DENY that the input plugins\' being requested is compared — a sentence carrying the right words '
       + 'with the opposite polarity tells the reader the check exists'
       : 'the engine now compares them: the "NOT compared" sentence is false — remove it');
   // The delta DOES read a per-agent record (Enterprise's not-run record): the limit may not deny it, and it names it
@@ -220,7 +220,7 @@ test('AGENT_SCOPE_FROM_TIER — the limit the operator and the client read says 
     ? 'the client report of the legacy pair must carry the legacy limit in its LIMITS block'
     : 'the legacy pair is refused too: the limits block may drop the legacy sentence');
   const row = P.agentGone.rows.find((x) => /class="delta-resolved"/.test(x) && x.includes(tlsRow.title)) ?? '';
-  assert.equal(/predates EE 1\.2\.1, so it could not record an input plugin left out of the scan/.test(row.replace(/<[^>]+>/g, ' ')), F2_HOLDS_LEGACY,
+  assert.equal(/predates EE 1\.3\.0, so it could not record an input plugin left out of the scan/.test(row.replace(/<[^>]+>/g, ' ')), F2_HOLDS_LEGACY,
     'the resolved legacy row\'s own Basis cell must name the legacy limit beside the word "resolved"');
 });
 
@@ -229,7 +229,7 @@ test('source premises — the delta\'s own comments do not call a --plugins subs
   const VIEW = read('utils/scan_delta_view.mjs');
   const tierSound = /are what make that\s*\/\/\s*sound/.test(SD);
   const wall = /`--plugins` subset[^]*?technically correct and practically a wall of NOT-COMPARABLE/.test(VIEW);
-  assert.ok(!((F2_HOLDS_LEGACY || F2_HOLDS_121) && (tierSound || wall)),
+  assert.ok(!((F2_HOLDS_LEGACY || F2_HOLDS_130) && (tierSound || wall)),
     `a comment still asserts the premise F2 falsifies (tier makes it sound: ${tierSound}; subset = wall of NC: ${wall})`);
   const between = (text, a, b) => { const i = text.indexOf(a); assert.ok(i >= 0, `anchor gone: ${a}`);
     const j = text.indexOf(b, i); assert.ok(j > i, `anchor gone: ${b}`); return text.slice(i, j); };
@@ -239,10 +239,10 @@ test('source premises — the delta\'s own comments do not call a --plugins subs
     'scan_delta_view.mjs header': between(VIEW, '// `report --since`', 'import '),
   };
   for (const [where, text] of Object.entries(places)) {
-    assert.equal(/1\.2\.0 limit/.test(text), F2_HOLDS_121, F2_HOLDS_121 ? `${where} must name the agent-input limit`
-      : `a 1.2.1 pair is refused on the record: remove the 1.2.0-limit note from ${where}`);
-    assert.equal(/before (?:EE |Enterprise )?1\.2\.1/.test(text), F2_HOLDS_LEGACY, F2_HOLDS_LEGACY
-      ? `${where} must name the legacy limit (a run before EE 1.2.1 could not record a plugin left out of it)`
+    assert.equal(/1\.2\.0 limit/.test(text), F2_HOLDS_130, F2_HOLDS_130 ? `${where} must name the agent-input limit`
+      : `a 1.3.0 pair is refused on the record: remove the 1.2.0-limit note from ${where}`);
+    assert.equal(/before (?:EE |Enterprise )?1\.3\.0/.test(text), F2_HOLDS_LEGACY, F2_HOLDS_LEGACY
+      ? `${where} must name the legacy limit (a run before EE 1.3.0 could not record a plugin left out of it)`
       : `the legacy pair is refused too: remove the legacy note from ${where}`);
   }
 });

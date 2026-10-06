@@ -1,5 +1,5 @@
 // utils/watch_cycle.mjs
-// One --watch cycle: what stdout says and which hosts the webhook alerts (1.2.1 lane 4, items 4 + 11). The CLI's
+// One --watch cycle: what stdout says and which hosts the webhook alerts (1.3.0 lane 4, items 4 + 11). The CLI's
 // onCycleComplete prints `text` and sends `alerts`; nothing else decides either.
 //
 // RULED (R4 + Q1–Q5): by DEFAULT a host alerts when its own scan CHANGED since the previous cycle — hostChanged, the ONE
@@ -27,7 +27,7 @@ export function watchCycle(current, previous, { alertRank, everyCycle = false } 
     if (!out?.conclusion) continue; // a failed scan: on stdout, never alerted in this release
     if (!everyCycle && !(delta && hostChanged(delta.hostDiffs.get(host)))) continue;
     // One detail per FINDING at or above the alert severity, each with its own grade — the shared service-flag table
-    // (1.2.1 (s1)), so the alert names what --fail-on and the reports name.
+    // (1.3.0 (s1)), so the alert names what --fail-on and the reports name.
     const findings = conclusionFindings(out.conclusion, host)
       .filter((f) => severityRank(f.severity) >= alertRank)
       .map((f) => ({ port: f.port, protocol: f.protocol, service: f.service, description: f.title, severity: f.severity.toLowerCase() }));

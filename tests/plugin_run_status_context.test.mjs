@@ -66,7 +66,7 @@ test('an upstream that ERRORED reads `error`', async () => {
   assert.equal(seen.map?.get('003'), 'error');
 });
 
-// ── 1.2.1 lane 4, D26-3: a plugin the manager SKIPPED was requested and not measured ───────────
+// ── 1.3.0 lane 4, D26-3: a plugin the manager SKIPPED was requested and not measured ───────────
 // The two gates in front of a dispatch (requirements, capabilities) pushed a 'skipped' manifest
 // entry and `continue`d past the only map write, so a late consumer read "never requested" for a
 // plugin that was requested and never ran. EE 1023 turns no entry into "the port surface was not

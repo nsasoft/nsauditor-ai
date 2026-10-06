@@ -1,10 +1,10 @@
 // tests/history_line_written.test.mjs
-// 1.2.1 (s1) B fold (audit seat) — the history line ON DISK carries the service-check channel, asserted on the ARTIFACT.
+// 1.3.0 (s1) B fold (audit seat) — the history line ON DISK carries the service-check channel, asserted on the ARTIFACT.
 //
 // THE DEFECT: scanSingleHost built its summary through historyServiceEntry / historyHostEntry, so the object in memory
 // carried flagsBasis, hostFlags, hostChecks and each service's flags / checks — and recordScan then rebuilt the line it
 // WROTE from a whitelist that dropped every one of them. Each [ScanHistory] line therefore compared against a baseline
-// that looked pre-1.2.1 and printed "service checks not compared: the baseline predates 1.2.1 … the next scan compares
+// that looked pre-1.3.0 and printed "service checks not compared: the baseline predates 1.3.0 … the next scan compares
 // them" on EVERY scan, forever; the second clause was false. The leg that guarded it read cli.mjs SOURCE for the builder
 // calls and never opened the file: the builders were called, and the writer discarded their output.
 //
@@ -43,7 +43,7 @@ test('the line WRITTEN to scan_history.jsonl carries the summary\'s service-chec
   assert.deepEqual(line.services.map((x) => [x.port, x.flags, x.checks]), s.services.map((x) => [x.port, x.flags, x.checks]));
 });
 
-test('the NEXT scan of the host compares its service checks against the line on disk — never "the baseline predates 1.2.1"', async () => {
+test('the NEXT scan of the host compares its service checks against the line on disk — never "the baseline predates 1.3.0"', async () => {
   const h = '203.0.113.91';
   await scan(h, { ssh: '8.0', weakSsh: true });
   let second;

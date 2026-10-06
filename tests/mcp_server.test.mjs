@@ -133,7 +133,7 @@ describe('MCP Server — tool handlers', () => {
     assert.equal(typeof result.pluginsRan, 'number');
   });
 
-  // 1.2.1 lane 3 (s4): pluginsRan counted output.results — one wrapped run PER PORT, plus error, timeout
+  // 1.3.0 lane 3 (s4): pluginsRan counted output.results — one wrapped run PER PORT, plus error, timeout
   // and gate-skip envelopes — while the manifest has one entry per plugin with its status. scan_cloud
   // already counts manifest entries with status 'ran'; scan_host now does the same.
   it('(s4, fourth quadrant first) one plugin that ran once counts 1', async () => {
@@ -348,14 +348,14 @@ describe('MCP Server — validateHost()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// validateHost — 1.2.1 lane 1 B + C: the RESOLVED address, in both arms of NSA_ALLOW_ALL_HOSTS
+// validateHost — 1.3.0 lane 1 B + C: the RESOLVED address, in both arms of NSA_ALLOW_ALL_HOSTS
 // ---------------------------------------------------------------------------
 //
 // ⚠️ A HARNESS THAT PROBES THE NETWORK IS A SCANNER. Every name below is answered by a stubbed
 // dns.lookup (the object net_validation.mjs imports); no address under test reaches getaddrinfo or
 // a socket. A literal is classified as a string and never resolved.
 
-describe('MCP Server — validateHost() checks the resolved address in both arms (1.2.1 B + C)', () => {
+describe('MCP Server — validateHost() checks the resolved address in both arms (1.3.0 B + C)', () => {
   async function withEnv(value, fn) {
     const had = Object.prototype.hasOwnProperty.call(process.env, 'NSA_ALLOW_ALL_HOSTS');
     const prev = process.env.NSA_ALLOW_ALL_HOSTS;
@@ -407,7 +407,7 @@ describe('MCP Server — validateHost() checks the resolved address in both arms
     }
   });
 
-  // ── DEFECTS, every one passing before 1.2.1.
+  // ── DEFECTS, every one passing before 1.3.0.
   it('UNSET refuses loopback / link-local / metadata in every spelling and by any answer', async () => {
     await withEnv(undefined, () => withResolver({
       'v6mapped.example': '::ffff:a9fe:a9fe',

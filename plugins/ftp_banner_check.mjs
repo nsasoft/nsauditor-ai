@@ -24,7 +24,7 @@ export default {
       let banner = '';
       let up = false;
       let anonState = 'banner'; // banner | send-user | send-pass | done
-      // 1.2.1 (s3): null unless MEASURED; anonTested is true when it was, else the reason it was not.
+      // 1.3.0 (s3): null unless MEASURED; anonTested is true when it was, else the reason it was not.
       let anonymousLogin = null;
       let anonTested = anonEnabled ? 'no-answer' : 'opt-in-off';
       let bannerCollected = false;
@@ -244,7 +244,7 @@ export async function conclude({ host, result }) {
     authoritative: true
   };
 
-  // 1.2.1 (s3): the result and its tested state, on every FTP record — null with no state is a result an earlier release
+  // 1.3.0 (s3): the result and its tested state, on every FTP record — null with no state is a result an earlier release
   // wrote, which did not record whether the check ran.
   record.anonymousLogin = result?.anonymousLogin ?? null;
   record.anonymousLoginTested = result?.anonymousLoginTested ?? null;

@@ -96,11 +96,11 @@ test('resolveAndValidate — rejects hostname resolving to loopback', async () =
   );
 });
 
-// ── 1.2.1 lane 1 A — the shared address classifier ─────────────────────────────
+// ── 1.3.0 lane 1 A — the shared address classifier ─────────────────────────────
 //
 // ⚠️ A HARNESS THAT PROBES THE NETWORK IS A SCANNER. Every spelling below is classified as a
 // string, and every name is answered by a STUBBED dns.lookup — no address under test ever reaches
-// getaddrinfo or a socket (a 1.2.1 scout's `net.connect('0177.0.0.1')` left the machine). This
+// getaddrinfo or a socket (a 1.3.0 scout's `net.connect('0177.0.0.1')` left the machine). This
 // file used to resolve `dns.google` for real; that leg is replaced by the stubbed accept leg below.
 
 /** Answer every dns.lookup from `answers`, recording each call. The module's default import is
@@ -130,7 +130,7 @@ test('(fourth quadrant) resolveAndValidate resolves a name whose every answer is
   });
 });
 
-test('loopback, unspecified and link-local are blocked in every spelling (1.2.1 A)', () => {
+test('loopback, unspecified and link-local are blocked in every spelling (1.3.0 A)', () => {
   for (const ip of [
     '0:0:0:0:0:0:0:1', '0::1', '::0:1', '[0:0:0:0:0:0:0:1]',           // ::1, long and short forms
     '::ffff:7f00:1', '0:0:0:0:0:ffff:7f00:1',                         // 127.0.0.1, hex-mapped
@@ -182,7 +182,7 @@ test('fails CLOSED: a name the resolver cannot answer, or answers with nothing, 
   });
 });
 
-test('resolveAndValidate reads EVERY answer: one blocked answer refuses the name (1.2.1 A)', async () => {
+test('resolveAndValidate reads EVERY answer: one blocked answer refuses the name (1.3.0 A)', async () => {
   await withLookup(['93.184.216.34', '127.0.0.1'], async (calls) => {
     await assert.rejects(() => resolveAndValidate('multi.example'), /blocked/);
     assert.ok(calls[0]?.opts?.all === true, 'the lookup must ask for all answers');
