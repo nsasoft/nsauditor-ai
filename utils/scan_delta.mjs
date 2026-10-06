@@ -399,6 +399,12 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   // actually emits, because a key outside the vocabulary can never match a finding — and a
   // declaration that matches nothing is SILENT while the real producer stays undeclared.
   intelligence_engine: '1.1.0',
+  // ⚠️ exposure_agent JOINS AT 1.2.1 — THE SAME KIND: ITS TITLE IS WHAT IT NAMES (lane 6, F2's exposure sibling). Its rows
+  // were titled `Management port 22 (ssh) open` / `Database port 3306 (mysql) open`, embedding the service the probe
+  // identified — so with the SSH probe left out the same open port titled `Management port 22 (unknown) open`, and a LABEL
+  // move read as one row RESOLVED and one NEW. From 1.2.1 the title is port-keyed (`Management port 22 open`) and the
+  // service rides `target.service` and the description, so every exposure row straddling the upgrade is declared once.
+  exposure_agent: '1.2.1',
 });
 
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the

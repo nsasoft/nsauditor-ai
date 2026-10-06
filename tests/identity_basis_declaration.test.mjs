@@ -173,6 +173,32 @@ test('1160, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; 
   assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
 });
 
+// ── exposure_agent: AN AGENT'S TITLE AT 1.2.1 — the service name left it (lane 6, F2's exposure sibling) ───────────────
+// Its rows were titled `Management port 22 (ssh) open`, embedding the service the probe identified; with the SSH probe left
+// out the same open port titles `Management port 22 (unknown) open`, so a label move read as one row RESOLVED and one NEW.
+// From 1.2.1 the title is `Management port 22 open` (the service rides target.service and the description). An agent's
+// identity IS its title (host · producer · port · title), so every exposure row straddling the upgrade must be declared.
+const EXPOSURE = 'exposure_agent';
+const QX = (title, over = {}) => Q(title, { plugin: EXPOSURE, pluginName: EXPOSURE, port: 22, severity: 'MEDIUM', ...over });
+
+test('exposure_agent — a 1.2.0 row titled with its service and its 1.2.1 port-keyed twin are IDENTITY-BASIS-CHANGED, never resolved or new', () => {
+  assert.equal(IDENTITY_BASIS_CHANGED_AT[EXPOSURE], '1.2.1');
+  const d = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QX('Management port 22 (ssh) open')]),
+    current: qside(QREC({ eeVersion: '1.2.1' }), [QX('Management port 22 open')]) });
+  assert.deepEqual([d.resolved.length, d.newFindings.length], [0, 0], 'the port did not close and did not open — its title changed');
+  assert.deepEqual(d.notComparable.map((x) => x.reason), ['identity-basis-changed', 'identity-basis-changed']);
+  for (const nc of d.notComparable) assert.match(nc.detail, /exposure_agent/);
+  assert.equal(identityBasisChanged(EXPOSURE, '1.2.0', '1.2.1'), true, 'the key resolves, driven rather than read');
+  assert.equal(identityBasisChanged(EXPOSURE, '1.2.1', '1.2.1'), false);
+});
+
+test('exposure_agent, FOURTH QUADRANT — both runs at 1.2.1: a vanished row IS resolved; both at 1.2.0: so is one with the old title', () => {
+  const after = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.1' }), [QX('Management port 22 open')]), current: qside(QREC({ eeVersion: '1.2.1' }), []) });
+  assert.deepEqual([after.resolved.length, after.notComparable.length], [1, 0]);
+  const before = buildScanDelta({ baseline: qside(QREC({ eeVersion: '1.2.0' }), [QX('Management port 22 (ssh) open')]), current: qside(QREC({ eeVersion: '1.2.0' }), []) });
+  assert.deepEqual([before.resolved.length, before.notComparable.length], [1, 0], 'neither run crosses the change');
+});
+
 test('the TABLE is exported and every entry names a version the comparison can order', () => {
   assert.ok(IDENTITY_BASIS_CHANGED_AT && typeof IDENTITY_BASIS_CHANGED_AT === 'object');
   const entries = Object.entries(IDENTITY_BASIS_CHANGED_AT);
@@ -382,9 +408,12 @@ test('the DECLARED SET is exactly this, and a deletion fails as loudly as an add
   // "Privacy + CC6.6" routing claim was withdrawn, and the issue is the title. The first member declared at a release
   // other than 1.1.0, so the pin now carries each member's VERSION rather than assuming one. Fifteen producers:
   // fourteen plugins, one agent.
+  // MOVED DELIBERATELY at 1.2.1 (lane 6): exposure_agent ADDED at '1.2.1' — its titles stopped embedding the service the
+  // probe identified (`Management port 22 (ssh) open` → `Management port 22 open`), and an agent's title IS its identity.
+  // Sixteen producers: fourteen plugins, two agents.
   const AT_1_1_0 = ['1020', '1023', '1024', '1025', '1030', '1040', '1110', '1120', '1150', '1170', '1190', '1200', '1210',
     'intelligence_engine'];
-  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1' };
+  const EXPECTED = { ...Object.fromEntries(AT_1_1_0.map((k) => [k, '1.1.0'])), 1160: '1.2.1', exposure_agent: '1.2.1' };
   assert.deepEqual(Object.keys(IDENTITY_BASIS_CHANGED_AT).sort(), Object.keys(EXPECTED).sort(),
     'the declaration table moved. If a producer was ADDED, add it here with its reason. If one was '
     + 'REMOVED, stop: every finding that straddles its change silently becomes comparable again, '
