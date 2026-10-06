@@ -155,6 +155,37 @@ export function udpPortMeasurement(port, producer, services, runName = 'the othe
   const who = identified(s.program) ? ` · ${s.program}${s.version ? ` ${s.version}` : ''}` : '';
   return { measured: true, basis: `${port}/udp answered in ${runName} (${s.service ?? s.protocol} open${who})` };
 }
+/**
+ * WAS THIS TCP SERVICE MEASURED IN A RUN, FOR THIS PRODUCER? (1.2.1, lane 6 — the TCP-unidentified sibling of F2.) The ONE
+ * decision the delta and Enterprise's MTTR call for a TCP port the run's port scanner saw OPEN; `services` is that run's
+ * service set, every transport (the loader's `servicesOf`), or null when it recorded none.
+ *
+ * - an analysis agent → MEASURED: it reads the fields its probes filled, so an open port is enough (as for UDP).
+ * - the CVE MAPPER → MEASURED only when an open TCP-transport record on the port carries an IDENTITY — a program AND a
+ *   version (`identityOf`). The mapper returns nothing and records nothing for an unidentified program, so a port that
+ *   answered without one gives it nothing to match. MEASURED through the real concluder: with the SSH probe (002) left
+ *   out, 22/tcp concludes `Unknown` / `Unknown`, and every CVE row on it read RESOLVED.
+ * - no service set at all → `measured: null` (NO ORACLE) — never false: a TCP row with no oracle stays outside, as the TCP
+ *   port rule does without 003. A UDP record never stands in for TCP.
+ * `runName` has NO default: every caller names the run absolutely (the delta its frame's name, MTTR "this scan"), and a
+ * relative default is what tests/delta_run_names_absolute.test.mjs allows exactly once, for udpPortMeasurement.
+ *
+ * @returns {{measured: true, basis: string} | {measured: false, kind: 'unidentified', why: string} | {measured: null, kind: 'no-oracle', why: string}}
+ */
+export function tcpServiceMeasurement(port, producer, services, runName) {
+  if (!Array.isArray(services)) {
+    return { measured: null, kind: 'no-oracle', why: `${runName} recorded no service set, so nothing says what answered there` };
+  }
+  if (producer !== CVE_MAPPER_PRODUCER) return { measured: true, basis: `${port}/tcp open in ${runName}` };
+  const open = services.filter((s) => Number(s?.port) === Number(port) && transportOf(s?.protocol) === 'tcp' && s?.status === 'open');
+  const id = open.map((s) => ({ s, id: identityOf(s.program, s.version) })).find((x) => x.id);
+  if (id) return { measured: true, basis: `${port}/tcp answered in ${runName} (${id.s.service ?? id.s.protocol} open · ${id.id.program} ${id.id.version})` };
+  const s = open[0];
+  const shown = (v) => (identified(v) ? v : 'absent');
+  return { measured: false, kind: 'unidentified', why: s
+    ? `in ${runName} the TCP service on that port answered but was not identified (program ${shown(s.program)}, version ${shown(s.version)})`
+    : `in ${runName} the port was open but no TCP service record on it carries a program and a version` };
+}
 // ⚠️ A CVE ROW THAT VANISHED WHILE THE SAME PROGRAM AND VERSION STILL ANSWER WAS NOT FIXED (1.2.0 build 2 — the audit
 // seat's ruling on the build-1 smoke). The CVE mapper attributes a CVE on (program, version) alone, so a row present in
 // one run only while the IDENTIFIED program AND version at that host:port:transport are the same in both runs cannot
@@ -1072,6 +1103,21 @@ function incomparabilityReason(f, mine, theirs, names) {
           + 'the port was not measured there. It is NOT reported as fixed or as new — rescan to compare. (This rule '
           + 'reads TCP ports the port scanner saw open; a UDP-transport finding is judged by its own rule, and a '
           + 'host-wide finding by neither.)' };
+    }
+    // ⚠️ THE PORT ANSWERED BUT ITS SERVICE WAS NOT IDENTIFIED (1.2.1, lane 6 — F2's TCP-unidentified sibling). A CVE-mapper
+    // row on a TCP port the OTHER run's port scanner saw OPEN, where `tcpServiceMeasurement` finds no open record there
+    // carrying a program AND a version: the mapper had nothing to match, so the row's absence (or appearance) is not a
+    // measurement. Both directions. After the lookup-gap leg (a `no_version_detected` record is the mapper SAYING so, and
+    // answers first) and the port leg above; before the vulnerability-data rule, which needs an identity on both sides.
+    // No service set in the other run → silent, as this TCP rule is without 003 (a stated limit).
+    if (f.plugin === CVE_MAPPER_PRODUCER && !f.gapClass && other?.open?.has(port)) {
+      const m = tcpServiceMeasurement(port, f.plugin, other.services ?? null, names.theirs);
+      if (m.measured === false) {
+        return { reason: PORT_NOT_MEASURED_REASON,
+          detail: `${port}/tcp on ${f.host} carries a CVE row in only one of the two runs, and ${m.why}. An unidentified `
+            + 'service gives the CVE mapper nothing to match, so the absence of a CVE row there is not a measurement. It is '
+            + 'NOT reported as fixed or as new — rescan once the service\'s program and version can be read.' };
+      }
     }
   }
   // ⚠️ A UDP-TRANSPORT ROW PRESENT IN ONE RUN ONLY (1.1.1). No UDP producer in this release records a port as
