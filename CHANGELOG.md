@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 0.2.57 (⏳ PRE-PUBLISH — opened 2026-10-05, NOT YET ON npm) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.3.0
+## 0.2.57 (2026-10-07) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.3.0
 
 **The release:** the Pro delta no longer reads an analysis agent's row as fixed or new because one scan left out the
 plugin the agent reads — Enterprise 1.3.0 records the omission and the delta refuses the row — and a CVE or end-of-life
