@@ -150,15 +150,45 @@ export async function sendWebhook(url, payload, opts = {}) {
   return { success: false, statusCode: 0, error: lastError || 'Unknown error' };
 }
 
+/** The watch alert's payload modes (`--alert-payload`). `full` is the default and is unchanged. */
+export const ALERT_PAYLOADS = Object.freeze(['full', 'minimal']);
+
+/**
+ * The drift notification's vocabularies (`--notify-format` / `--notify-payload` / `--notify-severity`, EE 2.0.0). Kept
+ * HERE, in a module with no side effects, so Enterprise's suite can hold its own copy equal to these without loading
+ * cli.mjs (which loads the operator's .env). Enterprise validates every value again before it sends.
+ */
+export const NOTIFY_FORMATS = Object.freeze(['generic', 'slack', 'teams']);
+export const NOTIFY_PAYLOADS = Object.freeze(['minimal', 'full']);
+export const NOTIFY_SEVERITIES = Object.freeze(['critical', 'high', 'medium', 'low', 'info']);
+
 /**
  * Build a standardised alert payload for webhook delivery.
  * @param {string} host - scanned host
  * @param {object[]} findings - array of finding objects
  * @param {string} [severity='high'] - alert severity level
+ * @param {{ payload?: 'full'|'minimal' }} [opts] - `minimal` (EE 2.0.0, offered, NOT the default — the architect seat's
+ *   ruling: a relay parsing `details[]` must not break silently) drops the host, the service and the description: a
+ *   count, the alert severity, and per finding its port, protocol and severity only.
  * @returns {object} alert payload
  */
-export function buildAlertPayload(host, findings, severity = 'high') {
+export function buildAlertPayload(host, findings, severity = 'high', { payload = 'full' } = {}) {
   const items = Array.isArray(findings) ? findings : [];
+
+  if (payload === 'minimal') {
+    return {
+      timestamp: new Date().toISOString(),
+      payload: 'minimal',
+      severity,
+      findingsCount: items.length,
+      summary: `${items.length} finding(s) detected at severity ${severity} or above`,
+      details: items.map((f) => ({
+        port: f.port ?? null,
+        protocol: f.protocol === null ? null : (f.protocol ?? 'tcp'),
+        severity: f.severity ?? severity,
+      })),
+    };
+  }
 
   return {
     timestamp: new Date().toISOString(),

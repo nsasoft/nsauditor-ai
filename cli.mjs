@@ -25,7 +25,7 @@ import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } f
 import { createScheduler } from './utils/scheduler.mjs';
 import { watchCycle } from './utils/watch_cycle.mjs';
 import { redactSetCookieLines } from './utils/cookie_redaction.mjs';
-import { sendWebhook, buildAlertPayload, isSafeWebhookUrl } from './utils/webhook.mjs';
+import { sendWebhook, buildAlertPayload, isSafeWebhookUrl, ALERT_PAYLOADS, NOTIFY_FORMATS, NOTIFY_PAYLOADS, NOTIFY_SEVERITIES } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
 import { isBlockedIp, resolveAndValidate, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
@@ -726,6 +726,42 @@ export async function parseArgs(argv) {
   // R4: by default a watch cycle alerts only hosts whose scan CHANGED; this restores an alert on every cycle.
   args.alertEveryCycle = !!(get('alert-every-cycle') || get('alert_every_cycle'));
 
+  // ── EE 2.0.0 (cargo 3, D3/D5): the drift notification and the watch alert's payload mode ─────────────────────────
+  // Every refusal THROWS with code EFLAGVALUE (mapped to exit 2 at the entry point), never `process.exit`: parseArgs is
+  // exported and driven in-process by the suite, and an exit here kills the runner mid-file (the EFLAGSHAPE lesson).
+  const flagValue = (msg) => Object.assign(new Error(msg), { code: 'EFLAGVALUE' });
+  const oneOf = (flag, allowed, dflt) => {
+    const v = get(flag);
+    if (v === undefined) return dflt;
+    if (v === true || !allowed.includes(String(v).toLowerCase())) throw flagValue(`--${flag} must be one of ${allowed.join(' | ')}`);
+    return String(v).toLowerCase();
+  };
+  const notifyUrl = get('notify-webhook');
+  if (notifyUrl === true) throw flagValue('--notify-webhook requires a URL');
+  args.notifyFormat = oneOf('notify-format', NOTIFY_FORMATS, null);
+  args.notifySeverity = oneOf('notify-severity', NOTIFY_SEVERITIES, null);
+  args.notifyPayload = oneOf('notify-payload', NOTIFY_PAYLOADS, null);
+  if (notifyUrl === undefined) {
+    const stray = [['notify-format', args.notifyFormat], ['notify-severity', args.notifySeverity], ['notify-payload', args.notifyPayload]]
+      .filter(([, v]) => v !== null).map(([f]) => `--${f}`);
+    if (stray.length) throw flagValue(`${stray.join(', ')} configure the drift notification and need --notify-webhook <url>`);
+    args.notifyWebhook = null;
+  } else {
+    if (args.watch) {
+      throw flagValue('--notify-webhook sends the drift file of a ONE-SHOT scan, and --watch writes none; '
+        + 'watch-mode alerts use --webhook-url');
+    }
+    // The SAME boundary check --webhook-url gets: public destinations only, DNS-resolved.
+    if (!(await isSafeWebhookUrl(notifyUrl))) {
+      throw flagValue('--notify-webhook rejected: private/loopback/metadata addresses are not allowed');
+    }
+    args.notifyWebhook = notifyUrl;
+  }
+  args.alertPayload = oneOf('alert-payload', ALERT_PAYLOADS, 'full');
+  if (get('alert-payload') !== undefined && !args.webhookUrl) {
+    throw flagValue('--alert-payload shapes the --watch webhook alert and needs --webhook-url <url>');
+  }
+
   // Compliance: framework selector + scope file. Forwarded to EE's
   // runCompliancePhase via enrichScan(). No-op without an EE Enterprise license.
   const complianceVal = get('compliance');
@@ -865,6 +901,16 @@ export async function parseArgs(argv) {
  * @param {{ cmd?: string, host?: string|true, hostFile?: string }} args  parseArgs' result
  * @returns {{ message: string, code: number }|null}
  */
+/**
+ * EE 2.0.0: --notify-webhook sends the drift of a COMPLIANCE scan, so a run with no framework — from --compliance or
+ * from COMPLIANCE_FRAMEWORKS, which --env may have loaded — would accept the flag and send nothing, ever. Refused.
+ */
+export function notifyRefusal({ notifyWebhook, compliance, envCompliance } = {}) {
+  if (!notifyWebhook || compliance || envCompliance) return null;
+  return { code: 2, message: 'Fatal: --notify-webhook sends the drift file of a compliance scan; name a framework '
+    + 'with --compliance (or COMPLIANCE_FRAMEWORKS)' };
+}
+
 export function scanTargetRefusal({ cmd, host, hostFile } = {}) {
   if (cmd !== 'scan') return { message: `Unknown command: ${cmd}`, code: 2 };
   if (!hostFile && !host) return { message: 'Fatal: --host or --host-file is required', code: 2 };
@@ -1018,6 +1064,12 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       runId: opts?.runId ?? null,
       runRecordRoot: resolveBaseOutDir(),
       watch: opts?.watch === true,
+      // EE 2.0.0 (cargo 3, D3/D4): the opt-in drift notification, forwarded verbatim; EE validates every value again
+      // and sends only on a compared drift that crossed a trigger. Pinned by tests/cli_notify_flags.test.mjs.
+      notifyWebhook: opts?.notifyWebhook ?? null,
+      notifyFormat: opts?.notifyFormat ?? null,
+      notifySeverity: opts?.notifySeverity ?? null,
+      notifyPayload: opts?.notifyPayload ?? null,
     }) : null;
     hostScopeScanned = eeEnrichment?.scopeScanned ?? null;
     // ⚠️ Read from `exploitIntel.stores`, NOT a top-level `exploit` key — measured against
@@ -1640,7 +1692,7 @@ export async function runReport(args, caps) {
 
 export async function main(testHooks = {}) {
   const args = await parseArgs(process.argv);
-  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, alertEveryCycle, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
+  const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, alertEveryCycle, alertPayload, notifyWebhook, notifyFormat, notifySeverity, notifyPayload, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
 
   // Version: handled before license verification so it works without a key.
   // CE-0.1.30.1 — closes the discovery-flag UX gap where pre-fix
@@ -1719,6 +1771,17 @@ Scan options:
   --alert-every-cycle          Alert every host with a finding at or above --alert-severity
                                on every --watch cycle, the first included (default: only
                                hosts whose scan changed)
+  --alert-payload <mode>       full (default) | minimal — minimal drops the host, service and
+                               description from each --watch alert
+  --notify-webhook <url>       Enterprise, one-shot scans with --compliance only (never --watch):
+                               POST the scan's drift (scan_drift_<fw>.json) when a control goes
+                               to fail, a control loses measurement, or a new violation is at or
+                               above --notify-severity. Public URLs only; off by default
+  --notify-format <fmt>        generic (default) | slack | teams (a Teams Workflows webhook)
+  --notify-severity <sev>      critical | high (default) | medium | low | info — for new
+                               violations only
+  --notify-payload <mode>      minimal (default: no hostnames, resources, account ids or
+                               finding text) | full
   --compliance <framework>     Map findings to controls. 'all' = all 8 frameworks, or a CSV of
                                soc2,hipaa,nist-csf,pci-dss,iso-27001,cis-v8,gdpr,nist-800-171
                                (aliases nist/pci/iso/cis, and 800-171 or cmmc for nist-800-171 --
@@ -3240,6 +3303,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     opts.complianceTrackSla = true;
   }
   if (awsRegionIntent) opts.awsRegionIntent = awsRegionIntent;
+  // EE 2.0.0: the drift notification needs a framework to drift — refused here, where --env has already loaded.
+  const notifyRefused = notifyRefusal({ notifyWebhook, compliance, envCompliance: process.env.COMPLIANCE_FRAMEWORKS });
+  if (notifyRefused) {
+    console.error(notifyRefused.message);
+    process.exit(notifyRefused.code);
+  }
+  if (notifyWebhook) Object.assign(opts, { notifyWebhook, notifyFormat, notifySeverity, notifyPayload });
   const pm = await PluginManager.create(`${__dirname}/plugins`);
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
 
@@ -3272,8 +3342,9 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         console.log(text ?? '[CTEM] First cycle complete — it establishes the baseline. Delta reporting begins on the next cycle.');
         if (webhookUrl) {
           for (const { host: h, findings } of alerts) {
-            const payload = buildAlertPayload(h, findings, alertSeverity);
-            const webhookResult = await sendWebhook(webhookUrl, payload, { retries: 2, retryDelayMs: 1000 });
+            const payload = buildAlertPayload(h, findings, alertSeverity, { payload: alertPayload });
+            // `testHooks._sendWebhook`: a test seam, absent in every real invocation.
+            const webhookResult = await (testHooks?._sendWebhook ?? sendWebhook)(webhookUrl, payload, { retries: 2, retryDelayMs: 1000 });
             if (webhookResult.success) {
               console.log(`[CTEM] Webhook alert sent for ${h}`);
             } else {
@@ -3300,7 +3371,8 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     const dropped = scheduler.duplicatesDropped
       ? ` (${scheduler.duplicatesDropped} duplicate host(s) dropped — watch mode scans each host once per cycle)` : '';
     console.log(`[CTEM] Watch mode enabled. Interval: ${intervalMinutes}m, Concurrency: ${parallel}, Hosts: ${scheduler.hosts.length}${dropped}`);
-    if (webhookUrl) console.log(`[CTEM] Webhook URL: ${webhookUrl}, Alert severity: ${alertSeverity}, alerting `
+    // The HOST only: a Slack or Teams webhook URL carries its own credential in the path or the query (EE 2.0.0).
+    if (webhookUrl) console.log(`[CTEM] Webhook: ${new URL(webhookUrl).host}, Alert severity: ${alertSeverity}, alerting `
       + (alertEveryCycle ? 'every host with such a finding, every cycle' : 'hosts whose scan changed (the first cycle sets the baseline)'));
 
     scheduler.start();
@@ -3560,7 +3632,7 @@ if (_isEntrypoint) {
   main().catch((err) => {
     // A flag-shape refusal is an operator error, not a crash: name it and exit 2, this CLI's
     // "could not do what you asked" code. Everything else keeps the stack and exit 1.
-    if (err?.code === 'EFLAGSHAPE') {
+    if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE') {
       console.error(`[ERROR] ${err.message}`);
       process.exit(2);
     }

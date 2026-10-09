@@ -40,7 +40,9 @@ async function watchBehaviour() {
     'TRIPWIRE: scanFn no longer returns scanSingleHost output unmapped — re-derive this leg');
   assert.match(CLI, /watchCycle\(results, previousCycleResults,\s*\{[^}]*everyCycle: alertEveryCycle\s*\}\)/,
     'TRIPWIRE: the watch loop no longer hands its cycle results, and the --alert-every-cycle choice, to watchCycle');
-  assert.match(CLI, /for \(const \{ host: h, findings \} of alerts\)[\s\S]{0,120}buildAlertPayload\(h, findings, alertSeverity\)/,
+  // EE 2.0.0: the call carries `{ payload: alertPayload }` (--alert-payload, default full) — the payload's SHAPE, never
+  // which alerts are sent, so the tripwire admits exactly that argument and nothing else.
+  assert.match(CLI, /for \(const \{ host: h, findings \} of alerts\)[\s\S]{0,120}buildAlertPayload\(h, findings, alertSeverity(?:, \{ payload: alertPayload \})?\)/,
     'TRIPWIRE: the watch loop no longer sends exactly watchCycle\'s alerts');
   const { scan } = await watchScan();
   const { watchCycle } = await import(pathToFileURL(path.join(ROOT, 'utils/watch_cycle.mjs')).href);
@@ -111,7 +113,9 @@ test('A. the watch-mode webhook text matches what the delta gate does (README + 
 
 // ── B. webhook retry wording DERIVED from the call site and the sender.
 test('B. the README states the webhook retry as it ships', () => {
-  const call = CLI.match(/sendWebhook\(webhookUrl, payload, \{ retries: (\d+), retryDelayMs: (\d+) \}\)/);
+  // EE 2.0.0: the call goes through a test seam (`testHooks._sendWebhook`, absent in every real invocation, so the
+  // shipped sender and its retry arguments are unchanged) — the tripwire admits that one spelling of the callee.
+  const call = CLI.match(/(?:sendWebhook|\(testHooks\?\._sendWebhook \?\? sendWebhook\))\(webhookUrl, payload, \{ retries: (\d+), retryDelayMs: (\d+) \}\)/);
   assert.ok(call, 'TRIPWIRE: the watch-loop sendWebhook call changed shape');
   assert.match(read('utils/webhook.mjs'), /setTimeout\(r, retryDelayMs\)/, 'TRIPWIRE: the retry delay is no longer a constant');
   const times = { 1: 'once', 2: 'twice', 3: 'three times' }[call[1]];
