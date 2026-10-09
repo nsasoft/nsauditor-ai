@@ -1012,6 +1012,12 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       // delta as findings RESOLVED — measured on a live run, three such rows.
       pluginStatus,
       onWarn: (msg) => console.warn(`[EE] ${msg}`),
+      // EE 2.0.0 (the drift file). The run id and the root the run records are written under (the SAME resolver
+      // `appendHostWritten` below uses), so EE compares with the run `report --since prior` names; and `watch`, true
+      // only from the watch loop, where EE writes no drift file. Pinned by tests/ee_drift_forwarding.test.mjs.
+      runId: opts?.runId ?? null,
+      runRecordRoot: resolveBaseOutDir(),
+      watch: opts?.watch === true,
     }) : null;
     hostScopeScanned = eeEnrichment?.scopeScanned ?? null;
     // ⚠️ Read from `exploitIntel.stores`, NOT a top-level `exploit` key — measured against
@@ -3241,8 +3247,12 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   if (watch) {
     const intervalMs = intervalMinutes * 60 * 1000;
     let previousCycleResults = null;
+    // EE 2.0.0: every scan in this loop tells Enterprise it is a watch cycle, so no drift file is written per cycle (the
+    // drift file is the one-shot path's; the operator's ruling). `opts.runId` is already unset here.
+    opts.watch = true;
 
-    const scheduler = createScheduler({
+    // `testHooks._createScheduler`: a test seam, absent in every real invocation — it lets a leg run one watch cycle.
+    const scheduler = (testHooks?._createScheduler ?? createScheduler)({
       intervalMs,
       hosts,
       parallel,
