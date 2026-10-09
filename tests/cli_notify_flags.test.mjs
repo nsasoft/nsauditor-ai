@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main, parseArgs, notifyRefusal } from '../cli.mjs';
 import { buildAlertPayload } from '../utils/webhook.mjs';
+import { watchCycle } from '../utils/watch_cycle.mjs';
 
 const SECRET_URL = 'https://203.0.113.10/services/T0/B0/SECRETPATHTOKEN?sig=SECRETSIGTOKEN';
 const argv = (...a) => ['node', 'cli.mjs', 'scan', '--host', '127.0.0.1', ...a];
@@ -171,4 +172,17 @@ test('(f8) the refusal reaches the operator as EXIT 2 with the reason on stderr 
     { env: withNoDotenv(), encoding: 'utf8', timeout: 60_000 });
   assert.equal(r.status, 2, `exit ${r.status}; stderr: ${r.stderr?.slice(0, 300)}`);
   assert.match(r.stderr, /--notify-format configure the drift notification and need --notify-webhook/);
+});
+
+test('(f9) the README says watch alerts cover network-scan findings only — and a watch cycle carrying a CRITICAL cloud finding alerts nobody', () => {
+  const CLAUSE = '`--watch` alerts cover network-scan findings; cloud-plugin findings and compliance control status do not alert';
+  const readme = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8');
+  assert.ok(readme.includes(CLAUSE), 'the README no longer states what --watch alerts cover');
+  // Driven, not read: a cloud plugin's findings ride on results[].result.findings, which the watch alert never reads.
+  const cloudOnly = new Map([['aws', { conclusion: { result: { services: [], evidence: [] } },
+    results: [{ id: '1070', result: { ok: true, up: true, findings: [{ severity: 'critical', issues: ["KMS key 'k' rotation disabled"] }] } }] }]]);
+  assert.deepEqual(watchCycle(cloudOnly, null, { alertRank: 0, everyCycle: true }).alerts, [], 'a cloud finding reached the watch alert');
+  // Positive control: the same cycle with a network finding alerts — the predicate is live, not silent.
+  const network = new Map([['h', { conclusion: { result: { services: [{ port: 21, protocol: 'tcp', service: 'ftp', anonymousLogin: true }], evidence: [] } } }]]);
+  assert.equal(watchCycle(network, null, { alertRank: 0, everyCycle: true }).alerts.length, 1);
 });
