@@ -3,6 +3,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
 import { isBlockedIp, resolveAndValidate } from './net_validation.mjs';
 
 /**
@@ -20,28 +21,57 @@ function isValidWebhookUrl(url) {
 }
 
 /**
- * Validate that a webhook URL is safe for external use (blocks SSRF targets).
- * Apply this at the CLI/user-input boundary, not inside sendWebhook itself.
- * Performs DNS resolution to defeat rebinding / encoded-IP bypasses.
+ * Resolve a webhook URL to the ONE address the request will connect to, or null when the URL is unsafe (blocks SSRF
+ * targets). The fast path refuses obvious loopback, link-local, metadata and private spellings; DNS resolution then
+ * refuses a name ANY of whose answers is blocked (rebinding, decimal/octal IPs, IPv6-mapped addresses).
+ *
+ * ⚠️ THE ADDRESS IS THE POINT (EE 2.0.0, R1 for the webhook sink — the architect seat's F6). The check used to answer
+ * yes/no and the request then resolved the NAME AGAIN at connect, so a name answering a public address to the check
+ * and loopback to the connect passed the guard and reached loopback (DNS rebinding). `sendWebhook` now connects to the
+ * address returned here, and the name still rides as the Host header and the TLS server name.
+ * @param {string} url
+ * @returns {Promise<{ address: string, family: 4|6 } | null>}
+ */
+export async function resolveWebhookTarget(url) {
+  if (!isValidWebhookUrl(url)) return null;
+  const host = new URL(url).hostname.toLowerCase();
+  // Fast-path: block obvious loopback, link-local, cloud metadata, and private ranges
+  if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.|0\.|localhost$|metadata\.google)/i.test(host)) {
+    return null;
+  }
+  if (host === '::1' || host === '[::1]' || /^fe80:/i.test(host)) return null;
+
+  // DNS resolution check — catches rebinding at the check, decimal/octal IPs, IPv6-mapped addrs
+  let address;
+  try {
+    address = await resolveAndValidate(host);
+  } catch {
+    return null;
+  }
+  const family = net.isIP(address);
+  return family ? { address, family } : null;
+}
+
+/**
+ * Validate that a webhook URL is safe for external use (blocks SSRF targets). Apply this at the CLI/user-input
+ * boundary; `sendWebhook` resolves again itself and PINS what it resolved.
  * @param {string} url
  * @returns {Promise<boolean>}
  */
 export async function isSafeWebhookUrl(url) {
-  if (!isValidWebhookUrl(url)) return false;
-  const host = new URL(url).hostname.toLowerCase();
-  // Fast-path: block obvious loopback, link-local, cloud metadata, and private ranges
-  if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.|0\.|localhost$|metadata\.google)/i.test(host)) {
-    return false;
-  }
-  if (host === '::1' || host === '[::1]' || /^fe80:/i.test(host)) return false;
+  return (await resolveWebhookTarget(url)) !== null;
+}
 
-  // DNS resolution check — catches rebinding, decimal/octal IPs, IPv6-mapped addrs
-  try {
-    await resolveAndValidate(host);
-  } catch {
-    return false;
-  }
-  return true;
+/**
+ * A `lookup` for http(s).request that answers the address the check already resolved — in both shapes Node asks for
+ * (`{ all: true }` under autoSelectFamily, and the single-answer form) — so the connect never resolves the name again.
+ */
+export function pinnedLookup({ address, family }) {
+  return (hostname, options, callback) => {
+    if (typeof options === 'function') { callback = options; options = {}; }
+    if (options?.all) callback(null, [{ address, family }]);
+    else callback(null, address, family);
+  };
 }
 
 // Injectable SSRF checker — overridable in tests only (see _setWebhookSafeChecker).
@@ -68,9 +98,13 @@ export function _setWebhookSafeChecker(fn) {
  */
 export async function sendWebhook(url, payload, opts = {}) {
   // Enforce SSRF safety at the function level — covers scheduler, programmatic,
-  // and any other callers that bypass CLI parseArgs validation.
-  const safe = await _safeChecker(url);
-  if (!safe) {
+  // and any other callers that bypass CLI parseArgs validation. The production check RESOLVES and the request is
+  // PINNED to what it resolved (R1); a test-only checker override decides yes/no and connects as the URL says.
+  let target = null;
+  if (_safeChecker === isSafeWebhookUrl) {
+    target = await resolveWebhookTarget(url);
+    if (!target) return { success: false, statusCode: 0, error: 'URL rejected by SSRF guard' };
+  } else if (!(await _safeChecker(url))) {
     return { success: false, statusCode: 0, error: 'URL rejected by SSRF guard' };
   }
 
@@ -92,6 +126,8 @@ export async function sendWebhook(url, payload, opts = {}) {
       'Content-Length': Buffer.byteLength(body),
     },
     timeout,
+    // Every attempt, retries included, connects to the checked address; the name stays the Host header and TLS name.
+    ...(target ? { lookup: pinnedLookup(target) } : {}),
   };
 
   let lastError = null;
