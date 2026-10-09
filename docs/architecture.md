@@ -558,7 +558,7 @@ export const CAPABILITIES = {
   airGapped:          { tier: 'enterprise' },
   // Capability flags are printed to licensees (`license --capabilities`) and must name
   // only capabilities that SHIP. Six were removed 2026-07-21 (capability-claim audit):
-  // verificationEngine / brandedReports / usageMetering / dockerIsolation had no
+  // verificationEngine / brandedReports / usageMetering / dockerIsolation (WITHDRAWN) had no
   // implementation; zdePolicyEngine / enterpriseCTEM named no distinct engine or
   // datastore (their real cores ship and are described in prose).
   // A seventh followed at 0.32.11: pdfExport is WITHDRAWN — it was registered and
@@ -630,7 +630,7 @@ async function discoverPlugins(baseDir) {
 
 ## 10. Docker Isolation — WITHDRAWN (design record)
 
-> ⚠️ **WITHDRAWN. Per-scan container isolation was never built.** The `dockerIsolation`
+> ⚠️ **WITHDRAWN. Per-scan container isolation was never built.** The WITHDRAWN `dockerIsolation`
 > capability flag was deleted from `utils/capabilities.mjs` on 2026-07-21 in the same audit that
 > removed `verificationEngine`, for the same reason: no implementation. Measured 2026-08-07: no
 > `docker-compose.scan.yml` exists in either repo, and neither repo contains a container
