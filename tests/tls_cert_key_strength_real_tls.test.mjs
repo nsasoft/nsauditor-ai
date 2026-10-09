@@ -67,6 +67,30 @@ function caseFor(t, name, server = null, { trusted = true } = {}) {
 }
 const keyChecks = (r) => r.otherChecks.filter((c) => /_key$/.test(c));
 
+/**
+ * THE RUNTIME'S OWN VERIFIER, ASKED DIRECTLY — the oracle for whether `ca_not_trusted` rides beside a weak key.
+ *
+ * Node 24.12 refuses a 1024-bit RSA leaf even under a trusted CA (authorizationError UNSPECIFIED); Node 22.23.3 accepts
+ * it (both measured 2026-10-09; both bundle OpenSSL 3.5.x, so the difference is Node's default, not OpenSSL's version).
+ * The pin below used to assert the Node 24 answer and failed on CE's floor. It now asks the same question 040's probe
+ * asks — a default client context, rejectUnauthorized:false, the CA through NODE_EXTRA_CA_CERTS — in a fresh child,
+ * and expects `ca_not_trusted` exactly when THAT verifier refused. Not a branch on 040's own output.
+ */
+function runtimeVerifier(name, server) {
+  const script = "const tls=require('node:tls'),fs=require('node:fs');const [k,c,ci]=process.argv.slice(1);"
+    + "const srv=tls.createServer({key:fs.readFileSync(k),cert:fs.readFileSync(c),...(ci?{ciphers:ci}:{})},(s)=>s.end());"
+    + "srv.listen(0,'127.0.0.1',()=>{const s=tls.connect({host:'127.0.0.1',port:srv.address().port,rejectUnauthorized:false},()=>{"
+    + "process.stdout.write(JSON.stringify({authorized:s.authorized,error:s.authorizationError||null}));s.destroy();srv.close();});"
+    + "s.on('error',(e)=>{process.stdout.write(JSON.stringify({authorized:null,error:String(e)}));srv.close();});});";
+  const env = { ...process.env, NODE_EXTRA_CA_CERTS: path.join(DIR, 'ca.pem') };
+  delete env.NODE_TEST_CONTEXT;
+  const out = execFileSync(process.execPath, ['-e', script, path.join(DIR, `${name}.key`), path.join(DIR, `${name}.pem`), server?.ciphers || ''],
+    { env, encoding: 'utf8', timeout: 15000 });
+  const v = JSON.parse(out);
+  assert.equal(typeof v.authorized, 'boolean', `the verifier oracle did not complete a handshake: ${out}`);
+  return v;
+}
+
 // ── FOURTH QUADRANT FIRST ──────────────────────────────────────────────────────────────────────────────────────────────
 test('(q, first) an EC P-256 key: recorded as EC, 256 bits, and NO key finding — an EC key never reads as a weak RSA key', (t) => {
   const r = caseFor(t, 'ec256', TLS13); if (!r) return;
@@ -87,19 +111,26 @@ test('a 1024-bit RSA key: weak_rsa_key HIGH, graded, and it trips --fail-on high
   const r = caseFor(t, 'rsa1024', RSA1024); if (!r) return;
   assert.deepEqual([r.keyInfo.keyType, r.keyInfo.keyBits], ['RSA', 1024]);
   assert.deepEqual(keyChecks(r), ['high:weak_rsa_key']);
-  // PINNED, NOT ENDORSED: Node's verifier refuses a 1024-bit leaf even under a trusted CA (authorizationError
-  // "UNSPECIFIED", measured), so ca_not_trusted MEDIUM rides beside it here. A self-signed key (the router) skips that
-  // check. Raised for a ruling; change this pin deliberately if ca_not_trusted's exact-code carve-out widens.
-  assert.deepEqual(r.otherChecks, ['high:weak_rsa_key', 'medium:ca_not_trusted']);
+  // PINNED, NOT ENDORSED — AND RUNTIME-DEPENDENT: where the runtime's verifier refuses a 1024-bit leaf under a trusted CA
+  // (Node 24.12, authorizationError UNSPECIFIED), ca_not_trusted MEDIUM rides beside the weak key; where it accepts it
+  // (Node 22.23.3) nothing does. The oracle above decides which, independently of 040. A self-signed key (the router)
+  // skips that check. Raised for a ruling; change this pin deliberately if ca_not_trusted's exact-code carve-out widens.
+  const verifier = runtimeVerifier('rsa1024', RSA1024);
+  if (verifier.authorized) {
+    assert.deepEqual(r.otherChecks, ['high:weak_rsa_key'], `this runtime's verifier ACCEPTED the leaf (${process.version})`);
+    assert.equal(r.caTrust.length, 0);
+  } else {
+    assert.deepEqual(r.otherChecks, ['high:weak_rsa_key', 'medium:ca_not_trusted'], `verifier: ${JSON.stringify(verifier)}`);
+    // The architect seat's ruling on that pin: the store DOES hold the CA, so the detail must not name the CA store as the
+    // cause of a refusal Node reports only as UNSPECIFIED — it states the fact, and points at the graded weak key.
+    assert.equal(r.caTrust.length, 1);
+    assert.doesNotMatch(r.caTrust[0], /CA store/);
+    assert.match(r.caTrust[0], /^Certificate chain refused by this runtime's verifier — Node reports no named reason \(UNSPECIFIED\)/);
+    assert.match(r.caTrust[0], /the graded weak key \/ signature on this certificate is the actionable finding/);
+  }
   assert.ok(r.graded.some((g) => g.severity === 'High' && /RSA key is 1024 bits \(minimum recommended: 2048\)/.test(g.title)),
     `graded: ${JSON.stringify(r.graded)}`);
   assert.equal(r.failOnRank, RANK.high);
-  // The architect seat's ruling on that pin: the store DOES hold the CA, so the detail must not name the CA store as the
-  // cause of a refusal Node reports only as UNSPECIFIED — it states the fact, and points at the graded weak key.
-  assert.equal(r.caTrust.length, 1);
-  assert.doesNotMatch(r.caTrust[0], /CA store/);
-  assert.match(r.caTrust[0], /^Certificate chain refused by this runtime's verifier — Node reports no named reason \(UNSPECIFIED\)/);
-  assert.match(r.caTrust[0], /the graded weak key \/ signature on this certificate is the actionable finding/);
 });
 
 test('(q) a NAMED verify code keeps its wording: an untrusted CA reads "not trusted by system CA store: <code>"', (t) => {

@@ -90,8 +90,10 @@ const WEAK_SIG_ALGORITHMS  = /sha1WithRSA|md5WithRSA|md2WithRSA|sha1-with-rsa|ds
 // ⚠️ THE SIGNATURE ALGORITHM IS NOT ON getPeerCertificate() (1.3.0 build 5, Gate 3-A F-3b). Node's peer certificate
 // carries subject, issuer, modulus, bits, raw … and no signature algorithm (measured on Node 24.12), so the leaf and
 // chain checks below read "unknown" and could not fire from e96c8f9 (2026-04-08) on. It is in the DER: X509Certificate
-// reads it on Node 24 (measured v24.12.0), and the getter does NOT EXIST on Node 20 (v20.19.6, CE's engines floor);
-// Node 22 is not measured. Where it cannot be read, the algorithm is NOT ASSESSED — never "unknown" read as a pass.
+// reads it on Node 24 (measured v24.12.0), and the getter does NOT EXIST on Node 22 (measured v22.23.3, the newest 22.x on
+// 2026-10-09 — so on CE's engines floor, >=22) nor on Node 20 (v20.19.6). Where it cannot be read, the algorithm is NOT
+// ASSESSED — never "unknown" read as a pass. The runtime sentence names the RUNNING version rather than a version list,
+// so it stays true when the floor moves (it said "Node 20 does not" until the floor left Node 20).
 export function signatureAlgorithmOf(peerCert) {
   if (!peerCert?.raw) return null;
   try {
@@ -108,7 +110,7 @@ export function signatureStrengthOf(sigAlg) {
   if (sigAlg) return "assessed";
   return "signatureAlgorithm" in X509Certificate.prototype
     ? "not assessed — the certificate's signature algorithm could not be read"
-    : "not assessed — this Node runtime does not report certificate signature algorithms (Node 24 does; Node 20 does not)";
+    : `not assessed — this Node runtime (${process.version}) does not report certificate signature algorithms; Node 24.12 does`;
 }
 // A certificate that issued itself: its own signature is verified by no client (an anchor, or a leaf that is its own).
 const selfIssued = (c) => !!c?.issuerCertificate && c.issuerCertificate.fingerprint256 === c.fingerprint256;

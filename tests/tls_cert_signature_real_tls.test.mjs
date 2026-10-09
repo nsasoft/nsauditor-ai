@@ -4,8 +4,8 @@
 // `cert.signatureAlgorithm`, a field Node's getPeerCertificate() never sets — measured on Node 24.12, whose peer
 // certificate carries subject, issuer, modulus, bits, raw … and no signature algorithm — so both read "unknown" and
 // neither could fire from `e96c8f9` (2026-04-08) on. The algorithm is in the DER: `new X509Certificate(raw)
-// .signatureAlgorithm` reads it on Node 24, and the getter does NOT EXIST on Node 20 (CE's engines floor; measured on
-// v20.19.6). So on a runtime without it 040 records the signature algorithm NOT ASSESSED on certAudit — never "unknown"
+// .signatureAlgorithm` reads it on Node 24, and the getter does NOT EXIST on Node 22 (CE's engines floor since 1.0.0;
+// measured on v22.23.3) nor on Node 20 (v20.19.6). So on a runtime without it 040 records the signature algorithm NOT ASSESSED on certAudit — never "unknown"
 // read as a pass.
 //
 // Rulings carried: a SELF-SIGNED certificate's own signature is never graded — no client verifies it (an anchor, or a
@@ -18,6 +18,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,7 +70,15 @@ function makeFixtures() {
 before(() => { DIR = makeFixtures(); });
 after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
 
+// A runtime with no signature-algorithm getter (Node 22 and older — CE's floor since 1.0.0) cannot grade signatures at
+// all; 040 records them NOT ASSESSED, which the dropGetter legs measure (on such a runtime, for real). The grading legs
+// need a runtime that DOES report them (Node 24.12), so they are SKIPPED BY NAME here — never silently passed. A CI run
+// on Node 22 therefore proves the not-assessed half only, and says so in its skip lines.
+const HAS_SIGALG_GETTER = 'signatureAlgorithm' in X509Certificate.prototype;
+const NO_GETTER_SKIP = `this runtime (${process.version}) does not report certificate signature algorithms — 040 records them NOT ASSESSED (measured by the dropGetter legs); grading them needs a runtime that does (Node 24.12)`;
+
 function caseFor(t, { key, cert = key, ca = null, server = null, dropGetter = false }) {
+  if (!dropGetter && !HAS_SIGALG_GETTER) { t.skip(NO_GETTER_SKIP); return null; }
   if (!DIR) {
     if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
     t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
@@ -143,11 +152,12 @@ test('an ecdsa-with-SHA1 leaf (a CA-issued EC certificate): weak_signature HIGH 
 });
 
 // ── A RUNTIME THAT CANNOT SAY ──────────────────────────────────────────────────────────────────────────────────────────
-test('where Node cannot report the algorithm (Node 20): NOT ASSESSED on certAudit — and a SHA-1 leaf is not read as a pass', (t) => {
+test('where Node cannot report the algorithm (Node 22 and older): NOT ASSESSED on certAudit, naming the running version — and a SHA-1 leaf is not read as a pass', (t) => {
   for (const [key, ca, server] of [['leaf256', 'root256', null], ['leafSha1', 'root256', SEC0_RSA]]) {
     const r = caseFor(t, { key, ca, server, dropGetter: true }); if (!r) return;
     assert.deepEqual(sigChecks(r), [], `${key}: nothing graded on an unread algorithm`);
-    assert.match(String(r.certAuditSig.signatureStrength), /^not assessed — this Node runtime does not report certificate signature algorithms/,
+    assert.equal(String(r.certAuditSig.signatureStrength),
+      `not assessed — this Node runtime (${process.version}) does not report certificate signature algorithms; Node 24.12 does`,
       `${key}: ${JSON.stringify(r.certAuditSig)}`);
     assert.notEqual(r.certAuditSig.signatureAlgorithm, 'unknown', `${key}: never the old "unknown"`);
   }
@@ -156,7 +166,8 @@ test('where Node cannot report the algorithm (Node 20): NOT ASSESSED on certAudi
 // THE REASON IS A CLAIM, so it names the cause it measured (the architect seat's read): the runtime sentence only when the
 // getter does not exist; any other unread algorithm (no DER on the peer object, a parse failure) says it could not be
 // read. A raw-less peer certificate does not occur on a real socket, so this is driven at unit level.
-test('a null algorithm on a runtime that HAS the getter reads "could not be read" — never the runtime sentence', async () => {
+test('a null algorithm on a runtime that HAS the getter reads "could not be read" — never the runtime sentence', async (t) => {
+  if (!HAS_SIGALG_GETTER) return t.skip(NO_GETTER_SKIP);
   const { signatureAlgorithmOf, signatureStrengthOf } = await import('../plugins/040_tls_cert_auditor.mjs');
   assert.equal(signatureAlgorithmOf({}), null, 'no DER on the peer object');
   assert.equal(signatureAlgorithmOf({ raw: Buffer.from('not a certificate') }), null, 'a parse failure');

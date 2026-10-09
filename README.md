@@ -6,7 +6,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)](https://nodejs.org)
+[![Node.js 22+](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#tests)
 
 ---
@@ -173,7 +173,7 @@ Results land in `./out/<host>_<timestamp>/` (two scans of one host whose plugin 
 | `scan_results.csv` | CSV — only with `--output-format csv` |
 | `scan_report.md` | GitHub-flavored Markdown report — only with `--output-format md` (or `markdown`) |
 
-> Works on Node 20+ (tested on Node 22).
+> Requires Node.js 22 or newer (tested on Node 22 and Node 24).
 
 ---
 
@@ -937,7 +937,7 @@ Commonly requested plugins: RDP, VNC, SMTP/POP3/IMAP, MySQL/PostgreSQL/MSSQL/Mon
 
 For the full technical architecture, see [ARCHITECTURE.md](docs/architecture.md).
 
-**Tech stack:** Node.js 20+ · ES Modules (.mjs) · OpenAI + Anthropic SDKs · Node.js built-in test runner · MCP stdio transport
+**Tech stack:** Node.js 22+ · ES Modules (.mjs) · OpenAI + Anthropic SDKs · Node.js built-in test runner · MCP stdio transport
 
 **Design patterns:** Factory (PluginManager.create) · Strategy (orchestrated/legacy execution) · Context (shared state) · Adapter (plugin conclude()) · Guard Clause (requirement gating) · Capability gating (CE/Pro/EE) · Semaphore (concurrency control) · Delta (scan history diff) · Boundary Guard (SSRF/injection protection) · Finding Queue (structured intermediate format) · Parallel Agents (concurrent specialized analysis)
 

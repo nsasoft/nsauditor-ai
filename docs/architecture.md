@@ -813,7 +813,7 @@ Nsasoft US LLC is NOT a data processor, data controller, or business associate u
 
 | Component | Technology |
 |---|---|
-| Runtime | Node.js 20+ (ES Modules, .mjs) |
+| Runtime | Node.js 22+ (ES Modules, .mjs) |
 | License | Signed JWT, offline validation |
 | AI | OpenAI SDK + Anthropic SDK + Ollama |
 | CE storage | JSONL files |
