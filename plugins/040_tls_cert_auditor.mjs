@@ -90,10 +90,10 @@ const WEAK_SIG_ALGORITHMS  = /sha1WithRSA|md5WithRSA|md2WithRSA|sha1-with-rsa|ds
 // ⚠️ THE SIGNATURE ALGORITHM IS NOT ON getPeerCertificate() (1.3.0 build 5, Gate 3-A F-3b). Node's peer certificate
 // carries subject, issuer, modulus, bits, raw … and no signature algorithm (measured on Node 24.12), so the leaf and
 // chain checks below read "unknown" and could not fire from e96c8f9 (2026-04-08) on. It is in the DER: X509Certificate
-// reads it on Node 24 (measured v24.12.0), and the getter does NOT EXIST on Node 22 (measured v22.23.3, the newest 22.x on
-// 2026-10-09 — so on CE's engines floor, >=22) nor on Node 20 (v20.19.6). Where it cannot be read, the algorithm is NOT
-// ASSESSED — never "unknown" read as a pass. The runtime sentence names the RUNNING version rather than a version list,
-// so it stays true when the floor moves (it said "Node 20 does not" until the floor left Node 20).
+// reads it on Node 24 (measured v24.12.0), and the getter does NOT EXIST on Node 22 (v22.23.3, the newest 22.x on
+// 2026-10-09) nor on Node 20 (v20.19.6) — one reason CE 1.0.0's engines floor is >=24, where every supported runtime
+// grades signatures. On a runtime below the floor the algorithm is NOT ASSESSED — fail-closed, never "unknown" read as
+// a pass — and the sentence names the RUNNING version rather than a version list, so it stays true when the floor moves.
 export function signatureAlgorithmOf(peerCert) {
   if (!peerCert?.raw) return null;
   try {

@@ -197,7 +197,7 @@ export async function checkOutputDir({ dir, fsApi = fsp, freeSpaceWarnMB = FREE_
       details: { dir: target, error: err.message },
     };
   }
-  // Free-space check — fs.promises.statfs is Node 19+ (project requires Node 22+).
+  // Free-space check — fs.promises.statfs is Node 19+ (project requires Node 24+).
   // If the API throws (rare; some filesystems don't support it), surface as a warn,
   // not an error — writability already proved.
   let freeBytes = null;

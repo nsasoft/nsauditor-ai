@@ -72,9 +72,9 @@ const keyChecks = (r) => r.otherChecks.filter((c) => /_key$/.test(c));
  *
  * Node 24.12 refuses a 1024-bit RSA leaf even under a trusted CA (authorizationError UNSPECIFIED); Node 22.23.3 accepts
  * it (both measured 2026-10-09; both bundle OpenSSL 3.5.x, so the difference is Node's default, not OpenSSL's version).
- * The pin below used to assert the Node 24 answer and failed on CE's floor. It now asks the same question 040's probe
- * asks — a default client context, rejectUnauthorized:false, the CA through NODE_EXTRA_CA_CERTS — in a fresh child,
- * and expects `ca_not_trusted` exactly when THAT verifier refused. Not a branch on 040's own output.
+ * CE's floor is >=24, so the pin asserts the Node 24 answer — and asks the runtime's own verifier first, the same way
+ * 040's probe asks (a default client context, rejectUnauthorized:false, the CA through NODE_EXTRA_CA_CERTS, a fresh
+ * child), so a red names WHICH premise moved: the verifier's verdict, or 040's reading of it.
  */
 function runtimeVerifier(name, server) {
   const script = "const tls=require('node:tls'),fs=require('node:fs');const [k,c,ci]=process.argv.slice(1);"
@@ -111,15 +111,12 @@ test('a 1024-bit RSA key: weak_rsa_key HIGH, graded, and it trips --fail-on high
   const r = caseFor(t, 'rsa1024', RSA1024); if (!r) return;
   assert.deepEqual([r.keyInfo.keyType, r.keyInfo.keyBits], ['RSA', 1024]);
   assert.deepEqual(keyChecks(r), ['high:weak_rsa_key']);
-  // PINNED, NOT ENDORSED — AND RUNTIME-DEPENDENT: where the runtime's verifier refuses a 1024-bit leaf under a trusted CA
-  // (Node 24.12, authorizationError UNSPECIFIED), ca_not_trusted MEDIUM rides beside the weak key; where it accepts it
-  // (Node 22.23.3) nothing does. The oracle above decides which, independently of 040. A self-signed key (the router)
-  // skips that check. Raised for a ruling; change this pin deliberately if ca_not_trusted's exact-code carve-out widens.
+  // PINNED, NOT ENDORSED: Node 24's verifier refuses a 1024-bit leaf even under a trusted CA (authorizationError
+  // UNSPECIFIED), so ca_not_trusted MEDIUM rides beside the weak key. A self-signed key (the router) skips that check.
+  // Raised for a ruling; change this pin deliberately if ca_not_trusted's exact-code carve-out widens.
   const verifier = runtimeVerifier('rsa1024', RSA1024);
-  if (verifier.authorized) {
-    assert.deepEqual(r.otherChecks, ['high:weak_rsa_key'], `this runtime's verifier ACCEPTED the leaf (${process.version})`);
-    assert.equal(r.caTrust.length, 0);
-  } else {
+  assert.equal(verifier.authorized, false, `the premise: this runtime's verifier refuses the 1024-bit leaf (${process.version}: ${JSON.stringify(verifier)})`);
+  {
     assert.deepEqual(r.otherChecks, ['high:weak_rsa_key', 'medium:ca_not_trusted'], `verifier: ${JSON.stringify(verifier)}`);
     // The architect seat's ruling on that pin: the store DOES hold the CA, so the detail must not name the CA store as the
     // cause of a refusal Node reports only as UNSPECIFIED — it states the fact, and points at the graded weak key.
