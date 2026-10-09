@@ -49,8 +49,11 @@ test('(f2) a public notify webhook with every option parses, lower-cased', async
 
 test('(f3) every refusal THROWS EFLAGVALUE (exit 2 at the entry point) — never a silent no-op', async () => {
   const cases = [
-    [argv('--notify-webhook', 'http://127.0.0.1:9/hook'), /rejected: private\/loopback/],
-    [argv('--notify-webhook', 'http://169.254.169.254/latest'), /rejected: private\/loopback/],
+    [argv('--notify-webhook', 'https://127.0.0.1:9/hook'), /rejected: private\/loopback/],
+    [argv('--notify-webhook', 'https://169.254.169.254/latest'), /rejected: private\/loopback/],
+    // F3: https only — a PUBLIC http URL is refused for its scheme, before any resolution.
+    [argv('--notify-webhook', 'http://203.0.113.10/services/T0/B0/X'), /must be an https URL/],
+    [argv('--notify-webhook', 'not a url'), /rejected: private\/loopback/],
     [argv('--notify-webhook'), /requires a URL/],
     [argv('--notify-webhook', SECRET_URL, '--notify-format', 'discord'), /--notify-format must be one of generic \| slack \| teams/],
     [argv('--notify-webhook', SECRET_URL, '--notify-severity', 'severe'), /--notify-severity must be one of/],

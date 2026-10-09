@@ -751,6 +751,13 @@ export async function parseArgs(argv) {
       throw flagValue('--notify-webhook sends the drift file of a ONE-SHOT scan, and --watch writes none; '
         + 'watch-mode alerts use --webhook-url');
     }
+    // https ONLY (the architect seat's read, F3): the URL is a credential and the body is scan content, so neither
+    // crosses the network in the clear. --webhook-url is unchanged.
+    let notifyProtocol = null;
+    try { notifyProtocol = new URL(notifyUrl).protocol; } catch { /* not a URL — the SSRF check below refuses it */ }
+    if (notifyProtocol === 'http:') {
+      throw flagValue('--notify-webhook must be an https URL: it carries its own credential, and the drift it sends is scan content');
+    }
     // The SAME boundary check --webhook-url gets: public destinations only, DNS-resolved.
     if (!(await isSafeWebhookUrl(notifyUrl))) {
       throw flagValue('--notify-webhook rejected: private/loopback/metadata addresses are not allowed');
@@ -1776,7 +1783,7 @@ Scan options:
   --notify-webhook <url>       Enterprise, one-shot scans with --compliance only (never --watch):
                                POST the scan's drift (scan_drift_<fw>.json) when a control goes
                                to fail, a control loses measurement, or a new violation is at or
-                               above --notify-severity. Public URLs only; off by default
+                               above --notify-severity. Public https URLs only; off by default
   --notify-format <fmt>        generic (default) | slack | teams (a Teams Workflows webhook)
   --notify-severity <sev>      critical | high (default) | medium | low | info — for new
                                violations only
