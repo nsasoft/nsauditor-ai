@@ -76,9 +76,13 @@ after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
 // on Node 22 therefore proves the not-assessed half only, and says so in its skip lines.
 const HAS_SIGALG_GETTER = 'signatureAlgorithm' in X509Certificate.prototype;
 const NO_GETTER_SKIP = `this runtime (${process.version}) does not report certificate signature algorithms — 040 records them NOT ASSESSED (measured by the dropGetter legs); grading them needs a runtime that does (Node 24.12)`;
+// Every getter skip goes through here, so the census leg at the end of this file can PIN how many there are: a ninth
+// skip cannot creep in behind the name (the architect seat's ruling, 2026-10-09).
+let gettersSkipped = 0;
+function skipForGetter(t) { gettersSkipped += 1; t.skip(NO_GETTER_SKIP); }
 
 function caseFor(t, { key, cert = key, ca = null, server = null, dropGetter = false }) {
-  if (!dropGetter && !HAS_SIGALG_GETTER) { t.skip(NO_GETTER_SKIP); return null; }
+  if (!dropGetter && !HAS_SIGALG_GETTER) { skipForGetter(t); return null; }
   if (!DIR) {
     if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
     t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
@@ -167,10 +171,18 @@ test('where Node cannot report the algorithm (Node 22 and older): NOT ASSESSED o
 // getter does not exist; any other unread algorithm (no DER on the peer object, a parse failure) says it could not be
 // read. A raw-less peer certificate does not occur on a real socket, so this is driven at unit level.
 test('a null algorithm on a runtime that HAS the getter reads "could not be read" — never the runtime sentence', async (t) => {
-  if (!HAS_SIGALG_GETTER) return t.skip(NO_GETTER_SKIP);
+  if (!HAS_SIGALG_GETTER) return skipForGetter(t);
   const { signatureAlgorithmOf, signatureStrengthOf } = await import('../plugins/040_tls_cert_auditor.mjs');
   assert.equal(signatureAlgorithmOf({}), null, 'no DER on the peer object');
   assert.equal(signatureAlgorithmOf({ raw: Buffer.from('not a certificate') }), null, 'a parse failure');
   assert.equal(signatureStrengthOf('sha256WithRSAEncryption'), 'assessed');
   assert.match(signatureStrengthOf(null), /^not assessed — the certificate's signature algorithm could not be read$/);
+});
+
+// ── THE SKIP CENSUS — LAST IN THIS FILE, because it reads what the legs above did ─────────────────────────────────────
+// Exactly the eight grading legs skip where the runtime cannot report signature algorithms (Node 22 and older, CE's floor
+// since 1.0.0), and none skips where it can. Change the number deliberately when a grading leg is added or removed.
+test('the skip census: exactly 8 legs skip on a runtime without the signature-algorithm getter, none on a runtime with it', () => {
+  assert.equal(gettersSkipped, HAS_SIGALG_GETTER ? 0 : 8,
+    `${process.version}: ${gettersSkipped} getter skip(s); getter ${HAS_SIGALG_GETTER ? 'present' : 'absent'}`);
 });
