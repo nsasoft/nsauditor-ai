@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import net from "node:net";
 import { isPrivateLike } from '../utils/net_validation.mjs';
+import { pinnedAddressFor } from '../utils/scan_pin.mjs';
 
 const execFileP = promisify(execFile);
 const isWin = process.platform === "win32";
@@ -29,12 +30,15 @@ function isValidHost(h) {
  */
 async function tryIcmpTimestamp(host, timeoutMs) {
   if (!isValidHost(host)) return { alive: false, info: "Invalid host" };
+  // R1b (EE 2.0.0): a subprocess resolves through the OS, never through the pinned node:dns, so the command is handed the address
+  // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned.
+  const icmpTarget = pinnedAddressFor(host, { prefer: 4 }) ?? host;
 
   // Try nping first (from nmap suite)
   try {
     const { stdout } = await execFileP(
       "nping",
-      ["--icmp", "--icmp-type", "timestamp", "-c", "1", "--delay", "0", host],
+      ["--icmp", "--icmp-type", "timestamp", "-c", "1", "--delay", "0", icmpTarget],
       { windowsHide: true, timeout: timeoutMs + 500 }
     );
     dlog("nping timestamp output:", stdout);
@@ -49,7 +53,7 @@ async function tryIcmpTimestamp(host, timeoutMs) {
   try {
     const { stdout } = await execFileP(
       "hping3",
-      ["-1", "--icmptype", "13", "-c", "1", host],
+      ["-1", "--icmptype", "13", "-c", "1", icmpTarget],
       { windowsHide: true, timeout: timeoutMs + 500 }
     );
     dlog("hping3 timestamp output:", stdout);
@@ -154,9 +158,11 @@ export default {
     const fallbackEnabled = opts.fallback ?? FALLBACK_ENABLED;
     const fallbackTimeout = Number(opts.fallbackTimeout ?? FALLBACK_TIMEOUT);
     const cmd = "ping";
+    // R1b (EE 2.0.0): ping resolves through the OS, so it is handed the pinned address (utils/scan_pin.mjs), or the name.
+    const pingTarget = pinnedAddressFor(host, { prefer: 4 }) ?? host;
     const args = isWin
-      ? ["-n", "1", "-w", String(timeoutMs), host]
-      : ["-c", "1", "-W", String(Math.ceil(timeoutMs / 1000)), host];
+      ? ["-n", "1", "-w", String(timeoutMs), pingTarget]
+      : ["-c", "1", "-W", String(Math.ceil(timeoutMs / 1000)), pingTarget];
 
     const data = [];
     let up = false;

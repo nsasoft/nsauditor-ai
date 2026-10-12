@@ -27,7 +27,8 @@ import { watchCycle } from './utils/watch_cycle.mjs';
 import { redactSetCookieLines } from './utils/cookie_redaction.mjs';
 import { sendWebhook, buildAlertPayload, isSafeWebhookUrl, ALERT_PAYLOADS, NOTIFY_FORMATS, NOTIFY_PAYLOADS, NOTIFY_SEVERITIES } from './utils/webhook.mjs';
 import { scrubByKey } from './utils/redact.mjs';
-import { isBlockedIp, resolveAndValidate, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
+import { isBlockedIp, resolveAndValidateAll, allowAllHosts, canonicalIp } from './utils/net_validation.mjs';
+import { runPinned } from './utils/scan_pin.mjs';
 import { getAllTechniques } from './utils/attack_map.mjs';
 import { TOOL_VERSION } from './utils/tool_version.mjs';
 import { resolveBaseOutDir, createHostOutDir, safeHost } from './utils/output_dir.mjs';
@@ -947,34 +948,47 @@ const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
  * that is not a literal is resolved with EVERY answer checked. Before 1.3.0 a digits-and-dots string
  * skipped resolution (/^[\\d.:[\\]]+$/), so '6425673729' — which the OS reads as 127.0.0.1 — was
  * scanned unchecked.
+ *
+ * PINNED SINCE EE 2.0.0 (R1b — the operator's ruling "CLI pins too"): it RETURNS the answer set it resolved, and
+ * scanSingleHost runs the plugins inside `runPinned` with it, so the scan connects to the addresses this check looked at.
+ * NSA_ALLOW_ALL_HOSTS relaxes WHICH answers are admitted, never whether one may change between the check and the connect:
+ * under it the name is resolved WITHOUT a refusal and still pinned (an unresolvable name scans unpinned, as before).
  * @param {string} host
  * @param {Record<string,string|undefined>} [env]
+ * @returns {Promise<Array<{ address: string, family: 4|6 }> | null>} the answers to pin; null for a literal or a sentinel
  */
 export async function assertScanTargetAllowed(host, env = process.env) {
   const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
-  if (isCloudSentinel || allowAllHosts(env)) return;
+  if (isCloudSentinel) return null;
+  if (allowAllHosts(env)) {
+    if (canonicalIp(host)) return null;
+    try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch { return null; }
+  }
   if (isBlockedIp(host)) {
     throw new Error(`Scanning blocked address range is not allowed: ${host}`);
   }
   if (!canonicalIp(host)) {
     try {
-      await resolveAndValidate(host);
+      return await resolveAndValidateAll(host);
     } catch (err) {
       throw new Error(`Host rejected by SSRF guard: ${err.message}`);
     }
   }
+  return null;
 }
 
 export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // SSRF guard — block loopback, private ranges, cloud metadata endpoints.
   // Set NSA_ALLOW_ALL_HOSTS=1 to scan RFC 1918 / private ranges (local network auditing).
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
-  await assertScanTargetAllowed(host);
+  const answers = await assertScanTargetAllowed(host);
 
   // `manifest` classifies every selected plugin as ran|skipped|timeout|error with a reason.
   // Discarding it is what makes "no findings" ambiguous between a clean estate and one whose
   // plugins never loaded — see utils/run_record.mjs.
-  const { results, conclusion, manifest: pluginStatus = [] } = await pm.run(host, plugins || 'all', opts);
+  // R1b: the plugins connect to the addresses the check resolved (utils/scan_pin.mjs), never to a second answer.
+  const { results, conclusion, manifest: pluginStatus = [] } = await runPinned(answers ? { [host]: answers } : null,
+    () => pm.run(host, plugins || 'all', opts));
 
   // Enrich conclusion with MITRE ATT&CK technique mapping
   const techniques = getAllTechniques(conclusion);

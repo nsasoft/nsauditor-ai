@@ -147,7 +147,12 @@ test('NSA_ALLOW_ALL_HOSTS: the README says what it opens over MCP, and never off
   // address then gets through") became false with that change and must not survive in the README.
   assert.match(s, /It admits private ranges only: loopback, link-local and cloud-metadata addresses stay refused over\s+MCP/);
   assert.doesNotMatch(s, /name that resolves to a loopback or cloud-metadata address then gets\s+through/);
-  assert.match(s, /does not pin the answer/);
+  // EE 2.0.0 (R1b): the check's answers are PINNED now. The sentence that said they were not is flipped deliberately, and
+  // the new one must carry its scope (CE 1.0.0) and both of its limits — a pin claim without them would overclaim.
+  assert.doesNotMatch(s, /does not pin the answer|no DNS pin|is still resolved again when it is scanned/);
+  assert.match(s, /Since CE 1\.0\.0 a scan connects to the addresses its check resolved/);
+  assert.match(s, /Since CE 1\.0\.0 a scan connects[^\n]*`NODE_USE_ENV_PROXY`[^\n]*the proxy resolves it[^\n]*reuse an idle connection/, 'the pin sentence lost one of its two limits');
+  assert.match(s, /Since CE 1\.0\.0 the scan connects to the answers the check resolved/);
   assert.match(s, /never the webhook guard/);
   assert.doesNotMatch(s, /Webhook URL rejected[^\n]*Use `NSA_ALLOW_ALL_HOSTS=1`/);
 });

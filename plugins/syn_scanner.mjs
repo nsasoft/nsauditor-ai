@@ -5,6 +5,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { pinnedAddressFor } from "../utils/scan_pin.mjs";
 
 const execFileP = promisify(execFile);
 
@@ -97,7 +98,9 @@ function buildNmapArgs(host) {
     args.push("-p", portRange.trim());
   }
 
-  args.push(host);
+  // R1b (EE 2.0.0): a subprocess resolves through the OS, never through the pinned node:dns, so the command is handed the address
+  // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned.
+  args.push(pinnedAddressFor(host, { prefer: 4 }) ?? host);
   return args;
 }
 

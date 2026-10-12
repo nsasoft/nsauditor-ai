@@ -6,6 +6,8 @@ import http from 'node:http';
 import https from 'node:https';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import net from 'node:net';
+import { pinnedAddressFor } from '../utils/scan_pin.mjs';
 import { redactSetCookie, redactLocation } from '../utils/cookie_redaction.mjs';
 
 const execFileP = promisify(execFile);
@@ -100,12 +102,19 @@ async function probeOptions(host, port, isHttps, allowInsecure, timeoutMs) {
   });
 }
 
-async function probeFirmware(host, vendor) {
+// Exported for tests/scan_pin_subprocess.test.mjs (R1b): its curl must carry the pinned address.
+export async function probeFirmware(host, vendor) {
   if (!vendor || !vendor.toLowerCase().includes('netgear')) return null;
   const cmd = "curl";
+  // R1b (EE 2.0.0): a subprocess resolves through the OS, never through the pinned node:dns, so the command is handed the address
+  // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned. curl's --resolve keeps the
+  // name as the Host header while connecting to the pinned address.
+  const pinned = net.isIP(host) ? null : pinnedAddressFor(host, { prefer: 4 });
+  const resolveArgs = pinned ? ['--resolve', `${host}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
   const args = [
     "-s", "-m", "5",
     `--connect-timeout`, "3",
+    ...resolveArgs,
     `http://${host}/currentsetting.htm`
   ];
   try {

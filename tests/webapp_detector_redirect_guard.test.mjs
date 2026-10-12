@@ -277,3 +277,35 @@ test('real undici: A on 127.0.0.1 redirects to "localhost" (a different host, lo
     assert.ok(errorRows(r).some((d) => /refused/i.test(d.probe_info)), JSON.stringify(r.data));
   } finally { A.srv.close(); B.srv.close(); }
 });
+
+test('real undici: a hop to a NAME that rebinds between its check and its request is made to the CHECKED answer — never to where it rebinds (EE 2.0.0, R1b)', async () => {
+  // The hop check resolves through node:dns/promises (stubbed: a public answer); undici's connect resolves through the
+  // callback node:dns (stubbed: loopback, where B listens) — the two answers a rebinding name gives. B closes every
+  // connection, so nothing pooled from the positive control can carry the plugin's request.
+  const cbDns = (await import('node:dns')).default;
+  const realCb = cbDns.lookup;
+  const realTimeout = process.env.WAPPALYZER_TIMEOUT_MS;
+  const B = await listen((req, res) => { res.writeHead(200, { connection: 'close' }); res.end(WP); });
+  const A = await listen((req, res) => { res.writeHead(302, { location: `http://rebind.test:${B.port}/` }); res.end(); });
+  delete process.env.NSA_ALLOW_ALL_HOSTS;
+  stubDns({ 'rebind.test': ['203.0.113.10'] });
+  cbDns.lookup = function lookup(h, o, cb) {
+    if (typeof o === 'function') { cb = o; o = {}; }
+    if (h !== 'rebind.test') return realCb.call(cbDns, h, o, cb);
+    return o?.all ? process.nextTick(cb, null, [{ address: '127.0.0.1', family: 4 }]) : process.nextTick(cb, null, '127.0.0.1', 4);
+  };
+  process.env.WAPPALYZER_TIMEOUT_MS = '1000';   // the pinned hop goes to 203.0.113.10 (RFC 5737) and waits for this abort
+  realFetchDefaultsRefused('127.0.0.1');
+  try {
+    await realFetch(`http://rebind.test:${B.port}/`).then((r) => r.text());
+    assert.equal(B.hits.length, 1, 'positive control: an unpinned request for the name did not land on B — this leg measures nothing');
+    const r = withoutDefaultMisses(await webappDetector.run('127.0.0.1', 0, { ports: [A.port] }), DEFAULTS_LOOPBACK);
+    assert.ok(A.hits.length >= 1, 'A was asked, and redirected to the name');
+    assert.equal(B.hits.length, 1, 'the hop reached B — it connected where the name REBOUND, not where its check looked');
+    assert.ok(errorRows(r).length >= 1, `the pinned hop should fail (nothing answers at the checked address): ${JSON.stringify(r.data)}`);
+  } finally {
+    cbDns.lookup = realCb;
+    if (realTimeout === undefined) delete process.env.WAPPALYZER_TIMEOUT_MS; else process.env.WAPPALYZER_TIMEOUT_MS = realTimeout;
+    A.srv.close(); B.srv.close();
+  }
+});

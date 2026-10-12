@@ -30,7 +30,8 @@
 // }
 
 import { fingerprint } from '../utils/tech_fingerprint.mjs';
-import { canonicalIp, classifyAddress, resolveAndValidate, allowAllHosts } from '../utils/net_validation.mjs';
+import { canonicalIp, classifyAddress, resolveAndValidateAll, allowAllHosts } from '../utils/net_validation.mjs';
+import { runPinned } from '../utils/scan_pin.mjs';
 import { parsePortsSpec } from '../utils/ports_spec.mjs';
 
 const DEBUG =
@@ -80,26 +81,29 @@ function normalizeTarget(target) {
 // answer's headers reflected into the result. A hop to the host the operator named (any port, http or
 // https) was admitted at entry and is followed; any other host goes through the MCP guard's policy:
 // loopback, link-local, metadata and unspecified refused in every configuration, private ranges only
-// under NSA_ALLOW_ALL_HOSTS, a name refused if ANY of its answers is. Stated limit, as at entry: the
-// checked name is resolved again by the request (no pin against rebinding).
+// under NSA_ALLOW_ALL_HOSTS, a name refused if ANY of its answers is. PINNED SINCE EE 2.0.0 (R1b): the hop's request
+// connects to the answers its check resolved (utils/scan_pin.mjs), as the entry host's do — until 2.0.0 the checked name
+// was resolved again by the request, so a hop name could rebind between its check and its fetch.
 const MAX_REDIRECT_HOPS = 5;
 
+/** Refuse a hop the guard does not admit; return the checked answers to pin for it, or null (the entry host — pinned by
+ *  the scan — or an address literal, which has nothing to pin). */
 async function assertHopAllowed(next, entryHost) {
   if (next.protocol !== 'http:' && next.protocol !== 'https:') {
     throw new Error(`redirect to ${next.href} refused: only http and https hops are followed`);
   }
   const host = next.hostname.replace(/^\[|\]$/g, '');
-  if (host.toLowerCase() === String(entryHost).replace(/^\[|\]$/g, '').toLowerCase()) return;
+  if (host.toLowerCase() === String(entryHost).replace(/^\[|\]$/g, '').toLowerCase()) return null;
   const allowPrivate = allowAllHosts();
   if (canonicalIp(host)) {
     const cls = classifyAddress(host);
     if (cls === 'always' || (cls === 'private' && !allowPrivate)) {
       throw new Error(`redirect to ${host} refused by the SSRF guard (blocked address range)`);
     }
-    return;
+    return null;
   }
   try {
-    await resolveAndValidate(host, { allowPrivate });
+    return await resolveAndValidateAll(host, { allowPrivate });
   } catch (err) {
     throw new Error(`redirect to ${host} refused by the SSRF guard (${err.message})`);
   }
@@ -118,17 +122,19 @@ async function fetchOnce(url, signal) {
   // again, even if the chain comes back. (undici's own follow drops only Authorization cross-origin.)
   let leftOrigin = false;
   let current = url;
+  let hopPins = null;   // a hop to another host: its checked answers (the entry host is pinned by the scan itself)
   for (let hop = 0; ; hop++) {
     const headers = leftOrigin ? base : { ...base, ...extra };
     // global fetch (undici) is available in Node >=18
-    const res = await fetch(current, { redirect: 'manual', headers, signal });
+    const res = await runPinned(hopPins, () => fetch(current, { redirect: 'manual', headers, signal }));
     const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
     if (location) {
       if (hop >= MAX_REDIRECT_HOPS) {
         throw new Error(`redirect limit (${MAX_REDIRECT_HOPS} hops) reached at ${current}`);
       }
       const next = new URL(location, current);
-      await assertHopAllowed(next, entryHost);
+      const answers = await assertHopAllowed(next, entryHost);
+      hopPins = answers ? { [next.hostname]: answers } : null;
       if (next.origin !== entry.origin) leftOrigin = true;
       await res.body?.cancel?.().catch(() => {});
       current = next.href;

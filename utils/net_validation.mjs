@@ -123,14 +123,30 @@ export function allowAllHosts(env = process.env) {
  * @throws {Error} if any answer is in a blocked range, or DNS fails
  */
 export async function resolveAndValidate(hostname, { allowPrivate = false } = {}) {
+  return (await resolveAndValidateAll(hostname, { allowPrivate }))[0].address;
+}
+
+/**
+ * The WHOLE checked answer set, in resolver order — what a scan PINS (EE 2.0.0, R1b: the operator's ruling "CLI pins too").
+ * Every answer passes the check, as resolveAndValidate requires. With `checkAnswers: false` (the CLI's NSA_ALLOW_ALL_HOSTS,
+ * which lifts the whole guard) the answers are returned unchecked: allow-all relaxes WHICH answers are admitted, never
+ * whether an answer may change between the check and the connect.
+ * @param {string} hostname
+ * @param {{ allowPrivate?: boolean, checkAnswers?: boolean }} [opts]
+ * @returns {Promise<Array<{ address: string, family: 4|6 }>>}
+ * @throws {Error} if DNS fails, nothing resolves, or (when checked) any answer is in a blocked range
+ */
+export async function resolveAndValidateAll(hostname, { allowPrivate = false, checkAnswers = true } = {}) {
   const answers = await dns.lookup(hostname, { all: true, verbatim: true });
-  const list = Array.isArray(answers) ? answers : [answers];
+  const list = (Array.isArray(answers) ? answers : [answers]).filter((a) => a && typeof a.address === 'string');
   if (list.length === 0) throw new Error(`Host did not resolve`);
-  for (const { address } of list) {
-    const cls = classifyAddress(address);
-    if (cls === 'always' || (cls === 'private' && !allowPrivate)) {
-      throw new Error(`Host resolves to blocked IP range`);
+  if (checkAnswers) {
+    for (const { address } of list) {
+      const cls = classifyAddress(address);
+      if (cls === 'always' || (cls === 'private' && !allowPrivate)) {
+        throw new Error(`Host resolves to blocked IP range`);
+      }
     }
   }
-  return list[0].address;
+  return list.map(({ address, family }) => ({ address, family: family === 6 || net.isIP(address) === 6 ? 6 : 4 }));
 }

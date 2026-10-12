@@ -17,7 +17,8 @@ import { appendFile, mkdir, chmod } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { resolveAndValidate, classifyAddress, canonicalIp, allowAllHosts } from './utils/net_validation.mjs';
+import { resolveAndValidateAll, classifyAddress, canonicalIp, allowAllHosts } from './utils/net_validation.mjs';
+import { runPinned } from './utils/scan_pin.mjs';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -131,10 +132,16 @@ export function _setNvdClient(client) {
   _nvdClient = client;
 }
 
-let _validateHostFn = validateHost;
+let _validateHostFn = validateHostPinned;
 export function _setValidateHost(fn) {
   if (process.env.NODE_ENV === 'production') throw new Error('_setValidateHost is test-only and disabled in production');
-  _validateHostFn = fn ?? validateHost;
+  _validateHostFn = fn ?? validateHostPinned;
+}
+
+/** A seam may return the bare NAME (older tests) or `{ name, answers }`; a bare name scans unpinned. */
+async function checkedTarget(raw) {
+  const v = await _validateHostFn(raw);
+  return typeof v === 'string' ? { name: v, answers: null } : { name: v.name, answers: v.answers ?? null };
 }
 
 /**
@@ -412,14 +419,25 @@ export const TOOLS = [
  * private ranges only: loopback, unspecified, link-local and metadata stay refused, by literal or
  * by answer. A name that does not resolve is refused in both arms.
  *
- * ⚠️ LIMIT (stated, 1.3.0): this does NOT pin the resolved address. It returns the NAME, and each
- * plugin resolves it again when it connects, so a name whose answer changes between this check
- * and the scan (DNS rebinding) is not caught. Pinning is boarded for a later release; it is not in 1.3.0.
- * Before 1.3.0 this comment said the resolution "defeats rebinding"; it never did.
+ * PINNED SINCE EE 2.0.0 (R1b): `validateHostPinned` returns the checked answer set with the name, and the scan handlers run
+ * their plugins inside `runPinned` (utils/scan_pin.mjs), so a scan connects to the addresses this check resolved — the name
+ * still rides as the Host header and the TLS server name. Until 2.0.0 this returned the NAME and each plugin resolved it
+ * again (DNS rebinding between the check and the scan was not caught); before 1.3.0 this comment said the resolution
+ * "defeats rebinding", which it never did. `validateHost` keeps returning the name for callers that need only that.
  * @param {string} host
  * @returns {Promise<string>} normalised hostname
  */
 export async function validateHost(host) {
+  return (await validateHostPinned(host)).name;
+}
+
+/**
+ * The check, returning what it resolved: `{ name, answers }` — `answers` the whole checked answer set in resolver order, or
+ * null for a literal or a cloud sentinel (nothing to pin).
+ * @param {string} host
+ * @returns {Promise<{ name: string, answers: Array<{ address: string, family: 4|6 }> | null }>}
+ */
+export async function validateHostPinned(host) {
   const h = String(host).trim().toLowerCase();
   if (!h) throw new Error('Empty host');
   const notAllowed = () => new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
@@ -435,21 +453,22 @@ export async function validateHost(host) {
   // route to the cloud-scanner plugins (probe_service enforces the cloud-intent
   // gate downstream; the CLI whitelists them the same way in scanSingleHost).
   // They are never resolved (dns.lookup('aws') would be ENOTFOUND).
-  if (isCloudSentinelHost(h)) return h;
+  if (isCloudSentinelHost(h)) return { name: h, answers: null };
 
   // NSA_ALLOW_ALL_HOSTS (1/true/yes/on only) admits PRIVATE ranges for local-network auditing.
   const allowPrivate = allowAllHosts();
   const cls = classifyAddress(h);
   if (cls === 'always' || (cls === 'private' && !allowPrivate)) throw notAllowed();
-  if (canonicalIp(h)) return h;   // a permitted literal — nothing to resolve
+  if (canonicalIp(h)) return { name: h, answers: null };   // a permitted literal — nothing to resolve or pin
 
+  let answers;
   try {
-    await resolveAndValidate(h, { allowPrivate });
+    answers = await resolveAndValidateAll(h, { allowPrivate });
   } catch (err) {
     if (/blocked/.test(String(err && err.message))) throw notAllowed();
     throw new Error(`Host could not be resolved via MCP: ${h}`);
   }
-  return h;
+  return { name: h, answers };
 }
 
 /** Validate port is an integer in 1-65535 range. */
@@ -468,7 +487,7 @@ export async function handleScanHost(args) {
   if (!args?.host || typeof args.host !== 'string') {
     throw new Error('Missing required parameter: host');
   }
-  const host = await _validateHostFn(args.host);
+  const { name: host, answers } = await checkedTarget(args.host);
 
   const pm = await getPluginManager();
   // ⚠️ EVERY PLUGIN GETS THE OPERATOR'S OWN BUDGET HERE, DECLARED OR NOT (EE 1.1.0 build 6). The wall
@@ -480,7 +499,8 @@ export async function handleScanHost(args) {
   // reads `timeout` in `manifest`. (This tool used to advertise a `timeout` input it never read; it was
   // removed rather than wired, because a per-call override would have to travel on this same carrier.)
   const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
-  const output = await pm.run(host, 'all', { [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS });
+  // R1b: the plugins connect to the addresses the check resolved (utils/scan_pin.mjs), never to a second answer.
+  const output = await runPinned(answers ? { [host]: answers } : null, () => pm.run(host, 'all', { [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS }));
 
   // Render a Markdown summary of the scan so AI assistants get a ready-to-quote
   // report alongside the structured fields. Failure to render must not break the
@@ -664,7 +684,7 @@ export async function handleProbeService(args) {
   if (!args?.pluginName || typeof args.pluginName !== 'string') {
     throw new Error('Missing required parameter: pluginName');
   }
-  const host = await _validateHostFn(args.host);
+  const { name: host, answers } = await checkedTarget(args.host);
   validatePort(args.port);
 
   const pm = await getPluginManager();
@@ -705,7 +725,8 @@ export async function handleProbeService(args) {
   // The same wall as scan_host, for the same reason: this is a Desktop tool, and a declared budget
   // must not outrun the operator's PLUGIN_TIMEOUT_MS here.
   const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
-  const result = await pm._runOne(plugin, host, args.port, { hostKind, [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS });
+  const result = await runPinned(answers ? { [host]: answers } : null,
+    () => pm._runOne(plugin, host, args.port, { hostKind, [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS }));
   return result;
 }
 

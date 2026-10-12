@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import net from 'node:net';
 import dgram from 'node:dgram';
+import { pinnedAddressFor } from '../utils/scan_pin.mjs';
 
 const execFileP = promisify(execFile);
 
@@ -97,7 +98,10 @@ export default {
     // ICMP Probe (using system ping)
     try {
       const isWindows = process.platform === 'win32';
-      const pingArgs = isWindows ? ['-n', '1', '-w', '1000', host] : ['-c', '1', '-W', '1', host];
+      // R1b (EE 2.0.0): a subprocess resolves through the OS, never through the pinned node:dns, so the command is handed the address
+      // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned.
+      const pingTarget = pinnedAddressFor(host, { prefer: 4 }) ?? host;
+      const pingArgs = isWindows ? ['-n', '1', '-w', '1000', pingTarget] : ['-c', '1', '-W', '1', pingTarget];
       dlog(`Executing ping command: ping ${pingArgs.join(' ')}`);
       const { stdout } = await execFileP('ping', pingArgs, { windowsHide: true, timeout: 6000 });
       const received = isWindows ? stdout.includes('Reply from') : stdout.includes('1 received');
