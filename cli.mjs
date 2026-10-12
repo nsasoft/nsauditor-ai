@@ -134,16 +134,31 @@ export function redactSensitiveForAI(input, targetHost) {
 
 /* ------------------------- OpenAI & reporting -------------------------- */
 
+/**
+ * The OpenAI model used when OPENAI_MODEL is unset (EE 2.0.0, marketing task #203 — the GPT-4o-generation small model it named until then was stale). Chosen on
+ * 2026-10-11 against OpenAI's own pages, read raw: https://developers.openai.com/api/docs/models lists `gpt-6-luna` as
+ * "Our most efficient model for focused, high-volume tasks" ($0.10 / $0.50 per MTok, 128K max output, 1.05M context), and
+ * https://developers.openai.com/api/docs/deprecations maps the previous small model (`gpt-5.4-nano`) to it. The request
+ * sends only `model` and `input`, so no parameter a newer model refuses rides with it.
+ */
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
+
+/** The model the AI step asks for: the provider's own variable, or its default. */
+export function aiModelFor(env = process.env) {
+  const aiProvider = (env.AI_PROVIDER || 'openai').toLowerCase().trim();
+  return aiProvider === 'claude'
+    ? toCleanPath(env.ANTHROPIC_MODEL || 'claude-sonnet-4-6')
+    : aiProvider === 'ollama'
+    ? toCleanPath(env.OLLAMA_MODEL || 'llama3')
+    : toCleanPath(env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL);
+}
+
 async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basic', outDir: presetOutDir = null, runId = null, pluginStatus = [] }) {
   // --- env & opts -----------------------------------------------------------
   const sendEnabled   = parseBool(process.env.AI_ENABLED);
   const redactEnabled = parseBool(process.env.OPENAI_REDACT, true);
   const aiProvider    = (process.env.AI_PROVIDER || 'openai').toLowerCase().trim();
-  const model         = aiProvider === 'claude'
-    ? toCleanPath(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6')
-    : aiProvider === 'ollama'
-    ? toCleanPath(process.env.OLLAMA_MODEL || 'llama3')
-    : toCleanPath(process.env.OPENAI_MODEL || 'gpt-4o-mini');
+  const model         = aiModelFor(process.env);
   const { resolveSecret } = await import('./utils/keychain.mjs');
   const keyRaw        = aiProvider === 'claude'
     ? await resolveSecret(process.env.ANTHROPIC_API_KEY)

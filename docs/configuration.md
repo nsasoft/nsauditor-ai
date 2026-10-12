@@ -10,7 +10,7 @@ Every environment variable NSAuditor AI reads, with its default and its effect. 
 AI_ENABLED=false                     # Set to true to enable AI analysis
 AI_PROVIDER=openai                   # openai | claude | ollama
 OPENAI_API_KEY=sk-...               # Your OpenAI key
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-6-luna
 ANTHROPIC_API_KEY=sk-ant-...        # Your Claude key
 ANTHROPIC_MODEL=claude-sonnet-4-6
 OPENAI_PROMPT_MODE=optimized        # basic | pro | optimized
