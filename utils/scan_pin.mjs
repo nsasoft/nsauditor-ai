@@ -13,15 +13,19 @@
 // not pinned by it. Outside a pinned run the resolvers behave exactly as before. A thrown scan leaves nothing behind.
 //
 // WHAT IT DOES NOT COVER, by construction: `dns.resolve*` (the DNS protocol, never getaddrinfo — used for DNS posture,
-// which never connects to the target), and SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS):
-// each of those plugins reads `pinnedAddressFor(host)` and passes the address itself. tests/scan_pin_census.test.mjs is
-// the deny-by-default census that keeps that list complete.
+// which never connects to the target); SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS), so
+// each of those plugins reads `pinnedAddressFor(host)` and passes the address itself; and a `dgram` socket CREATED BEFORE
+// the first pinned run, which resolves through the lookup it captured at creation (measured by the architect seat: such a
+// socket reached loopback inside a later pin; one created inside the run was pinned). No plugin or util creates a socket
+// at module scope today. tests/scan_pin_census.test.mjs is the deny-by-default census that keeps this list complete.
 //
 // A STATED LIMIT, measured: fetch (undici) and http.Agent pool keep-alive connections by NAME, and a reused connection
 // never resolves. So within one process a scan can send a request over an idle connection opened earlier to the SAME name,
-// for the few seconds it idles: by an earlier scan of that name (to an address that scan's check admitted), or by the
-// product's own request to it (an AI provider, the NVD feed — names a scan rarely targets). tests/scan_pin.test.mjs holds
-// the measurement.
+// for as long as that connection stays idle in the pool — a few seconds by default; a server's Keep-Alive hint holds it
+// longer (the architect seat measured a reuse at 12 s under `Keep-Alive: timeout=60`; the ceiling was not driven, so no
+// number is claimed here). The connection was opened by an earlier scan of that name (to an address that scan's check
+// admitted), or by the product's own request to it (an AI provider, the NVD feed — names a scan rarely targets).
+// tests/scan_pin.test.mjs holds the measurement.
 // ─────────────────────────────────────────────────────────────────────────────
 import { AsyncLocalStorage } from 'node:async_hooks';
 import dns from 'node:dns';

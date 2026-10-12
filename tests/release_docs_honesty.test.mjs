@@ -151,7 +151,8 @@ test('NSA_ALLOW_ALL_HOSTS: the README says what it opens over MCP, and never off
   // the new one must carry its scope (CE 1.0.0) and both of its limits — a pin claim without them would overclaim.
   assert.doesNotMatch(s, /does not pin the answer|no DNS pin|is still resolved again when it is scanned/);
   assert.match(s, /Since CE 1\.0\.0 a scan connects to the addresses its check resolved/);
-  assert.match(s, /Since CE 1\.0\.0 a scan connects[^\n]*`NODE_USE_ENV_PROXY`[^\n]*the proxy resolves it[^\n]*reuse an idle connection/, 'the pin sentence lost one of its two limits');
+  assert.match(s, /Since CE 1\.0\.0 a scan connects[^\n]*`NODE_USE_ENV_PROXY`[^\n]*the proxy resolves it[^\n]*reuse an idle connection[^\n]*stays idle in the pool[^\n]*Keep-Alive hint holds it longer/, 'the pin sentence lost one of its two limits, or the pool window\'s owner (the target sets it, not us)');
+  assert.doesNotMatch(s, /a few seconds earlier/, 'the window is the TARGET\'s to set: a server\'s Keep-Alive hint falsifies "a few seconds"');
   assert.match(s, /Since CE 1\.0\.0 the scan connects to the answers the check resolved/);
   assert.match(s, /never the webhook guard/);
   assert.doesNotMatch(s, /Webhook URL rejected[^\n]*Use `NSA_ALLOW_ALL_HOSTS=1`/);

@@ -15,6 +15,11 @@ import './helpers/no_operator_keychain.mjs';   // FIRST: this file imports cli.m
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import dnsPromises from 'node:dns/promises';
+import net from 'node:net';
+import { runPinned } from '../utils/scan_pin.mjs';
+import PluginManager from '../plugin_manager.mjs';
+import pingChecker from '../plugins/ping_checker.mjs';
+import portScanner from '../plugins/port_scanner.mjs';
 import { scanSingleHost } from '../cli.mjs';
 import { handleScanHost, handleProbeService, _setPluginManager, _setValidateHost } from '../mcp_server.mjs';
 
@@ -94,4 +99,23 @@ test('(w6) the WHOLE checked answer set is pinned, in resolver order — not onl
   _setValidateHost(null);
   await assert.rejects(handleScanHost({ host: NAME }), STOP);
   assert.deepEqual(seen, [['203.0.113.10', '2606:4700:4700::1111']]);
+});
+
+test('(w7) a REAL plugin manager and REAL plugins (001, 003) under the pin — the stand-in above, closed to the real chain', async () => {
+  // The architect seat's shape (R1b read): every wiring leg above drives a stand-in plugin manager, and the live-CLI leg pins
+  // localhost to its OWN answers, so neither shows the scan's async context surviving pm.run into a real plugin's connect.
+  let hits = 0;
+  const server = net.createServer((sock) => { hits += 1; sock.destroy(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  try {
+    const pm = await PluginManager.create({ plugins: [pingChecker, portScanner] });
+    await pm.run('localhost', 'all', { tcpPorts: [port] });
+    await new Promise((r) => setTimeout(r, 150));   // a server's connection event can trail the client's
+    assert.ok(hits >= 1, 'positive control: an unpinned real scan of localhost did not reach the listener — this leg measures nothing');
+    const before = hits;
+    await runPinned({ localhost: [{ address: '203.0.113.10', family: 4 }] }, () => pm.run('localhost', 'all', { tcpPorts: [port] }));
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(hits, before, 'a pinned real scan reached loopback — the pin did not survive pm.run into the port scanner\'s connect');
+  } finally { await new Promise((r) => server.close(r)); }
 });

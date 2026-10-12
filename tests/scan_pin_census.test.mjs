@@ -17,7 +17,9 @@
 // alias under any other name was invisible — found by its own mutation battery, whose planted import changed nothing. A
 // first argument it cannot bind, and an import with no call it can derive, are reported, never dropped.
 //
-// Its scope: this repository's own plugins/ and utils/. Enterprise's plugins are walked by the twin census in that repo.
+// Its scope: this repository's plugins/, utils/ and its root *.mjs (cli, index, mcp_server, plugin_manager — the root was
+// unwalked until the architect seat's R1b read: a root file gaining a spawn would have been invisible). Enterprise's files
+// are walked by the twin census in that repo.
 // ─────────────────────────────────────────────────────────────────────────────
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -153,12 +155,14 @@ export function thirdPartyIn(src) {
 
 function sourcesUnder(dir) {
   return fs.readdirSync(path.join(ROOT, dir)).filter((n) => n.endsWith('.mjs')).sort()
-    .map((n) => ({ rel: `${dir}/${n}`, src: stripComments(fs.readFileSync(path.join(ROOT, dir, n), 'utf8')) }));
+    .map((n) => ({ rel: dir === '.' ? n : `${dir}/${n}`, src: stripComments(fs.readFileSync(path.join(ROOT, dir, n), 'utf8')) }));
 }
+/** Every source the census walks: plugins/, utils/ and the root *.mjs. */
+const walked = () => [...sourcesUnder('plugins'), ...sourcesUnder('utils'), ...sourcesUnder('.')];
 
 function census() {
   const found = {};
-  for (const { rel, src } of [...sourcesUnder('plugins'), ...sourcesUnder('utils')]) {
+  for (const { rel, src } of walked()) {
     const cp = CHILD_PROCESS.test(src);
     const dnsImport = DNS_IMPORT.test(src);
     if (!cp && !dnsImport) continue;
@@ -194,7 +198,7 @@ test('(c1, first) the derivation reads every shape — an aliased or namespace i
   assert.deepEqual([...thirdPartyIn('import a from "snmp-native";\nconst b = await import(\'mdns\');\nimport x from "./y.mjs"; import n from "node:net";')].sort(), ['mdns', 'snmp-native']);
 });
 
-test('every file under plugins/ and utils/ that imports child_process or a dns module is DECLARED, and every declaration still has its trigger', () => {
+test('every file under plugins/, utils/ and the root that imports child_process or a dns module is DECLARED, and every declaration still has its trigger', () => {
   const found = census();
   assert.ok(Object.keys(found).length >= 8, `the census found ${Object.keys(found).length} files — the walk is broken`);
   assert.deepEqual(Object.keys(found).sort(), Object.keys(DECLARED).sort(),
@@ -229,4 +233,18 @@ test('every third-party package a plugin imports is DECLARED with why it cannot 
   const imported = new Set(sourcesUnder('plugins').flatMap(({ src }) => [...thirdPartyIn(src)]));
   assert.ok(imported.size >= 3, 'the walk found almost no third-party imports — it is broken');
   assert.deepEqual([...imported].sort(), Object.keys(THIRD_PARTY).sort(), 'a plugin imports an undeclared package (or a declared one is gone)');
+});
+
+/**
+ * A `dgram` socket resolves through the lookup it captured when it was CREATED (measured by the architect seat on the R1b
+ * read): one created at MODULE SCOPE exists before the first pinned run and sits outside the pin. Zero today; a ratchet.
+ */
+const MODULE_SCOPE_SOCKET = /^(?:export\s+)?(?:(?:const|let|var)\s+[\w$]+\s*=\s*)?(?:await\s+)?(?:new\s+(?:[\w$]+\.)?Session\(|(?:[\w$]+\.)?createSocket\()/m;
+test('(c6) no plugin, util or root file creates a socket at MODULE scope — it would capture the lookup before any pin', () => {
+  assert.ok(MODULE_SCOPE_SOCKET.test('const sock = dgram.createSocket("udp4");') && MODULE_SCOPE_SOCKET.test('export const s = new Session({ host });'),
+    'positive control: a module-scope socket is seen');
+  assert.ok(!MODULE_SCOPE_SOCKET.test('function f() {\n  const sock = dgram.createSocket("udp4");\n}'), 'a socket inside a function is not module scope');
+  const sources = walked();
+  assert.ok(sources.some(({ src }) => /createSocket\(/.test(src)), 'the walk reaches the files that create sockets — or this leg tests nothing');
+  assert.deepEqual(sources.filter(({ src }) => MODULE_SCOPE_SOCKET.test(src)).map(({ rel }) => rel), []);
 });
