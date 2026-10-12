@@ -5,12 +5,20 @@
 
 import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getTierFromEnv, loadLicense, _resetCache } from '../utils/license.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LICENSE_MANAGER = join(__dirname, '..', '..', 'nsauditor-ai-license-manger');
+// The license manager is a PRIVATE sibling checkout (it holds the signing key), so a checkout without it — public CI among
+// them — cannot mint the short-lived keys the expiry legs need. Those legs SKIP BY NAME there; until 1.0.0 they CANCELLED
+// ("did not finish before its parent"), which read as neither a pass nor a skip.
+const KEYGEN_AVAILABLE = existsSync(join(LICENSE_MANAGER, 'lib', 'keygen.mjs'))
+  && existsSync(join(LICENSE_MANAGER, 'private', 'ec_private.pem'));
+const NEEDS_KEYGEN = KEYGEN_AVAILABLE ? {}
+  : { skip: 'the license-manager sibling checkout (private: it holds the signing key) is absent, so short-lived keys cannot be minted' };
 
 // ── Test Fixture JWTs ───────────────────────────────────────────────────────
 // Real JWTs signed with the production EC key pair (expire ~2036).
@@ -213,6 +221,7 @@ describe('loadLicense expiry warnings', () => {
   let generateLicenseKey, loadPrivateKey;
 
   before(async () => {
+    if (!KEYGEN_AVAILABLE) return;
     const keygen = await import(join(LICENSE_MANAGER, 'lib', 'keygen.mjs'));
     const jwt = await import(join(LICENSE_MANAGER, 'lib', 'jwt.mjs'));
     generateLicenseKey = keygen.generateLicenseKey;
@@ -229,7 +238,7 @@ describe('loadLicense expiry warnings', () => {
     return key;
   }
 
-  it('returns daysUntilExpiry and no warning for far-future keys', async () => {
+  it('returns daysUntilExpiry and no warning for far-future keys', NEEDS_KEYGEN, async () => {
     const key = await makeKey('365d');
     const result = await loadLicense(key);
     assert.equal(result.valid, true);
@@ -237,7 +246,7 @@ describe('loadLicense expiry warnings', () => {
     assert.equal(result.expiryWarning, null);
   });
 
-  it('returns warning when key expires in ≤7 days', async () => {
+  it('returns warning when key expires in ≤7 days', NEEDS_KEYGEN, async () => {
     const key = await makeKey('5d');
     const result = await loadLicense(key);
     assert.equal(result.valid, true);
@@ -246,7 +255,7 @@ describe('loadLicense expiry warnings', () => {
     assert.ok(result.expiryWarning.includes('days'));
   });
 
-  it('returns urgent warning when key expires in ≤1 day', async () => {
+  it('returns urgent warning when key expires in ≤1 day', NEEDS_KEYGEN, async () => {
     const key = await makeKey('12h');
     const result = await loadLicense(key);
     assert.equal(result.valid, true);

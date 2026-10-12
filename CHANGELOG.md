@@ -6,6 +6,84 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## 1.0.0 (⏳ PRE-PUBLISH — opened 2026-10-09, NOT YET ON npm) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; a port no probe identified is not a service; paired with Enterprise 2.0.0
+
+**The release:** Community 1.0.0 is the Community half of Enterprise 2.0.0. A scan now connects only to the addresses its
+host check resolved, so a name that answers one address to the check and another at connect (DNS rebinding) cannot
+redirect it. The payload sent to AI no longer carries an AWS account ID, and the system prompt sent with it is written
+beside it. A refused or unidentified TCP port is no longer listed as a service. Plugin 040 tells a weak certificate from
+an untrusted chain. The plugin count is unchanged at 27.
+
+⚠️ **SECURITY — ROTATE A WEBHOOK URL THAT A LOGGED `--watch` RUN PRINTED.** --watch printed the full --webhook-url to stdout; it now prints the host. If you ran --watch with a Slack or Teams URL where stdout is logged, rotate that URL.
+
+⚠️ **THE SUPPORTED RUNTIME IS NODE.JS 24 (`engines.node` `>=24.0.0`).** Node.js 22 reaches end of life on 2027-04-30,
+and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it records them NOT ASSESSED). Plugin
+040's runtime sentence names the version that is running.
+
+### A scan connects where its host check looked
+
+- **The resolved-address pin.** The host check resolves the target and checks every answer; the scan then connects only
+  to those answers — on the CLI and through the MCP server, for the target and for each redirect hop. Every in-process
+  connect is pinned for the life of the scan (scoped to it, so two overlapping scans keep their own answers), and the name
+  still rides as the Host header and the TLS server name. `ping`, `nping`, `hping3` and `nmap` are handed the checked IPv4
+  answer; `curl` gets `--resolve`. **Stated limits:** under `NODE_USE_ENV_PROXY` a request goes through the proxy by NAME,
+  so the proxy resolves it and the pin governs only the hop to the proxy; and fetch and `http.Agent` pool keep-alive
+  connections by name, so a request can reuse an idle connection opened earlier to the same name, for as long as the
+  target keeps it open.
+- **`sendWebhook` connects to the address its own SSRF check resolved**, and a failed proxy tunnel's error no longer
+  carries the proxy's credentials (a password with a raw `@` or space included).
+- **A plugin's `pluginStatus` row names the code that produced it:** `producedBy: "<package>@<version>"`, from the nearest
+  `package.json` above the plugin file.
+
+### The AI payload
+
+- **No AWS account ID.** The redactor masks an account ID found in an ARN or an AWS URL as `[ACCOUNT_ID]` everywhere it
+  occurs, and any other 12-digit run as `[REDACTED_ID]`; `_meta.redactor` names what ran (`builtin`). `docs/openai.md`
+  states what the redactor masks and what it does not, measured against a real run.
+- **The system prompt is written beside the payload** — `scan_response_ai_system_prompt.txt`, before the request — so the
+  two files are what left the machine, including the Pro/Enterprise intelligence block that rides the system prompt.
+- **One payload pipeline.** `buildAIPayload` is the single exported function the CLI sends and the docs are tested
+  against; a scan whose redactor throws REJECTS with nothing written and nothing sent.
+- **`enhancedRedaction` says what it is:** it gates no code of its own; the payload redactor is the same at every tier.
+- **The OpenAI default is `gpt-6-luna`** (`gpt-4o-mini` before), declared once and tested against the CLI.
+
+### What the concluder lists as a service
+
+- **On TCP an authoritative adapter row must identify its service to be one.** A row whose adapter did not identify the
+  service (any status other than `open`) is never listed as a service and never replaces an open port's identity: onto a
+  service that exists it adds evidence and fills blanks other than identity; where none exists it goes to `evidence` with
+  its reason. An identified row on a port the port scanner measured closed stays a service, with a `measurementConflict`
+  note. Measured over the 520 recorded scans: 501 such rows (TLS 465 / 563 / 993 / 995 / 443, OpenSearch 5601 / 9200,
+  NetBIOS 445) leave the service list, which moves the CSV, SARIF, the Markdown table and the AI payload's services by
+  exactly those rows. The delta reads the change across the upgrade as not measured, never as fixed or new. **Stated
+  limit:** UDP rows are unchanged — a UDP non-answer is open|filtered, and the delta's UDP measurement reads those rows.
+
+### Plugin 040
+
+- **A refusal with no named reason gets a second look.** When the runtime refuses a certificate chain with no named
+  reason (`UNSPECIFIED`) and the certificate carries a graded weak key or signature, 040 makes one more handshake at
+  OpenSSL security level 0: authorized there, the refusal was the weak crypto and `ca_not_trusted` is not raised (the
+  weak-key or weak-signature finding is the finding); a named code there keeps `ca_not_trusted` with that code; anything
+  else keeps today's wording. A weak certificate under an untrusted CA is named as untrusted at the default level and
+  never takes the second look. The outcome rides `certAudit.details.trustCheck`.
+
+### Watch mode and notifications
+
+- **`--notify-webhook`, `--notify-format`, `--notify-severity`, `--notify-payload`** are parsed, checked at the boundary
+  and forwarded to Enterprise's drift notification; `--notify-webhook` takes public `https` URLs only.
+- **`--alert-payload minimal|full` on the watch alert, default `full` (unchanged).** `minimal` drops the host, the service
+  and the description.
+- **The README says what `--watch` alerts cover:** network-scan findings; cloud-plugin findings and compliance control
+  status do not alert — use the drift file and its notification on a scheduled one-shot scan (Enterprise).
+
+### Claims and documentation
+
+- **Zero Data Exfiltration is stated party-scoped** in the README and docs: no scan data is ever sent to Nsasoft, and no
+  BAA with Nsasoft is required. The 0.9.0-era line that said otherwise carries its WITHDRAWN marker in the same sentence.
+- **The three honest Docker-isolation denials carry WITHDRAWN in their own sentence.**
+- **This repository is public:** two planning files left the tree, and a test fails on any tracked planning file, task
+  ledger, assistant instruction file, session transcript or `.env`.
+
 ## 0.2.57 (2026-10-07) — every service check reaches every report, graded once; the delta refuses what the other scan could not identify; paired with Enterprise 1.3.0
 
 **The release:** the Pro delta no longer reads an analysis agent's row as fixed or new because one scan left out the
