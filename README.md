@@ -17,22 +17,22 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 0.2.57 + Enterprise 1.3.0 — *a finding on a port, region or producer a scan did not measure is not counted as fixed — two measured limits stated*.**
-The Pro/Enterprise `report --since` delta refuses two more ways a row could read as fixed without being fixed. A CVE
-or end-of-life row on a TCP port whose service the other scan reached but could not identify (a program and a version)
-is `port-not-measured`, never resolved or new. And from Enterprise 1.3.0 a scan that left out a plugin an analysis agent
-reads records it, so that agent's rows there are refused as `evidence-gap`. Each new, resolved and changed row now
-carries a **Basis** cell saying what the delta checked for that row. Two Enterprise agents changed identity at 1.3.0 —
-the exposure agent's titles no longer name the service, the service agent's no longer name the version — and both are
-declared in this release, so a row compared across the upgrade reads `identity-basis-changed`, never resolved or new.
-**Two measured limits:** a scan made before EE 1.3.0 could not record a plugin left out of it, so in a comparison with
-one, an agent's row that scan lacks is not refused — its Basis cell says so; and a scan that discovered ports with the
-Nmap plugin (024) alone records no port oracle, so an analysis agent's or the CVE mapper's row on a port it did not
-measure can read RESOLVED and count as closed in MTTR, and the control it failed can read PASS — include the port
-scanner (003). The release also carries this cycle's scanner, report and security fixes; the
-[CHANGELOG](./CHANGELOG.md) lists them. Plugin counts UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix
-UNCHANGED; **Enterprise 1.3.0 requires this release** (`nsauditor-ai >= 0.2.57`). The free last-vs-current webhook
-alerting delta is untouched and stays free (see Continuous Monitoring below).
+**Latest: CE 1.0.0 + Enterprise 2.0.0 — *Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; a port no probe identified is not a service*.**
+A scan now connects only to the addresses its host check resolved — on the CLI and through the MCP server, for the target
+and each redirect hop — so a name that answers one address to the check and another at connect (DNS rebinding) cannot
+redirect it; two limits are stated in the [CHANGELOG](./CHANGELOG.md) (an HTTP proxy set with `NODE_USE_ENV_PROXY`, and an
+idle pooled connection). The payload sent to AI no longer carries an AWS account ID, and the system prompt sent with it is
+written beside it. A refused or unidentified TCP port is no longer listed as a service. Plugin 040 tells a weak certificate
+from an untrusted chain. ⚠️ **Security:** `--watch` printed the full `--webhook-url` to stdout; it now prints the host — if
+you ran `--watch` with a Slack or Teams URL where stdout is logged, rotate that URL. The supported runtime is **Node.js 24**.
+Two limits from Enterprise 1.3.0 still hold in the Pro delta and Enterprise MTTR: a scan made before Enterprise 1.3.0
+could not record a plugin left out of it, so in a comparison with one an agent's row that scan lacks is not refused;
+and a scan that discovered ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the
+CVE mapper's row on a port it did not measure can read RESOLVED and count as closed in MTTR, and the control it failed
+can read PASS — include the port scanner (003).
+Plugin count UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; **Enterprise 2.0.0 requires this
+release** (`nsauditor-ai >= 1.0.0`). The free last-vs-current webhook alerting delta is untouched and stays free (see
+Continuous Monitoring below).
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
