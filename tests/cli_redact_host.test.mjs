@@ -221,51 +221,17 @@ test('public IPs in nested services are NOT redacted by scrubPrivateIps', () => 
 });
 
 // ---------------------------------------------------------------------------
-// globalThis.redactSensitiveForAI gate — mirrors the condition in cli.mjs:
-//   if (hasCapability(redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function')
-// Tests here use the actual imported resolveCapabilities/hasCapability so that
-// a rename of the capability key or a change to resolveCapabilities breaks these tests.
+// The AI payload is redacted by Community's redactor at EVERY tier (EE 2.0.0). Until then a Pro-tier branch deferred to a
+// `globalThis.redactSensitiveForAI` hook that neither package installs; the three legs here tested a COPY of that branch's
+// condition, never cli.mjs, so they stayed green whatever cli.mjs did. This leg reads the shipped source instead.
 // ---------------------------------------------------------------------------
 
-test('globalThis.redactSensitiveForAI gate: CE tier blocks external override', () => {
-  const caps = resolveCapabilities('ce');
-  const allowed = hasCapability(caps, 'enhancedRedaction');
-  assert.equal(allowed, false, 'CE must not have enhancedRedaction');
-
-  // Simulate the gate: spy must not be invoked when allowed === false
-  let spyCalled = false;
-  const prev = globalThis.redactSensitiveForAI;
-  globalThis.redactSensitiveForAI = () => { spyCalled = true; return {}; };
-  try {
-    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
-      globalThis.redactSensitiveForAI({});
-    }
-    assert.equal(spyCalled, false, 'external override must not be called on CE tier');
-  } finally {
-    globalThis.redactSensitiveForAI = prev;
-  }
-});
-
-test('globalThis.redactSensitiveForAI gate: Pro tier allows external override', () => {
-  const caps = resolveCapabilities('pro');
-  const allowed = hasCapability(caps, 'enhancedRedaction');
-  assert.equal(allowed, true, 'Pro must have enhancedRedaction');
-
-  let spyCalled = false;
-  const prev = globalThis.redactSensitiveForAI;
-  globalThis.redactSensitiveForAI = () => { spyCalled = true; return {}; };
-  try {
-    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
-      globalThis.redactSensitiveForAI({});
-    }
-    assert.equal(spyCalled, true, 'external override must be called on Pro tier');
-  } finally {
-    globalThis.redactSensitiveForAI = prev;
-  }
-});
-
-test('globalThis.redactSensitiveForAI gate: Enterprise tier allows external override', () => {
-  const caps = resolveCapabilities('enterprise');
-  const allowed = hasCapability(caps, 'enhancedRedaction');
-  assert.equal(allowed, true, 'Enterprise must have enhancedRedaction');
+test('cli.mjs redacts the AI payload with the built-in redactor alone: no hook, no tier, one label', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../cli.mjs', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.doesNotMatch(src, /globalThis\.redactSensitiveForAI/, 'no external redactor hook is read');
+  assert.doesNotMatch(src, /enhancedRedaction/, 'the payload path does not depend on the tier');
+  assert.match(src, /const used = 'builtin';\n\s*payloadForAI = redactSensitiveForAI\(payloadForAI, host\);/);
+  assert.doesNotMatch(src, /'builtin-after-(?:external-)?failure'|used = 'external'/, 'no label names a path that cannot run');
 });

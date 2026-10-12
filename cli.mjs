@@ -165,6 +165,90 @@ export function redactSensitiveForAI(input, targetHost) {
   return walk(input);
 }
 
+/**
+ * The payload the AI stage writes to scan_response_ai_payload.json and sends: every redaction step, in order, in ONE function
+ * that maybeSendToOpenAI calls, so the file IS this function's output and docs/openai.md's list is driven through the real
+ * pipeline (EE 2.0.0, the architect seat's S1 — a test that composed the rules with a policy spelled in the TEST proved the
+ * rules, never the call site).
+ */
+export function buildAIPayload({ host, hostOsHint = null, summary, results, conclusion, detectedSerial = null, redact = true, env = process.env }) {
+  let payloadForAI = {
+    host,
+    host_os_hint: hostOsHint,
+    summary, // include full; redactor will mask
+    services: conclusion?.result?.services ?? [],
+    evidence: conclusion?.result?.evidence ?? [],
+    _meta: {
+      resultsCount: Array.isArray(results) ? results.length : (results ? 1 : 0),
+      serialFound: !!detectedSerial
+    }
+  };
+
+  if (redact) {
+    // `_meta.redactor` names what ran: 'builtin', Community's redactor, the same at every tier. Until EE 2.0.0 a Pro-tier
+    // branch here deferred to a `globalThis.redactSensitiveForAI` hook that neither package installs, and the record started
+    // as 'fallback' and stayed there, so every normal run said "fallback" (marketing task #204, finding 3). The branch is
+    // deleted (the architect seat's ruling), and so is its retry: the redactor builds a new object and never modifies its
+    // input, so a second call on the same input throws again. A throw propagates to maybeSendToOpenAI, which has then written
+    // and sent nothing.
+    const used = 'builtin';
+    payloadForAI = redactSensitiveForAI(payloadForAI, host);
+
+    // additional key-based scrubbing (CONFIDENTIAL_KEYWORDS=serial,password,token)
+    const keywords = String(env.CONFIDENTIAL_KEYWORDS || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (keywords.length) payloadForAI = scrubByKey(payloadForAI, keywords, '[REDACTED_HIDDEN]');
+
+    // Redact top-level host field (private IPs survive scrubString)
+    if (typeof payloadForAI.host === 'string') {
+      payloadForAI.host = '[REDACTED_HOST]';
+    }
+
+    // Redact any remaining IP addresses in the summary field
+    if (typeof payloadForAI.summary === 'string') {
+      // ⚠️ THE SAME RULE, A DIFFERENT POLICY: every address goes, private ones included. It
+      // carried its own copy of the address regex — the copy that was NOT fixed when the
+      // identifier defect was found in the redactor, which is exactly how the second instance
+      // of a class arrives. Measured at the time: neither live payload's summary carries an
+      // `EE-` token, so this was a latent duplicate rather than a live defect.
+      payloadForAI.summary = scrubIPv4KeepingProductIds(payloadForAI.summary, () => '[REDACTED_HOST]');
+    }
+
+    // Also redact private IPs in nested service/evidence strings
+    const privateIpRe = /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g;
+    function scrubPrivateIps(obj) {
+      if (typeof obj === 'string') return obj.replace(privateIpRe, '[REDACTED_IP]');
+      if (Array.isArray(obj)) return obj.map(scrubPrivateIps);
+      if (obj && typeof obj === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(obj)) out[k] = scrubPrivateIps(v);
+        return out;
+      }
+      return obj;
+    }
+    payloadForAI.services = scrubPrivateIps(payloadForAI.services);
+    payloadForAI.evidence = scrubPrivateIps(payloadForAI.evidence);
+
+    payloadForAI = { ...payloadForAI, _meta: { ...(payloadForAI?._meta || {}), wasRedacted: true, redactor: used } };
+  } else {
+    payloadForAI = { ...payloadForAI, _meta: { ...(payloadForAI?._meta || {}), wasRedacted: false } };
+  }
+
+  // Ensure placeholder only if a serial was detected
+  if (payloadForAI?._meta?.serialFound && detectedSerial) {
+    const s = String(payloadForAI.summary ?? '').trim();
+    if (!/\bSerial\s*[:=]/i.test(s)) {
+      payloadForAI.summary = `${s}  Serial: [REDACTED_HIDDEN]`;
+    } else {
+      payloadForAI.summary = s.replace(/\bSerial\s*[:=]\s*([A-Za-z0-9._-]+)/i, 'Serial: [REDACTED_HIDDEN]');
+    }
+  }
+
+  return payloadForAI;
+}
+
 /* ------------------------- OpenAI & reporting -------------------------- */
 
 /**
@@ -309,96 +393,8 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   }
 
   // --- Build sanitized payload for AI ---------------------------------------
-  let payloadForAI = {
-    host,
-    host_os_hint: hostOsHint,
-    summary: summaryWithFullSerial, // include full; redactor will mask
-    services: conclusion?.result?.services ?? [],
-    evidence: conclusion?.result?.evidence ?? [],
-    _meta: {
-      resultsCount: Array.isArray(results) ? results.length : (results ? 1 : 0),
-      serialFound: !!detectedSerial
-    }
-  };
-
-  if (redactEnabled) {
-    // `_meta.redactor` names what ran: 'builtin' (Community's redactor — every run today), 'external' (a Pro-tier hook that
-    // neither package installs), or 'builtin-after-external-failure'. Until EE 2.0.0 it started as 'fallback' and the
-    // built-in branch never reassigned it, so every normal run's record said "fallback" (marketing task #204, finding 3).
-    let used = 'builtin';
-    let attemptedExternal = false;
-    try {
-      // Only allow external redaction override for Pro/Enterprise tiers.
-      // CE always uses the built-in redact pipeline to preserve the ZDE guarantee.
-      const redactCaps = resolveCapabilities(getTierFromEnv());
-      if (hasCapability(redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
-        attemptedExternal = true;
-        let out = globalThis.redactSensitiveForAI(payloadForAI);
-        if (out && typeof out.then === 'function') out = await out;
-        if (typeof out === 'string') out = JSON.parse(out);
-        if (!out || typeof out !== 'object') throw new Error('external redactor returned non-object');
-        payloadForAI = out;
-        used = 'external';
-      } else {
-        payloadForAI = redactSensitiveForAI(payloadForAI, host);
-      }
-    } catch (e) {
-      console.warn('[OpenAI] Redaction failed, using fallback:', e?.message || e);
-      payloadForAI = redactSensitiveForAI(payloadForAI, host);
-      used = attemptedExternal ? 'builtin-after-external-failure' : 'builtin-after-failure';
-    }
-
-    // additional key-based scrubbing (CONFIDENTIAL_KEYWORDS=serial,password,token)
-    const keywords = String(process.env.CONFIDENTIAL_KEYWORDS || '')
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-    if (keywords.length) payloadForAI = scrubByKey(payloadForAI, keywords, '[REDACTED_HIDDEN]');
-
-    // Redact top-level host field (private IPs survive scrubString)
-    if (typeof payloadForAI.host === 'string') {
-      payloadForAI.host = '[REDACTED_HOST]';
-    }
-
-    // Redact any remaining IP addresses in the summary field
-    if (typeof payloadForAI.summary === 'string') {
-      // ⚠️ THE SAME RULE, A DIFFERENT POLICY: every address goes, private ones included. It
-      // carried its own copy of the address regex — the copy that was NOT fixed when the
-      // identifier defect was found in the redactor, which is exactly how the second instance
-      // of a class arrives. Measured at the time: neither live payload's summary carries an
-      // `EE-` token, so this was a latent duplicate rather than a live defect.
-      payloadForAI.summary = scrubIPv4KeepingProductIds(payloadForAI.summary, () => '[REDACTED_HOST]');
-    }
-
-    // Also redact private IPs in nested service/evidence strings
-    const privateIpRe = /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g;
-    function scrubPrivateIps(obj) {
-      if (typeof obj === 'string') return obj.replace(privateIpRe, '[REDACTED_IP]');
-      if (Array.isArray(obj)) return obj.map(scrubPrivateIps);
-      if (obj && typeof obj === 'object') {
-        const out = {};
-        for (const [k, v] of Object.entries(obj)) out[k] = scrubPrivateIps(v);
-        return out;
-      }
-      return obj;
-    }
-    payloadForAI.services = scrubPrivateIps(payloadForAI.services);
-    payloadForAI.evidence = scrubPrivateIps(payloadForAI.evidence);
-
-    payloadForAI = { ...payloadForAI, _meta: { ...(payloadForAI?._meta || {}), wasRedacted: true, redactor: used } };
-  } else {
-    payloadForAI = { ...payloadForAI, _meta: { ...(payloadForAI?._meta || {}), wasRedacted: false } };
-  }
-
-  // Ensure placeholder only if a serial was detected
-  if (payloadForAI?._meta?.serialFound && detectedSerial) {
-    const s = String(payloadForAI.summary ?? '').trim();
-    if (!/\bSerial\s*[:=]/i.test(s)) {
-      payloadForAI.summary = `${s}  Serial: [REDACTED_HIDDEN]`;
-    } else {
-      payloadForAI.summary = s.replace(/\bSerial\s*[:=]\s*([A-Za-z0-9._-]+)/i, 'Serial: [REDACTED_HIDDEN]');
-    }
-  }
+  const payloadForAI = buildAIPayload({ host, hostOsHint, summary: summaryWithFullSerial, results, conclusion, detectedSerial,
+    redact: redactEnabled });
 
   // --- Bail out early if sending disabled -----------------------------------
   const providerLabel = aiProvider === 'claude' ? 'Claude' : aiProvider === 'ollama' ? 'Ollama' : 'OpenAI';

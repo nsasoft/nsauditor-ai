@@ -73,7 +73,6 @@ test('awsAccountIdsIn learns from ARNs and AWS URLs only', () => {
 test('#204 finding 3 — the payload record names the redactor that RAN: "builtin" on the normal path, never "fallback"', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../cli.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  assert.match(src, /let used = 'builtin';/);
-  assert.doesNotMatch(src, /used = 'fallback'/, 'a normal run must not be recorded as a fallback');
-  assert.match(src, /used = attemptedExternal \? 'builtin-after-external-failure' : 'builtin-after-failure';/);
+  assert.match(src, /const used = 'builtin';/);
+  assert.doesNotMatch(src, /'fallback'/, 'a normal run must not be recorded as a fallback');
 });

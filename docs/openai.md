@@ -34,7 +34,12 @@ One request per scan: a system prompt (selected by `OPENAI_PROMPT_MODE`) and the
 - **CE** sends the basic scan summary — services, ports, versions.
 - **Pro and Enterprise** add an intelligence block — CVE matches, KEV and EPSS where a store was applied, MITRE ATT&CK
   technique annotations and composite risk scores — for better-grounded output. **It travels in the SYSTEM PROMPT**: the
-  redactor below does not see it, and `scan_response_ai_payload.json` does not record it. Measured on 2026-10-11, the block
+  redactor below does not see it, and `scan_response_ai_payload.json` does not record it. The Enterprise plugin pack scrubs
+  the block with its own pass before adding it, whatever `OPENAI_REDACT` says: the target host on each finding becomes
+  `[target-N]`; e-mail addresses, private and loopback IPv4 addresses (unless `REDACT_INTERNAL_IPS=false`), URLs to
+  private addresses, colon-form MAC addresses, SNMP community strings and `.internal` / `.local` / `.corp` / `.lan` /
+  `.intra` / `.priv` hostnames are masked; `NSA_AI_REDACT_LEVEL=strict` adds config and key file paths, AWS key IDs and
+  Bearer tokens. Public addresses and hostnames elsewhere in the block are not masked. Measured on 2026-10-11, the block
   for a router scan carried no address, hostname, e-mail address or account ID, and a cloud scan's block was empty.
 
 With `OPENAI_REDACT=true` (the default), before the payload is sent:

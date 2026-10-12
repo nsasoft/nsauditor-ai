@@ -38,32 +38,14 @@ test('hasCapability returns false for missing cap', () => {
   assert.ok(hasCapability(caps, 'coreScanning'));
 });
 
-test('globalThis.redactSensitiveForAI is ignored on CE tier (enhancedRedaction absent)', () => {
-  let called = false;
-  const orig = globalThis.redactSensitiveForAI;
-  globalThis.redactSensitiveForAI = () => { called = true; return {}; };
-  try {
-    const caps = resolveCapabilities('ce');
-    const allowed = hasCapability(caps, 'enhancedRedaction');
-    assert.equal(allowed, false, 'CE tier must not have enhancedRedaction');
-    // Simulate the gate: if !allowed, the globalThis fn must not be called
-    if (allowed && typeof globalThis.redactSensitiveForAI === 'function') {
-      globalThis.redactSensitiveForAI();
-    }
-    assert.equal(called, false, 'globalThis.redactSensitiveForAI must not be called on CE');
-  } finally {
-    globalThis.redactSensitiveForAI = orig;
-  }
-});
-
-test('globalThis.redactSensitiveForAI is allowed on Pro tier (enhancedRedaction present)', () => {
-  const caps = resolveCapabilities('pro');
-  assert.equal(hasCapability(caps, 'enhancedRedaction'), true, 'Pro tier must have enhancedRedaction');
-});
-
-test('globalThis.redactSensitiveForAI is allowed on Enterprise tier (enhancedRedaction present)', () => {
-  const caps = resolveCapabilities('enterprise');
-  assert.equal(hasCapability(caps, 'enhancedRedaction'), true, 'Enterprise tier must have enhancedRedaction');
+// enhancedRedaction GATES NO CODE (EE 2.0.0, the architect seat's ruling): the Pro-tier hook it guarded in cli.mjs was installed
+// by neither package and is deleted. The KEY stays, granted as before, because the deployed licensing signer still mints it
+// into customer JWTs — removing it is the pdfExport shape and needs a signer change (boarded for the operator). Its desc says
+// what Pro and Enterprise actually add on the AI path; EE's tests/enhanced_redaction_desc_matches_behaviour drives that.
+test('enhancedRedaction is still granted at Pro and Enterprise, and not at CE', () => {
+  assert.equal(hasCapability(resolveCapabilities('ce'), 'enhancedRedaction'), false);
+  assert.equal(hasCapability(resolveCapabilities('pro'), 'enhancedRedaction'), true);
+  assert.equal(hasCapability(resolveCapabilities('enterprise'), 'enhancedRedaction'), true);
 });
 
 test('CAPABILITIES covers all expected keys', () => {

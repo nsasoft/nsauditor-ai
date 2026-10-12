@@ -16,10 +16,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { redactSensitiveForAI, scrubIPv4KeepingProductIds } from '../cli.mjs';
+import { buildAIPayload } from '../cli.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const redact = (info) => JSON.stringify(redactSensitiveForAI({ evidence: [{ info }] }, '203.0.113.9'));   // a NETWORK payload
+// THROUGH THE REAL PIPELINE (the architect seat's S1): buildAIPayload is the function maybeSendToOpenAI calls, so the payload
+// file IS its output. A network payload, no CONFIDENTIAL_KEYWORDS.
+const payload = ({ summary = '', services = [], evidence = [], env = {}, redact = true } = {}) =>
+  buildAIPayload({ host: '203.0.113.9', summary, results: [], conclusion: { result: { services, evidence } }, env, redact });
+const redact = (info) => JSON.stringify(payload({ evidence: [{ info }] }));
 
 test('(first) MASKED, as documented: public IPv4, colon MAC, full IPv6, link-local, serials', () => {
   assert.match(redact('peer 198.51.100.7 answered'), /\[IP\]/);
@@ -71,9 +75,41 @@ test('the docs say so: docs/openai.md and the README name both lists, and the pa
 test('the SUMMARY through both passes as cli.mjs applies them: public → [IP], private → [REDACTED_HOST] — and the page says so', () => {
   // The architect seat's refute (second read of 1ca3ffe): the page said EVERY summary address became [REDACTED_HOST]. The
   // base redactor runs first and turns a public one into [IP]; only a private one is left for the summary pass.
-  const summary = redactSensitiveForAI({ summary: 'peer 198.51.100.7 and 10.0.0.5 answered' }, 'x').summary;
-  assert.equal(scrubIPv4KeepingProductIds(summary, () => '[REDACTED_HOST]'), 'peer [IP] and [REDACTED_HOST] answered');
+  // Driven through buildAIPayload, so a changed POLICY at the call site turns this red — the first cut spelled the policy in
+  // the test and proved the rules compose, not that the pipeline applies them (survivor S1).
+  assert.equal(payload({ summary: 'peer 198.51.100.7 and 10.0.0.5 answered' }).summary, 'peer [IP] and [REDACTED_HOST] answered');
   const doc = fs.readFileSync(path.join(ROOT, 'docs', 'openai.md'), 'utf8');
   assert.doesNotMatch(doc, /every IPv4 address in the summary with `\[REDACTED_HOST\]`/);
   assert.match(doc, /a private IPv4 address left in the summary also becomes\s+`\[REDACTED_HOST\]` \(a public one is `\[IP\]` there/);
+});
+
+test('the intelligence block\'s scrub is stated in docs/openai.md in the enhancedRedaction desc\'s own words (EE 2.0.0)', async () => {
+  // The desc is what `license --capabilities` prints; the doc is what a reader is pointed at. One sentence in two places
+  // drifts unless one is held to the other. What the sentence says is driven against EE's real block builder in EE's
+  // tests/enhanced_redaction_desc_matches_behaviour — Community cannot drive it from here.
+  const { CAPABILITIES } = await import('../utils/capabilities.mjs');
+  const desc = CAPABILITIES.enhancedRedaction.desc;
+  const i = desc.indexOf('the target host on each finding');
+  const j = desc.indexOf(' The scan-payload redactor is the same at every tier');
+  assert.ok(i > 0 && j > i, `the desc no longer carries the sentence this leg holds the doc to: ${desc}`);
+  assert.match(desc, /^Gates no code of its own\./, 'the key gates no code; the desc must say so first');
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'openai.md'), 'utf8').replace(/`/g, '').replace(/\s+/g, ' ');
+  assert.ok(doc.includes(desc.slice(i, j)), `docs/openai.md must carry, verbatim (backticks aside): ${desc.slice(i, j)}`);
+});
+
+test('the rest of the page\'s list, through the pipeline: host, private IPv4 in services and evidence, CONFIDENTIAL_KEYWORDS, _meta', () => {
+  const p = payload({ services: [{ port: 22, banner: 'ssh on 192.168.4.4' }], evidence: [{ info: 'peer 10.9.9.9', apiToken: 'xyz' }],
+    env: { CONFIDENTIAL_KEYWORDS: 'token' } });
+  assert.equal(p.host, '[REDACTED_HOST]');
+  assert.equal(p.services[0].banner, 'ssh on [REDACTED_IP]');
+  assert.equal(p.evidence[0].info, 'peer [REDACTED_IP]');
+  assert.equal(p.evidence[0].apiToken, '[REDACTED_HIDDEN]');
+  assert.deepEqual([p._meta.wasRedacted, p._meta.redactor], [true, 'builtin']);
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'openai.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(doc, /the top-level host is replaced with `\[REDACTED_HOST\]`/);
+  assert.match(doc, /private-range IPv4 addresses \(10\/8, 172\.16\/12, 192\.168\/16\) in service and evidence strings are replaced with `\[REDACTED_IP\]`/);
+  assert.match(doc, /any field whose key matches `CONFIDENTIAL_KEYWORDS`[^;\n]*is replaced with `\[REDACTED_HIDDEN\]`/);
+  // ...and with OPENAI_REDACT=false nothing is masked and the record says so.
+  const off = payload({ evidence: [{ info: 'peer 198.51.100.7' }], redact: false });
+  assert.deepEqual([off.host, off.evidence[0].info, off._meta.wasRedacted, off._meta.redactor], ['203.0.113.9', 'peer 198.51.100.7', false, undefined]);
 });

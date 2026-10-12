@@ -36,7 +36,7 @@ export const CAPABILITIES = {
   analysisAgents:     { tier: 'pro', desc: 'Auth, crypto, config and service analysis agents over scan evidence. Analysis of collected evidence — NOT active exploitation probes.' },
   advancedCTEM:       { tier: 'pro', desc: 'Extended scan-history retention beyond the CE window.' },
   clientReporting:    { tier: 'pro', desc: 'The `report` subcommand: a print-ready branded HTML report over a completed scan run, and a findings CSV using the column names of Jira\'s CSV importer. Reads a run directory; adds no network path.' },
-  enhancedRedaction:  { tier: 'pro', desc: 'Additional redaction patterns over the CE set for AI prompt payloads.' },
+  enhancedRedaction:  { tier: 'pro', desc: 'Gates no code of its own. What Pro and Enterprise add on the AI path: the Enterprise plugin pack scrubs the intelligence block it adds to the system prompt before egress — the target host on each finding becomes [target-N]; e-mail addresses, private and loopback IPv4 addresses (unless REDACT_INTERNAL_IPS=false), URLs to private addresses, colon-form MAC addresses, SNMP community strings and .internal / .local / .corp / .lan / .intra / .priv hostnames are masked; NSA_AI_REDACT_LEVEL=strict adds config and key file paths, AWS key IDs and Bearer tokens. Public addresses and hostnames elsewhere in the block are not masked. The scan-payload redactor is the same at every tier (docs/openai.md).' },
   proMCP:             { tier: 'pro', desc: 'MCP tools probe_service and get_vulnerabilities.' },
 
   // Enterprise
