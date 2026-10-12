@@ -16,8 +16,10 @@
 // must reach the target through the scan's pinned address. Each case is a real TLS server on loopback, in a child whose CA
 // store trusts only its own throwaway root.
 //
-// STATED LIMIT: the `refused-at-level-0` verdict (a NAMED code at level 0 after UNSPECIFIED at the default) has NO measured
-// occupant on Node 24.12 — every named problem tried wins at the default level — so no leg here drives it.
+// The `refused-at-level-0` verdict (a NAMED code at level 0 after UNSPECIFIED at the default) has NO measured occupant on
+// Node 24.12 — every named problem tried wins at the default level. It is kept (the architect seat's ruling: a named
+// refusal is the verifier's reason, and folding it into NOT ASSESSED discards it in the direction that hides a refusal), and
+// the legs below drive it through the injected-result seam: the FIRST refusal is real, only the level-0 result is injected.
 // ─────────────────────────────────────────────────────────────────────────────
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -166,3 +168,33 @@ test('(control) the same name OUTSIDE the pin resolves nowhere: the audit never 
   `, path.join(DIR, 'rsa1024.key'), path.join(DIR, 'rsa1024.pem')], { env, encoding: 'utf8', timeout: 30000 });
   assert.deepEqual(JSON.parse(out), { sessions: 0, reached: 0 });
 });
+
+// ── THE VERDICT NO MEASURED RUNTIME REACHES, driven through the injected-result seam (`opts._trustCheckResult`) ──────────
+// Each case is the real trusted 1024-bit leaf, so the default verifier's refusal is genuine (UNSPECIFIED, with a graded weak
+// key); only the second handshake's result is injected, and the server sees ONE session.
+test('injected: a NAMED code at level 0 → ca_not_trusted carrying that code, named by the second handshake', (t) => {
+  const r = caseFor(t, { key: 'rsa1024', opts: { _trustCheckResult: { authorized: false, authError: 'CERT_REVOKED' } } }); if (!r) return;
+  assert.equal(r.authError, 'UNSPECIFIED', 'the premise: the first refusal is real');
+  assert.deepEqual(r.trustCheck, { verdict: TRUST_CHECK.REFUSED_AT_LEVEL_0, authError: 'CERT_REVOKED' });
+  assert.deepEqual(r.caTrust, ['Certificate not trusted by system CA store: CERT_REVOKED (named by a second handshake at OpenSSL '
+    + "security level 0, after this runtime's verifier refused the chain with no named reason)"]);
+  assert.deepEqual(r.certAuditTrustCheck, r.trustCheck);
+  assert.equal(r.sessions, 1, 'the injected result replaced the second handshake');
+});
+
+test('injected: an AUTHORIZATION at level 0 → no ca_not_trusted', (t) => {
+  const r = caseFor(t, { key: 'rsa1024', opts: { _trustCheckResult: { authorized: true } } }); if (!r) return;
+  assert.deepEqual(r.trustCheck, { verdict: TRUST_CHECK.TRUSTED_AT_LEVEL_0 });
+  assert.deepEqual(r.caTrust, []);
+  assert.equal(r.sessions, 1);
+});
+
+for (const [name, injected] of [['a THROW', { throws: 'ERR_SSL_NO_CIPHER_MATCH' }], ['UNSPECIFIED again', { authorized: false, authError: 'UNSPECIFIED' }]]) {
+  test(`injected: ${name} at level 0 → NOT ASSESSED, and ca_not_trusted keeps today's wording`, (t) => {
+    const r = caseFor(t, { key: 'rsa1024', opts: { _trustCheckResult: injected } }); if (!r) return;
+    assert.equal(r.trustCheck?.verdict, TRUST_CHECK.NOT_ASSESSED);
+    assert.ok(r.trustCheck.reason, 'the reason is recorded');
+    assert.deepEqual(r.caTrust, ["Certificate chain refused by this runtime's verifier — Node reports no named reason (UNSPECIFIED); "
+      + 'the graded weak key / signature on this certificate is the actionable finding']);
+  });
+}

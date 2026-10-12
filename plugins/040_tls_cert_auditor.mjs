@@ -58,6 +58,9 @@ function loadConfig(opts = {}) {
     // The second look's cipher string (see trustAtLevelZero). `opts._trustCheckCiphers` is a TEST SEAM, absent in every real
     // invocation: it stands in for a runtime that refuses the level-0 handshake, with a string no runtime accepts.
     trustCheckCiphers:  opts._trustCheckCiphers || TRUST_CHECK_CIPHERS,
+    // A second TEST SEAM, also absent in every real invocation: the level-0 handshake's RESULT, injected
+    // ({ authorized, authError } or { throws }), so the legs can drive the one verdict no measured runtime produces.
+    trustCheckResult:   opts._trustCheckResult || null,
   };
 }
 
@@ -387,6 +390,12 @@ function probeTLS(host, port, config, { ciphers = null } = {}) {
 //     name → NOT ASSESSED, and ca_not_trusted keeps today's wording. Only an authorization removes the finding.
 // It runs inside the scan like every other connect here, so the scan-target pin (utils/scan_pin.mjs) reaches it: no new
 // destination, no new egress path. The outcome rides `certAudit.details.trustCheck`.
+// THE CA STORE IS THE PROCESS'S: the system store plus NODE_EXTRA_CA_CERTS, fixed at process start — probeTLS passes no `ca`
+// option. If it ever gains one, thread it to the second look as well, or the two handshakes verify against different stores.
+// THE REFUSED-AT-LEVEL-0 VERDICT IS REACHED BY NO RUNTIME MEASURED (Node 24.12, fourteen certificate shapes, 2026-10-12): a
+// named chain problem was always named at the default level already. It is kept because a runtime that names a refusal at
+// level 0 has given the verifier's reason, and folding that into NOT ASSESSED would discard it in the direction that hides a
+// refusal; the injected-result seam (`opts._trustCheckResult`) is what drives it in the legs.
 const TRUST_CHECK_CIPHERS = "DEFAULT@SECLEVEL=0";
 export const TRUST_CHECK = Object.freeze({
   TRUSTED_AT_LEVEL_0: "chain-trusted-at-level-0",
@@ -396,7 +405,11 @@ export const TRUST_CHECK = Object.freeze({
 async function trustAtLevelZero(host, port, config) {
   let p;
   try {
-    p = await probeTLS(host, port, config, { ciphers: config.trustCheckCiphers });
+    const injected = config.trustCheckResult;
+    if (injected?.throws) throw new Error(String(injected.throws));
+    p = injected
+      ? { up: injected.up ?? true, noCert: false, authorized: injected.authorized === true, authError: injected.authError ?? null, error: injected.error }
+      : await probeTLS(host, port, config, { ciphers: config.trustCheckCiphers });
   } catch (e) {
     return { verdict: TRUST_CHECK.NOT_ASSESSED, reason: String(e?.code || e?.message || e) };
   }
