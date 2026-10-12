@@ -749,7 +749,7 @@ The Result Concluder (plugin 008) merges all plugin outputs into a normalized st
 
 NSAuditor AI supports three AI providers for vulnerability analysis. **All providers work in all tiers** — CE, Pro, and Enterprise. AI is optional; the platform is fully functional without it.
 
-**Providers:** OpenAI (GPT-4o), Anthropic Claude (Sonnet/Opus), Ollama (fully local)
+**Providers:** OpenAI (default model `gpt-6-luna` from Community 1.0.0; set `OPENAI_MODEL` for another), Anthropic Claude (Sonnet/Opus), Ollama (fully local). Setup, exactly what is sent and what is written: [docs/openai.md](./docs/openai.md).
 
 **What changes by tier is the prompt content, not the provider:**
 
@@ -757,7 +757,7 @@ NSAuditor AI supports three AI providers for vulnerability analysis. **All provi
 - **Pro** — intelligence-enriched prompts (CVE matches, MITRE ATT&CK technique annotations, composite risk scores injected into the prompt). Same API call, better-grounded output
 - **Enterprise** — Pro prompts + compliance context
 
-**Redaction:** On by default (`OPENAI_REDACT=false` turns it off), the redaction pipeline masks IP addresses, MAC addresses, serial numbers, and configurable confidential keywords before the payload reaches an AI API. Admin RAW reports retain full detail for internal review.
+**Redaction:** On by default (`OPENAI_REDACT=false` turns it off). Before the scan payload reaches an AI API it masks the scanned host, IPv4 addresses (private ones in service and evidence text), colon-separated MAC addresses, full-form IPv6 addresses, serial numbers, a scanned service's Set-Cookie values, and any field named in `CONFIDENTIAL_KEYWORDS`. **It does not mask** AWS account IDs or ARNs, cloud resource names, hostnames, e-mail addresses and certificate subjects in service text, compressed IPv6 addresses, or dash- and dot-form MAC addresses (measured 2026-10-11) — inspect `scan_response_ai_payload.json` before using the AI step on production data. On Pro and Enterprise the intelligence block travels in the system prompt, which the redactor does not see and the payload file does not record; [docs/openai.md](./docs/openai.md) has the details. Admin RAW reports retain full detail for internal review.
 
 ```ini
 # .env

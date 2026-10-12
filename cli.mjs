@@ -135,7 +135,7 @@ export function redactSensitiveForAI(input, targetHost) {
 /* ------------------------- OpenAI & reporting -------------------------- */
 
 /**
- * The OpenAI model used when OPENAI_MODEL is unset (EE 2.0.0, marketing task #203 — the GPT-4o-generation small model it named until then was stale). Chosen on
+ * The OpenAI model used when OPENAI_MODEL is unset (EE 2.0.0, marketing task #203 — the small model it named until then was a generation stale). Chosen on
  * 2026-10-11 against OpenAI's own pages, read raw: https://developers.openai.com/api/docs/models lists `gpt-6-luna` as
  * "Our most efficient model for focused, high-volume tasks" ($0.10 / $0.50 per MTok, 128K max output, 1.05M context), and
  * https://developers.openai.com/api/docs/deprecations maps the previous small model (`gpt-5.4-nano`) to it. The request

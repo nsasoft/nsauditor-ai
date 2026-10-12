@@ -146,8 +146,9 @@ test('#203 — every Community surface that states the default states THIS one, 
     const lines = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').filter((l) => /^OPENAI_MODEL=/.test(l));
     assert.deepEqual(lines, [`OPENAI_MODEL=${DEFAULT_OPENAI_MODEL}`], rel);
   }
+  // Case-insensitive: the README's provider line said "OpenAI (GPT-4o)" and a lower-case census missed it (found under #205).
   for (const rel of ['cli.mjs', '.env.example', 'docs/configuration.md', 'README.md']) {
-    assert.ok(!fs.readFileSync(path.join(ROOT, rel), 'utf8').includes('gpt-4o-mini'), `${rel} still names gpt-4o-mini`);
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, rel), 'utf8'), /gpt-4o/i, `${rel} still names a GPT-4o model`);
   }
 });
 

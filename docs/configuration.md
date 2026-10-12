@@ -18,6 +18,8 @@ OPENAI_REDACT=true                  # Redact before sending to AI
 CONFIDENTIAL_KEYWORDS=serial,password,token,secret
 ```
 
+What the AI step sends, what the redactor masks and does not mask, and every file it writes: [openai.md](./openai.md).
+
 **Plugin-specific:**
 
 ```ini
