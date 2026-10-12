@@ -111,20 +111,17 @@ test('a 1024-bit RSA key: weak_rsa_key HIGH, graded, and it trips --fail-on high
   const r = caseFor(t, 'rsa1024', RSA1024); if (!r) return;
   assert.deepEqual([r.keyInfo.keyType, r.keyInfo.keyBits], ['RSA', 1024]);
   assert.deepEqual(keyChecks(r), ['high:weak_rsa_key']);
-  // PINNED, NOT ENDORSED: Node 24's verifier refuses a 1024-bit leaf even under a trusted CA (authorizationError
-  // UNSPECIFIED), so ca_not_trusted MEDIUM rides beside the weak key. A self-signed key (the router) skips that check.
-  // Raised for a ruling; change this pin deliberately if ca_not_trusted's exact-code carve-out widens.
+  // Node 24's verifier refuses a 1024-bit leaf even under a trusted CA (authorizationError UNSPECIFIED) — the premise,
+  // asked of the runtime directly. FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(c), the architect seat's Q4):
+  // this pin used to hold ca_not_trusted MEDIUM beside the weak key, "PINNED, NOT ENDORSED", to be changed "if
+  // ca_not_trusted's exact-code carve-out widens". It widened: on an UNSPECIFIED refusal of a certificate with a graded weak
+  // key or signature, 040 makes one more handshake at OpenSSL security level 0, and an authorization there says the refusal
+  // WAS the weak key — so the weak key is the finding and no ca_not_trusted is raised
+  // (tests/tls_cert_trust_check_real_tls.test.mjs holds the rule, the untrusted-CA control and the pin).
   const verifier = runtimeVerifier('rsa1024', RSA1024);
   assert.equal(verifier.authorized, false, `the premise: this runtime's verifier refuses the 1024-bit leaf (${process.version}: ${JSON.stringify(verifier)})`);
-  {
-    assert.deepEqual(r.otherChecks, ['high:weak_rsa_key', 'medium:ca_not_trusted'], `verifier: ${JSON.stringify(verifier)}`);
-    // The architect seat's ruling on that pin: the store DOES hold the CA, so the detail must not name the CA store as the
-    // cause of a refusal Node reports only as UNSPECIFIED — it states the fact, and points at the graded weak key.
-    assert.equal(r.caTrust.length, 1);
-    assert.doesNotMatch(r.caTrust[0], /CA store/);
-    assert.match(r.caTrust[0], /^Certificate chain refused by this runtime's verifier — Node reports no named reason \(UNSPECIFIED\)/);
-    assert.match(r.caTrust[0], /the graded weak key \/ signature on this certificate is the actionable finding/);
-  }
+  assert.deepEqual(r.otherChecks, ['high:weak_rsa_key'], `verifier: ${JSON.stringify(verifier)}`);
+  assert.deepEqual(r.caTrust, []);
   assert.ok(r.graded.some((g) => g.severity === 'High' && /RSA key is 1024 bits \(minimum recommended: 2048\)/.test(g.title)),
     `graded: ${JSON.stringify(r.graded)}`);
   assert.equal(r.failOnRank, RANK.high);

@@ -129,10 +129,11 @@ test('a CA-ISSUED SHA-1 leaf: weak_signature HIGH', (t) => {
   const r = caseFor(t, { key: 'leafSha1', ca: 'root256', server: SEC0_RSA }); if (!r) return;
   assert.deepEqual(sigChecks(r), ['high:weak_signature']);
   assert.ok(r.graded.some((g) => g.severity === 'High' && /Weak signature algorithm: sha1WithRSAEncryption/.test(g.title)));
-  // Node's verifier also refuses it (UNSPECIFIED): the detail states the fact, not a CA-store cause (the ruling).
-  assert.equal(r.caTrust.length, 1);
-  assert.doesNotMatch(r.caTrust[0], /CA store/);
-  assert.match(r.caTrust[0], /\(UNSPECIFIED\); the graded weak key \/ signature on this certificate is the actionable finding$/);
+  // Node's verifier also refuses it (UNSPECIFIED). FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(c)): this leg
+  // used to hold ca_not_trusted beside the weak signature; a second handshake at OpenSSL security level 0 now authorizes the
+  // chain, so the refusal WAS the SHA-1 signature, already graded — no ca_not_trusted
+  // (tests/tls_cert_trust_check_real_tls.test.mjs).
+  assert.deepEqual(r.caTrust, []);
 });
 
 test('a SHA-1 INTERMEDIATE between a SHA-256 root and a SHA-256 leaf: chain_weak_signature', (t) => {

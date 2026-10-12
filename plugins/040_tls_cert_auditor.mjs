@@ -55,6 +55,9 @@ function loadConfig(opts = {}) {
     expiryCriticalDays: parseInt(opts.expiryCriticalDays || process.env.TLS_AUDIT_EXPIRY_CRITICAL_DAYS || "7", 10),
     minRsaBits:         parseInt(opts.minRsaBits         || process.env.TLS_AUDIT_MIN_RSA_BITS        || "2048", 10),
     minEcBits:          parseInt(opts.minEcBits          || process.env.TLS_AUDIT_MIN_EC_BITS         || "256", 10),
+    // The second look's cipher string (see trustAtLevelZero). `opts._trustCheckCiphers` is a TEST SEAM, absent in every real
+    // invocation: it stands in for a runtime that refuses the level-0 handshake, with a string no runtime accepts.
+    trustCheckCiphers:  opts._trustCheckCiphers || TRUST_CHECK_CIPHERS,
   };
 }
 
@@ -311,7 +314,7 @@ export function analyzeKeyStrength(cert, config) {
 
 // ── TLS Handshake Probe ──────────────────────────────────────────────────────
 
-function probeTLS(host, port, config) {
+function probeTLS(host, port, config, { ciphers = null } = {}) {
   return new Promise((resolve) => {
     const startTime = Date.now();
 
@@ -321,6 +324,7 @@ function probeTLS(host, port, config) {
       rejectUnauthorized: false,   // We WANT to see bad certs
       servername: isIP(host) ? undefined : host,  // SNI (only for hostnames, not IPs)
       timeout: config.timeoutMs,
+      ...(ciphers ? { ciphers } : {}),
     };
 
     const socket = tls.connect(options, () => {
@@ -366,6 +370,41 @@ function probeTLS(host, port, config) {
       resolve({ up: false, error: err.code || err.message, latencyMs: Date.now() - startTime });
     });
   });
+}
+
+// ── The second look at a refusal with no named reason (EE 2.0.0 / Community 1.0.0, 4(c); the architect seat's Q4) ────
+// Node reports UNSPECIFIED for a verify error outside its named table. MEASURED on Node 24.12 over ten certificate shapes:
+// it appears exactly when the chain is otherwise trusted and the only failure is the verifier's SECURITY-LEVEL policy — a
+// 1024-bit leaf key, a SHA-1-signed leaf, a SHA-1-signed intermediate — and each of those is authorized by a second
+// handshake at OpenSSL security level 0. A chain with a NAMED problem (an untrusted root, a missing issuer, an expired
+// certificate) reports that name already at the default level, weak key or not, so this look never runs there.
+// So when the first refusal is UNSPECIFIED and a weak key or signature is graded on the certificate, ONE more handshake
+// to the same target, with the same CA store and `DEFAULT@SECLEVEL=0`, decides it:
+//   · authorized there (or refused only on the name, which 040 reports itself) → the refusal WAS the weak crypto: no
+//     ca_not_trusted, and the graded weak-key / weak-signature finding is the finding;
+//   · refused there with a NAMED code → ca_not_trusted with that code;
+//   · anything else — the handshake failed, or a runtime refused level 0 (a FIPS build, for one), or level 0 still gave no
+//     name → NOT ASSESSED, and ca_not_trusted keeps today's wording. Only an authorization removes the finding.
+// It runs inside the scan like every other connect here, so the scan-target pin (utils/scan_pin.mjs) reaches it: no new
+// destination, no new egress path. The outcome rides `certAudit.details.trustCheck`.
+const TRUST_CHECK_CIPHERS = "DEFAULT@SECLEVEL=0";
+export const TRUST_CHECK = Object.freeze({
+  TRUSTED_AT_LEVEL_0: "chain-trusted-at-level-0",
+  REFUSED_AT_LEVEL_0: "refused-at-level-0",
+  NOT_ASSESSED: "not-assessed",
+});
+async function trustAtLevelZero(host, port, config) {
+  let p;
+  try {
+    p = await probeTLS(host, port, config, { ciphers: config.trustCheckCiphers });
+  } catch (e) {
+    return { verdict: TRUST_CHECK.NOT_ASSESSED, reason: String(e?.code || e?.message || e) };
+  }
+  if (!p.up) return { verdict: TRUST_CHECK.NOT_ASSESSED, reason: String(p.error || "the second handshake did not complete") };
+  if (p.noCert) return { verdict: TRUST_CHECK.NOT_ASSESSED, reason: "no certificate on the second handshake" };
+  if (p.authorized || p.authError === "ERR_TLS_CERT_ALTNAME_INVALID") return { verdict: TRUST_CHECK.TRUSTED_AT_LEVEL_0 };
+  if (p.authError && p.authError !== "UNSPECIFIED") return { verdict: TRUST_CHECK.REFUSED_AT_LEVEL_0, authError: p.authError };
+  return { verdict: TRUST_CHECK.NOT_ASSESSED, reason: "refused at security level 0 too, with no named reason" };
 }
 
 // ── Full Audit for One Port ──────────────────────────────────────────────────
@@ -583,16 +622,25 @@ async function auditPort(host, port, config) {
   // verifier's policy. "Not trusted by system CA store" would name a cause that is false there, so UNSPECIFIED states the
   // fact and no cause; where this certificate carries a graded weak key or signature, it points at that grade (a pointer,
   // not a causal claim — the refusal's cause is not measured here). Named codes keep their wording.
+  let trustCheck = null;
   if (!probe.authorized && !isSelfSigned && probe.authError !== "ERR_TLS_CERT_ALTNAME_INVALID") {
     const weakGrade = issues.some((i) => ["weak_rsa_key", "weak_ec_key", "weak_signature", "chain_weak_signature"].includes(i.check));
-    issues.push({
-      severity: SEVERITY.MEDIUM,
-      check: "ca_not_trusted",
-      detail: probe.authError === "UNSPECIFIED"
-        ? "Certificate chain refused by this runtime's verifier — Node reports no named reason (UNSPECIFIED)"
-          + (weakGrade ? "; the graded weak key / signature on this certificate is the actionable finding" : "")
-        : `Certificate not trusted by system CA store: ${probe.authError || "unknown reason"}`,
-    });
+    // EE 2.0.0 / Community 1.0.0, 4(c): the second look (trustAtLevelZero, above) — only for a refusal with no named reason
+    // on a certificate that carries a graded weak key or signature.
+    if (probe.authError === "UNSPECIFIED" && weakGrade) trustCheck = await trustAtLevelZero(host, port, config);
+    if (trustCheck?.verdict !== TRUST_CHECK.TRUSTED_AT_LEVEL_0) {
+      issues.push({
+        severity: SEVERITY.MEDIUM,
+        check: "ca_not_trusted",
+        detail: trustCheck?.verdict === TRUST_CHECK.REFUSED_AT_LEVEL_0
+          ? `Certificate not trusted by system CA store: ${trustCheck.authError} (named by a second handshake at OpenSSL `
+            + "security level 0, after this runtime's verifier refused the chain with no named reason)"
+          : probe.authError === "UNSPECIFIED"
+            ? "Certificate chain refused by this runtime's verifier — Node reports no named reason (UNSPECIFIED)"
+              + (weakGrade ? "; the graded weak key / signature on this certificate is the actionable finding" : "")
+            : `Certificate not trusted by system CA store: ${probe.authError || "unknown reason"}`,
+      });
+    }
   }
 
   // ── Compute Overall Severity ───────────────────────────────────────────
@@ -641,6 +689,7 @@ async function auditPort(host, port, config) {
     },
     authorized: probe.authorized,
     authError: probe.authError,
+    ...(trustCheck ? { trustCheck } : {}),
     issues,
   };
 }
@@ -852,6 +901,7 @@ export default {
             keyStrength: pr.certificate.keyStrength,
             chainDepth: pr.chain.depth,
             authorized: pr.authorized,
+            ...(pr.trustCheck ? { trustCheck: pr.trustCheck } : {}),
           },
         },
         // ZDE: fingerprints and serial numbers stay in-process.
