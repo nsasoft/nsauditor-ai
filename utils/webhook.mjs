@@ -74,6 +74,16 @@ export function pinnedLookup({ address, family }) {
   };
 }
 
+/**
+ * Credentials inside any URL in a message, replaced. Measured on Node 24.12 (2026-10-11): with NODE_USE_ENV_PROXY and an
+ * HTTPS_PROXY carrying `user:password@`, a failed tunnel's error reads "Failed to establish tunnel to <host> via
+ * http://user:password@proxy:port", and that string is what this module returns as `error` — which callers print to stderr
+ * and Enterprise writes into the drift file. Every error this module returns passes through here.
+ */
+export function redactUrlCredentials(message) {
+  return String(message ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]*@/gi, '$1<credentials>@');
+}
+
 // Injectable SSRF checker — overridable in tests only (see _setWebhookSafeChecker).
 let _safeChecker = isSafeWebhookUrl;
 
@@ -175,7 +185,7 @@ export async function sendWebhook(url, payload, opts = {}) {
         return { success: false, statusCode: result.statusCode, error: lastError };
       }
     } catch (err) {
-      lastError = err?.message || String(err);
+      lastError = redactUrlCredentials(err?.message || String(err));
       if (attempt === maxAttempts - 1) {
         return { success: false, statusCode: 0, error: lastError };
       }
