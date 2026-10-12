@@ -47,10 +47,16 @@ With `OPENAI_REDACT=true` (the default), before the payload is sent:
 - a scanned service's Set-Cookie value (its session token) is redacted;
 - the fields `ip6`, `deviceWebPage`, `deviceWebPageInstruction`, `hardwareVersion` and `firmwareVersion` are dropped;
 - any field whose key matches `CONFIDENTIAL_KEYWORDS` (for example `serial,password,token,secret`) is replaced with `[REDACTED_HIDDEN]`.
+- from Community 1.0.0, an AWS account ID found in an ARN's account field (any partition) or in the account segment of an
+  `amazonaws.com/<id>/…` URL becomes `[ACCOUNT_ID]` — there and everywhere else it occurs, inside resource names too (the
+  names themselves are kept) — and any other 12-digit number becomes `[REDACTED_ID]`, a neutral label, since a 12-digit
+  number in a banner is not necessarily an account. Community 0.2.57 and earlier send both.
 
-**Not masked** (measured on 2026-10-11 against a router and an AWS account, with a real request): **AWS account IDs and
-ARNs** — bare, inside resource names such as bucket names, in SQS queue URLs and in SNS topic ARNs — and cloud resource
-names themselves; AWS access-key IDs (`AKIA…`, `ASIA…` — on the measured run they were not sent, but only because they
+**Not masked** (measured on 2026-10-11 against a router and an AWS account, with a real request): cloud resource names
+themselves — bucket, queue, topic and user names stay, with any account ID inside them masked from Community 1.0.0; a
+12-digit ID glued to letters (`logs123456789012`) that no ARN or AWS URL in the payload names; Azure subscription IDs and
+GCP project IDs and numbers (not measured — a GCP project number is 12 digits and falls under the `[REDACTED_ID]` rule, a
+GCP project ID is free text and cannot be masked by shape); AWS access-key IDs (`AKIA…`, `ASIA…` — on the measured run they were not sent, but only because they
 sit in the scan's findings rather than in the evidence the payload carries); hostnames, e-mail addresses and certificate
 subjects in service banners and certificate details; compressed IPv6 addresses; dash- and dot-form MAC addresses. **Inspect the payload file below before using the AI stage on
 production data**, extend `CONFIDENTIAL_KEYWORDS` for fields you do not want to leave the host, and use a local Ollama

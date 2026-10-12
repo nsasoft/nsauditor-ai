@@ -89,6 +89,34 @@ export function scrubIPv4KeepingProductIds(str, replaceAddress) {
  * to compare a raw against its payload, which needs the real function rather than a re-spelling
  * of its rules. `tests/redact_product_ids.test.mjs` is that census.
  */
+// ── AWS ACCOUNT IDs AND BARE 12-DIGIT IDS (EE 2.0.0) ──────────────────────────────────────────────────────────────────
+// Marketing task #204's real AWS run measured the account ID 20 times in one payload — bare, in bucket names, an SQS URL,
+// six SNS ARNs and an IAM user ARN — and the operator ruled "State it now, fix in 2.0.0". TWO PASSES, as the architect
+// seat ruled: (1) an ID found in a CERTAIN context — an ARN's account field in any partition, the account segment of an
+// `amazonaws.com/<12 digits>` URL — is an account, and every literal occurrence of it is masked as [ACCOUNT_ID], inside
+// resource names too (the names stay: remediation text that cannot name the bucket is useless to the customer); (2) any
+// OTHER bare 12-digit run is masked with a NEUTRAL label, [REDACTED_ID] — a 12-digit number in a router banner is not an AWS
+// account, so masking it is the safe direction and naming it would mislead the model and the auditor reading the payload.
+// tests/redact_aws_account_ids.test.mjs; the false-positive census is tests/redact_product_ids.test.mjs.
+export const ACCOUNT_ID_MASK = '[ACCOUNT_ID]';
+export const BARE_ID_MASK = '[REDACTED_ID]';
+const ARN_ACCOUNT_RE = /\barn:aws(?:-[a-z]+)*:[a-z0-9-]*:[a-z0-9-]*:(\d{12})(?=:)/gi;
+const URL_ACCOUNT_RE = /\bamazonaws\.com(?:\.cn)?\/(\d{12})(?!\d)/gi;
+const BARE_12_DIGIT_RE = /\b\d{12}\b/g;
+/** The AWS account IDs a payload carries in a CERTAIN context — ARN account fields and AWS URL segments, anywhere in it. */
+export function awsAccountIdsIn(input) {
+  const ids = new Set();
+  const visit = (v) => {
+    if (typeof v === 'string') {
+      for (const m of v.matchAll(ARN_ACCOUNT_RE)) ids.add(m[1]);
+      for (const m of v.matchAll(URL_ACCOUNT_RE)) ids.add(m[1]);
+    } else if (Array.isArray(v)) v.forEach(visit);
+    else if (v && typeof v === 'object') Object.values(v).forEach(visit);
+  };
+  visit(input);
+  return ids;
+}
+
 export function redactSensitiveForAI(input, targetHost) {
   const DROP_KEYS = new Set([
     'ip6', 'deviceWebPage', 'deviceWebPageInstruction',
@@ -100,8 +128,11 @@ export function redactSensitiveForAI(input, targetHost) {
     /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
     /^192\.168\./.test(ip);
 
+  const accountIds = [...awsAccountIdsIn(input)];
+
   const scrubString = (str) => {
     let s = String(str);
+    for (const id of accountIds) s = s.split(id).join(ACCOUNT_ID_MASK);
     s = s.replace(/\bSerial\s*[:=]\s*[A-Za-z0-9._-]+/gi, 'Serial=[REDACTED_HIDDEN]');
     s = s.replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '[MAC]'); // MAC
     s = s.replace(/\bfe80::[0-9a-f:]+\b/gi, '[FE80::/64]');         // IPv6 link-local
@@ -111,6 +142,8 @@ export function redactSensitiveForAI(input, targetHost) {
     // A scanned service's Set-Cookie VALUE is its session token: redacted here whatever a producer kept (1.3.0, both
     // seams ruled — the webapp detector still reflects its headers into the result).
     s = redactSetCookieLines(s);
+    // LAST, so every rule above sees the input it always saw (a `Serial: <12 digits>` stays the serial rule's).
+    s = s.replace(BARE_12_DIGIT_RE, BARE_ID_MASK);
     return s;
   };
 
@@ -289,12 +322,17 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   };
 
   if (redactEnabled) {
-    let used = 'fallback';
+    // `_meta.redactor` names what ran: 'builtin' (Community's redactor — every run today), 'external' (a Pro-tier hook that
+    // neither package installs), or 'builtin-after-external-failure'. Until EE 2.0.0 it started as 'fallback' and the
+    // built-in branch never reassigned it, so every normal run's record said "fallback" (marketing task #204, finding 3).
+    let used = 'builtin';
+    let attemptedExternal = false;
     try {
       // Only allow external redaction override for Pro/Enterprise tiers.
       // CE always uses the built-in redact pipeline to preserve the ZDE guarantee.
       const redactCaps = resolveCapabilities(getTierFromEnv());
       if (hasCapability(redactCaps, 'enhancedRedaction') && typeof globalThis.redactSensitiveForAI === 'function') {
+        attemptedExternal = true;
         let out = globalThis.redactSensitiveForAI(payloadForAI);
         if (out && typeof out.then === 'function') out = await out;
         if (typeof out === 'string') out = JSON.parse(out);
@@ -307,7 +345,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     } catch (e) {
       console.warn('[OpenAI] Redaction failed, using fallback:', e?.message || e);
       payloadForAI = redactSensitiveForAI(payloadForAI, host);
-      used = 'fallback';
+      used = attemptedExternal ? 'builtin-after-external-failure' : 'builtin-after-failure';
     }
 
     // additional key-based scrubbing (CONFIDENTIAL_KEYWORDS=serial,password,token)

@@ -264,3 +264,20 @@ test('EXACTLY ONE RULE IN cli.mjs CAN MATCH A PUBLIC ADDRESS — counted by BEHA
     `expected the definition plus at least two call sites, found ${callSites.length} — a shared `
     + 'helper with no callers passes a count and changes nothing');
 });
+
+// ── EE 2.0.0: THE 12-DIGIT RULES' FALSE-POSITIVE CENSUS (the architect seat's ruling — grown before the rule shipped) ──
+test('12-DIGIT RULES: a 13-digit ms timestamp is NOT matched; a payload without a 12-digit run is untouched', () => {
+  const p = { summary: 'generated 1791778446168 · plugin 1020 (EE-0.3.2.4 fold) · EE-RT.11.1.2.5' };
+  assert.deepEqual(redactSensitiveForAI(p, 'aws'), p);
+});
+test('12-DIGIT RULES: a 12-digit run glued to a product-id prefix and an unlabelled numeric serial are MASKED NEUTRALLY', () => {
+  const out = redactSensitiveForAI({ evidence: [{ info: 'id EE-123456789012' }, { info: 'unit 000123456789 online' }] }, '192.168.1.1');
+  assert.equal(out.evidence[0].info, 'id EE-[REDACTED_ID]', 'masked, never called an account');
+  assert.equal(out.evidence[1].info, 'unit [REDACTED_ID] online');
+});
+test('12-DIGIT RULES: a LABELLED serial stays the serial rule\'s, and an ID in an ARN and glued in a bucket is [ACCOUNT_ID] twice', () => {
+  const out = redactSensitiveForAI({ evidence: [{ info: 'Serial: 123456789012' },
+    { info: 'arn:aws:s3:::logs555555555555 owned by arn:aws:iam::555555555555:root' }] }, 'aws');
+  assert.equal(out.evidence[0].info, 'Serial=[REDACTED_HIDDEN]');
+  assert.equal(out.evidence[1].info, 'arn:aws:s3:::logs[ACCOUNT_ID] owned by arn:aws:iam::[ACCOUNT_ID]:root');
+});

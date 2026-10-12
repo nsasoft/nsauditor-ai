@@ -25,7 +25,7 @@ export const CAPABILITIES = {
   coreScanning:       { tier: 'ce', desc: 'Network and host scanning plugins (ports, protocols, TLS, OS fingerprinting).' },
   aiAnalysis:         { tier: 'ce', desc: 'AI analysis of scan output via any configured provider (OpenAI / Claude / Ollama), basic prompts.' },
   basicCTEM:          { tier: 'ce', desc: 'Continuous watch mode: interval re-scan, delta report, webhook alert. An ALERTING loop — it adds no evidence retention or cross-run aggregation.' },
-  basicRedaction:     { tier: 'ce', desc: 'Redaction of secrets and identifiers from AI prompt payloads before egress.' },
+  basicRedaction:     { tier: 'ce', desc: 'Masks IP and MAC addresses, serial numbers, AWS account IDs and configured fields in AI prompt payloads before egress — not hostnames, e-mail addresses or resource names (docs/openai.md).' },
   basicMCP:           { tier: 'ce', desc: 'MCP tools scan_host, list_plugins and compliance_matrix (the coverage matrix is ungated — it reports what the installed framework maps say).' },
   findingQueue:       { tier: 'ce', desc: 'The finding-queue data structure. NOTE: the persisted scan_finding_queue.json artifact is written by the Enterprise plugin pack behind the Pro-tier intelligenceEngine gate, so a CE-only install has the structure and not the file.' },
 
