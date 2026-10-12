@@ -24,12 +24,12 @@ import { redactUrlCredentials } from '../utils/webhook.mjs';
 const WEBHOOK = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'utils', 'webhook.mjs')).href;
 
 /** A proxy that refuses every tunnel, recording what it was asked; the child posts once through it. */
-async function viaProxy(scheme) {
+async function viaProxy(scheme, secret = 'PROXYSECRET') {
   const seen = [];
   const proxy = http.createServer((req, res) => { seen.push({ method: req.method, url: req.url }); res.writeHead(502); res.end(); });
   proxy.on('connect', (req, sock) => { seen.push({ method: 'CONNECT', url: req.url }); sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); });
   await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
-  const proxyUrl = `http://proxyuser:PROXYSECRET@127.0.0.1:${proxy.address().port}`;
+  const proxyUrl = `http://proxyuser:${secret}@127.0.0.1:${proxy.address().port}`;
   const child = `
     import dnsP from 'node:dns/promises';
     const { sendWebhook } = await import(${JSON.stringify(WEBHOOK)});
@@ -65,7 +65,16 @@ test('(p2) a failed tunnel\'s error carries NO proxy credential — redacted bef
   assert.match(result.error, /<credentials>@127\.0\.0\.1/);
 });
 
+test('(p2b) a password carrying a RAW @ — which Node accepts and still routes through — is redacted WHOLE', async () => {
+  // The background security review of the first cut (44c4586): a first-@ rule left "XYSECRET" of "PRO@XYSECRET" in the error.
+  const { seen, result } = await viaProxy('https', 'PRO@XYSECRET');
+  assert.equal(seen.length, 1, 'positive control: Node took the raw-@ proxy URL and the request reached the proxy');
+  assert.ok(!result.error.includes('XYSECRET') && !result.error.includes('PRO'), `part of the password survived: ${result.error}`);
+  assert.match(result.error, /<credentials>@127\.0\.0\.1/);
+});
+
 test('(p3) redactUrlCredentials replaces userinfo in any URL and leaves a URL without one untouched', () => {
+  assert.equal(redactUrlCredentials('via http://u:p@ss@h:1 ok'), 'via http://<credentials>@h:1 ok', 'a raw @ inside the password');
   assert.equal(redactUrlCredentials('via http://u:p@h:1 and https://x@y/z'), 'via http://<credentials>@h:1 and https://<credentials>@y/z');
   assert.equal(redactUrlCredentials('connect ECONNREFUSED 203.0.113.10:443'), 'connect ECONNREFUSED 203.0.113.10:443');
   assert.equal(redactUrlCredentials('see https://hooks.example/a@b'), 'see https://hooks.example/a@b', 'an @ in the PATH is not userinfo');

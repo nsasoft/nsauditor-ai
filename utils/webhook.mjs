@@ -81,7 +81,10 @@ export function pinnedLookup({ address, family }) {
  * and Enterprise writes into the drift file. Every error this module returns passes through here.
  */
 export function redactUrlCredentials(message) {
-  return String(message ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]*@/gi, '$1<credentials>@');
+  // Up to the LAST `@` before the path, query, fragment or whitespace: Node ACCEPTS a raw `@` inside a proxy password
+  // (measured — `user:PRO@XYSECRET@host` still routes through the proxy), and a first-`@` rule leaked its tail. An `@` in a
+  // PATH is not userinfo: the userinfo segment ends at the first `/`, `?` or `#`.
+  return String(message ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
 }
 
 // Injectable SSRF checker — overridable in tests only (see _setWebhookSafeChecker).
