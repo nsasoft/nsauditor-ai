@@ -1808,7 +1808,7 @@ No code changes. CE 0.1.69 ships the same code as 0.1.40–0.1.68 with README + 
 
 - **Zero engine / CLI changes required**: EE's `loadFrameworkMap` already framework-agnostic (reads `data/compliance/{framework}.json` by parameter); CE's `--compliance` flag already accepts CSV (wired since EE 0.3.0). Multi-framework workflow shipping today: `nsauditor-ai scan --host aws --plugins all --compliance soc2,hipaa --out evidence/` produces separate `scan_compliance_soc2.{md,html,json}` AND `scan_compliance_hipaa.{md,html,json}` artifact sets in one scan.
 
-- **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure. Nsasoft does not see, store, or process customer ePHI under any condition; no Business Associate Agreement needed under HIPAA §160.103.
+- **Zero BAA required** — Zero Data Exfiltration architecture means ePHI never leaves customer infrastructure — WITHDRAWN 2026-10-12 as worded, because the opt-in AI and GRC paths send finding text to providers the customer configures; the true claim is party-scoped, that no scan data is ever sent to Nsasoft. Nsasoft does not see, store, or process customer ePHI under any condition; no Business Associate Agreement needed under HIPAA §160.103.
 
 - **6 same-session reviewer folds** (2 R-HIGH defensive-coding + 2 R-MEDIUM scope-broadening + 1 R-LOW comment fix + 1 docstring strengthening; 0 R-CRITICAL — clean cycle). Two parallel reviewers: HIPAA Security Officer perspective + senior code reviewer perspective. Confirmed: §164.312 sub-criteria routing clean, HHS R/A classification correct, §164.308 + §164.310 OOS enumerations complete against 45 CFR.
 

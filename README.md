@@ -77,7 +77,7 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 | Zero Trust assessment | — | — | ✅ |
 | **Enterprise — compliance (8 frameworks)** | | | |
 | SOC 2 (AICPA TSC 2017) — 10 covered + 4 partial controls | — | — | ✅ |
-| HIPAA Security Rule §164.312 — Zero BAA required | — | — | ✅ |
+| HIPAA Security Rule §164.312 — no BAA with Nsasoft required | — | — | ✅ |
 | NIST CSF 2.0 Core — Subcategory-level mapping (106 of 107 Subcategories) | — | — | ✅ |
 | PCI DSS v4.0.1 — Sub-requirement-level mapping for QSA RoC | — | — | ✅ |
 | ISO/IEC 27001:2022 — per-Annex-A-code mapping + SoA discipline (93 Annex A controls) | — | — | ✅ |
@@ -711,7 +711,7 @@ See [Pro & Enterprise Activation](#pro--enterprise-activation) to install a lice
 
 Every compliance scan already produces a GRC-ready JSON evidence artifact. The **GRC connectors** take the next step: they map each NSAuditor compliance finding to your GRC platform's own evidence/test records and **push them at scan time** — so your Vanta, Drata, or Secureframe workspace reflects the latest cloud posture without a manual export/import round-trip.
 
-**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, finding text and target identifiers go to your platform as written unless you set `COMPLIANCE_GRC_REDACTION` to `hash` or `remove` (redaction is off by default); the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. Nothing leaves your infrastructure that you didn't opt into.
+**Opt-in, and Zero-Data-Exfiltration by default.** The push is off unless you set the environment variables below. When it runs, finding text and target identifiers go to your platform as written unless you set `COMPLIANCE_GRC_REDACTION` to `hash` or `remove` (redaction is off by default); the persisted audit log stores a body **fingerprint** (never the raw payload), and your API token is never written to any artifact. The push sends only what you opted into, and nothing goes to Nsasoft.
 
 ```bash
 # Enable the scan-time push (Enterprise)
