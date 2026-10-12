@@ -166,6 +166,7 @@ Results land in `./out/<host>_<timestamp>/` (two scans of one host whose plugin 
 | `scan_conclusion_raw.json` | Full unredacted conclusion (admin reference) |
 | `scan_conclusion_raw.html` | Admin RAW HTML with filters and full detail |
 | `scan_response_ai_payload.json` | Redacted payload sent to AI |
+| `scan_response_ai_system_prompt.txt` | System prompt sent to AI, the Pro/Enterprise intelligence block included (from Community 1.0.0) |
 | `scan_response_ai.json` | Raw AI API response |
 | `scan_response_ai.txt` | AI conclusion (markdown) |
 | `scan_response_ai.html` | Styled HTML report with CVE links and badges |

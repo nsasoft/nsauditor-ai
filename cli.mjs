@@ -296,6 +296,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   const adminRawPath   = path.join(outDir, 'scan_conclusion_raw.json');
   const adminHtmlPath  = path.join(outDir, 'scan_conclusion_raw.html');
   const aiPayloadPath  = path.join(outDir, 'scan_response_ai_payload.json');
+  const aiSystemPromptPath = path.join(outDir, 'scan_response_ai_system_prompt.txt');
   const aiResponsePath = path.join(outDir, 'scan_response_ai.json');
   const aiTxtPath      = path.join(outDir, 'scan_response_ai.txt');
   const aiHtmlPath     = path.join(outDir, 'scan_response_ai.html');
@@ -428,6 +429,17 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
   // Prepend EE intelligence enrichment block if present (Pro/Enterprise tier)
   const eeBlock = conclusion?.result?.eeEnrichment?.enrichedPrompt;
   if (eeBlock) promptText = eeBlock + '\n\n---\n\n' + promptText;
+
+  // --- Write the SYSTEM PROMPT we plan to send, beside the payload (EE 2.0.0, marketing task #204 finding 2) ---
+  // On Pro and Enterprise the intelligence block above travels here, not in the payload, so the payload file alone was not
+  // the record of what left the machine. Written BEFORE the request, as the payload is: the two files together are the
+  // request's content (the model name and the key are the rest).
+  try {
+    await fsp.writeFile(aiSystemPromptPath, promptText, 'utf8');
+    console.log(`[${providerLabel}] Wrote AI system prompt:`, aiSystemPromptPath);
+  } catch (e) {
+    console.warn(`[${providerLabel}] Failed to write AI system prompt:`, e?.message || e);
+  }
 
   // --- Send to AI provider ---------------------------------------------------
   let aiConclusionText = null;

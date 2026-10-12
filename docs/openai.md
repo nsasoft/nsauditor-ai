@@ -34,7 +34,8 @@ One request per scan: a system prompt (selected by `OPENAI_PROMPT_MODE`) and the
 - **CE** sends the basic scan summary — services, ports, versions.
 - **Pro and Enterprise** add an intelligence block — CVE matches, KEV and EPSS where a store was applied, MITRE ATT&CK
   technique annotations and composite risk scores — for better-grounded output. **It travels in the SYSTEM PROMPT**: the
-  redactor below does not see it, and `scan_response_ai_payload.json` does not record it. The Enterprise plugin pack scrubs
+  redactor below does not see it, and from Community 1.0.0 it is recorded in `scan_response_ai_system_prompt.txt`, beside
+  the payload (Community 0.2.57 and earlier recorded no system prompt). The Enterprise plugin pack scrubs
   the block with its own pass before adding it, whatever `OPENAI_REDACT` says: the target host on each finding becomes
   `[target-N]`; e-mail addresses, private and loopback IPv4 addresses (unless `REDACT_INTERNAL_IPS=false`), URLs to
   private addresses, colon-form MAC addresses, SNMP community strings and `.internal` / `.local` / `.corp` / `.lan` /
@@ -74,7 +75,8 @@ Every scan writes into its own per-scan folder under `--out`. The AI stage adds:
 
 | File | Contents |
 |---|---|
-| `scan_response_ai_payload.json` | The scan payload sent to OpenAI, written **before** the request — your audit record of the scan data that left the machine. It does not include the system prompt, which on Pro and Enterprise carries the intelligence block |
+| `scan_response_ai_payload.json` | The scan payload sent to OpenAI, written **before** the request — your audit record of the scan data that left the machine. The system prompt is the next row |
+| `scan_response_ai_system_prompt.txt` | From Community 1.0.0: the system prompt sent with it — the prompt mode's own text, preceded on Pro and Enterprise by the intelligence block — written **before** the request. With the payload file it is the content of the request; the model name and your key are the rest |
 | `scan_response_ai.json` | The raw API response |
 | `scan_response_ai.txt` / `.html` | The model's assessment as text and HTML |
 | `scan_response_ai_error.json` | Written if the call fails or times out; `scan_response_ai.txt` then holds a readable failure notice naming the error |
@@ -86,7 +88,7 @@ The request timeout scales with payload size: 120 s minimum, plus 15 s per KB, c
 ## Compliance notes
 
 - The AI assessment is advisory narrative. Compliance evidence packs and control determinations come from the scan and the compliance engine, not from the model.
-- Record the provider, model and prompt mode used for any report you hand to an auditor, and keep `scan_response_ai_payload.json` with it.
+- Record the provider, model and prompt mode used for any report you hand to an auditor, and keep `scan_response_ai_payload.json` and `scan_response_ai_system_prompt.txt` with it.
 - Your OpenAI organization's own data-retention and data-use settings apply to the request; NSAuditor AI does not change them.
 
 See [configuration.md](./configuration.md) for every AI-related variable.
