@@ -36,8 +36,12 @@ async function loadPluginsFromDir(dir, source) {
         // Attach conclude (and its authoritativePorts) from the named export or the plugin default
         const conclude = mod.conclude ?? plugin.conclude;
         const authoritativePorts = mod.authoritativePorts ?? plugin.authoritativePorts;
-        plugins.push({ ...plugin, _source: source, ...(conclude ? { conclude } : {}),
-          ...(authoritativePorts ? { authoritativePorts } : {}) });
+        const loaded = { ...plugin, _source: source, ...(conclude ? { conclude } : {}),
+          ...(authoritativePorts ? { authoritativePorts } : {}) };
+        // The file it came from, NON-ENUMERABLE so the plugin's shape is unchanged: PluginManager reads it to name the
+        // package that shipped the plugin on every pluginStatus row (`producedBy`, EE 2.0.0).
+        Object.defineProperty(loaded, '_file', { value: join(dir, file), enumerable: false });
+        plugins.push(loaded);
       }
     } catch (e) {
       if (process.env.NSA_VERBOSE) {

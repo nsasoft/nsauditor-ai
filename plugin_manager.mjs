@@ -25,6 +25,35 @@ import { mapLimit } from './utils/concurrency.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
+// ── WHICH CODE PRODUCED A PLUGIN-STATUS ROW (EE 2.0.0, the architect seat's ask) ──
+// A pluginStatus row's duration is a measurement of one implementation. When a plugin's timing basis changes (plugin 1020
+// went from one bucket at a time to a bounded pool), every older row describes code that no longer ships, and nothing in
+// the row said so — so a census of the evidence tree could not tell a measurement of the old loop from one of the new.
+// Each row from a plugin loaded from a file now names the package that SHIPPED it, `<name>@<version>` from the nearest
+// package.json above the file, so a superseded measurement is told apart by its bytes, never by where it is filed. A
+// plugin injected in code (tests) has no package and its rows carry none.
+const PRODUCED_BY = new WeakMap();
+const _producedByDir = new Map();
+function producedByOf(file) {
+  const start = path.dirname(file);
+  if (_producedByDir.has(start)) return _producedByDir.get(start);
+  let found = null;
+  for (let dir = start, i = 0; i < 8; i++) {
+    const pj = path.join(dir, "package.json");
+    if (fs.existsSync(pj)) {
+      try {
+        const j = JSON.parse(fs.readFileSync(pj, "utf8"));
+        if (j && typeof j.name === "string" && typeof j.version === "string") { found = `${j.name}@${j.version}`; break; }
+      } catch { /* an unreadable package.json names nothing; keep walking */ }
+    }
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  _producedByDir.set(start, found);
+  return found;
+}
+
 const VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NSA_VERBOSE || ''));
 // Exported so a caller that must bind every plugin to the operator's own budget (MCP `scan_host`,
 // `probe_service`) passes THIS value as its wall — never a re-read of the environment or a retyped number.
@@ -454,6 +483,7 @@ export class PluginManager {
 
     // Normalize plugin fields (same as loadPlugins() did inline)
     for (const plugin of rawPlugins) {
+      if (plugin && plugin._file) PRODUCED_BY.set(plugin, producedByOf(plugin._file));
       plugin.protocols = Array.isArray(plugin.protocols) ? plugin.protocols : [];
       plugin.ports = Array.isArray(plugin.ports) ? plugin.ports : [];
       if (plugin.runStrategy && String(plugin.runStrategy).toLowerCase() !== 'single') {
@@ -520,6 +550,7 @@ export class PluginManager {
         vlog(`Attempting to load plugin: ${full} (${url})`);
         const mod = await import(url);
         const plugin = mod.default || mod;
+        if (plugin && typeof plugin === "object") PRODUCED_BY.set(plugin, producedByOf(full));
         const keys = Object.keys(plugin || {});
         vlog(`Plugin module loaded: ${file}, keys: ${keys.join(", ")}`);
 
@@ -1083,7 +1114,7 @@ export class PluginManager {
       host,
       results,
       conclusion,
-      manifest,
+      manifest: this._stampProducedBy(manifest),
       ai: null,
       ai_meta: null,
       ai_error: null,
@@ -1160,6 +1191,15 @@ export class PluginManager {
    * @param {string[]} providers  e.g. ['aws'] or ['aws','azure']
    * @param {object} [opts]
    */
+  /** Each row of a plugin loaded from a file gains `producedBy` (see PRODUCED_BY); a row with no known package is unchanged. */
+  _stampProducedBy(manifest) {
+    const byId = new Map((this.plugins || []).map((p) => [String(p.id), PRODUCED_BY.get(p) ?? null]));
+    return (manifest || []).map((row) => {
+      const by = byId.get(String(row?.id));
+      return by ? { ...row, producedBy: by } : row;
+    });
+  }
+
   async runCloud(providers, opts = {}) {
     const reqProviders = (providers || []).map((p) => String(p).trim().toLowerCase());
     const host = `cloud:${reqProviders.join('+') || 'none'}`;
@@ -1197,7 +1237,7 @@ export class PluginManager {
     }
     const auditedProviders = Object.keys(providerStatus).filter((p) => providerStatus[p].ran > 0);
 
-    return { host, results: orch.results, conclusion, manifest: orch.manifest, providerStatus, auditedProviders,
+    return { host, results: orch.results, conclusion, manifest: this._stampProducedBy(orch.manifest), providerStatus, auditedProviders,
              ai: null, ai_meta: null, ai_error: null, ai_out_path: null };
   }
 }
