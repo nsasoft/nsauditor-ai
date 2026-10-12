@@ -38,6 +38,10 @@ test('pass 1 — an ARN\'s account field is [ACCOUNT_ID] in EVERY partition, on 
 test('pass 1 — an AWS URL\'s account segment is [ACCOUNT_ID], the queue named', () => {
   assert.equal(red(`https://sqs.us-east-1.amazonaws.com/${ACCT}/sqs-cleartext-queue`, 'aws'),
     'https://sqs.us-east-1.amazonaws.com/[ACCOUNT_ID]/sqs-cleartext-queue');
+  // The China partition's domain is `amazonaws.com.cn` (the architect seat's X2: the regex's `.cn` branch had no fixture,
+  // so dropping it left every leg green — a branch nothing exercises is a claim).
+  assert.equal(red(`https://sqs.cn-north-1.amazonaws.com.cn/${ACCT}/sqs-cleartext-queue`, 'aws'),
+    'https://sqs.cn-north-1.amazonaws.com.cn/[ACCOUNT_ID]/sqs-cleartext-queue');
 });
 
 test('pass 1 — an ID learned in context is [ACCOUNT_ID] EVERYWHERE in the payload: bare, dash-suffixed and GLUED', () => {
@@ -61,8 +65,9 @@ test('DECLARED LIMIT: a 12-digit run GLUED into a name and never seen in an ARN 
 });
 
 test('awsAccountIdsIn learns from ARNs and AWS URLs only', () => {
-  const input = { a: 'arn:aws:sns:us-east-1:111111111111:t', b: 'amazonaws.com/222222222222/q', c: 'bare 333333333333' };
-  assert.deepEqual([...awsAccountIdsIn(input)].sort(), ['111111111111', '222222222222']);
+  const input = { a: 'arn:aws:sns:us-east-1:111111111111:t', b: 'amazonaws.com/222222222222/q', c: 'bare 333333333333',
+    d: 'sqs.cn-north-1.amazonaws.com.cn/444444444444/q' };
+  assert.deepEqual([...awsAccountIdsIn(input)].sort(), ['111111111111', '222222222222', '444444444444']);
 });
 
 test('#204 finding 3 — the payload record names the redactor that RAN: "builtin" on the normal path, never "fallback"', async () => {

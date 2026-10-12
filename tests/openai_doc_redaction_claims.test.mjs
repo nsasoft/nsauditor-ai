@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { redactSensitiveForAI } from '../cli.mjs';
+import { redactSensitiveForAI, scrubIPv4KeepingProductIds } from '../cli.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const redact = (info) => JSON.stringify(redactSensitiveForAI({ evidence: [{ info }] }, '203.0.113.9'));   // a NETWORK payload
@@ -66,4 +66,14 @@ test('the docs say so: docs/openai.md and the README name both lists, and the pa
     assert.match(notSentence, re, `the README's not-list lost ${re}`);
   }
   assert.doesNotMatch(readme, /masks IP addresses, MAC addresses, serial numbers, and configurable/);
+});
+
+test('the SUMMARY through both passes as cli.mjs applies them: public → [IP], private → [REDACTED_HOST] — and the page says so', () => {
+  // The architect seat's refute (second read of 1ca3ffe): the page said EVERY summary address became [REDACTED_HOST]. The
+  // base redactor runs first and turns a public one into [IP]; only a private one is left for the summary pass.
+  const summary = redactSensitiveForAI({ summary: 'peer 198.51.100.7 and 10.0.0.5 answered' }, 'x').summary;
+  assert.equal(scrubIPv4KeepingProductIds(summary, () => '[REDACTED_HOST]'), 'peer [IP] and [REDACTED_HOST] answered');
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'openai.md'), 'utf8');
+  assert.doesNotMatch(doc, /every IPv4 address in the summary with `\[REDACTED_HOST\]`/);
+  assert.match(doc, /a private IPv4 address left in the summary also becomes\s+`\[REDACTED_HOST\]` \(a public one is `\[IP\]` there/);
 });

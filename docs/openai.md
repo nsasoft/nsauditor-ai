@@ -39,7 +39,8 @@ One request per scan: a system prompt (selected by `OPENAI_PROMPT_MODE`) and the
 
 With `OPENAI_REDACT=true` (the default), before the payload is sent:
 
-- the top-level host is replaced with `[REDACTED_HOST]`, and every IPv4 address in the summary with `[REDACTED_HOST]`;
+- the top-level host is replaced with `[REDACTED_HOST]`, and a private IPv4 address left in the summary also becomes
+  `[REDACTED_HOST]` (a public one is `[IP]` there, as everywhere);
 - public IPv4 addresses anywhere in the payload are replaced with `[IP]`;
 - private-range IPv4 addresses (10/8, 172.16/12, 192.168/16) in service and evidence strings are replaced with `[REDACTED_IP]`;
 - colon-separated MAC addresses become `[MAC]`, full-form IPv6 addresses `[IPv6]`, and link-local IPv6 `[FE80::/64]`;
