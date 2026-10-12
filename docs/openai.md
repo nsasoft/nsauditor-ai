@@ -50,8 +50,9 @@ With `OPENAI_REDACT=true` (the default), before the payload is sent:
 
 **Not masked** (measured on 2026-10-11 against a router and an AWS account, with a real request): **AWS account IDs and
 ARNs** — bare, inside resource names such as bucket names, in SQS queue URLs and in SNS topic ARNs — and cloud resource
-names themselves; hostnames, e-mail addresses and certificate subjects in service banners and certificate details;
-compressed IPv6 addresses; dash- and dot-form MAC addresses. **Inspect the payload file below before using the AI stage on
+names themselves; AWS access-key IDs (`AKIA…`, `ASIA…` — on the measured run they were not sent, but only because they
+sit in the scan's findings rather than in the evidence the payload carries); hostnames, e-mail addresses and certificate
+subjects in service banners and certificate details; compressed IPv6 addresses; dash- and dot-form MAC addresses. **Inspect the payload file below before using the AI stage on
 production data**, extend `CONFIDENTIAL_KEYWORDS` for fields you do not want to leave the host, and use a local Ollama
 model where none of this may leave it.
 

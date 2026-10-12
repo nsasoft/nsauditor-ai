@@ -37,6 +37,11 @@ test('NOT MASKED today, as documented — a record that goes red when 2.0.0 mask
     assert.ok(redact(s).includes(acct), `the account ID is masked now in "${s}" — move docs/openai.md and the README's "not mask" sentence in this commit`);
   }
   assert.ok(redact('cert subject emailAddress support@example.com').includes('support@example.com'), 'e-mail addresses survive');
+  // The architect seat's measured negative: access-key IDs were absent from the sent payload — by ABSENCE (they live in the
+  // findings, not the evidence the payload carries), not by masking. Driven: the redactor passes them unchanged.
+  for (const key of ['AKIAIOSFODNN7EXAMPLE', 'ASIAIOSFODNN7EXAMPLE']) {
+    assert.ok(redact(`access key ${key} is older than 90 days`).includes(key), `${key.slice(0, 4)}… is masked now — move the docs`);
+  }
   assert.ok(redact('mac 00-11-22-aa-bb-cc').includes('00-11-22-aa-bb-cc'), 'dash-form MACs survive');
 });
 
@@ -48,5 +53,14 @@ test('the docs say so: docs/openai.md and the README name both lists, and the pa
   assert.match(doc, /travels in the SYSTEM PROMPT/);
   assert.doesNotMatch(doc, /The exact payload sent to OpenAI/, 'the payload file does not record the system prompt');
   assert.match(readme, /\*\*It does not mask\*\* AWS account IDs or ARNs/);
+  // ONE not-list, read through BOTH surfaces, so the page and the README cannot drift apart (the architect seat's ask).
+  const NOT_MASKED = [/AWS account IDs/, /ARNs/, /cloud resource names/, /AWS access-key IDs/, /hostnames/, /e-mail/,
+    /compressed IPv6/, /dash- and dot-form MAC/];
+  const notParagraph = /\*\*Not masked\*\*[\s\S]{0,900}/.exec(doc)?.[0] ?? '';
+  const notSentence = /\*\*It does not mask\*\*[^\n]{0,600}/.exec(readme)?.[0] ?? '';
+  for (const re of NOT_MASKED) {
+    assert.match(notParagraph.replace(/\s+/g, ' '), re, `docs/openai.md's not-list lost ${re}`);
+    assert.match(notSentence, re, `the README's not-list lost ${re}`);
+  }
   assert.doesNotMatch(readme, /masks IP addresses, MAC addresses, serial numbers, and configurable/);
 });
