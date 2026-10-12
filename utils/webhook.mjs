@@ -75,16 +75,37 @@ export function pinnedLookup({ address, family }) {
 }
 
 /**
- * Credentials inside any URL in a message, replaced. Measured on Node 24.12 (2026-10-11): with NODE_USE_ENV_PROXY and an
- * HTTPS_PROXY carrying `user:password@`, a failed tunnel's error reads "Failed to establish tunnel to <host> via
- * http://user:password@proxy:port", and that string is what this module returns as `error` — which callers print to stderr
- * and Enterprise writes into the drift file. Every error this module returns passes through here.
+ * The userinfo (`user:password`) of every proxy variable Node's env-proxy support reads, exactly as written and decoded.
+ * Measured on Node 24.12 (2026-10-11): Node ACCEPTS a raw space or a raw `@` inside a proxy password and still routes
+ * through the proxy, and its tunnel error then prints the URL verbatim — no URL-shaped pattern can bound a userinfo that
+ * contains whitespace. Reading the variables Node itself reads removes the exact string, whatever it contains.
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {string[]} longest first
  */
-export function redactUrlCredentials(message) {
-  // Up to the LAST `@` before the path, query, fragment or whitespace: Node ACCEPTS a raw `@` inside a proxy password
-  // (measured — `user:PRO@XYSECRET@host` still routes through the proxy), and a first-`@` rule leaked its tail. An `@` in a
-  // PATH is not userinfo: the userinfo segment ends at the first `/`, `?` or `#`.
-  return String(message ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
+export function proxyUserinfo(env = process.env) {
+  const out = new Set();
+  for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
+    const v = typeof env[k] === 'string' ? env[k].trim() : '';
+    const m = /^[a-z][a-z0-9+.-]*:\/\/([\s\S]*)@[^@]*$/i.exec(v);   // the userinfo runs to the LAST @
+    if (!m || !m[1]) continue;
+    out.add(m[1]);
+    try { out.add(decodeURIComponent(m[1])); } catch { /* not percent-encoded */ }
+  }
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Credentials replaced, wherever they appear in a message. Measured on Node 24.12 (2026-10-11): with NODE_USE_ENV_PROXY and
+ * an HTTPS_PROXY carrying `user:password@`, a failed tunnel's error reads "Failed to establish tunnel to <host> via
+ * http://user:password@proxy:port", and that string is what this module returns as `error` — which callers print to stderr
+ * and Enterprise writes into the drift file. Every error this module returns passes through here. Two passes: the EXACT
+ * userinfo of the proxy variables (any characters, a raw space included), then any URL's userinfo up to the last `@`
+ * before the path (an `@` in a PATH is not userinfo: the userinfo segment ends at the first `/`, `?` or `#`).
+ */
+export function redactUrlCredentials(message, env = process.env) {
+  let out = String(message ?? '');
+  for (const info of proxyUserinfo(env)) out = out.split(`${info}@`).join('<credentials>@');
+  return out.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
 }
 
 // Injectable SSRF checker — overridable in tests only (see _setWebhookSafeChecker).

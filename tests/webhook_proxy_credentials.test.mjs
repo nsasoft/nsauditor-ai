@@ -73,9 +73,21 @@ test('(p2b) a password carrying a RAW @ — which Node accepts and still routes 
   assert.match(result.error, /<credentials>@127\.0\.0\.1/);
 });
 
+test('(p2c) a password carrying a RAW SPACE — which Node also accepts — is redacted whole, through the variable Node read', async () => {
+  // Measured 2026-10-11 while answering the second background review: no URL-shaped pattern can bound a userinfo with a
+  // space in it, and the first two cuts returned this error UNREDACTED.
+  const { seen, result } = await viaProxy('https', 'PRO XYSECRET');
+  assert.equal(seen.length, 1, 'positive control: Node took the raw-space proxy URL and the request reached the proxy');
+  assert.ok(!result.error.includes('XYSECRET') && !result.error.includes('PRO '), `part of the password survived: ${result.error}`);
+  assert.match(result.error, /<credentials>@127\.0\.0\.1/);
+});
+
 test('(p3) redactUrlCredentials replaces userinfo in any URL and leaves a URL without one untouched', () => {
-  assert.equal(redactUrlCredentials('via http://u:p@ss@h:1 ok'), 'via http://<credentials>@h:1 ok', 'a raw @ inside the password');
-  assert.equal(redactUrlCredentials('via http://u:p@h:1 and https://x@y/z'), 'via http://<credentials>@h:1 and https://<credentials>@y/z');
-  assert.equal(redactUrlCredentials('connect ECONNREFUSED 203.0.113.10:443'), 'connect ECONNREFUSED 203.0.113.10:443');
-  assert.equal(redactUrlCredentials('see https://hooks.example/a@b'), 'see https://hooks.example/a@b', 'an @ in the PATH is not userinfo');
+  const env = { HTTPS_PROXY: 'http://u:pa ss@h:1' };
+  assert.equal(redactUrlCredentials('via http://u:pa ss@h:1 ok', env), 'via http://<credentials>@h:1 ok', 'a raw space, removed through the variable');
+  assert.equal(redactUrlCredentials('via http://u:pa%20ss@h:1 ok', { HTTPS_PROXY: 'http://u:pa%20ss@h:1' }), 'via http://<credentials>@h:1 ok');
+  assert.equal(redactUrlCredentials('via http://u:p@ss@h:1 ok', {}), 'via http://<credentials>@h:1 ok', 'a raw @ inside the password');
+  assert.equal(redactUrlCredentials('via http://u:p@h:1 and https://x@y/z', {}), 'via http://<credentials>@h:1 and https://<credentials>@y/z');
+  assert.equal(redactUrlCredentials('connect ECONNREFUSED 203.0.113.10:443', {}), 'connect ECONNREFUSED 203.0.113.10:443');
+  assert.equal(redactUrlCredentials('see https://hooks.example/a@b', {}), 'see https://hooks.example/a@b', 'an @ in the PATH is not userinfo');
 });
