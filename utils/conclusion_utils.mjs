@@ -83,6 +83,32 @@ function resolveLiveness(base, other) {
 export const IDENTITY_FIELDS = new Set(['port', 'protocol', 'service', 'program', 'version', 'cpe', 'status', 'info', 'banner',
   'source', 'evidence', 'authoritative', '__authoritative']);
 
+/**
+ * Merge an authoritative row that did NOT identify its service (status other than 'open') onto the service that already
+ * holds its port (EE 2.0.0 / Community 1.0.0, 4(b)). It may add evidence, fill a blank info or banner, and carry the
+ * adapter's non-identity fields — never program, service, version, cpe, status or source. Neither `upsertService` branch
+ * is safe for it: same-authority merges are last-write-wins, and the authoritative-current branch fills a blank program
+ * from the incoming row, so an OpenSearch row that identified nothing would hand "OpenSearch" to an open 9200 that had no
+ * program — a phantom identity by blank-fill.
+ *
+ * @param {object[]} services
+ * @param {object} next - the unidentified row; a service with its key must already exist
+ * @returns {boolean} false when no service holds the key (nothing merged)
+ */
+export function attachUnidentified(services, next) {
+  const i = services.findIndex((s) => keyOf(s) === keyOf(next));
+  if (i === -1) return false;
+  const cur = services[i];
+  const carried = {};
+  for (const [k, v] of Object.entries(next)) {
+    if (!IDENTITY_FIELDS.has(k) && v !== undefined && cur[k] === undefined) carried[k] = v;
+  }
+  const evidence = Array.isArray(cur.evidence) && Array.isArray(next.evidence) ? cur.evidence.concat(next.evidence)
+    : (cur.evidence ?? next.evidence ?? []);
+  services[i] = { ...cur, ...carried, info: cur.info || next.info || null, banner: cur.banner || next.banner || null, evidence };
+  return true;
+}
+
 // Merge by protocol:port with basic authority precedence.
 // If 'authoritative' flag is true on a record, it wins over non-authoritative —
 // for identity. See resolveLiveness above for why status is handled separately.

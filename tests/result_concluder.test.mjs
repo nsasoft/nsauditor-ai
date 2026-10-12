@@ -74,9 +74,19 @@ test("Result Concluder: sorts services by port and summarizes correctly", async 
 
   // Check a few statuses (tolerant for SNMP wording differences)
   const bySvc = Object.fromEntries(res.services.map((s) => [s.service + ":" + s.port, s]));
-  assert.equal(bySvc["ftp:21"].status, "closed"); // refused => closed
+  // FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(b), tasks/release-2.0.0/f4-phantom-rows-design.md). This leg used
+  // to assert `bySvc["ftp:21"].status === "closed"` and `bySvc["ssh:22"].status === "filtered"` — a SERVICE row for a port
+  // whose own authoritative adapter identified nothing. That is the phantom shape: a refused FTP connect and an SSH timeout
+  // listed as services in the report, the CSV, SARIF and the AI payload. The intent survives: the refusal is recorded as
+  // EVIDENCE carrying its reason, and no ftp:21 or ssh:22 service exists.
+  assert.equal(bySvc["ftp:21"], undefined, "a refused FTP port is not a service");
+  assert.equal(bySvc["ssh:22"], undefined, "an SSH timeout is not a service");
+  const ev = (port) => res.evidence.find((e) => e.protocol === "tcp" && e.port === port && e.reason);
+  assert.equal(ev(21)?.status, "closed"); // refused => closed, as the adapter said
+  assert.match(ev(21).reason, /not identified by its adapter/);
+  assert.equal(ev(22)?.status, "filtered"); // SSH policy applied — to the evidence row now
+  // UDP is untouched (a DECLARED LIMIT: a UDP non-answer is open|filtered, and the delta's UDP measurement reads the row).
   assert.ok(["no response", "filtered"].includes(bySvc["snmp:161"].status));
-  assert.equal(bySvc["ssh:22"].status, "filtered"); // SSH policy applied
 });
 
 test("Result Concluder: SSH timeout policy obeys env", async () => {
@@ -90,13 +100,19 @@ test("Result Concluder: SSH timeout policy obeys env", async () => {
     }),
   ];
 
-  process.env.CONCLUDER_SSH_TIMEOUT_AS = "closed";
-  const resClosed = await concluder.run(results);
-  assert.equal(resClosed.services[0].status, "closed");
-
-  process.env.CONCLUDER_SSH_TIMEOUT_AS = "unknown";
-  const resUnknown = await concluder.run(results);
-  assert.equal(resUnknown.services[0].status, "unknown");
+  // FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(b)). This leg used to read `services[0].status` — so a timed-out
+  // SSH probe, the one record in the run, was concluded as a SERVICE whose status the policy set. What it was guarding is
+  // that a timeout is never read as 'open'; the phantom shape was the service row itself. Under every policy the timeout is
+  // now no service and no false 'open': it is evidence carrying the reason, and the policy still names its status.
+  for (const policy of ["closed", "unknown", "filtered"]) {
+    process.env.CONCLUDER_SSH_TIMEOUT_AS = policy;
+    const res = await concluder.run(results);
+    assert.deepEqual(res.services, [], `policy ${policy}: a timed-out SSH probe is not a service`);
+    const row = res.evidence.find((e) => e.protocol === "tcp" && e.port === 22 && e.reason);
+    assert.ok(row, `policy ${policy}: the timeout is recorded as evidence with its reason`);
+    assert.equal(row.status, policy);
+    assert.notEqual(row.status, "open");
+  }
 });
 
 test("Result Concluder: meta entries excluded from services, real services kept", async () => {

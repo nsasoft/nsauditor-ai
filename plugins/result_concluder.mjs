@@ -2,7 +2,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { normalizeService, upsertService, keyOf } from '../utils/conclusion_utils.mjs';
+import { normalizeService, upsertService, attachUnidentified, keyOf } from '../utils/conclusion_utils.mjs';
 
 function pickResultsFromArgs(args) {
   if (Array.isArray(args[0])) return args[0];
@@ -62,6 +62,9 @@ function ownDirectoryAdapters() {
   })();
   return ownRegistry;
 }
+
+/** The concluder's own adapter registry, exactly as it consults it — for the 4(b) census, which derives every adapter from it. */
+export const _ownDirectoryAdapters = () => ownDirectoryAdapters();
 
 function toRegistry(adapters) {
   if (adapters instanceof Map) return adapters;
@@ -204,6 +207,20 @@ export default {
     const supplied = toRegistry(pickOptsFromArgs(args).adapters);
     const own = await ownDirectoryAdapters();
     const pendingAttach = [];
+    // ── 4(b), EE 2.0.0 / Community 1.0.0 — ON TCP, AUTHORITY NEEDS IDENTIFICATION ──────────────────────────────────────
+    // An authoritative row (an adapter's authoritativePorts, or its own `authoritative: true`) says what a port IS, and its
+    // `status` is the contract: 'open' means the adapter saw a protocol-specific response; every other status — closed,
+    // unknown, filtered, a timeout policy's word — is NON-identification. On TCP an unidentified authoritative row used to be
+    // pushed as a new service (tls_scanner's refused 465/563/993/995, OpenSearch's 5601/9200 — 492 rows across the
+    // evidence tree) or to replace the identity of an open one. Now it never creates a service and never re-identifies one:
+    // it is decided after every result is in, so result order does not matter — onto a service that exists it adds
+    // evidence and fills blanks other than identity (attachUnidentified); where none exists it goes to EVIDENCE with its
+    // reason. UDP rows are untouched, a DECLARED LIMIT: a UDP non-answer is open|filtered by the protocol, and the delta's
+    // UDP measurement reads those rows (tasks/release-2.0.0/f4-phantom-rows-design.md).
+    const psIndex = results.findIndex((r) => String(r?.id ?? '') === '003');
+    const tcpClosed = new Set(psIndex >= 0 && Array.isArray(results[psIndex]?.result?.tcpClosed)
+      ? results[psIndex].result.tcpClosed.map(Number) : []);
+    const deferredUnidentified = [];
     const services = [];
     const evidence = [];
     let os = null;
@@ -231,7 +248,7 @@ export default {
       }
     };
 
-    for (const r of results) {
+    for (const [ri, r] of results.entries()) {
       const name = r?.name || r?.id || 'plugin';
       const id = String(r?.id ?? '');
       const slug = nameSlug(name);
@@ -276,7 +293,21 @@ export default {
             // An attach-only record (060's domain DNS-posture audit) lands only on a service a port-level probe
             // found; decided after every result is in, so result order does not matter.
             if (attachOnly) pendingAttach.push(rec);
-            else upsertService(services, rec, { authoritative });
+            else if (authoritative && rec.protocol === 'tcp' && rec.status !== 'open') deferredUnidentified.push(rec);
+            else if (authoritative && rec.protocol === 'tcp' && tcpClosed.has(rec.port)) {
+              // IDENTIFIED on a port the port scanner measured closed (the architect seat's ruling): a protocol-specific
+              // response cannot come from a closed port, and one refused connect is the weaker measurement (timing, rate
+              // limiting, a service that came up between probes). It stays a SERVICE — the EE agents analyse only services,
+              // so a diverted row is a row nobody analyses — and names both measurements. `resultsOrder` is the order in this
+              // run's results: the plugin manager runs plugins one at a time by priority, so for a run it produced that is
+              // the order of measurement; a caller-supplied array carries whatever order it was given.
+              upsertService(services, { ...rec, measurementConflict: {
+                portScanner: 'closed',
+                adapter: 'open',
+                adapterSource: rec.source,
+                resultsOrder: psIndex < ri ? 'port-scanner-first' : 'adapter-first',
+              } }, { authoritative });
+            } else upsertService(services, rec, { authoritative });
           }
           if (r?.result?.data) pushEvidence(name, r.result.data);
           continue;
@@ -286,6 +317,16 @@ export default {
         upsertService(services, normalizeService(item), { authoritative: false });
       }
       if (r?.result?.data) pushEvidence(name, r.result.data);
+    }
+
+    // The deferred unidentified TCP rows: blanks other than identity on a service that exists, evidence with a reason where
+    // none does.
+    const notConcluded = [];
+    for (const rec of deferredUnidentified) {
+      if (!attachUnidentified(services, rec)) {
+        notConcluded.push({ ...rec, reason: tcpClosed.has(rec.port)
+          ? 'port measured closed by the port scanner (003)' : `not identified by its adapter (status ${rec.status})` });
+      }
     }
 
     const unattached = [];
@@ -311,7 +352,7 @@ export default {
       return false;
     };
 
-    const metaEntries = services.filter(isMetaEntry).concat(unattached);
+    const metaEntries = services.filter(isMetaEntry).concat(unattached, notConcluded);
     const realServices = services.filter(s => !isMetaEntry(s));
 
     // Move meta entries into evidence only — with any namespaced adapter payload, so nothing is lost on the way
@@ -323,6 +364,7 @@ export default {
         status: m.status,
         info: m.info,
         ...(m.banner ? { banner: m.banner } : {}),
+        ...(m.reason ? { reason: m.reason } : {}),
         ...Object.fromEntries(ADAPTER_PAYLOAD_KEYS.filter((k) => m[k] != null).map((k) => [k, m[k]])),
       });
     }

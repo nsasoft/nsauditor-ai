@@ -102,12 +102,22 @@ test('producer contract: the record is AUTHORITATIVE (the 040-merge-trap defense
 test('producer contract: a port with NO handshake carries none of the contract fields', async () => {
   // The consumer premise is "encrypted wherever this fires". Contract fields must be
   // attached ONLY where a handshake was observed — the direction that keeps that true.
-  const svc = await scanTo443('notls');
-  assert.ok(svc, 'a closed/no-TLS record should still exist');
-  assert.notEqual(svc.status, 'open', 'positive control: no handshake was observed here');
+  // FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(b)): this leg read the record from the concluded SERVICES, where a
+  // port with no handshake used to be listed with status 'closed' — the phantom shape. The adapter's record is read
+  // directly now, and the concluder's: no service, and an evidence row that carries none of the contract fields either.
+  process.env.TLS_PRODUCER_SCENARIO = 'notls';
+  const raw = await tlsScanner.run('127.0.0.1');
+  const item = (await conclude({ host: '127.0.0.1', result: raw })).find((i) => i.port === 4443);
+  assert.ok(item, 'the adapter still emits a record for the port it probed');
+  assert.notEqual(item.status, 'open', 'positive control: no handshake was observed here');
+  const conclusion = await concluder.run({ results: [{ name: 'TLS Scanner', result: raw }] });
+  assert.equal(conclusion.services.find((s) => s.port === 4443), undefined, 'a port with no handshake is not a service');
+  const ev = conclusion.evidence.find((e) => e.port === 4443 && e.reason);
+  assert.ok(ev, 'it is evidence, with its reason');
   for (const field of ['tls', 'weakProtocols', 'weakCiphers', 'certExpiry', 'certSelfSigned']) {
-    assert.equal(svc[field], undefined,
+    assert.equal(item[field], undefined,
       `${field} must NOT be attached where no TLS handshake was observed`);
+    assert.equal(ev[field], undefined, `${field} must not reach the evidence row either`);
   }
 });
 

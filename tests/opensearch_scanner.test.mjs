@@ -87,11 +87,18 @@ test('OpenSearch Scanner: parses version + OS/Node banner and integrates with co
 
   // Concluder integration
   const conclusion = await concluder.run({ results: [{ name: 'OpenSearch Scanner', result: raw }] });
-  // Expect authoritative records for both 9200 and 5601
+  // 9200 is identified (`OpenSearch: 2.13.0` in its probe row) and is a service.
+  // FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(b), tasks/release-2.0.0/f4-phantom-rows-design.md in the Enterprise
+  // repo). This leg used to assert a SERVICE on 5601 too, with status 'unknown' — the adapter's own word for "not
+  // identified" — on a port no port scanner had found open: the phantom shape (the F-4 instance, 5601 and 9200 on every
+  // router scan). The adapter's 5601 row stays visible, as evidence with its reason; with a port scanner that saw 5601
+  // open, the open row would stay a service and this row would add its evidence to it.
   const s9200 = conclusion.services.find(s => s.port === 9200);
-  const s5601 = conclusion.services.find(s => s.port === 5601);
-  assert.ok(s9200 && s5601);
+  assert.ok(s9200);
   assert.equal(s9200.service, 'opensearch');
-  assert.equal(s5601.service, 'opensearch-dashboards');
   assert.equal(s9200.status, 'open'); // version present triggers 'open'
+  assert.equal(conclusion.services.find(s => s.port === 5601), undefined, 'an unidentified 5601 is not a service');
+  const e5601 = conclusion.evidence.find(e => e.port === 5601 && e.reason);
+  assert.equal(e5601?.from, 'opensearch-scanner');
+  assert.match(e5601.reason, /not identified by its adapter \(status unknown\)/);
 });

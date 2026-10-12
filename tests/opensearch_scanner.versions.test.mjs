@@ -84,13 +84,15 @@ test('OpenSearch Scanner: Linux/Node UA parsing works across headers and body', 
   assert.match(pi443, /Linux:\s*4\.19\.0-slim/);
   assert.match(pi443, /Node\.js:\s*v16\.20\.2/);
 
-  // Concluder: 9200 should be open, others unknown (no explicit OpenSearch version there)
+  // Concluder: 9200 is open and identified; 5601 and 443 carry no explicit OpenSearch version, so the adapter says
+  // 'unknown' there. FLIPPED DELIBERATELY at EE 2.0.0 / Community 1.0.0 (4(b)): this leg used to assert SERVICES on 5601
+  // and 443 with that 'unknown' status — the phantom shape. They are evidence now, each with its reason.
   const conclusion = await concluder.run({ results: [{ name: 'OpenSearch Scanner', result: raw }] });
   const s9200 = conclusion.services.find(s => s.port === 9200);
-  const s5601 = conclusion.services.find(s => s.port === 5601);
-  const s443  = conclusion.services.find(s => s.port === 443);
-  assert.ok(s9200 && s5601 && s443);
+  assert.ok(s9200);
   assert.equal(s9200.status, 'open');
-  assert.equal(s5601.status, 'unknown');
-  assert.equal(s443.status, 'unknown');
+  for (const port of [5601, 443]) {
+    assert.equal(conclusion.services.find(s => s.port === port), undefined, `an unidentified ${port} is not a service`);
+    assert.match(conclusion.evidence.find(e => e.port === port && e.reason)?.reason ?? '', /not identified by its adapter \(status unknown\)/);
+  }
 });
