@@ -17,7 +17,7 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 1.0.0 + Enterprise 2.0.0 — *Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; a port no probe identified is not a service*.**
+**Latest: CE 1.0.0 + Enterprise 2.0.0 — *Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one*.**
 A scan now connects only to the addresses its host check resolved — on the CLI and through the MCP server, for the target
 and each redirect hop — so a name that answers one address to the check and another at connect (DNS rebinding) cannot
 redirect it; two limits are stated in the [CHANGELOG](./CHANGELOG.md) (an HTTP proxy set with `NODE_USE_ENV_PROXY`, and an

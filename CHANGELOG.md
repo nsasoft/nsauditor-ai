@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 1.0.0 (⏳ PRE-PUBLISH — opened 2026-10-09, NOT YET ON npm) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; a port no probe identified is not a service; paired with Enterprise 2.0.0
+## 1.0.0 (⏳ PRE-PUBLISH — opened 2026-10-09, NOT YET ON npm) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one; paired with Enterprise 2.0.0
 
 **The release:** Community 1.0.0 is the Community half of Enterprise 2.0.0. A scan now connects only to the addresses its
 host check resolved, so a name that answers one address to the check and another at connect (DNS rebinding) cannot
@@ -57,6 +57,10 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
   NetBIOS 445) leave the service list, which moves the CSV, SARIF, the Markdown table and the AI payload's services by
   exactly those rows. The delta reads the change across the upgrade as not measured, never as fixed or new. **Stated
   limit:** UDP rows are unchanged — a UDP non-answer is open|filtered, and the delta's UDP measurement reads those rows.
+  **Second stated limit:** the rule decides authoritative adapter rows only. A probe with no concluder adapter reaches the
+  service list through the concluder's fallback as a non-authoritative row named after the plugin, and its status can be
+  other than `open` — measured on a router scan with this release: the SUN RPC plugin (015) lists port 111 as `sun`,
+  status `unknown`, on a port the port scanner (003) measured closed.
 
 ### Plugin 040
 
