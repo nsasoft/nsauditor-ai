@@ -3701,6 +3701,22 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   }
 }
 
+/**
+ * What a rejected main() exits with — the ONE copy of this mapping. Both entry points call it: the block below when
+ * cli.mjs is run directly, and bin/nsauditor-ai.mjs, the command npm installs (which imports main(), so cli.mjs is never
+ * the entry point for an installed user). A flag refusal is an operator error, not a crash: name it and exit 2, this
+ * CLI's "could not do what you asked" code. Everything else keeps the stack and exit 1. `error` and `exit` are seams for
+ * the suite (tests/cli_bin_entrypoint.test.mjs).
+ */
+export function exitOnMainRejection(err, { error = console.error, exit = process.exit } = {}) {
+  if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE') {
+    error(`[ERROR] ${err.message}`);
+    return exit(2);
+  }
+  error(err?.stack || err);
+  return exit(1);
+}
+
 // Only auto-run main() when this file is the process entrypoint. Importing
 // cli.mjs (e.g. unit tests pulling in `parseArgs`) must NOT trigger a scan.
 const _isEntrypoint = (() => {
@@ -3711,14 +3727,5 @@ const _isEntrypoint = (() => {
   }
 })();
 if (_isEntrypoint) {
-  main().catch((err) => {
-    // A flag-shape refusal is an operator error, not a crash: name it and exit 2, this CLI's
-    // "could not do what you asked" code. Everything else keeps the stack and exit 1.
-    if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE') {
-      console.error(`[ERROR] ${err.message}`);
-      process.exit(2);
-    }
-    console.error(err?.stack || err);
-    process.exit(1);
-  });
+  main().catch((err) => exitOnMainRejection(err));
 }
