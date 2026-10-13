@@ -53,9 +53,11 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
   service (any status other than `open`) is never listed as a service and never replaces an open port's identity: onto a
   service that exists it adds evidence and fills blanks other than identity; where none exists it goes to `evidence` with
   its reason. An identified row on a port the port scanner measured closed stays a service, with a `measurementConflict`
-  note. Measured over the 520 recorded scans: 501 such rows (TLS 465 / 563 / 993 / 995 / 443, OpenSearch 5601 / 9200,
-  NetBIOS 445) leave the service list, which moves the CSV, SARIF, the Markdown table and the AI payload's services by
-  exactly those rows. The delta reads the change across the upgrade as not measured, never as fixed or new. **Stated
+  note. Measured by re-concluding the results of 520 recorded scans, once with Community 0.2.57's concluder and once with
+  this one: 501 rows leave the service list, across 112 of the scans — TLS 402 (465 / 563 / 993 / 995 × 85 each, 443 × 41,
+  18443 × 16, 18444 × 3, 19443 × 2), OpenSearch 90 (5601 and 9200 × 45 each) and NetBIOS 9 (445) — none joins it, and no
+  remaining service changes. That moves the CSV, SARIF, the Markdown table and the AI payload's services by exactly those
+  rows. The delta reads the change across the upgrade as not measured, never as fixed or new. **Stated
   limit:** UDP rows are unchanged — a UDP non-answer is open|filtered, and the delta's UDP measurement reads those rows.
   **Second stated limit:** the rule decides authoritative adapter rows only. A probe with no concluder adapter reaches the
   service list through the concluder's fallback as a non-authoritative row named after the plugin, and its status can be
