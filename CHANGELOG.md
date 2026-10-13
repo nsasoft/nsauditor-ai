@@ -82,6 +82,14 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
 - **The README says what `--watch` alerts cover:** network-scan findings; cloud-plugin findings and compliance control
   status do not alert — use the drift file and its notification on a scheduled one-shot scan (Enterprise).
 
+### The installed command
+
+- **A refused flag exits 2 through the installed `nsauditor-ai`, with one `[ERROR]` line.** The `--flag=value` form
+  (refused since 0.2.42) and this release's refused notification and alert-payload flags are mapped to exit 2 in
+  `cli.mjs`, and the installed command never reached that mapping: it exited 1 with a stack trace. Exit 1 is also
+  `--fail-on`'s findings code, so a CI job that read exit 1 from a flag typo as findings now sees 2. Any other error
+  keeps its stack and exit 1.
+
 ### Claims and documentation
 
 - **Zero Data Exfiltration is stated party-scoped** in the README and docs: no scan data is ever sent to Nsasoft, and no
