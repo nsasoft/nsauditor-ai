@@ -113,6 +113,27 @@ async function reverseHostname(ip) {
   }
 }
 
+// A probe that never completed a handshake either got an ANSWER (a measurement: the server spoke something other
+// than TLS — node:tls surfaces that as ERR_SSL_*, e.g. a plaintext reply as ERR_SSL_PACKET_LENGTH_TOO_LONG) or failed
+// in TRANSPORT (no measurement at all). These are the transport classes: when EVERY attempt on a port failed with one
+// of them, the data row leads with the class, so a reader — and the Enterprise input-gap check, which matches these
+// same codes — can tell "not measured" from "not TLS". The probe's own timeout is reported as ETIMEDOUT. Any other
+// failure, including one that carries no code, leaves the row as it was. ERR_SSL_NO_PROTOCOLS_AVAILABLE is refused by
+// the client before a byte is sent, so it is neither an answer nor a transport failure.
+const TRANSPORT_FAILURE_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EPIPE', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN',
+]);
+const CLIENT_SIDE_CODES = new Set(['ERR_SSL_NO_PROTOCOLS_AVAILABLE']);
+
+/** The transport class for a port where NO attempt completed a handshake (the only caller's condition), or null
+ *  when any attempt that reached the wire was answered. */
+function transportClassOf(attempts) {
+  const informative = attempts.filter((a) => !CLIENT_SIDE_CODES.has(a.code));
+  if (informative.length === 0) return null;
+  if (informative.some((a) => !TRANSPORT_FAILURE_CODES.has(a.code))) return null;
+  return [...new Set(informative.map((a) => a.code))].join(', ');
+}
+
 export default {
   id: "011",
   name: "TLS Scanner",
@@ -177,18 +198,20 @@ export default {
           if (settled) return;
           settled = true;
           try { socket.destroy?.(); } catch {}
-          resolve({ success: false, error: 'timeout' });
+          resolve({ success: false, error: 'timeout', code: 'ETIMEDOUT' });
         });
         socket.on?.('error', (err) => {
           if (settled) return;
           settled = true;
-          resolve({ success: false, error: err && err.message ? err.message : 'error' });
+          resolve({ success: false, error: err && err.message ? err.message : 'error', code: err && err.code ? err.code : null });
         });
       });
 
       let leafCert = null;
+      const attempts = [];
       for (const v of versions) {
         const res = await check(v);
+        attempts.push({ success: !!res.success, code: res.success ? null : (res.code ?? null) });
         if (res.success) {
           const proto = res.protocol || v;
           result.supportedVersions.push(proto);
@@ -202,6 +225,7 @@ export default {
       }
 
       result.isTLSService = result.supportedVersions.length > 0;
+      result.transportClass = result.isTLSService ? null : transportClassOf(attempts);
       result.supportsOld = result.supportedVersions.some(v => v === 'TLSv1' || v === 'TLSv1.1');
 
       // An anonymous (aNULL) suite presents NO certificate, so if the probe negotiated one
@@ -235,6 +259,7 @@ export default {
     // Build raw result.data rows for Evidence + Concluder
     const data = perPort.map(r => {
       const infoBits = [];
+      if (r.transportClass) infoBits.push(r.transportClass);
       if (r.supportedVersions.length) infoBits.push(`TLS: ${r.supportedVersions.join(', ')}`);
       if (r.supportsOld) infoBits.push('OLD: yes');
       if (r.hostname && r.hostname !== r.ip) infoBits.push(`SNI: ${r.hostname}`);
