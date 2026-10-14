@@ -31,8 +31,8 @@ async function receiver() {
   return { port: server.address().port, count: () => connections, close: () => new Promise((r) => server.close(r)) };
 }
 
-const tcp = (port) => new Promise((resolve) => {
-  const s = net.connect({ host: 'localhost', port, family: 4 });
+const tcp = (port, host = 'localhost') => new Promise((resolve) => {
+  const s = net.connect({ host, port, family: 4 });
   s.setTimeout(400, () => { s.destroy(); resolve('timeout'); });
   s.on('connect', () => { s.destroy(); resolve('connected'); });
   s.on('error', (e) => resolve(e.code ?? 'error'));
@@ -49,10 +49,16 @@ const httpGet = (port) => new Promise((resolve) => {
   req.on('timeout', () => { req.destroy(); resolve('timeout'); });
   req.on('error', (e) => resolve(e.code ?? 'error'));
 });
-const fetchGet = async (port) => {
-  try { const r = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(500) }); await r.text(); return r.status; }
+const fetchGet = async (port, host = 'localhost') => {
+  try { const r = await fetch(`http://${host}:${port}/`, { signal: AbortSignal.timeout(500) }); await r.text(); return r.status; }
   catch (e) { return e.name ?? 'error'; }
 };
+/** http.get with a URL STRING — which is URL-parsed, so it looks up the ASCII form of the name (the options form does not). */
+const httpGetUrl = (port, host) => new Promise((resolve) => {
+  const req = http.get(`http://${host}:${port}/`, { timeout: 400 }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+  req.on('timeout', () => { req.destroy(); resolve('timeout'); });
+  req.on('error', (e) => resolve(e.code ?? 'error'));
+});
 
 for (const [family, connect] of [['TCP (net.connect)', tcp], ['TLS (tls.connect)', tlsConnect], ['HTTP (http.get)', httpGet], ['fetch', fetchGet]]) {
   test(`${family}: unpinned it lands on loopback (positive control); pinned it never does`, async () => {
@@ -134,6 +140,140 @@ test('a NESTED run (a redirect hop) inherits the scan\'s pins and adds its own; 
   assert.deepEqual(seen, { inner: { hop: '198.51.100.7', target: '198.51.100.8' }, after: '203.0.113.10', hopAfter: null });
   const innerOnly = await runPinned(PIN, () => runPinned({ 'hop.test': [{ address: '198.51.100.7', family: 4 }] }, () => dnsPromises.lookup('localhost', { family: 4 })));
   assert.equal(innerOnly.address, '203.0.113.10', 'the inner run dropped the scan\'s own pin');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// G1 — THE KEY IS THE NAME A CLIENT LOOKS UP, NOT THE SPELLING THE OPERATOR TYPED. The host check resolves the spelling
+// as given, and `node:dns` `lookup` applies the IDNA ToASCII mapping inside, so `ⓛocalhost` or `bücher.example` passes the
+// check. Every URL-parsing client — fetch, http.get with a URL —
+// looks up the ASCII form (`localhost`, `xn--bcher-kva.example`). A pin keyed on the spelling missed that lookup, and the
+// client resolved the name again: a rebinding name reached whatever its second answer named.
+//
+// FOURTH QUADRANT FIRST: (a) and (b) are what the canonical key must NOT change; (c)–(e) are the defect.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('G1 (a): an ASCII name keeps its key — case and one trailing dot fold, and a different name is not pinned', async () => {
+  const X = [{ address: '198.51.100.20', family: 4 }];
+  const seen = await runPinned({ 'Example.COM.': X, 'foo_bar.example': ELSEWHERE }, async () => ({
+    lookup: await dnsPromises.lookup('example.com', { family: 4 }),
+    keys: ['example.com', 'EXAMPLE.COM', 'example.com.'].map((h) => pinnedAnswersFor(h)),
+    underscore: pinnedAnswersFor('FOO_BAR.example'),
+    other: pinnedAnswersFor('example.org'),
+    sub: pinnedAnswersFor('www.example.com'),
+  }));
+  assert.deepEqual(seen.lookup, { address: '198.51.100.20', family: 4 });
+  for (const answers of seen.keys) assert.deepEqual(answers, X, 'an ASCII name no longer folds case and one trailing dot');
+  assert.deepEqual(seen.underscore, ELSEWHERE, 'an underscore label (valid in DNS, kept by domainToASCII) lost its pin');
+  assert.equal(seen.other, null, 'a different name answered another name\'s pin');
+  assert.equal(seen.sub, null, 'a subdomain answered its parent\'s pin');
+});
+
+test('G1 (b): a name domainToASCII REJECTS keeps its raw key (trimmed, lower-cased) and still pins net.connect — and two rejected names never share a key', async () => {
+  const rx = await receiver();
+  try {
+    // Negative control: unpinned, the resolver refuses this label outright (EINVAL, offline), so a connect that lands on
+    // the receiver below landed there through the pin and nothing else.
+    assert.notEqual(await tcp(rx.port, 'xn--zz'), 'connected', 'negative control: an unpinned xn--zz resolved somewhere');
+    await settle();
+    assert.equal(rx.count(), 0, 'negative control: an unpinned xn--zz reached the receiver');
+    const AT_RX = [{ address: '127.0.0.1', family: 4 }];
+    const seen = await runPinned({ ' XN--ZZ ': AT_RX }, async () => ({
+      connect: await tcp(rx.port, 'xn--zz'),
+      // A canonical form with no fallback keys EVERY rejected name as '' — one pin would answer for all of them.
+      other: pinnedAnswersFor('xn--yy'),
+      spaced: pinnedAnswersFor('exa mple'),
+      empty: pinnedAnswersFor(''),
+    }));
+    assert.equal(seen.connect, 'connected', 'a name domainToASCII rejects lost its pin');
+    await settle();
+    assert.equal(rx.count(), 1);
+    assert.equal(seen.other, null, 'two names domainToASCII rejects share one key — the raw-key fallback is missing');
+    assert.equal(seen.spaced, null, 'a rejected name answered another rejected name\'s pin');
+    assert.equal(seen.empty, null, 'the empty name answered a pin');
+  } finally { await rx.close(); }
+});
+
+// Each spelling kills a different wrong fix: an enclosed letter and fullwidth letters are mapped by NFKC as well, but a
+// soft hyphen is DELETED by the IDNA mapping and KEPT by NFKC — a `normalize('NFKC')` "fix" leaves that one open.
+const G1_SPELLINGS = [['ⓛocalhost', 'an enclosed letter'], ['ＬＯＣＡＬＨＯＳＴ', 'fullwidth letters'], ['local­host', 'a soft hyphen']];
+// net.connect looks up the spelling as given; fetch and http.get with a URL look up the ASCII form. A key canonicalised on
+// ONE side only (the merge or the lookup) fails one of these.
+const G1_CLIENTS = [['net.connect', tcp], ['fetch', fetchGet], ['http.get(url)', httpGetUrl]];
+for (const [spelling, what] of G1_SPELLINGS) {
+  for (const [client, connect] of G1_CLIENTS) {
+    test(`G1 (c): pinned under ${what} (${JSON.stringify(spelling)}), ${client} never reaches loopback; unpinned it does`, async () => {
+      const rx = await receiver();
+      try {
+        await connect(rx.port, spelling);
+        await settle();
+        const unpinned = rx.count();
+        assert.ok(unpinned >= 1, `positive control: an unpinned ${client} to ${JSON.stringify(spelling)} did not reach the loopback receiver`);
+        await runPinned({ [spelling]: ELSEWHERE }, () => connect(rx.port, spelling));
+        await settle();
+        assert.equal(rx.count(), unpinned, `a ${client} to ${JSON.stringify(spelling)} reached loopback under its pin — the client looked up a name the pin was not keyed on`);
+      } finally { await rx.close(); }
+    });
+  }
+  test(`G1 (c): pinned under the ASCII name, net.connect to ${what} (${JSON.stringify(spelling)}) never reaches loopback — both sides share one key`, async () => {
+    const rx = await receiver();
+    try {
+      await tcp(rx.port, spelling);
+      await settle();
+      const unpinned = rx.count();
+      assert.ok(unpinned >= 1, 'positive control: an unpinned net.connect did not reach the loopback receiver');
+      await runPinned(PIN, () => tcp(rx.port, spelling));
+      await settle();
+      assert.equal(rx.count(), unpinned, `net.connect to ${JSON.stringify(spelling)} escaped the pin on 'localhost'`);
+    } finally { await rx.close(); }
+  });
+}
+
+test('G1 (d): pinned under a Unicode name, the punycode name a URL client looks up is pinned — and the connect follows the PINNED answer', async () => {
+  const rx = await receiver();
+  try {
+    const AT_RX = [{ address: '127.0.0.1', family: 4 }];
+    // Both runs are pinned, so neither asks a real resolver: the outcome follows the pinned answer — the receiver under
+    // AT_RX, nowhere under ELSEWHERE — and that pairing is the control that the answer came from the pin.
+    const toRx = await runPinned({ 'bücher.example': AT_RX }, async () => ({
+      answers: pinnedAnswersFor('xn--bcher-kva.example'),
+      address: pinnedAddressFor('xn--bcher-kva.example'),
+      fetched: await fetchGet(rx.port, 'bücher.example'),
+    }));
+    assert.deepEqual(toRx.answers, AT_RX, 'xn--bcher-kva.example is not pinned under the pin on bücher.example');
+    assert.equal(toRx.address, '127.0.0.1');
+    assert.equal(toRx.fetched, 200, 'fetch looked up xn--bcher-kva.example, missed the pin on bücher.example and resolved the name live');
+    await settle();
+    const reached = rx.count();
+    assert.equal(reached, 1);
+    await runPinned({ 'bücher.example': ELSEWHERE }, () => fetchGet(rx.port, 'bücher.example'));
+    await settle();
+    assert.equal(rx.count(), reached, 'pinned elsewhere, fetch to bücher.example still reached the receiver');
+    // The other direction: a pin on the ASCII form answers the Unicode spelling.
+    const reverse = await runPinned({ 'xn--bcher-kva.example': ELSEWHERE }, async () => ({
+      unicode: pinnedAnswersFor('bücher.example'),
+      upper: pinnedAnswersFor('BÜCHER.EXAMPLE'),
+    }));
+    assert.deepEqual(reverse, { unicode: ELSEWHERE, upper: ELSEWHERE }, 'a pin on xn--bcher-kva.example does not answer bücher.example');
+  } finally { await rx.close(); }
+});
+
+test('G1 (e): case, one trailing dot, an ideographic full stop and surrounding whitespace still fold — to the key the client looks up', async () => {
+  const X = [{ address: '198.51.100.30', family: 4 }];
+  const seen = await runPinned({ ' BÜCHER。Example。 ': X }, async () => (
+    ['xn--bcher-kva.example', 'XN--BCHER-KVA.EXAMPLE.', 'bücher.example', 'Bücher.Example.'].map((h) => pinnedAnswersFor(h))
+  ));
+  for (const answers of seen) assert.deepEqual(answers, X, 'a spelling of bücher.example did not fold to its pinned key');
+  // U+3002 is a label separator to IDNA and to the URL parser: `localhost。` is fetched as `localhost.`.
+  const rx = await receiver();
+  try {
+    await fetchGet(rx.port, 'localhost。');
+    await settle();
+    const unpinned = rx.count();
+    assert.ok(unpinned >= 1, 'positive control: an unpinned fetch to localhost。 did not reach the loopback receiver');
+    await runPinned({ 'localhost。': ELSEWHERE }, () => fetchGet(rx.port, 'localhost。'));
+    await settle();
+    assert.equal(rx.count(), unpinned, 'pinned under localhost。, fetch looked up localhost. and reached loopback');
+  } finally { await rx.close(); }
 });
 
 test('KEEP-ALIVE, A STATED LIMIT (measured): fetch pools connections by NAME, so a scan can reuse an idle connection an EARLIER scan of that name opened — to the address THAT scan\'s check admitted', async () => {
