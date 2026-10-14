@@ -120,9 +120,11 @@ async function reverseHostname(ip) {
 // same codes — can tell "not measured" from "not TLS". The probe's own timeout is reported as ETIMEDOUT. Any other
 // failure, including one that carries no code, leaves the row as it was. ERR_SSL_NO_PROTOCOLS_AVAILABLE is refused by
 // the client before a byte is sent, so it is neither an answer nor a transport failure.
-const TRANSPORT_FAILURE_CODES = new Set([
+// Exported so a consumer that reads these rows can pin that it recognises every class written here.
+export const TRANSPORT_FAILURE_CODES = Object.freeze([
   'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EPIPE', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN',
 ]);
+const TRANSPORT_FAILURE_SET = new Set(TRANSPORT_FAILURE_CODES);
 const CLIENT_SIDE_CODES = new Set(['ERR_SSL_NO_PROTOCOLS_AVAILABLE']);
 
 /** The transport class for a port where NO attempt completed a handshake (the only caller's condition), or null
@@ -130,7 +132,7 @@ const CLIENT_SIDE_CODES = new Set(['ERR_SSL_NO_PROTOCOLS_AVAILABLE']);
 function transportClassOf(attempts) {
   const informative = attempts.filter((a) => !CLIENT_SIDE_CODES.has(a.code));
   if (informative.length === 0) return null;
-  if (informative.some((a) => !TRANSPORT_FAILURE_CODES.has(a.code))) return null;
+  if (informative.some((a) => !TRANSPORT_FAILURE_SET.has(a.code))) return null;
   return [...new Set(informative.map((a) => a.code))].join(', ');
 }
 
