@@ -266,7 +266,7 @@ export const TOOLS = [
       + ' the flags the service checks leave on each service record — weak SSH algorithms, SNMP default community, weak '
       + 'TLS protocols / ciphers and a self-signed certificate, the MCP server checks, and anonymous FTP login and DNS '
       + 'zone transfer only when the server\'s environment enables them (FTP_CHECK_ANON; DNS_CHECK_AXFR with '
-      + 'DNS_AXFR_DOMAIN — both off by default). The records also carry the HTTP probe\'s methods (006, dangerousMethods; '
+      + 'DNS_AXFR_DOMAIN; 060\'s: DNS_AUDIT_AXFR_CHECK — all off by default). The records also carry the HTTP probe\'s methods (006, dangerousMethods; '
       + 'methodsTested false is not tested, never "none"), the NetBIOS/SMB null-session check (014, nullSessionAllowed; '
       + 'opt-in, SMB_NULL_SESSION) and the TLS-certificate (040, certAudit) and debug-endpoint (050, tribeHealth) audits. For a domain-name target the DNS-security audit (060, dnsSecurity) lands '
       + 'on a 53/udp record if the scan found one, else in the conclusion\'s evidence; an IP-address target is DECLINED '

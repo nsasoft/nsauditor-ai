@@ -41,7 +41,7 @@ const DECLARED = {
   'plugins/arp_scanner.mjs': { commands: { arp: LITERAL_ONLY } },
   'plugins/syn_scanner.mjs': { commands: { nmap: PINNED, where: NOT_A_CONNECT, command: NOT_A_CONNECT } },
   'plugins/tls_scanner.mjs': { dnsProtocol: 'a PTR lookup (reverse) of an address the scan already holds — never a connect' },
-  'plugins/060_dns_sec_auditor.mjs': { dnsProtocol: 'DNS posture of the DOMAIN (resolve*) — it never connects to the target' },
+  'plugins/060_dns_sec_auditor.mjs': { dnsProtocol: 'DNS posture of the DOMAIN (resolve*) — it never connects to the target; its zone-transfer attempt (opt-in, DNS_AUDIT_AXFR_CHECK) connects to the nameservers\' resolve4 answers, outside the pin' },
   'utils/keychain.mjs': {
     unbound: { cmd: 'the parameter of its own exec(cmd, args) wrapper; every caller passes the literal security (the macOS Keychain — never the network)' },
   },

@@ -1040,7 +1040,8 @@ export async function assertScanTargetAllowed(host, env = process.env) {
 
 export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // SSRF guard — block loopback, private ranges, cloud metadata endpoints.
-  // Set NSA_ALLOW_ALL_HOSTS=1 to scan RFC 1918 / private ranges (local network auditing).
+  // NSA_ALLOW_ALL_HOSTS=1 lifts this whole guard for local network auditing — loopback and metadata included (the MCP
+  // server's guard admits private ranges only).
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
   const answers = await assertScanTargetAllowed(host);
 
@@ -1825,11 +1826,11 @@ Scan options:
                                040 / 050 / 060 audits (060: the domain's SPF / DMARC /
                                NS), and Dangerous HTTP methods (medium) only where an
                                Allow header was read. Anonymous FTP / zone transfer /
-                               null session only with FTP_CHECK_ANON / DNS_CHECK_AXFR /
-                               SMB_NULL_SESSION set; not tested never trips it; any
-                               concluded scan is info. Not CVEs or agent findings —
-                               exit 0 is not a clean host. Exit 2: unknown severity or
-                               no conclusion.
+                               null session only with FTP_CHECK_ANON / DNS_CHECK_AXFR
+                               or DNS_AUDIT_AXFR_CHECK (060) / SMB_NULL_SESSION set;
+                               not tested never trips it; any concluded scan is info.
+                               Not CVEs or agent findings — exit 0 is not a clean host.
+                               Exit 2: unknown severity or no conclusion.
   --output-format <fmt>        Additional report format: sarif | csv | md
   --insecure-https             Skip TLS validation on probed HTTPS targets
   --watch                      CTEM continuous ALERTING mode: re-scan on --interval and
@@ -1972,7 +1973,9 @@ Environment:
   NSA_MCP_AUTH_KEY               MCP server auth key — read by mcp_server at startup;
                                  client supplies via Claude Desktop config env block
   NSA_MCP_AUTH_DISABLE=1         Skip MCP auth check (CI/dev escape hatch — emits warn)
-  NSA_ALLOW_ALL_HOSTS=1          Permit RFC1918 / loopback (local-network auditing)
+  NSA_ALLOW_ALL_HOSTS=1          Local-network auditing. CLI: lifts the whole scan-entry
+                                 guard, loopback and metadata included. MCP server:
+                                 admits RFC 1918 / CGNAT / fc00::/7 only
   CLOUD_PROVIDER=aws|gcp|azure   Required for cloud scanner plugins (020/021/022/023/030)
   AI_PROVIDER=openai|claude|ollama   AI provider for report generation
   NSAUDITOR_TSA_URL              RFC 3161 timestamp authority for compliance attestation.

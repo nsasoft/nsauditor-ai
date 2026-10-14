@@ -5,7 +5,7 @@
 // A scan's host check resolves the target and checks EVERY answer; the plugins then connected by NAME, so a name that
 // answered one thing to the check and another at connect (DNS rebinding) reached whatever the second answer named. Inside
 // `runPinned`, `node:dns` `lookup` and `node:dns/promises` `lookup` answer the CHECKED answer set for the checked name, so
-// every in-process connect — net, tls, http(s), fetch, dgram — goes where the check looked, and the name still rides as the
+// every in-process connect to that name — net, tls, http(s), fetch, dgram — goes where the check looked, and the name still rides as the
 // Host header and the TLS server name.
 //
 // SCOPED TO THE SCAN'S ASYNC CONTEXT (AsyncLocalStorage), never a process-global map: two overlapping MCP scans of one
@@ -13,7 +13,8 @@
 // not pinned by it. Outside a pinned run the resolvers behave exactly as before. A thrown scan leaves nothing behind.
 //
 // WHAT IT DOES NOT COVER, by construction: `dns.resolve*` (the DNS protocol, never getaddrinfo — used for DNS posture,
-// which never connects to the target); SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS), so
+// which never connects to the target; its zone-transfer attempt, opt-in with DNS_AUDIT_AXFR_CHECK, connects to the
+// nameserver addresses `resolve4` answers, which no check looked at); SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS), so
 // each of those plugins reads `pinnedAddressFor(host)` and passes the address itself; and a `dgram` socket CREATED BEFORE
 // the first pinned run, which resolves through the lookup it captured at creation (measured by the architect seat: such a
 // socket reached loopback inside a later pin; one created inside the run was pinned). No plugin or util creates a socket

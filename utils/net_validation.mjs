@@ -14,8 +14,9 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
-// Refused in every configuration, NSA_ALLOW_ALL_HOSTS included: loopback, unspecified,
-// link-local and the cloud metadata endpoints.
+// Refused by every check that classifies — the MCP server's, a redirect hop's — NSA_ALLOW_ALL_HOSTS included: loopback,
+// unspecified, link-local and the cloud metadata endpoints. The CLI's scan entry does not classify under
+// NSA_ALLOW_ALL_HOSTS (cli.mjs assertScanTargetAllowed returns first), so there the variable lifts the whole guard.
 const ALWAYS = new net.BlockList();
 ALWAYS.addSubnet('127.0.0.0', 8, 'ipv4');          // loopback
 ALWAYS.addSubnet('0.0.0.0', 8, 'ipv4');            // "this network" / unspecified

@@ -117,7 +117,7 @@ const GRADED = [
   { key: 'tribeHealth', label: 'the debug-endpoint audit (050)', token: 'debug_endpoint_findings',
     grade: (s) => list(s.tribeHealth?.findings).filter(actionable).map((f) => finding(normalizeSeverity(f.severity),
       `Debug endpoint: ${f.detail || f.check}`, `debug-endpoint-${ruleSafe(f.category)}-${ruleSafe(f.check)}`, null, `${f.category}/${f.check}`)) },
-  { key: 'dnsSecurity', label: 'the DNS-security audit of the domain (060)', token: 'dns_security_findings',
+  { key: 'dnsSecurity', label: 'the DNS-security audit of the domain (060; its zone-transfer attempt only when DNS_AUDIT_AXFR_CHECK is set)', token: 'dns_security_findings',
     grade: (s) => list(s.dnsSecurity?.findings).filter(actionable).map((f) => finding(normalizeSeverity(f.severity),
       `DNS security: ${f.detail || f.check}`, `dns-security-${ruleSafe(f.check)}`, null, String(f.check))) },
 ];
