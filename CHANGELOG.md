@@ -99,6 +99,12 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
   `cli.mjs`, and the installed command never reached that mapping: it exited 1 with a stack trace. Exit 1 is also
   `--fail-on`'s findings code, so a CI job that read exit 1 from a flag typo as findings now sees 2. Any other error
   keeps its stack and exit 1.
+- **A `--plugins` list that names no plugin is refused by name** (exit 2, one `[ERROR]` line), before anything is scanned
+  or written. Until 1.0.0 a token that matched no plugin was dropped without a word — a typo, an exclusion spelling such
+  as `!060` (there is no exclusion syntax), `all` inside a list, or the help text's own example `001,003,020` (there is no
+  plugin 020) — and a list that matched none ran zero plugins and reported a clean scan: exit 0 under `--fail-on`, and
+  with `--compliance` every in-scope control read pass at zero evidence. `all`, the default and an empty value are
+  unchanged.
 
 ### Claims and documentation
 

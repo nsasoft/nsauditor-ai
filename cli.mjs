@@ -1814,7 +1814,7 @@ Scan options:
                                region-scoped checks use AWS_REGION, else one region (with an
                                incomplete-coverage notice); CloudTrail trail discovery,
                                GuardDuty/Inspector and EC2 instances attempt every region.
-  --plugins <list|all>         Plugins to run (e.g. 001,003,020 or "all"; default: all)
+  --plugins <list|all>         Plugins to run (e.g. 001,003,011 or "all"; default: all)
   --ports <list>               Ports ADDED to the default set (e.g. 22,80,443 or 161/udp;
                                a range such as 1-1000 is not parsed and adds nothing)
   --out <dir>                  Output directory for scan artifacts
@@ -3396,6 +3396,9 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   }
   if (notifyWebhook) Object.assign(opts, { notifyWebhook, notifyFormat, notifySeverity, notifyPayload });
   const pm = await PluginManager.create(`${__dirname}/plugins`);
+  // Before the watch loop, the run record or any host: a --plugins list that names no plugin is refused by name.
+  const selectionRefused = pluginSelectionRefusal(plugins, pm);
+  if (selectionRefused) throw selectionRefused;
   const promptMode = String(process.env.OPENAI_PROMPT_MODE || 'basic').toLowerCase().trim();
 
   // --- CTEM: continuous watch mode ---
@@ -3702,6 +3705,30 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       process.exit(0);
     }
   }
+}
+
+/**
+ * An explicit --plugins list, resolved against the loaded plugins before anything is scanned or written: a token that names
+ * no plugin is refused BY NAME, and so is a list that names none. Until 1.0.0 both were dropped without a word, and a list
+ * that resolved to nothing ran ZERO plugins — exit 0, "Security findings: 0", and with --compliance every in-scope control
+ * PASS at zero evidence. `all` must stand alone: inside a list it was dropped too, silently running only the rest.
+ * Returns an EFLAGVALUE error (exit 2 through exitOnMainRejection), or null when the selection stands.
+ * @param {string[]|string|undefined} plugins  parseArgs' `plugins`: 'all', or the list's trimmed tokens
+ * @param {{ findPlugin(name: string): object|null }} pm
+ */
+export function pluginSelectionRefusal(plugins, pm) {
+  if (!Array.isArray(plugins)) return null;
+  const refuse = (msg) => Object.assign(new Error(msg), { code: 'EFLAGVALUE' });
+  if (plugins.length === 0) return refuse('--plugins named no plugin — give plugin ids or names, or all');
+  const quote = (t) => JSON.stringify(t);
+  const withAll = plugins.some((t) => t.toLowerCase() === 'all');
+  const unknown = plugins.filter((t) => t.toLowerCase() !== 'all' && !pm.findPlugin(t));
+  if (unknown.length) {
+    return refuse(`--plugins: no plugin matches ${unknown.map(quote).join(', ')}${withAll ? '; "all" must be given alone' : ''}`
+      + ' — name each plugin by its id or name (nsauditor-ai license --plugins lists them)');
+  }
+  if (withAll) return refuse('--plugins: "all" must be given alone — it already selects every plugin');
+  return null;
 }
 
 /**
