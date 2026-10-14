@@ -7,7 +7,7 @@ import https from 'node:https';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import net from 'node:net';
-import { pinnedAddressFor } from '../utils/scan_pin.mjs';
+import { pinnedAddressFor, canonicalHost } from '../utils/scan_pin.mjs';
 import { redactSetCookie, redactLocation } from '../utils/cookie_redaction.mjs';
 
 const execFileP = promisify(execFile);
@@ -110,12 +110,15 @@ export async function probeFirmware(host, vendor) {
   // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned. curl's --resolve keeps the
   // name as the Host header while connecting to the pinned address.
   const pinned = net.isIP(host) ? null : pinnedAddressFor(host, { prefer: 4 });
-  const resolveArgs = pinned ? ['--resolve', `${host}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
+  // Pinned, curl gets the name the pin keys on (its ASCII form) in BOTH --resolve and the URL: an IDN-built curl converts the
+  // URL host before it reads --resolve, and one without IDN matches raw bytes, so only the one form in both holds on both.
+  const name = pinned ? canonicalHost(host) : host;
+  const resolveArgs = pinned ? ['--resolve', `${name}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
   const args = [
     "-s", "-m", "5",
     `--connect-timeout`, "3",
     ...resolveArgs,
-    `http://${host}/currentsetting.htm`
+    `http://${name}/currentsetting.htm`
   ];
   try {
     const { stdout } = await execFileP(cmd, args, { windowsHide: true, timeout: 6000 });

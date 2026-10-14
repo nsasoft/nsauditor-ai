@@ -115,6 +115,14 @@ export function runPinned(pins, fn) {
   return store.run(merged, fn);
 }
 
+/**
+ * The name a URL client looks up for `host` — the pin's own key. For a command handed a NAME rather than an address: curl's
+ * --resolve entry and its URL must carry this one form, or an IDN-built curl converts the URL host and misses the entry.
+ */
+export function canonicalHost(host) {
+  return keyOf(host);
+}
+
 /** The pinned answer set for `host` in the current scan, or null. */
 export function pinnedAnswersFor(host) {
   return pinnedFor(host, undefined);
