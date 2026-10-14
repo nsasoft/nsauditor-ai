@@ -248,3 +248,19 @@ test('(c6) no plugin, util or root file creates a socket at MODULE scope — it 
   assert.ok(sources.some(({ src }) => /createSocket\(/.test(src)), 'the walk reaches the files that create sockets — or this leg tests nothing');
   assert.deepEqual(sources.filter(({ src }) => MODULE_SCOPE_SOCKET.test(src)).map(({ rel }) => rel), []);
 });
+
+/**
+ * ONE canonical form of a host name: utils/scan_pin.mjs keys the pin on it and exports it as canonicalHost. A second
+ * canonicaliser agrees with it only until one of the two is edited — and they already disagree on a name domainToASCII
+ * rejects (a direct call yields '', the pin's key keeps the raw name). So no other walked file calls an IDNA converter
+ * (url.domainToASCII, punycode.toASCII) under any import shape. Its stated limit: a canonical form built another way —
+ * the hostname of `new URL(…)` over a typed name, a hand-rolled mapping — is not a token this leg can see.
+ */
+const IDNA_CALL = /\b(?:domainToASCII|toASCII)\b/;
+test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — every other file goes through canonicalHost', () => {
+  assert.ok(IDNA_CALL.test("import { domainToASCII as d } from 'node:url';") && IDNA_CALL.test('punycode.toASCII(h)')
+    && IDNA_CALL.test("require('url').domainToASCII(h)"), 'positive control: an IDNA call is seen under each import shape');
+  assert.ok(!IDNA_CALL.test('const name = canonicalHost(host);'), 'canonicalHost itself is not a second canonicaliser');
+  assert.deepEqual(walked().filter(({ src }) => IDNA_CALL.test(src)).map(({ rel }) => rel), ['utils/scan_pin.mjs'],
+    'a file other than utils/scan_pin.mjs canonicalises a host name — use canonicalHost');
+});
