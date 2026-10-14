@@ -101,8 +101,8 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
   keeps its stack and exit 1.
 - **A `--plugins` list that names no plugin is refused by name** (exit 2, one `[ERROR]` line), before anything is scanned
   or written. Until 1.0.0 a token that matched no plugin was dropped without a word — a typo, an exclusion spelling such
-  as `!060` (there is no exclusion syntax), `all` inside a list, or the help text's own example `001,003,020` (there is no
-  plugin 020) — and a list that matched none ran zero plugins and reported a clean scan: exit 0 under `--fail-on`, and
+  as `!060` (there is no exclusion syntax), `all` inside a list, or the help text's own example `001,003,020` (020 is no
+  plugin's id) — and a list that matched none ran zero plugins and reported a clean scan: exit 0 under `--fail-on`, and
   with `--compliance` every in-scope control read pass at zero evidence. `all`, the default and an empty value are
   unchanged.
 
