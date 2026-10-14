@@ -31,11 +31,19 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import dns from 'node:dns';
 import dnsPromises from 'node:dns/promises';
 import { syncBuiltinESMExports } from 'node:module';
+import { domainToASCII } from 'node:url';
 
 const store = new AsyncLocalStorage();
 let ours = null;   // the resolvers this module installed, to tell them from anything installed over them since
 
-const keyOf = (host) => String(host ?? '').trim().toLowerCase().replace(/\.$/, '');
+// The KEY is the name a client looks up, never the spelling typed. The host check resolves the spelling as given (node:dns
+// `lookup` applies the IDNA ToASCII mapping inside), while fetch and http.get with a URL look up the ASCII form — so a key
+// on the raw spelling would let `ⓛocalhost` or `bücher.example` miss the pin and resolve live (tests/scan_pin.test.mjs, G1).
+// A name domainToASCII rejects ('' — an IPv6 literal, a bad punycode label) keeps its raw key, so two never share one.
+const keyOf = (host) => {
+  const raw = String(host ?? '').trim();
+  return (domainToASCII(raw) || raw.toLowerCase()).replace(/\.$/, '');
+};
 
 /** The pinned answers for `hostname` in the current scan, family-filtered as asked — or null when nothing is pinned. */
 function pinnedFor(hostname, options) {
