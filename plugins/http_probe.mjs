@@ -114,7 +114,13 @@ export async function probeFirmware(host, vendor) {
   // URL host before it reads --resolve, and one without IDN matches raw bytes, so only the one form in both holds on both.
   const name = pinned ? canonicalHost(host) : host;
   const resolveArgs = pinned ? ['--resolve', `${name}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
+  // Pinned, curl takes no proxy and no config file: it reads http_proxy / ALL_PROXY from the environment and a .curlrc
+  // (proxy, connect-to) from its config directory, and any of them would route the name around the pin — the proxy
+  // resolving it itself, or connect-to overriding --resolve. -q (only effective as the FIRST argument) skips every
+  // config file; --noproxy '*' refuses every proxy. NODE_USE_ENV_PROXY still governs Node's own clients, as stated.
+  const pinArgs = pinned ? ['-q', '--noproxy', '*'] : [];
   const args = [
+    ...pinArgs,
     "-s", "-m", "5",
     `--connect-timeout`, "3",
     ...resolveArgs,
