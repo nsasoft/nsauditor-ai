@@ -73,6 +73,13 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
   service list through the concluder's fallback as a non-authoritative row named after the plugin, and its status can be
   other than `open` — measured on a router scan with this release: the SUN RPC plugin (015) lists port 111 as `sun`,
   status `unknown`, on a port the port scanner (003) measured closed.
+- **A TLS probe that failed in transport records why.** When no TLS version completed a handshake on a port and every
+  attempt failed in transport — reset, timed out, refused, unreachable — the TLS scanner (011) writes that error class
+  into the port's row (`ECONNRESET`, `ETIMEDOUT`, …) instead of "No TLS supported", which it keeps for a server that
+  answered in another protocol. Enterprise reads the class as a port it could not measure, so on a port the port scanner
+  saw open an earlier TLS finding is not counted as fixed. **Stated limit:** the scanner's `up` is host-wide, so when
+  another of its ports completed a handshake in the same scan, Enterprise does not read the failed port's row, and an
+  earlier TLS finding there can still read as fixed.
 
 ### Plugin 040
 
