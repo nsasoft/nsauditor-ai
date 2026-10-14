@@ -24,12 +24,22 @@ and on Node.js 22 plugin 040 cannot read certificate signature algorithms (it re
 
 - **The resolved-address pin.** The host check resolves the target and checks every answer; the scan then connects only
   to those answers — on the CLI and through the MCP server, for the target and for each redirect hop. Every in-process
-  connect is pinned for the life of the scan (scoped to it, so two overlapping scans keep their own answers), and the name
+  connect to a name is pinned for the life of the scan (scoped to it, so two overlapping scans keep their own answers), and the name
   still rides as the Host header and the TLS server name. `ping`, `nping`, `hping3` and `nmap` are handed the checked IPv4
-  answer; `curl` gets `--resolve`. **Stated limits:** under `NODE_USE_ENV_PROXY` a request goes through the proxy by NAME,
-  so the proxy resolves it and the pin governs only the hop to the proxy; and fetch and `http.Agent` pool keep-alive
-  connections by name, so a request can reuse an idle connection opened earlier to the same name, for as long as the
-  target keeps it open.
+  answer; `curl` gets `--resolve`. The pin keys on the name a client looks up — its IDNA ASCII form — so a Unicode
+  spelling (`bücher.example`) is pinned for every client, and the firmware probe hands `curl` that one form in both
+  `--resolve` and the URL. **Stated limits:** under `NODE_USE_ENV_PROXY` a request goes through the proxy by NAME, so the
+  proxy resolves it and the pin governs only the hop to the proxy; fetch and `http.Agent` pool keep-alive connections by
+  name, so a request can reuse an idle connection opened earlier to the same name, for as long as that connection stays
+  idle in the pool — a few seconds by default; a server's Keep-Alive hint holds it longer; and the DNS-security audit's
+  zone-transfer attempt, when opted in (below), connects to each nameserver's own address, which no host check resolved.
+- **The DNS-security audit's zone-transfer attempt is off by default.** Until 1.0.0, plugin 060 tried an AXFR of every
+  scanned name against each of the zone's nameservers. That attempt opens TCP/53 to each nameserver's own address, taken
+  from the zone's NS records and never from the scan's host check, so neither the pin nor the address-class check governs
+  it; and it read a large referral as an open transfer. Opt in with `DNS_AUDIT_AXFR_CHECK` set to `1`, `true`, `yes` or
+  `on` (before 1.0.0 only the exact string `true` counted, so `1` or `TRUE` turned it off); a library caller's
+  `checkAxfr` option wins over it. `dns_scanner`'s own zone-transfer check (`DNS_CHECK_AXFR` with `DNS_AXFR_DOMAIN`) is
+  unchanged and still off by default.
 - **`sendWebhook` connects to the address its own SSRF check resolved**, and a failed proxy tunnel's error no longer
   carries the proxy's credentials (a password with a raw `@` or space included).
 - **A plugin's `pluginStatus` row names the code that produced it:** `producedBy: "<package>@<version>"`, from the nearest

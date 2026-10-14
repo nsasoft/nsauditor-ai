@@ -42,7 +42,7 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 //  Optional .env:
 //    DNS_AUDIT_TIMEOUT_MS=5000
 //    DNS_AUDIT_DKIM_SELECTORS=google,default,mail,selector1,selector2,s1,s2,k1,k2,k3,dkim,mandrill,mailjet,ses
-//    DNS_AUDIT_AXFR_CHECK=true
+//    DNS_AUDIT_AXFR_CHECK=true   (opt-in, off by default — see checkAxfr below)
 //
 
 function loadConfig(opts = {}) {
@@ -51,7 +51,11 @@ function loadConfig(opts = {}) {
     timeoutMs: parseInt(opts.timeoutMs || process.env.DNS_AUDIT_TIMEOUT_MS || "5000", 10),
     dkimSelectors: (opts.dkimSelectors || process.env.DNS_AUDIT_DKIM_SELECTORS || defaultSelectors)
       .split(",").map((s) => s.trim()).filter(Boolean),
-    checkAxfr: (opts.checkAxfr || process.env.DNS_AUDIT_AXFR_CHECK || "true") === "true",
+    // The zone-transfer attempt is OPT-IN (Community 1.0.0): it opens TCP/53 to each nameserver's own address, which comes
+    // from the zone's NS records and never from the scan's host check, so neither the pin nor the address-class check
+    // governs it. Opt in with DNS_AUDIT_AXFR_CHECK — or a caller's `checkAxfr` option, which wins over it — set to 1, true,
+    // yes or on, the convention of every other switch (dns_scanner's DNS_CHECK_AXFR).
+    checkAxfr: /^(1|true|yes|on)$/i.test(String(opts.checkAxfr ?? process.env.DNS_AUDIT_AXFR_CHECK ?? "").trim()),
   };
 }
 
