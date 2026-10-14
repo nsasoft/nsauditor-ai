@@ -88,6 +88,24 @@ test('(sp3) PINNED, curl keeps the NAME in the URL (the Host header) and is told
   assert.ok(curl.endsWith(`http://${NAME}/currentsetting.htm`), curl);
 });
 
+// sp3 is this leg's fourth quadrant: an ASCII name's arguments are the typed name in both positions, byte for byte.
+test('(sp5) PINNED under a Unicode spelling, curl is handed the ASCII name in BOTH --resolve and the URL — an IDN-built curl converts the URL host, so a key on the spelling would miss and the name would resolve live', async () => {
+  // The third is a name domainToASCII REJECTS: it keeps its raw key (the subprocess twin of scan_pin leg (b)). A second
+  // canonicaliser — domainToASCII called here directly — would hand curl an empty name for it.
+  for (const [spelling, ascii] of [['ⓛocalhost', 'localhost'], ['bücher.example', 'xn--bcher-kva.example'], ['xn--zz', 'xn--zz']]) {
+    // Unpinned, nothing changes: no --resolve, and the URL carries the name as typed.
+    const bare = (await recorded(() => probeFirmware(spelling, 'NETGEAR R7000'))).find((l) => l.startsWith('curl '));
+    assert.ok(bare && !bare.includes('--resolve') && bare.endsWith(`http://${spelling}/currentsetting.htm`), `unpinned, the typed name changed: ${bare}`);
+    const lines = await recorded(() => runPinned({ [spelling]: [{ address: '127.0.0.1', family: 4 }] }, () => probeFirmware(spelling, 'NETGEAR R7000')));
+    const curl = lines.find((l) => l.startsWith('curl '));
+    assert.ok(curl, JSON.stringify(lines));
+    const args = curl.split(' ');
+    assert.equal(args[args.indexOf('--resolve') + 1], `${ascii}:80:127.0.0.1`, `the --resolve key is not the ASCII name: ${curl}`);
+    assert.equal(args.at(-1), `http://${ascii}/currentsetting.htm`, `the URL host is not the ASCII name: ${curl}`);
+    if (spelling !== ascii) assert.ok(!curl.includes(spelling), `the typed spelling reached curl: ${curl}`);
+  }
+});
+
 test('(sp4) the REAL curl honours --resolve: without it the name lands on loopback (positive control); with it, it never does', async () => {
   const real = ['/usr/bin/curl', '/usr/local/bin/curl', '/opt/homebrew/bin/curl'].find((p) => fs.existsSync(p));
   assert.ok(real, 'no real curl on this machine — this leg cannot measure, and a skipped leg is not a pass');
