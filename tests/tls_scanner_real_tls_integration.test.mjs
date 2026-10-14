@@ -165,3 +165,104 @@ test('REAL node:tls — an ANONYMOUS-cipher server still yields cert evidence', 
     fs.rmSync(material.dir, { recursive: true, force: true });
   }
 });
+
+// ── A probe that never completed a handshake: MEASURED negative vs NOT MEASURED ────────────────────────────
+// A port where no version completed a handshake used to carry no trace of WHY: a server that ANSWERED in another
+// protocol (a measurement — this is not TLS) and a connection that was reset, hung or refused (no measurement at
+// all) wrote the same text. Downstream, an open port whose TLS probe failed in transport then read as measured, and
+// a TLS finding from an earlier scan of it could read as fixed. When EVERY attempt failed in transport, the data
+// row now LEADS with the transport error class; when the server answered, the row is unchanged. Real sockets only —
+// the shapes below were measured against real node:tls (a server's answer surfaces as ERR_SSL_*; a reset as
+// ECONNRESET; a hang as the probe's own timeout).
+import net from 'node:net';
+
+function setEnv(vars) {
+  const prev = {};
+  for (const [k, v] of Object.entries(vars)) {
+    prev[k] = process.env[k];
+    process.env[k] = v;
+  }
+  return () => {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  };
+}
+
+/** Run the REAL scanner against a raw TCP listener driven by `onConn`; return its data row for that port. */
+async function probeRaw(onConn, { sni = '127.0.0.1', timeoutMs = '4000' } = {}) {
+  const conns = new Set();
+  const server = net.createServer((s) => { conns.add(s); s.on('error', () => {}); s.on('close', () => conns.delete(s)); onConn(s); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  // TLS_SCANNER_SNI equal to the IP keeps the SNI suffix out of probe_info, so the base forms are pinned exactly.
+  const restore = setEnv({ TLS_SCANNER_PORTS: `${port}:tls-x`, TLS_SCANNER_SNI: sni, TLS_SCANNER_TIMEOUT_MS: timeoutMs });
+  try {
+    const raw = await tlsScanner.run('127.0.0.1');
+    const row = raw.data.find((d) => d.probe_port === port);
+    assert.ok(row, 'the scanner must write a row for the probed port');
+    return { raw, row };
+  } finally {
+    restore();
+    // The scanner does not destroy a client socket after a TLS error, so the server side can stay open; close it
+    // here or server.close() would wait for it.
+    for (const s of conns) s.destroy();
+    await new Promise((r) => server.close(r));
+  }
+}
+
+// ACCEPT legs first: a server that ANSWERED in another protocol is a measurement, and the row is unchanged.
+test('REAL node:tls — a plaintext reply to the ClientHello is a measured negative: "No TLS supported"', async () => {
+  const { raw, row } = await probeRaw((s) => s.once('data', () => s.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n')));
+  assert.equal(row.probe_info, 'No TLS supported');
+  assert.equal(raw.up, false);
+  assert.equal(row.tlsEvidence.tls, false);
+});
+
+test('REAL node:tls — a banner in another protocol (SSH) is a measured negative: "No TLS supported"', async () => {
+  const { row } = await probeRaw((s) => s.write('SSH-2.0-OpenSSH_9.6\r\n'));
+  assert.equal(row.probe_info, 'No TLS supported');
+});
+
+test('REAL node:tls — with an SNI name, a measured negative keeps today\'s text and names no error class', async () => {
+  const { row } = await probeRaw((s) => s.once('data', () => s.end('HTTP/1.1 400 Bad Request\r\n\r\n')), { sni: 'localhost' });
+  assert.equal(row.probe_info, 'SNI: localhost');
+});
+
+// NOT-MEASURED legs: every attempt failed in transport — the row LEADS with the error class.
+test('REAL node:tls — a connection RESET on the ClientHello records ECONNRESET', async () => {
+  const { raw, row } = await probeRaw((s) => s.once('data', () => s.resetAndDestroy()));
+  assert.equal(row.probe_info, 'ECONNRESET');
+  assert.equal(raw.up, false, 'up stays host-wide: no handshake completed');
+  assert.equal(row.tlsEvidence.tls, false);
+});
+
+test('REAL node:tls — with an SNI name, the error class LEADS the row', async () => {
+  const { row } = await probeRaw((s) => s.once('data', () => s.resetAndDestroy()), { sni: 'localhost' });
+  assert.equal(row.probe_info, 'ECONNRESET | SNI: localhost');
+});
+
+test('REAL node:tls — a connection that never answers records ETIMEDOUT', async () => {
+  const { row } = await probeRaw(() => { /* accept, never answer */ }, { timeoutMs: '300' });
+  assert.equal(row.probe_info, 'ETIMEDOUT');
+});
+
+test('REAL node:tls — a refused connection records ECONNREFUSED', async () => {
+  // Bind, learn the port, close: nothing listens there when the scanner connects.
+  const server = net.createServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  await new Promise((r) => server.close(r));
+  const restore = setEnv({ TLS_SCANNER_PORTS: `${port}:tls-x`, TLS_SCANNER_SNI: '127.0.0.1' });
+  try {
+    const raw = await tlsScanner.run('127.0.0.1');
+    assert.equal(raw.data.find((d) => d.probe_port === port)?.probe_info, 'ECONNREFUSED');
+  } finally {
+    restore();
+  }
+});
+
+test('REAL node:tls — a server that closes on the ClientHello without a byte records ECONNRESET (it never answered)', async () => {
+  const { row } = await probeRaw((s) => s.once('data', () => s.end()));
+  assert.equal(row.probe_info, 'ECONNRESET');
+});
