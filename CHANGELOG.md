@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 1.0.0 (⏳ PRE-PUBLISH — opened 2026-10-09, NOT YET ON npm) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one; paired with Enterprise 2.0.0
+## 1.0.0 (2026-10-15) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one; paired with Enterprise 2.0.0
 
 **The release:** Community 1.0.0 is the Community half of Enterprise 2.0.0. A scan now connects only to the addresses its
 host check resolved, so a name that answers one address to the check and another at connect (DNS rebinding) cannot
