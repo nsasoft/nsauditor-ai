@@ -805,7 +805,7 @@ SSRF protection is applied at every boundary where external addresses are accept
 
 ### 13.3 Legal Posture
 
-Nsasoft US LLC is NOT a data processor, data controller, or business associate under any regulation. No DPAs, BAAs, or SOC 2 required for the scanning product.
+Nsasoft US LLC is NOT a data processor, data controller, or business associate under any regulation. No DPA or BAA with Nsasoft, and no SOC 2 audit of Nsasoft, is required for the scanning product.
 
 ---
 
