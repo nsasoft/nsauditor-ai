@@ -365,7 +365,16 @@ export default {
   // structural bound wins (architect ruling, build 6): a declaration a known worst case exceeds fails
   // closed on a foreseeable input. A target with more candidate ports exceeds any fixed budget and
   // reads not-measured — a budget buys TIME, never a pass — and a caller wall still binds.
-  timeoutMs: 100_000,
+  // ── RAISED 100 000 → 120 000 ms (ruled 2026-10-19 from measurement) — the MEASURED bound now wins ──────────────────
+  // Three independent first scans of the same real router, one per live-notification series (EE 2.0.0 · CE 1.0.0):
+  // 63 831 ms, 55 644 ms and 73 286 ms (pack 192.168.1.1_20261019_011338). 1.5 × 73 286 = 109 929 ms, above the 100 s
+  // structural figure; even the one uncontended figure (63 831 ms) leaves 100 s a margin of about 4 s at 1.5×, so the
+  // budget was thin on its own evidence. The other two runs were CONTENDED: a concurrent 82-agent review was active on
+  // the same machine during each (its agents' own timestamped transcripts carry entries inside both runs, none inside
+  // the first) — and the environment witness could not see it, because the witness measures network latency, not
+  // CPU. 120 000 ms is the ceiling. No `budgetBasisSince`: the code did not change, the measurement did, so the older
+  // rows still bind.
+  timeoutMs: 120_000,
   name: 'MCP Scanner',
   description: 'Detects HTTP/SSE-transport MCP (Model Context Protocol) servers and audits them for cleartext transport, missing authentication, deprecated protocol versions, and Inspector exposure.',
   priority: 70,

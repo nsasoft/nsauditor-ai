@@ -21,6 +21,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   name had. **Stated limits:** a nameserver whose transfer was attempted and refused, timed out, or that answered over
   IPv6 only is not recorded as not attempted in this release; the separate `ns_private_ip` finding keeps its own
   private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+- **Two plugin time budgets, declared from measurement:** the MCP Scanner (070) now declares 120 s (was 100 s) — a first
+  scan of a real router measured 55–73 s across three series, and the rule is 1.5 × the measured maximum. The TLS
+  Scanner (011) declares 45 s (it ran under the 30 s default), so that a single port that accepts TCP and never answers
+  — 32 s at its four versions × 8 s — no longer costs the other ports' results: the port is recorded as a transport
+  failure and the rest are kept. Two such ports still exceed it, and the plugin then reads not-measured as a whole, as
+  before. Neither budget was re-based; a plugin that exceeds its budget still reads not-measured, never passed.
 
 ## 1.0.0 (2026-10-15) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one; paired with Enterprise 2.0.0
 

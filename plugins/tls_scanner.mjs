@@ -138,6 +138,19 @@ function transportClassOf(attempts) {
 
 export default {
   id: "011",
+  // ── DECLARED BUDGET 45 000 ms (ruled 2026-10-19 from measurement) — so ONE hung port no longer costs the other ports 
+  // Ports are walked one after another and, on each, the four default versions one after another, each attempt bounded
+  // by TLS_SCANNER_TIMEOUT_MS (8 s by default). A port that accepts TCP and never answers therefore costs 4 × 8 = 32 s by
+  // construction — more than the 30 s default, so under the default one such port timed the whole plugin out and the
+  // ports it had already measured were lost with it. The rest of the walk is bounded above by the whole plugin's time on
+  // a real router: the evidence tree's maximum is 16 951 ms (pack 192.168.1.1_20261019_011338, EE 2.0.0 · CE 1.0.0, a
+  // CONTENDED run — a concurrent 82-agent review was active on the same machine, which the environment witness, a
+  // network-latency witness, could not see); the largest uncontended figure across the three live-notification series
+  // is 11 583 ms (the first scan of another series). 32 + 11.6 = 43.6 s → 45 s. 1.5 × 16 951 = 25 427 ms binds under it. LIMITS: the budget covers ONE hung port — two (64 s) still
+  // exceed it and the plugin reads not-measured as a whole, as before; and with one hung port under load like the
+  // contended run (32 + 17.0 = 49 s) it can still be exceeded. Driven in tests/tls_scanner_declared_budget.test.mjs. A
+  // budget buys TIME, never a pass: an exceeded budget still fails closed to not-measured, and a caller wall still binds.
+  timeoutMs: 45_000,
   name: "TLS Scanner",
   description: "Detects supported TLS protocol versions and ciphers on common TLS ports.",
   priority: 350,
