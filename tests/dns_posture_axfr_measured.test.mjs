@@ -57,20 +57,26 @@ function message({ rcode = 0, types = [] }) {
   return Buffer.concat([u16(body.length), body]);
 }
 let SERVERS = {};
+// How many connections were open at once: every attempt ends in destroy(), so open minus destroyed is in flight.
+let OPEN = 0;
+let MAX_OPEN = 0;
 net.createConnection = (opts, onConnect) => {
   const s = new EventEmitter();
   const plan = SERVERS[opts.host] ?? { error: 'ECONNREFUSED' };
+  if (plan.throwSync) throw Object.assign(new Error(plan.throwSync), { code: plan.throwSync });
   let destroyed = false;
+  MAX_OPEN = Math.max(MAX_OPEN, ++OPEN);
   s.write = () => {
     if (plan.chunks) {
-      setImmediate(() => {
+      const reply = () => {
         for (const c of plan.chunks) if (!destroyed) s.emit('data', c);
         if (plan.close !== false && !destroyed) s.emit('close');
-      });
+      };
+      if (plan.delayMs) setTimeout(reply, plan.delayMs); else setImmediate(reply);
     }
     return true;
   };
-  s.destroy = () => { destroyed = true; };
+  s.destroy = () => { if (!destroyed) OPEN -= 1; destroyed = true; };
   setImmediate(() => {
     if (plan.error) return s.emit('error', Object.assign(new Error(plan.error), { code: plan.error }));
     if (plan.silent) return;
@@ -168,6 +174,53 @@ test('axfr_answered_not_transferred: what came back is on the finding, and its w
   assert.deepEqual([soa.check, cname.check], ['axfr_answered_not_transferred', 'axfr_answered_not_transferred']);
   assert.deepEqual([[soa.records, soa.firstType], [cname.records, cname.firstType]], [[1, 'SOA'], [2, 'CNAME']]);
   assert.deepEqual(await identityOf(cname), await identityOf(soa));
+});
+
+// ── THE ATTEMPTS RUN TOGETHER: six silent nameservers cost one timeout, not six ─────────────────────────────────────────
+// One attempt after another, a nameserver that never answers costs the full timeout (5 s by default) each, so six of them
+// spent the plugin's whole time budget on this one check. Each nameserver keeps its own record whatever order the answers
+// arrive in.
+test('(first) answers that arrive out of order are each attributed to their own nameserver, findings in nameserver order', async () => {
+  const [NS2, NS3] = [`ns2.${ZONE}`, `ns3.${ZONE}`];
+  TABLE = { [`NS ${ZONE}`]: [NS1, NS2, NS3], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'], [`A ${NS3}`]: ['192.0.2.55'] };
+  SERVERS = { '192.0.2.53': { ...full({ types: ['SOA', 'A', 'SOA'] }), delayMs: 40 }, '192.0.2.54': full({ rcode: 5, types: [] }),
+    '192.0.2.55': { ...full({ types: ['SOA'] }), delayMs: 15 } };
+  const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 400 });
+  const outcome = (n) => result.details.nameservers.find((x) => x.nameserver === n).axfr;
+  assert.deepEqual([outcome(NS1), outcome(NS2), outcome(NS3)].map((a) => `${a.address}:${a.outcome}`),
+    ['192.0.2.53:transferred', '192.0.2.54:refused', '192.0.2.55:answered-not-transferred']);
+  assert.deepEqual(result.findings.axfr.map((i) => `${i.check}:${i.nameserver}`),
+    [`axfr_open:${NS1}`, `axfr_answered_not_transferred:${NS3}`]);
+});
+test('six silent nameservers are six attempts in flight at once — each its own no-answer, in nameserver order', async () => {
+  const names = [1, 2, 3, 4, 5, 6].map((i) => `ns${i}.${ZONE}`);
+  TABLE = { [`NS ${ZONE}`]: names, ...Object.fromEntries(names.map((n, i) => [`A ${n}`, [`192.0.2.${60 + i}`]])) };
+  SERVERS = Object.fromEntries(names.map((_, i) => [`192.0.2.${60 + i}`, { silent: true }]));
+  MAX_OPEN = 0;
+  const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 80 });
+  assert.equal(MAX_OPEN, 6);
+  assert.equal(OPEN, 0, 'every attempt ended its connection');
+  assert.deepEqual(result.details.nameservers.map((n) => n.axfr.outcome), Array(6).fill('no-answer'));
+  assert.deepEqual(result.details.notMeasured.filter((e) => e.check === 'axfr').map((e) => e.name), names);
+});
+
+test('an attempt that throws while an earlier one is still waiting fails the run as before — never an unhandled rejection', async () => {
+  const NS2 = `ns2.${ZONE}`;
+  TABLE = { [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'] };
+  SERVERS = { '192.0.2.53': { ...full({ types: ['SOA', 'A', 'SOA'] }), delayMs: 40 }, '192.0.2.54': { throwSync: 'EINVAL' } };
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  const listeners = process.listeners('unhandledRejection');
+  process.removeAllListeners('unhandledRejection');
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await assert.rejects(dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 400 }), /EINVAL/);
+    await new Promise((r) => setTimeout(r, 60));
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled);
+    for (const l of listeners) process.on('unhandledRejection', l);
+  }
+  assert.deepEqual(unhandled, []);
 });
 
 // ── REFUSED: MEASURED, NOT GRADED ──────────────────────────────────────────────────────────────────────────────────────

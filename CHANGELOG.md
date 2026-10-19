@@ -18,8 +18,8 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   entry carries `axfr: { attempted: false, reason: 'address-refused', addressClass, address, answers }`, and the concluded
   `dnsSecurity` record lists the refused nameservers, in their own order, under `axfrNotAttempted`. The decision is about
   the first answer — the literal that would be connected — with no fall-through to another; `answers` says how many the
-  name had. Every other nameserver now carries a record too (the next entry). **Stated limit:** the separate `ns_private_ip`
-  finding keeps its own private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+  name had. Every other nameserver now carries a record too (the next entry). The separate `ns_private_ip` finding now
+  asks the same classifier (its own entry below).
 - **The DNS-security audit's zone-transfer check is measured, nameserver by nameserver.** With the opt-in check on
   (`DNS_AUDIT_AXFR_CHECK` / `checkAxfr`), the DNS Security Auditor (060) read "open" from the first TCP chunk alone —
   RCODE 0 and more than 50 bytes — so a nameserver that answered an AXFR query with any record (a lone SOA, an A record)
@@ -38,6 +38,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   the run is `up: false` with its reason). `details.axfrTested` is `true`, or why the check did not run (`opt-in-off`,
   `no-nameservers`). **Stated limits:** the attempt connects over IPv4 only, and a transfer cut before its closing SOA
   is still `axfr_open` — the records it sent did leave the server.
+- **The zone-transfer attempts run together.** With the opt-in check on, the DNS Security Auditor (060) asked each
+  nameserver in turn, and one that never answered cost the full timeout (5 s by default) — six such nameservers spent the
+  plugin's whole time budget on this one check. The attempts now run at the same time, so silent nameservers cost one
+  timeout between them; each result is recorded against its own nameserver, in the zone's order, and an attempt that
+  fails outright still fails the run as before.
+- **A nameserver at a non-public address is graded whatever its spelling.** The DNS Security Auditor (060) graded
+  `ns_private_ip` from a hand-kept prefix list, so a nameserver at `127.0.0.2` or in `100.64.0.0/10` (carrier-grade NAT)
+  read as public, and one reachable over IPv6 only was never classified. It now asks the classifier every connect guard
+  uses — loopback, RFC 1918, carrier-grade NAT, link-local, unspecified, cloud-metadata and unique-local addresses, IPv4
+  and IPv6 — over every address the nameserver resolves to, one finding per address. The finding's wording is unchanged.
 - **The DNS-security audit no longer reads a resolver failure as a missing record.** The DNS Security Auditor (060)
   graded every lookup that failed as an absence: with the resolver timing out, a domain read as missing SPF, DMARC and NS
   (HIGH), DKIM and DNSSEC (MEDIUM), CAA (LOW) and MX (INFO) — byte-identical to a domain that has none of them — and a

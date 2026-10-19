@@ -23,7 +23,7 @@
 import dns from "node:dns/promises";
 import dgram from "node:dgram";
 import net from "node:net";
-import { classifyAddress, allowAllHosts } from "../utils/net_validation.mjs";
+import { classifyAddress, allowAllHosts, isBlockedIp } from "../utils/net_validation.mjs";
 
 // ── Severity ─────────────────────────────────────────────────────────────────
 
@@ -550,6 +550,19 @@ async function discoverDKIM(host, selectors, notMeasured) {
 async function analyzeNS(records, host, notMeasured) {
   const issues = [];
   const ns = records.NS;
+  // A nameserver the public internet cannot reach: an address the shared classifier blocks — loopback, RFC 1918, CGNAT,
+  // link-local, unspecified, metadata, unique local — IPv4 or IPv6, in any spelling. One finding per such address.
+  const privateAddressIssues = (nsStr, ips) => {
+    for (const ip of ips) {
+      if (isBlockedIp(ip)) {
+        issues.push({
+          severity: SEVERITY.HIGH,
+          check: "ns_private_ip",
+          detail: `Nameserver ${nsStr} resolves to private IP ${ip} — unreachable from public internet`,
+        });
+      }
+    }
+  };
 
   if (failedToMeasure(records.errors.NS)) {
     notMeasured.push({ check: "ns", rrtype: "NS", name: host, code: records.errors.NS });
@@ -584,16 +597,7 @@ async function analyzeNS(records, host, notMeasured) {
       entry.resolves = true;
       entry.ips = ips;
 
-      // Private IP check
-      for (const ip of ips) {
-        if (isPrivateIP(ip)) {
-          issues.push({
-            severity: SEVERITY.HIGH,
-            check: "ns_private_ip",
-            detail: `Nameserver ${nsStr} resolves to private IP ${ip} — unreachable from public internet`,
-          });
-        }
-      }
+      privateAddressIssues(nsStr, ips);
     } catch (err) {
       const code = err?.code || err?.message;
       // NODATA on A says the name exists with no IPv4 address — it may answer over IPv6. NXDOMAIN answers for every type.
@@ -601,6 +605,7 @@ async function analyzeNS(records, host, notMeasured) {
       if (v6 && !v6.error) {
         entry.resolves = true;
         entry.ips6 = v6;
+        privateAddressIssues(nsStr, v6);
       } else if (isAbsence(code) && (!v6 || isAbsence(v6.error))) {
         issues.push({
           severity: SEVERITY.HIGH,
@@ -640,20 +645,6 @@ async function analyzeNS(records, host, notMeasured) {
   return { nameservers: nsDetails, issues };
 }
 
-function isPrivateIP(ip) {
-  return (
-    ip.startsWith("10.") ||
-    ip.startsWith("172.16.") || ip.startsWith("172.17.") || ip.startsWith("172.18.") ||
-    ip.startsWith("172.19.") || ip.startsWith("172.20.") || ip.startsWith("172.21.") ||
-    ip.startsWith("172.22.") || ip.startsWith("172.23.") || ip.startsWith("172.24.") ||
-    ip.startsWith("172.25.") || ip.startsWith("172.26.") || ip.startsWith("172.27.") ||
-    ip.startsWith("172.28.") || ip.startsWith("172.29.") || ip.startsWith("172.30.") ||
-    ip.startsWith("172.31.") ||
-    ip.startsWith("192.168.") ||
-    ip === "127.0.0.1" ||
-    ip.startsWith("169.254.")
-  );
-}
 
 // ── Module 7: DNSSEC Probe ───────────────────────────────────────────────────
 // Node.js dns module doesn't natively support DNSSEC validation.
@@ -728,6 +719,7 @@ async function checkZoneTransfer(host, nameservers, config, notMeasured) {
 
   // Every nameserver carries a record once the check is on — attempted with what it answered, or not attempted with why —
   // so an empty finding list never has to stand in for "refused" or "not asked".
+  const attempts = [];
   for (const ns of nameservers) {
     if (ns.resolves === null) { ns.axfr = { attempted: false, reason: "address-unknown" }; continue; }
     if (!ns.resolves) { ns.axfr = { attempted: false, reason: "does-not-resolve" }; continue; }
@@ -743,7 +735,17 @@ async function checkZoneTransfer(host, nameservers, config, notMeasured) {
       ns.axfr = { attempted: false, reason: "address-refused", addressClass, address: ip, answers: ns.ips.length };
       continue;
     }
-    const measured = await attemptAXFR(host, ip, config.timeoutMs);
+    const measured = attemptAXFR(host, ip, config.timeoutMs);
+    // A throw still fails the run when its turn is read below, as it did one attempt at a time; until then it is
+    // handled, so a later attempt's failure is never an unhandled rejection while an earlier one is still waiting.
+    measured.catch(() => {});
+    attempts.push({ ns, ip, measured });
+  }
+
+  // The attempts run together, so nameservers that never answer cost one timeout rather than one each; each result is
+  // read back against its own nameserver, in the zone's order.
+  for (const { ns, ip, measured: pending } of attempts) {
+    const measured = await pending;
     ns.axfr = { attempted: true, address: ip, ...measured };
 
     // The detail is the finding's identity across runs (the history delta and Enterprise both key it), so it names the
