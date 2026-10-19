@@ -90,6 +90,26 @@ const CHECK_LABELS = [
 ];
 const andList = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
+// The finding ids each check (a key of `findings`, and the `check` of a not-measured record) can emit — for a reader that
+// must know which findings a check WOULD have produced when it could not measure it. Held equal, both ways, to each
+// check's own `check:` literals by tests/dns_posture_check_ids.test.mjs.
+const frozenIds = (...ids) => Object.freeze(ids);
+export const CHECK_IDS_BY_CATEGORY = Object.freeze({
+  cname: frozenIds("dangling_cname", "takeover_target"),
+  spf: frozenIds("missing_spf", "multiple_spf", "spf_plus_all", "spf_neutral_all", "spf_softfail", "spf_hardfail", "spf_no_all",
+    "spf_too_many_lookups", "spf_many_lookups", "spf_ptr_deprecated", "spf_broad_ip_range"),
+  dmarc: frozenIds("missing_dmarc", "multiple_dmarc", "dmarc_policy_none", "dmarc_policy_quarantine", "dmarc_policy_reject",
+    "dmarc_no_subdomain_policy", "dmarc_subdomain_none", "dmarc_low_pct", "dmarc_no_rua", "dmarc_no_ruf",
+    "dmarc_relaxed_alignment"),
+  dkim: frozenIds("dkim_weak_key", "dkim_short_key", "dkim_testing_mode", "dkim_none_found"),
+  ns: frozenIds("no_ns_records", "single_ns", "ns_private_ip", "ns_lame_delegation", "ns_same_subnet"),
+  dnssec: frozenIds("no_dnssec", "dnssec_partial", "dnssec_active"),
+  axfr: frozenIds("axfr_open"),
+  mx: frozenIds("no_mx_a_fallback", "no_mx", "null_mx", "mx_is_ip", "mx_is_cname"),
+  caa: frozenIds("no_caa", "caa_present", "caa_no_iodef"),
+  wildcard: frozenIds("wildcard_dns"),
+});
+
 // The reason a partly measured run reports: which checks were not measured and with which code, and which were. A
 // reader that only prints `reason` (a compliance gap row, for one) then still says what the result holds.
 function notMeasuredReason(notMeasured) {
