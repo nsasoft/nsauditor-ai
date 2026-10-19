@@ -1019,6 +1019,8 @@ const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
  * @returns {Promise<Array<{ address: string, family: 4|6 }> | null>} the answers to pin; null for a literal or a sentinel
  */
 export async function assertScanTargetAllowed(host, env = process.env) {
+  // A refusal is an operator error, coded so the entry point names it and exits 2 rather than printing a stack.
+  const refuse = (msg) => Object.assign(new Error(msg), { code: 'ETARGETREFUSED' });
   const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
   if (isCloudSentinel) return null;
   if (allowAllHosts(env)) {
@@ -1026,13 +1028,13 @@ export async function assertScanTargetAllowed(host, env = process.env) {
     try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch { return null; }
   }
   if (isBlockedIp(host)) {
-    throw new Error(`Scanning blocked address range is not allowed: ${host}`);
+    throw refuse(`Scanning blocked address range is not allowed: ${host}`);
   }
   if (!canonicalIp(host)) {
     try {
       return await resolveAndValidateAll(host);
     } catch (err) {
-      throw new Error(`Host rejected by SSRF guard: ${err.message}`);
+      throw refuse(`Host rejected by SSRF guard: ${err.message}`);
     }
   }
   return null;
@@ -3739,7 +3741,8 @@ export function pluginSelectionRefusal(plugins, pm) {
  * the suite (tests/cli_bin_entrypoint.test.mjs).
  */
 export function exitOnMainRejection(err, { error = console.error, exit = process.exit } = {}) {
-  if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE') {
+  // A refused scan target (ETARGETREFUSED) is the same class: the operator asked for something the guard does not allow.
+  if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE' || err?.code === 'ETARGETREFUSED') {
     error(`[ERROR] ${err.message}`);
     return exit(2);
   }

@@ -120,6 +120,25 @@ test('(fourth quadrant, first) C: NSA_ALLOW_ALL_HOSTS="true" still lifts the CLI
   assert.equal(await driveScan('127.0.0.1', 'true'), null);
 });
 
+// ── (h): a refused target is an OPERATOR error, coded — exit 2 and one [ERROR] line, never a stack ─────────────────
+test('a refused scan target carries a code — the literal refusal and the name refusal both, each message unchanged', async () => {
+  const literal = await guard('127.0.0.1').then(() => null, (e) => e);
+  assert.deepEqual([literal?.code, literal?.message], ['ETARGETREFUSED', 'Scanning blocked address range is not allowed: 127.0.0.1']);
+  await withResolver({ 'lan.example': '10.0.0.1' }, async () => {
+    const lan = await guard('lan.example').then(() => null, (e) => e);
+    assert.equal(lan?.code, 'ETARGETREFUSED');
+    assert.match(lan.message, /^Host rejected by SSRF guard: /);
+    const nowhere = await guard('nowhere.example').then(() => null, (e) => e);
+    assert.equal(nowhere?.code, 'ETARGETREFUSED', 'an unresolvable name is refused by the same guard');
+  });
+});
+test('through the real main(): a refused target reaches the rejection handler as exit 2 and one [ERROR] line', async () => {
+  const err = await driveScan('127.0.0.1', undefined);
+  const lines = []; const exits = [];
+  cli.exitOnMainRejection(err, { error: (x) => lines.push(String(x)), exit: (c) => exits.push(c) });
+  assert.deepEqual({ lines, exits }, { lines: ['[ERROR] Scanning blocked address range is not allowed: 127.0.0.1'], exits: [2] });
+});
+
 test('C: "0", "false", "no" and "off" do NOT lift the CLI guard — loopback is refused', async () => {
   for (const v of ['0', 'false', 'no', 'off']) {
     const err = await driveScan('127.0.0.1', v);

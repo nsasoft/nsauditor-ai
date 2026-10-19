@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A scan target the address guard refuses exits 2 with one line, not 1 with a stack.** `nsauditor-ai scan --host
+  127.0.0.1` without `NSA_ALLOW_ALL_HOSTS` — or a name that resolves to a blocked address, or does not resolve — threw an
+  uncoded error, so the command printed a stack trace and exited 1, which is also `--fail-on`'s "findings at or above the
+  threshold" code: in CI a refused target read as a findings verdict. The refusal is now coded (`ETARGETREFUSED`) and
+  handled like a flag refusal — `[ERROR] <the same message>` and exit 2. The run record's `abortReason` names the code
+  (`ETARGETREFUSED: Scanning blocked address range is not allowed: …`), as it names any coded abort.
 - **UPnP, mDNS and WS-Discovery decide "local network" on the address the scan resolved.** The three LAN-discovery
   probes (028, 027, 016) checked the target STRING against the private address ranges, so a by-name scan of a LAN device —
   a name the host check resolved to 192.168.1.1 — read "Non-local target — not attempted" and lost all three; they also

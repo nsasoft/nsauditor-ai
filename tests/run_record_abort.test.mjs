@@ -63,7 +63,8 @@ test('a REFUSED scan is finalised as ABORTED with its reason, SEALED, and its er
     const rec = await newest(outRoot);
     assert.equal(rec.status, 'aborted');
     // (iv) a CODE plus the message's first line — never a stack, which carries local paths.
-    assert.match(rec.abortReason, /^Error: Scanning blocked address range is not allowed: 192\.168\.1\.1$/);
+    // The guard's refusal is coded (ETARGETREFUSED), so the record names that code, as it names any coded abort.
+    assert.match(rec.abortReason, /^ETARGETREFUSED: Scanning blocked address range is not allowed: 192\.168\.1\.1$/);
     assert.doesNotMatch(rec.abortReason, /\n|\bat \S+:\d+/);
     assert.ok(rec.finishedAt, 'finalised');
     assert.deepEqual(rec.hostsWritten, []);
@@ -81,7 +82,7 @@ test('loadRun refuses an aborted run BY NAME with the recorded reason; --allow-p
     const r = await loadRun(outRoot, { runId: rec.runId, allowPartial: false }, { tier: 'enterprise' });
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'aborted-run');
-    assert.match(r.message, /ABORTED before it completed \(Error: Scanning blocked address range/);
+    assert.match(r.message, /ABORTED before it completed \(ETARGETREFUSED: Scanning blocked address range/);
     const partial = await loadRun(outRoot, { runId: rec.runId, allowPartial: true }, { tier: 'enterprise' });
     assert.equal(partial.ok, true, partial.message);
   } finally { fs.rmSync(outRoot, { recursive: true, force: true }); }
