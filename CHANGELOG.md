@@ -52,8 +52,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   comparison reads a previous run's DNS findings as fixed when this run could not measure the audit: the scan history and
   `--watch` delta list them as not compared, with the reason, and `report --since` lists them as not comparable, because
   the report now carries each unmeasured check as an evidence-gap row (`Evidence gap: the SPF check was not measured — the
-  TXT lookup for <domain> failed (ETIMEOUT)`). Both decide for the whole audit, not per check, so a finding from a check
-  this run did measure is not compared either. The plugin module exports `CHECK_IDS_BY_CATEGORY`, the finding ids each
+  TXT lookup for <domain> failed (ETIMEOUT)`). The history delta decides PER CHECK: a finding is not compared only when
+  the check that produces it was not measured this run (its lookup failed, or — for the zone-transfer check, which the
+  concluded record now reports as `dnsSecurity.axfrTested` — the check did not run), so an SPF fix still reads cleared in
+  a run whose CAA lookup timed out. `report --since` still decides for the whole audit: any unmeasured check makes every
+  DNS row of the baseline not comparable. The plugin module exports `CHECK_IDS_BY_CATEGORY`, the finding ids each
   check can emit, held equal by test to each check's own code — so a reader can tell which findings a not-measured check
   would have produced. **Stated limit:**
   Enterprise Edition 2.0.0, paired with this release, reads `up: false` from this audit as an evidence gap on every

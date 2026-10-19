@@ -1207,6 +1207,7 @@ export default {
         findings,
         ...(axfrNotAttempted.length ? { axfrNotAttempted } : {}),
         ...(notMeasured.length ? { notMeasured } : {}),
+        ...(result.details?.axfrTested !== undefined ? { axfrTested: result.details.axfrTested } : {}),
       },
       info: [
         `${result.summary.actionable} actionable findings`,

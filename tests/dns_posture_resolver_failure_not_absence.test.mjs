@@ -333,6 +333,27 @@ test('(delta) every lookup timing out after a measured run clears nothing: the f
   assert.ok(notCompared.length > 0);
 });
 
+// ── PER CHECK: a check this run DID measure still compares; one it could not measure never clears ──────────────────────
+test('(delta, per check, first) SPF fixed while CAA timed out: the SPF fix reads cleared — CAA\'s failure does not hide it', async () => {
+  const { computeDiff } = await import('../utils/scan_history.mjs');
+  const d = computeDiff(await historyLine({ ...WEAK, [`TXT ${ZONE}`]: [['v=spf1 -all']], [`CAA ${ZONE}`]: 'ETIMEOUT' }),
+    await historyLine(WEAK));
+  const h = hostChange(d);
+  assert.ok(h.cleared.includes('dnsSecurity:spf_plus_all'), JSON.stringify(h));
+  assert.ok(!JSON.stringify(h.notCompared ?? []).includes('dnsSecurity:dmarc_policy_none'), 'a finding of a measured check is compared');
+});
+test('(delta, per check) a CAA finding, then CAA unmeasured: not compared with why, never cleared — the other checks still compare', async () => {
+  const { computeDiff } = await import('../utils/scan_history.mjs');
+  const before = { ...WEAK, [`CAA ${ZONE}`]: 'ENODATA' };
+  const d = computeDiff(await historyLine({ ...before, [`CAA ${ZONE}`]: 'ETIMEOUT', [`TXT ${ZONE}`]: [['v=spf1 -all']] }),
+    await historyLine(before));
+  const h = hostChange(d);
+  assert.ok(!h.cleared.includes('dnsSecurity:no_caa'), JSON.stringify(h));
+  assert.ok(JSON.stringify(h.notCompared).includes('dnsSecurity:no_caa'));
+  assert.match(JSON.stringify(h.notCompared), /not measured this run/);
+  assert.ok(h.cleared.includes('dnsSecurity:spf_plus_all'), 'the SPF fix in the same run still reads cleared');
+});
+
 // ── `report --since`: the cross-run delta reads the same record ─────────────────────────────────────────────────────
 async function reportSide(id, table) {
   const [{ shapeHostFindings }] = await Promise.all([import('../utils/report_inputs.mjs')]);

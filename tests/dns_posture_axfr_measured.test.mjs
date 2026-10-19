@@ -175,3 +175,29 @@ test('with the check off, no nameserver is asked and none carries a record — a
   assert.equal(result.details.axfrTested, 'opt-in-off');
   assert.ok(result.details.nameservers.every((n) => n.axfr === undefined));
 });
+
+// ── THE HISTORY DELTA: an open transfer, then a run with the check off, is not compared — never "fixed" ─────────────────
+test('(delta) axfr_open, then a run with the zone-transfer check OFF: not compared with why, never cleared', async () => {
+  const [{ default: concluder }, { historyServiceEntry, historyHostEntry, computeDiff }, { FINDINGS_COUNT_BASIS }] = await Promise.all([
+    import('../plugins/result_concluder.mjs'), import('../utils/scan_history.mjs'), import('../utils/report_inputs.mjs')]);
+  const line = async (opts) => {
+    const { result } = await axfr(full({ types: ['SOA', 'A', 'SOA'] }), { opts });
+    const c = await concluder.run([{ id: '060', name: 'DNS Security Auditor', result }]);
+    return { findingsCount: 0, findingsCountBasis: FINDINGS_COUNT_BASIS, tier: 'pro',
+      services: c.services.map(historyServiceEntry), ...historyHostEntry({ result: c }) };
+  };
+  const on = await line({});
+  const d = computeDiff(await line({ checkAxfr: false }), on);
+  const h = d.changedFlags.find((c) => c.port == null) ?? { cleared: [], notCompared: [] };
+  assert.ok(!h.cleared.includes('dnsSecurity:axfr_open'), JSON.stringify(h));
+  assert.ok(JSON.stringify(h.notCompared).includes('dnsSecurity:axfr_open'), JSON.stringify(h));
+  // And with the check ON in both runs, a transfer that stops IS compared — it reads cleared.
+  const refusedNow = await (async () => {
+    const { result } = await axfr(full({ rcode: 5, types: [] }));
+    const c = await concluder.run([{ id: '060', name: 'DNS Security Auditor', result }]);
+    return { findingsCount: 0, findingsCountBasis: FINDINGS_COUNT_BASIS, tier: 'pro',
+      services: c.services.map(historyServiceEntry), ...historyHostEntry({ result: c }) };
+  })();
+  const fixed = computeDiff(refusedNow, on).changedFlags.find((c) => c.port == null) ?? { cleared: [] };
+  assert.ok(fixed.cleared.includes('dnsSecurity:axfr_open'), JSON.stringify(fixed));
+});

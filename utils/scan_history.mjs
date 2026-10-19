@@ -51,7 +51,8 @@ function measuredFor(checks, cid) {
     if (st === true) return { ok: true, row };
     if (st != null && typeof st === 'object' && Array.isArray(st.tried)) {
       if (st.tried.includes(itemOf(cid))) return { ok: true, row };
-      reason ??= reasonText('not-tried', itemOf(cid));
+      // A state can name why its untried items were not tried (060: the check's DNS lookup failed); the default stays.
+      reason ??= reasonText(st.notTried ?? 'not-tried', itemOf(cid));
       continue;
     }
     reason ??= reasonText(st === undefined ? 'producer-not-run' : st);

@@ -13,6 +13,7 @@
 import { DEFAULT_COMMUNITIES } from '../plugins/snmp_scanner.mjs';
 import { MCP_FLAG_SEVERITY } from '../plugins/mcp_scanner.mjs';
 import { ADAPTER_PAYLOAD_KEYS } from '../plugins/result_concluder.mjs';
+import { CHECK_IDS_BY_CATEGORY } from '../plugins/060_dns_sec_auditor.mjs';
 
 export const SEVERITY_ORDER = Object.freeze(['Critical', 'High', 'Medium', 'Low', 'Info']);
 /** 'critical' | 'CRIT' | 'High' … → 'Critical' | 'High' | 'Medium' | 'Low' | 'Info'. */
@@ -140,6 +141,18 @@ const NOT_TESTED_CODES = { 'opt-in-off': 1, 'no-domain': 1, 'no-answer': 1 };
 const optInMeasured = (key, stateKey) => (s) => (s[key] === true || s[key] === false ? true : fromState(s[stateKey]));
 const sameAs = (c) => (cid) => cid === c;
 const prefixed = (p) => (cid) => cid.startsWith(`${p}:`);
+/**
+ * Which of 060's findings this run could compare: `true` when every check was measured, else the finding ids of the checks
+ * that WERE (`tried`), with the reason the rest were not. A record written before 060 reported `axfrTested` leaves the
+ * zone-transfer check as it always was.
+ */
+function dnsChecksMeasured(s) {
+  const unmeasured = new Set(list(s.dnsSecurity?.notMeasured).map((e) => e?.check));
+  if (s.dnsSecurity?.axfrTested !== undefined && s.dnsSecurity.axfrTested !== true) unmeasured.add('axfr');
+  if (unmeasured.size === 0) return true;
+  const tried = Object.entries(CHECK_IDS_BY_CATEGORY).filter(([check]) => !unmeasured.has(check)).flatMap(([, ids]) => ids);
+  return { tried, notTried: 'dns-check-not-measured' };
+}
 const tlsMeasured = (s) => (s.tls === true ? true : 'no-handshake');
 const TLS_011 = { id: '011', source: 'tls-scanner', marker: 'tls' };
 const CERT_CID = { cert_expired: 'certificate:expired', self_signed: 'certificate:self_signed' };
@@ -170,11 +183,11 @@ const COMPARISON = {
     owns: prefixed('certificate'), measured: (s) => (s.certAudit != null ? true : 'producer-not-run') },
   tribeHealth: { producer: { id: '050', source: 'tribe-health', marker: 'tribeHealth' }, cid: (i) => `tribeHealth:${i}`,
     owns: prefixed('tribeHealth'), measured: (s) => (s.tribeHealth?.state === 'up' ? true : 'payload-down') },
-  // A run whose DNS lookups failed (060's `notMeasured`) did not measure the audit: its findings are not compared, never
-  // cleared. The whole audit, not per check — a finding from a check this run DID measure is not compared either.
+  // PER CHECK: a finding is compared only when the check that produces it was measured this run. A check whose DNS lookup
+  // failed (060's `notMeasured`), or the zone-transfer check when it did not run (`axfrTested` not true), measured nothing,
+  // so its previous findings are not compared — never cleared — while every other check's still are.
   dnsSecurity: { producer: { id: '060', source: 'dns-sec-auditor', marker: 'dnsSecurity' }, cid: (i) => `dnsSecurity:${i}`,
-    owns: prefixed('dnsSecurity'), measured: (s) => (list(s.dnsSecurity?.notMeasured).length === 0 ? true : 'dns-lookup-failed'),
-    scope: 'host' },
+    owns: prefixed('dnsSecurity'), measured: dnsChecksMeasured, scope: 'host' },
 };
 const MCP_COMPARISON = (key) => ({ producer: { id: '070', source: 'mcp', marker: null }, cid: () => `mcp:${key}`,
   owns: sameAs(`mcp:${key}`), measured: () => true });
@@ -208,7 +221,7 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
-  'dns-lookup-failed': () => 'a DNS lookup for the audit failed this run (a timeout, SERVFAIL or a refused resolver), so the audit was not fully measured',
+  'dns-check-not-measured': () => 'the DNS check that produces it was not measured this run — its DNS lookup failed (a timeout, SERVFAIL or a refused resolver), or the check was off',
 });
 /** The version of what a history line records about service checks. Absent on a line written before 1.3.0. */
 export const FLAGS_BASIS = 'service-flags-v1';
