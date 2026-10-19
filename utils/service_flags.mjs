@@ -151,7 +151,7 @@ function dnsChecksMeasured(s) {
   if (s.dnsSecurity?.axfrTested !== undefined && s.dnsSecurity.axfrTested !== true) unmeasured.add('axfr');
   if (unmeasured.size === 0) return true;
   const tried = Object.entries(CHECK_IDS_BY_CATEGORY).filter(([check]) => !unmeasured.has(check)).flatMap(([, ids]) => ids);
-  return { tried, notTried: 'dns-check-not-measured' };
+  return { tried, notTried: 'check-not-measured' };
 }
 const tlsMeasured = (s) => (s.tls === true ? true : 'no-handshake');
 const TLS_011 = { id: '011', source: 'tls-scanner', marker: 'tls' };
@@ -221,7 +221,9 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
-  'dns-check-not-measured': () => 'the DNS check that produces it was not measured this run — its DNS lookup failed (a timeout, SERVFAIL or a refused resolver), or the check was off',
+  // One code for one cause, the code Enterprise's comparison uses as well; the sentence names DNS because 060 is the one
+  // producer that records it today.
+  'check-not-measured': () => 'the DNS check that produces it was not measured this run — its DNS lookup failed (a timeout, SERVFAIL or a refused resolver), or the check was off',
 });
 /** The version of what a history line records about service checks. Absent on a line written before 1.3.0. */
 export const FLAGS_BASIS = 'service-flags-v1';

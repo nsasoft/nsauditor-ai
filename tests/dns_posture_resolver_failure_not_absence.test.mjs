@@ -354,6 +354,23 @@ test('(delta, per check) a CAA finding, then CAA unmeasured: not compared with w
   assert.ok(h.cleared.includes('dnsSecurity:spf_plus_all'), 'the SPF fix in the same run still reads cleared');
 });
 
+// ── THE CODE A HISTORY LINE RECORDS: one cause, one code — Enterprise's comparison names the same cause the same way ─
+test('(delta) the history line records why an unmeasured check was not tried as `check-not-measured`', async () => {
+  const line = await historyLine({ ...WEAK, [`CAA ${ZONE}`]: 'ETIMEOUT' });
+  assert.equal(line.hostChecks.dnsSecurity.notTried, 'check-not-measured');
+  assert.ok(!line.hostChecks.dnsSecurity.tried.includes('no_caa') && line.hostChecks.dnsSecurity.tried.includes('spf_plus_all'));
+});
+test('(delta) a line recording any other code for an untried check is still not compared — never cleared', async () => {
+  const { computeDiff } = await import('../utils/scan_history.mjs');
+  const before = await historyLine({ ...WEAK, [`CAA ${ZONE}`]: 'ENODATA' });
+  const now = await historyLine({ ...WEAK, [`CAA ${ZONE}`]: 'ETIMEOUT' });
+  // The spelling a pre-release build wrote before the code was aligned; no release wrote it.
+  now.hostChecks.dnsSecurity = { ...now.hostChecks.dnsSecurity, notTried: 'dns-check-not-measured' };
+  const h = hostChange(computeDiff(now, before));
+  assert.ok(!h.cleared.includes('dnsSecurity:no_caa'), JSON.stringify(h));
+  assert.ok(JSON.stringify(h.notCompared).includes('dnsSecurity:no_caa'), JSON.stringify(h));
+});
+
 // ── `report --since`: the cross-run delta reads the same record ─────────────────────────────────────────────────────
 async function reportSide(id, table) {
   const [{ shapeHostFindings }] = await Promise.all([import('../utils/report_inputs.mjs')]);
