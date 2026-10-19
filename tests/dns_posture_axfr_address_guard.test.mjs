@@ -162,9 +162,14 @@ test('(10) with the switch off, a refused-class nameserver is neither connected 
   assert.equal(records[0].dnsSecurity.axfrNotAttempted, undefined);
 });
 
-test('(11) a refusal leaves the result up, and the plugin still carries exactly one `up: false` (its IP-literal decline)', async () => {
+// The plugin sets `up` in exactly two places: its IP-literal decline (`up: false`, skipped) and the main result, which is
+// up unless a lookup failed to measure a check (dns_posture_resolver_failure_not_absence.test.mjs). A zone-transfer
+// refusal is neither: it is recorded on the nameserver and leaves the result up.
+test('(11) a refusal leaves the result up; up is false only on the IP-literal decline or a check left unmeasured', async () => {
   const { result } = await run({ 'ns1.example.test': ['169.254.169.254'] });
   assert.equal(result.up, true);
   const src = fs.readFileSync(new URL('../plugins/060_dns_sec_auditor.mjs', import.meta.url), 'utf8');
-  assert.equal(src.split('up: false').length - 1, 1);
+  assert.equal(src.split('up: false').length - 1, 1, 'the IP-literal decline');
+  assert.equal(src.split('up: notMeasured.length === 0').length - 1, 1, 'the main result');
+  assert.equal(src.match(/\bup: /g)?.length, 2, 'no third place sets up');
 });

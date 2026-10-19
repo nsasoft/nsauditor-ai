@@ -76,6 +76,40 @@ async function resolveTxtFlat(host) {
   return { records: result.flat().map(String), error: null };
 }
 
+// A lookup that answered NODATA (ENODATA) or NXDOMAIN (ENOTFOUND) MEASURED an absence. Any other failure — a timeout,
+// SERVFAIL, a refused or unreachable resolver, a malformed reply, an error with no code — measured nothing, and must
+// never read as the absence: the check it serves is recorded as not measured, with the code, and grades nothing.
+const ABSENCE_CODES = new Set(["ENODATA", "ENOTFOUND"]);
+const isAbsence = (error) => ABSENCE_CODES.has(error);
+const failedToMeasure = (error) => Boolean(error) && !isAbsence(error);
+
+// The checks in the order the result lists them, and their names in the reason a not-measured run carries.
+const CHECK_LABELS = [
+  ["cname", "CNAME"], ["spf", "SPF"], ["dmarc", "DMARC"], ["dkim", "DKIM"], ["ns", "NS"],
+  ["dnssec", "DNSSEC"], ["mx", "MX"], ["caa", "CAA"], ["wildcard", "wildcard"],
+];
+const andList = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+// The reason a partly measured run reports: which checks were not measured and with which code, and which were. A
+// reader that only prints `reason` (a compliance gap row, for one) then still says what the result holds.
+function notMeasuredReason(notMeasured) {
+  const codeOf = new Map();
+  for (const e of notMeasured) if (!codeOf.has(e.check)) codeOf.set(e.check, e.code);
+  const byCode = new Map();
+  for (const [check, label] of CHECK_LABELS) {
+    if (!codeOf.has(check)) continue;
+    const code = codeOf.get(check);
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push(label);
+  }
+  const failed = andList([...byCode].map(([code, labels]) => `${labels.join(", ")} (${code})`));
+  const measured = CHECK_LABELS.filter(([check]) => !codeOf.has(check)).map(([, label]) => label);
+  const notCount = codeOf.size === 1 ? "that check is" : `those ${codeOf.size} checks are`;
+  const tail = measured.length === 0 ? "no check was measured"
+    : `${andList(measured)} ${measured.length === 1 ? "was measured and its findings are" : "were measured and their findings are"} in the result`;
+  return `resolver failure on ${failed}: ${notCount} not measured; ${tail}`;
+}
+
 // ── Module 1: Core Record Collection ─────────────────────────────────────────
 
 async function collectRecords(host) {
@@ -99,14 +133,23 @@ async function collectRecords(host) {
     SOA:   soa?.error   ? null : soa,
     TXT:   txt.records,
     CAA:   caa?.error   ? null : caa,
+    // Each lookup's error code (null when it answered), so a check can tell a measured absence from a failed lookup.
+    errors: {
+      A: a?.error ?? null, AAAA: aaaa?.error ?? null, CNAME: cname?.error ?? null, MX: mx?.error ?? null,
+      NS: ns?.error ?? null, SOA: soa?.error ?? null, TXT: txt.error ?? null, CAA: caa?.error ?? null,
+    },
   };
 }
 
 // ── Module 2: Dangling CNAME Detection ───────────────────────────────────────
 
-async function checkDanglingCname(records) {
+async function checkDanglingCname(records, host, notMeasured) {
   const issues = [];
 
+  if (failedToMeasure(records.errors.CNAME)) {
+    notMeasured.push({ check: "cname", rrtype: "CNAME", name: host, code: records.errors.CNAME });
+    return { dangling: false, issues };
+  }
   if (!records.CNAME || records.CNAME.length === 0) {
     return { dangling: false, issues };
   }
@@ -120,8 +163,13 @@ async function checkDanglingCname(records) {
       safeResolve(dns.resolve6, targetStr),
     ]);
 
-    const a4Failed = a4?.error && (a4.error === "ENOTFOUND" || a4.error === "ENODATA");
-    const a6Failed = a6?.error && (a6.error === "ENOTFOUND" || a6.error === "ENODATA");
+    const a4Failed = a4?.error && isAbsence(a4.error);
+    const a6Failed = a6?.error && isAbsence(a6.error);
+    // Neither family answered and at least one lookup failed to measure: whether the target dangles is unknown.
+    if (a4?.error && a6?.error && !(a4Failed && a6Failed)) {
+      const [rrtype, code] = failedToMeasure(a4.error) ? ["A", a4.error] : ["AAAA", a6.error];
+      notMeasured.push({ check: "cname", rrtype, name: targetStr, code });
+    }
 
     if (a4Failed && a6Failed) {
       issues.push({
@@ -170,8 +218,12 @@ async function checkDanglingCname(records) {
 
 // ── Module 3: SPF Analysis ───────────────────────────────────────────────────
 
-function analyzeSPF(txtRecords) {
+function analyzeSPF(txtRecords, txtError, host, notMeasured) {
   const issues = [];
+  if (failedToMeasure(txtError)) {
+    notMeasured.push({ check: "spf", rrtype: "TXT", name: host, code: txtError });
+    return { record: null, issues };
+  }
   const spfRecords = txtRecords.filter((t) => t.toLowerCase().startsWith("v=spf1"));
 
   if (spfRecords.length === 0) {
@@ -287,9 +339,13 @@ function analyzeSPF(txtRecords) {
 
 // ── Module 4: DMARC Analysis ─────────────────────────────────────────────────
 
-async function analyzeDMARC(host) {
+async function analyzeDMARC(host, notMeasured) {
   const issues = [];
   const { records, error } = await resolveTxtFlat(`_dmarc.${host}`);
+  if (failedToMeasure(error)) {
+    notMeasured.push({ check: "dmarc", rrtype: "TXT", name: `_dmarc.${host}`, code: error });
+    return { record: null, issues };
+  }
 
   const dmarcRecords = records.filter((t) => t.toLowerCase().startsWith("v=dmarc1"));
 
@@ -402,12 +458,15 @@ async function analyzeDMARC(host) {
 
 // ── Module 5: DKIM Discovery ─────────────────────────────────────────────────
 
-async function discoverDKIM(host, selectors) {
+async function discoverDKIM(host, selectors, notMeasured) {
   const issues = [];
   const found = [];
+  let firstFailure = null;   // the first selector lookup that failed to measure, if no selector is found
 
   for (const selector of selectors) {
-    const { records, error } = await resolveTxtFlat(`${selector}._domainkey.${host}`);
+    const name = `${selector}._domainkey.${host}`;
+    const { records, error } = await resolveTxtFlat(name);
+    if (failedToMeasure(error) && !firstFailure) firstFailure = { name, code: error };
     if (records.length === 0) continue;
 
     const record = records.join("");
@@ -451,7 +510,10 @@ async function discoverDKIM(host, selectors) {
     found.push(entry);
   }
 
-  if (found.length === 0) {
+  // "None found" is a measurement only when every selector lookup answered; one that failed might have been the one.
+  if (found.length === 0 && firstFailure) {
+    notMeasured.push({ check: "dkim", rrtype: "TXT", name: firstFailure.name, code: firstFailure.code });
+  } else if (found.length === 0) {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "dkim_none_found",
@@ -464,10 +526,14 @@ async function discoverDKIM(host, selectors) {
 
 // ── Module 6: NS Delegation Hygiene ──────────────────────────────────────────
 
-async function analyzeNS(records) {
+async function analyzeNS(records, host, notMeasured) {
   const issues = [];
   const ns = records.NS;
 
+  if (failedToMeasure(records.errors.NS)) {
+    notMeasured.push({ check: "ns", rrtype: "NS", name: host, code: records.errors.NS });
+    return { nameservers: [], issues };
+  }
   if (!ns || ns.length === 0) {
     issues.push({
       severity: SEVERITY.HIGH,
@@ -507,22 +573,30 @@ async function analyzeNS(records) {
           });
         }
       }
-    } catch {
-      issues.push({
-        severity: SEVERITY.HIGH,
-        check: "ns_lame_delegation",
-        detail: `Nameserver ${nsStr} does not resolve — lame delegation`,
-      });
+    } catch (err) {
+      const code = err?.code || err?.message;
+      if (isAbsence(code)) {
+        issues.push({
+          severity: SEVERITY.HIGH,
+          check: "ns_lame_delegation",
+          detail: `Nameserver ${nsStr} does not resolve — lame delegation`,
+        });
+      } else {
+        // The lookup failed, so whether the nameserver resolves is unknown — never a lame delegation.
+        entry.resolves = null;
+        notMeasured.push({ check: "ns", rrtype: "A", name: nsStr, code });
+      }
     }
 
     nsDetails.push(entry);
   }
 
-  // Check NS diversity (all on same /24?)
+  // Check NS diversity (all on same /24?) — not when a nameserver's address is unknown: the one that answered
+  // would be compared with itself.
   const uniqueC = new Set(
     nsDetails.flatMap((n) => n.ips.map((ip) => ip.split(".").slice(0, 3).join(".")))
   );
-  if (uniqueC.size === 1 && nsDetails.length > 1) {
+  if (uniqueC.size === 1 && nsDetails.length > 1 && !nsDetails.some((n) => n.resolves === null)) {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "ns_same_subnet",
@@ -552,7 +626,7 @@ function isPrivateIP(ip) {
 // Node.js dns module doesn't natively support DNSSEC validation.
 // We check for DNSKEY and DS records as indicators of DNSSEC deployment.
 
-async function probeDNSSEC(host) {
+async function probeDNSSEC(host, notMeasured) {
   const issues = [];
 
   // Primary: direct DNSKEY and DS queries
@@ -565,7 +639,8 @@ async function probeDNSSEC(host) {
   let hasDS = !dsResult?.error && Array.isArray(dsResult) && dsResult.length > 0;
 
   // Fallback: resolveAny() can surface DNSKEY/DS on resolvers that support it.
-  // Some resolvers (e.g. Cloudflare) REFUSE ANY queries, so this is best-effort.
+  // Some resolvers (e.g. Cloudflare) REFUSE ANY queries, so this is best-effort — and a refused ANY measures nothing
+  // either way: only the primary DNSKEY and DS queries decide whether an absence was measured.
   if (!hasDNSKEY && !hasDS) {
     const anyResult = await safeResolve(dns.resolveAny, host);
     if (!anyResult?.error && Array.isArray(anyResult)) {
@@ -573,6 +648,18 @@ async function probeDNSSEC(host) {
       if (anyResult.some((r) => r.type === "DS")) hasDS = true;
     }
   }
+
+  // A record type not found whose query failed to measure is unknown, not absent.
+  const dnskeyUnknown = !hasDNSKEY && failedToMeasure(dnskeyResult?.error);
+  const dsUnknown = !hasDS && failedToMeasure(dsResult?.error);
+  const unknown = (rrtype, code) => {
+    notMeasured.push({ check: "dnssec", rrtype, name: host, code });
+    return { hasDNSKEY: hasDNSKEY || (dnskeyUnknown ? null : false), hasDS: hasDS || (dsUnknown ? null : false), issues };
+  };
+  if (!hasDNSKEY && !hasDS && (dnskeyUnknown || dsUnknown)) {
+    return dnskeyUnknown ? unknown("DNSKEY", dnskeyResult.error) : unknown("DS", dsResult.error);
+  }
+  if (hasDNSKEY && dsUnknown) return unknown("DS", dsResult.error);
 
   if (!hasDNSKEY && !hasDS) {
     issues.push({
@@ -717,13 +804,23 @@ function buildAXFRQuery(domain) {
 
 // ── Module 9: MX Security ────────────────────────────────────────────────────
 
-async function analyzeMX(records, host) {
+async function analyzeMX(records, host, notMeasured) {
   const issues = [];
   const mx = records.MX;
 
+  if (failedToMeasure(records.errors.MX)) {
+    notMeasured.push({ check: "mx", rrtype: "MX", name: host, code: records.errors.MX });
+    return { mxRecords: [], issues };
+  }
   if (!mx || mx.length === 0) {
     // Check for null MX (RFC 7505)
     const { records: txtRecs } = await resolveTxtFlat(host);
+    // With no A or AAAA answer, "no fallback" is a measurement only when neither lookup failed to measure.
+    if (!records.A && !records.AAAA && (failedToMeasure(records.errors.A) || failedToMeasure(records.errors.AAAA))) {
+      const [rrtype, code] = failedToMeasure(records.errors.A) ? ["A", records.errors.A] : ["AAAA", records.errors.AAAA];
+      notMeasured.push({ check: "mx", rrtype, name: host, code });
+      return { mxRecords: [], issues };
+    }
     // A domain with no MX might use A/AAAA fallback (bad practice)
     if (records.A || records.AAAA) {
       issues.push({
@@ -766,7 +863,9 @@ async function analyzeMX(records, host) {
 
     // MX pointing to CNAME (also bad practice)
     const cnameCheck = await safeResolve(dns.resolveCname, exchange);
-    if (!cnameCheck?.error) {
+    if (failedToMeasure(cnameCheck?.error)) {
+      notMeasured.push({ check: "mx", rrtype: "CNAME", name: exchange, code: cnameCheck.error });
+    } else if (!cnameCheck?.error) {
       issues.push({
         severity: SEVERITY.MEDIUM,
         check: "mx_is_cname",
@@ -780,10 +879,14 @@ async function analyzeMX(records, host) {
 
 // ── Module 10: CAA Records ───────────────────────────────────────────────────
 
-function analyzeCAA(records) {
+function analyzeCAA(records, host, notMeasured) {
   const issues = [];
   const caa = records.CAA;
 
+  if (failedToMeasure(records.errors.CAA)) {
+    notMeasured.push({ check: "caa", rrtype: "CAA", name: host, code: records.errors.CAA });
+    return { records: [], issues };
+  }
   if (!caa || caa.length === 0) {
     issues.push({
       severity: SEVERITY.LOW,
@@ -819,12 +922,14 @@ function analyzeCAA(records) {
 
 // ── Module 11: Wildcard DNS Detection ────────────────────────────────────────
 
-async function checkWildcard(host) {
+async function checkWildcard(host, notMeasured) {
   const issues = [];
   const randomSub = `nsauditor-wildcard-probe-${Date.now()}.${host}`;
 
   const result = await safeResolve(dns.resolve4, randomSub);
-  if (!result?.error) {
+  if (failedToMeasure(result?.error)) {
+    notMeasured.push({ check: "wildcard", rrtype: "A", name: randomSub, code: result.error });
+  } else if (!result?.error) {
     issues.push({
       severity: SEVERITY.LOW,
       check: "wildcard_dns",
@@ -869,18 +974,22 @@ export default {
     // 1. Collect all DNS records
     const records = await collectRecords(host);
 
-    // 2. Run all analysis modules
+    // 2. Run all analysis modules. Each records the lookups that failed to MEASURE (anything but NODATA / NXDOMAIN) in
+    // `notMeasured` and grades nothing from them; the list is sorted into the result's check order below.
+    const notMeasured = [];
     const [cname, spf, dmarc, dkim, nsCheck, dnssec, mx, caa, wildcard] = await Promise.all([
-      checkDanglingCname(records),
-      Promise.resolve(analyzeSPF(records.TXT)),
-      analyzeDMARC(host),
-      discoverDKIM(host, config.dkimSelectors),
-      analyzeNS(records),
-      probeDNSSEC(host),
-      analyzeMX(records, host),
-      Promise.resolve(analyzeCAA(records)),
-      checkWildcard(host),
+      checkDanglingCname(records, host, notMeasured),
+      Promise.resolve(analyzeSPF(records.TXT, records.errors.TXT, host, notMeasured)),
+      analyzeDMARC(host, notMeasured),
+      discoverDKIM(host, config.dkimSelectors, notMeasured),
+      analyzeNS(records, host, notMeasured),
+      probeDNSSEC(host, notMeasured),
+      analyzeMX(records, host, notMeasured),
+      Promise.resolve(analyzeCAA(records, host, notMeasured)),
+      checkWildcard(host, notMeasured),
     ]);
+    const checkOrder = new Map(CHECK_LABELS.map(([check], i) => [check, i]));
+    notMeasured.sort((x, y) => checkOrder.get(x.check) - checkOrder.get(y.check));
 
     // 3. Zone transfer check (depends on NS results)
     const axfr = await checkZoneTransfer(host, nsCheck.nameservers, config);
@@ -921,10 +1030,15 @@ export default {
       low:      allIssues.filter((i) => i.severity === SEVERITY.LOW).length,
       info:     allIssues.filter((i) => i.severity === SEVERITY.INFO).length,
       pass:     allIssues.filter((i) => i.severity === SEVERITY.PASS).length,
+      notMeasured: notMeasured.length,
     };
 
+    // A run that could not measure every check is not up, and carries a reason naming what it did and did not measure, so a
+    // reader that only sees `up` holds this audit's results as a gap rather than as a clean domain. It is never
+    // `skipped` (that is the declined-address case above), and the checks it DID measure keep their findings.
     return {
-      up: true,
+      up: notMeasured.length === 0,
+      ...(notMeasured.length > 0 ? { reason: notMeasuredReason(notMeasured) } : {}),
       audit_type: "dns_security",
       host,
       overallSeverity,
@@ -936,7 +1050,7 @@ export default {
         CNAME: records.CNAME,
         MX: records.MX,
         NS: records.NS,
-        hasSOA: !!records.SOA,
+        hasSOA: failedToMeasure(records.errors.SOA) ? null : !!records.SOA,
         txtCount: records.TXT.length,
         caaCount: (records.CAA || []).length,
       },
@@ -960,6 +1074,7 @@ export default {
         nameservers: nsCheck.nameservers,
         mxRecords: mx.mxRecords,
         dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS },
+        notMeasured,
       },
     };
   },
@@ -980,6 +1095,10 @@ export default {
     const axfrNotAttempted = (result.details?.nameservers ?? [])
       .filter((n) => n.axfr?.attempted === false)
       .map((n) => ({ nameserver: n.nameserver, ...n.axfr }));
+    // The checks a failed lookup left unmeasured, with their codes — a record, never a finding.
+    const notMeasured = result.details?.notMeasured ?? [];
+    const codeOf = (check) => notMeasured.find((e) => e.check === check)?.code;
+    const said = (check, label, measured) => (codeOf(check) ? `${label} not measured (${codeOf(check)})` : measured);
 
     return [{
       port: 53,
@@ -987,20 +1106,22 @@ export default {
       service: "dns-security",
       attachOnly: true,
       dnsSecurity: {
-        status: result.summary.actionable > 0 ? "action_required" : "hardened",
+        // `action_required` wins; otherwise a run that could not measure every check is `incomplete`, never `hardened`.
+        status: result.summary.actionable > 0 ? "action_required" : notMeasured.length > 0 ? "incomplete" : "hardened",
         severity: result.overallSeverity,
         actionable: result.summary.actionable,
         findings,
         ...(axfrNotAttempted.length ? { axfrNotAttempted } : {}),
+        ...(notMeasured.length ? { notMeasured } : {}),
       },
       info: [
         `${result.summary.actionable} actionable findings`,
-        result.details.spfRecord ? "SPF present" : "SPF missing",
-        result.details.dmarcRecord ? `DMARC p=${result.details.dmarcTags?.p || "?"}` : "DMARC missing",
-        result.details.dkimSelectors.length > 0
+        said("spf", "SPF", result.details.spfRecord ? "SPF present" : "SPF missing"),
+        said("dmarc", "DMARC", result.details.dmarcRecord ? `DMARC p=${result.details.dmarcTags?.p || "?"}` : "DMARC missing"),
+        said("dkim", "DKIM", result.details.dkimSelectors.length > 0
           ? `DKIM: ${result.details.dkimSelectors.length} selector(s)`
-          : "DKIM: none found",
-        result.details.dnssec.hasDNSKEY ? "DNSSEC active" : "no DNSSEC",
+          : "DKIM: none found"),
+        said("dnssec", "DNSSEC", result.details.dnssec.hasDNSKEY ? "DNSSEC active" : "no DNSSEC"),
       ].join(" | "),
       source: "dns-sec-auditor",
       authoritative: false,

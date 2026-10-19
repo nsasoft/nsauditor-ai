@@ -21,6 +21,25 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   name had. **Stated limits:** a nameserver whose transfer was attempted and refused, timed out, or that answered over
   IPv6 only is not recorded as not attempted in this release; the separate `ns_private_ip` finding keeps its own
   private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+- **The DNS-security audit no longer reads a resolver failure as a missing record.** The DNS Security Auditor (060)
+  graded every lookup that failed as an absence: with the resolver timing out, a domain read as missing SPF, DMARC and NS
+  (HIGH), DKIM and DNSSEC (MEDIUM), CAA (LOW) and MX (INFO) — byte-identical to a domain that has none of them — and a
+  present-but-weak record (`spf_plus_all`, `dmarc_policy_none`) was replaced by "missing". A timed-out DS beside a present
+  DNSKEY read as a broken chain of trust, a timed-out nameserver address as a lame delegation (and the remaining
+  nameservers as one /24), a timed-out MX beside an A record as an A fallback; a timed-out wildcard, MX-is-CNAME or
+  dangling-CNAME probe read as "nothing found". Now only NODATA (`ENODATA`) and NXDOMAIN (`ENOTFOUND`) measure an absence.
+  Any other failure leaves its check **not measured**: it grades nothing, it is listed with its record type, name and
+  error code in `details.notMeasured` and on the concluded record as `dnsSecurity.notMeasured`, the concluded status
+  reads `incomplete` (never `hardened`) when nothing measured is actionable, and the summary line says
+  `SPF not measured (ETIMEOUT)` rather than `SPF missing`. A run with any check not measured returns `up: false` with a
+  `reason` naming the checks it could not measure, with their codes, and the checks it did — the measured checks'
+  findings stay in the result. `details.records.hasSOA` reads `null` when the SOA lookup failed. The scan history and
+  `--watch` delta no longer read a previous run's DNS findings as cleared when this run could not measure the audit: they
+  are listed as not compared, with the reason. That decision is made for the whole audit, not per check, so a finding
+  from a check this run did measure is not compared either. **Stated limit:**
+  Enterprise Edition 2.0.0, paired with this release, reads `up: false` from this audit as an evidence gap on every
+  control it maps from it (today SOC 2 CC6.1 and CIS Controls v8 9.5, through the DMARC checks), so a failure of one
+  unrelated lookup — CAA, say — holds those controls as a gap: over-broad, never a pass.
 - **Two plugin time budgets, declared from measurement:** the MCP Scanner (070) now declares 120 s (was 100 s) — a first
   scan of a real router measured 55–73 s across three series, and the rule is 1.5 × the measured maximum. The TLS
   Scanner (011) declares 45 s (it ran under the 30 s default), so that a single port that accepts TCP and never answers

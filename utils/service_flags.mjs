@@ -170,8 +170,11 @@ const COMPARISON = {
     owns: prefixed('certificate'), measured: (s) => (s.certAudit != null ? true : 'producer-not-run') },
   tribeHealth: { producer: { id: '050', source: 'tribe-health', marker: 'tribeHealth' }, cid: (i) => `tribeHealth:${i}`,
     owns: prefixed('tribeHealth'), measured: (s) => (s.tribeHealth?.state === 'up' ? true : 'payload-down') },
+  // A run whose DNS lookups failed (060's `notMeasured`) did not measure the audit: its findings are not compared, never
+  // cleared. The whole audit, not per check — a finding from a check this run DID measure is not compared either.
   dnsSecurity: { producer: { id: '060', source: 'dns-sec-auditor', marker: 'dnsSecurity' }, cid: (i) => `dnsSecurity:${i}`,
-    owns: prefixed('dnsSecurity'), measured: () => true, scope: 'host' },
+    owns: prefixed('dnsSecurity'), measured: (s) => (list(s.dnsSecurity?.notMeasured).length === 0 ? true : 'dns-lookup-failed'),
+    scope: 'host' },
 };
 const MCP_COMPARISON = (key) => ({ producer: { id: '070', source: 'mcp', marker: null }, cid: () => `mcp:${key}`,
   owns: sameAs(`mcp:${key}`), measured: () => true });
@@ -205,6 +208,7 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
+  'dns-lookup-failed': () => 'a DNS lookup for the audit failed this run (a timeout, SERVFAIL or a refused resolver), so the audit was not fully measured',
 });
 /** The version of what a history line records about service checks. Absent on a line written before 1.3.0. */
 export const FLAGS_BASIS = 'service-flags-v1';
