@@ -8,6 +8,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A probe with no concluder adapter never lists a port the port scanner measured closed.** Such a probe reaches the
+  conclusion through the concluder's fallback, as one non-authoritative row named after the plugin; on a TCP port the
+  port scanner (003) measured closed that row now takes the path an authoritative row that did not identify its port
+  takes — onto a service that exists it fills blanks other than identity, where none exists it goes to `evidence` with
+  the reason "port measured closed by the port scanner (003)" — and on every other port it is a service, as before. This
+  closes 1.0.0's second stated limit. Measured by re-concluding the 598 recorded scans with the concluder before and
+  after: 65 rows leave the service list, every one the SUN RPC plugin's (015) `111/tcp sun` with status `unknown`, and
+  each reappears in that scan's evidence with its reason; none joins, and no other service changes. **Across the
+  upgrade:** a scan-history line written before this release lists that row, so the first comparison after the upgrade
+  prints the port among removed services; the `report --since` delta reads open services only and is unchanged. UDP rows
+  are unchanged, as before.
 - **The DNS-security audit's zone-transfer attempt checks the address it would connect to.** With the opt-in
   `DNS_AUDIT_AXFR_CHECK` (or the `checkAxfr` option) set, the DNS Security Auditor (060) connects to TCP/53 at the first
   IPv4 address each of the zone's nameservers resolves to — an address that comes from the zone's own NS records, which

@@ -314,12 +314,18 @@ export default {
         }
       }
       for (const item of fallbackRecord(name, r?.result)) {
-        upsertService(services, normalizeService(item), { authoritative: false });
+        const rec = normalizeService(item);
+        // A fallback row identified nothing — no adapter read the plugin's result. On a TCP port the port scanner measured
+        // closed it is decided with the deferred rows below: blanks other than identity on a service that exists, evidence
+        // with its reason where none does. On any other port it is a non-authoritative service, as before.
+        if (rec.protocol === 'tcp' && tcpClosed.has(rec.port)) deferredUnidentified.push(rec);
+        else upsertService(services, rec, { authoritative: false });
       }
       if (r?.result?.data) pushEvidence(name, r.result.data);
     }
 
-    // The deferred unidentified TCP rows: blanks other than identity on a service that exists, evidence with a reason where
+    // The deferred unidentified TCP rows — an authoritative row that did not identify its port, and a fallback row on a port
+    // the port scanner measured closed: blanks other than identity on a service that exists, evidence with a reason where
     // none does.
     const notConcluded = [];
     for (const rec of deferredUnidentified) {
