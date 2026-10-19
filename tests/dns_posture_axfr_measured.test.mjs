@@ -223,6 +223,16 @@ test('an attempt that throws while an earlier one is still waiting fails the run
   assert.deepEqual(unhandled, []);
 });
 
+// ── TWO MEASUREMENTS, TWO SUBJECTS: plugin 009 asks the scanned host; 060 asks each of the domain's nameservers ─────────
+test('(w) the two zone-transfer checks are named by their own subjects, and the README says when they measure one fact', async () => {
+  const { rowOf } = await import('../utils/service_flags.mjs');
+  assert.match(rowOf('axfrAllowed').label, /this host serves the DNS_AXFR_DOMAIN zone to anyone who asks/);
+  assert.match(rowOf('dnsSecurity').label, /whether each of the domain's nameservers serves the zone to anyone/);
+  const readme = (await import('node:fs')).readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.ok(readme.includes('two measurements of one exposure, not two exposures'), 'the coincidence is stated');
+  assert.ok(!readme.includes('records only an open transfer'), 'the sentence c1a3b79 made false is gone');
+});
+
 // ── REFUSED: MEASURED, NOT GRADED ──────────────────────────────────────────────────────────────────────────────────────
 for (const [label, rcode] of [['REFUSED', 5], ['NOTAUTH', 9], ['SERVFAIL', 2]]) {
   test(`${label} is a measured refusal: no finding, the record says so`, async () => {
@@ -289,8 +299,9 @@ test('(delta) axfr_open, then a run with the zone-transfer check OFF: not compar
   const on = await line({});
   const d = computeDiff(await line({ checkAxfr: false }), on);
   const h = d.changedFlags.find((c) => c.port == null) ?? { cleared: [], notCompared: [] };
-  assert.ok(!h.cleared.includes('dnsSecurity:axfr_open'), JSON.stringify(h));
-  assert.ok(JSON.stringify(h.notCompared).includes('dnsSecurity:axfr_open'), JSON.stringify(h));
+  // Identified by its nameserver (basis v2): the exact id, so a negative check cannot pass on a spelling nobody writes.
+  assert.ok(!h.cleared.includes(`dnsSecurity:axfr_open@${NS1}`), JSON.stringify(h));
+  assert.ok(h.notCompared.some((n) => n.id === `dnsSecurity:axfr_open@${NS1}`), JSON.stringify(h));
   // And with the check ON in both runs, a transfer that stops IS compared — it reads cleared.
   const refusedNow = await (async () => {
     const { result } = await axfr(full({ rcode: 5, types: [] }));
@@ -299,5 +310,24 @@ test('(delta) axfr_open, then a run with the zone-transfer check OFF: not compar
       services: c.services.map(historyServiceEntry), ...historyHostEntry({ result: c }) };
   })();
   const fixed = computeDiff(refusedNow, on).changedFlags.find((c) => c.port == null) ?? { cleared: [] };
-  assert.ok(fixed.cleared.includes('dnsSecurity:axfr_open'), JSON.stringify(fixed));
+  assert.ok(fixed.cleared.includes(`dnsSecurity:axfr_open@${NS1}`), JSON.stringify(fixed));
+});
+test('(delta) the transfer moves from ns1 to ns2 between two runs: cleared on ns1 AND appeared on ns2 — never "no change"', async () => {
+  const [{ default: concluder }, { historyServiceEntry, historyHostEntry, computeDiff }, { FINDINGS_COUNT_BASIS }] = await Promise.all([
+    import('../plugins/result_concluder.mjs'), import('../utils/scan_history.mjs'), import('../utils/report_inputs.mjs')]);
+  const NS2 = `ns2.${ZONE}`;
+  const line = async (one, two) => {
+    TABLE = { [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['198.51.100.53'] };
+    SERVERS = { '192.0.2.53': one, '198.51.100.53': two };
+    const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 200 });
+    const c = await concluder.run([{ id: '060', name: 'DNS Security Auditor', result }]);
+    return { findingsCount: 0, findingsCountBasis: FINDINGS_COUNT_BASIS, tier: 'pro',
+      services: c.services.map(historyServiceEntry), ...historyHostEntry({ result: c }) };
+  };
+  const open = full({ types: ['SOA', 'A', 'SOA'] });
+  const refused = full({ rcode: 5, types: [] });
+  const h = computeDiff(await line(refused, open), await line(open, refused)).changedFlags.find((c) => c.port == null);
+  assert.ok(h, 'the swap is a change');
+  assert.deepEqual(h.appeared.filter((id) => id.startsWith('dnsSecurity:axfr')), [`dnsSecurity:axfr_open@${NS2}`]);
+  assert.deepEqual(h.cleared.filter((id) => id.startsWith('dnsSecurity:axfr')), [`dnsSecurity:axfr_open@${NS1}`]);
 });

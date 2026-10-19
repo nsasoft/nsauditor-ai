@@ -110,6 +110,20 @@ export const CHECK_IDS_BY_CATEGORY = Object.freeze({
   wildcard: frozenIds("wildcard_dns"),
 });
 
+// The checks that fire once per OBJECT — a CNAME target, an SPF range, a DKIM selector, a nameserver's address, a
+// nameserver, an MX host — and the issue field that names it. A comparison keys such a finding on its object as well as
+// its check, so a fix on one object and a new exposure on another are two changes, never none. Every other check fires
+// once per domain. Held equal, both ways, to the issue literals that carry one of these fields by
+// tests/dns_posture_object_identity.test.mjs.
+export const CHECK_OBJECT_FIELD = Object.freeze({
+  dangling_cname: "target", takeover_target: "target",
+  spf_broad_ip_range: "range",
+  dkim_weak_key: "selector", dkim_short_key: "selector", dkim_testing_mode: "selector",
+  ns_private_ip: "address", ns_lame_delegation: "nameserver",
+  axfr_open: "nameserver", axfr_answered_not_transferred: "nameserver",
+  mx_is_ip: "exchange", mx_is_cname: "exchange",
+});
+
 // The reason a partly measured run reports: which checks were not measured and with which code, and which were. A
 // reader that only prints `reason` (a compliance gap row, for one) then still says what the result holds.
 function notMeasuredReason(notMeasured, ran) {
@@ -351,6 +365,7 @@ function analyzeSPF(txtRecords, txtError, host, notMeasured) {
         severity: SEVERITY.MEDIUM,
         check: "spf_broad_ip_range",
         detail: `SPF allows very broad IP range: ${range}`,
+        range,
       });
     }
   }
@@ -559,6 +574,7 @@ async function analyzeNS(records, host, notMeasured) {
           severity: SEVERITY.HIGH,
           check: "ns_private_ip",
           detail: `Nameserver ${nsStr} resolves to private IP ${ip} — unreachable from public internet`,
+          address: ip,
         });
       }
     }
@@ -611,6 +627,7 @@ async function analyzeNS(records, host, notMeasured) {
           severity: SEVERITY.HIGH,
           check: "ns_lame_delegation",
           detail: `Nameserver ${nsStr} does not resolve — lame delegation`,
+          nameserver: nsStr,
         });
       } else {
         // A lookup failed, so whether the nameserver resolves is unknown — never a lame delegation.
@@ -955,6 +972,7 @@ async function analyzeMX(records, host, notMeasured) {
         severity: SEVERITY.MEDIUM,
         check: "mx_is_ip",
         detail: `MX record points to IP address ${exchange} (priority ${m.priority}) — violates RFC 5321`,
+        exchange,
       });
     }
 
@@ -967,6 +985,7 @@ async function analyzeMX(records, host, notMeasured) {
         severity: SEVERITY.MEDIUM,
         check: "mx_is_cname",
         detail: `MX ${exchange} is a CNAME — violates RFC 2181, may cause delivery issues`,
+        exchange,
       });
     }
   }
@@ -1190,7 +1209,12 @@ export default {
     const findings = Object.entries(result.findings)
       .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
       .filter((f) => f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO)
-      .map((f) => ({ severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
+      .map((f) => {
+        // A per-object finding carries its object, so a comparison can tell one nameserver's finding from another's.
+        const object = Object.hasOwn(CHECK_OBJECT_FIELD, f.check) ? f[CHECK_OBJECT_FIELD[f.check]] : undefined;
+        return { severity: f.severity, category: f.category, check: f.check, detail: f.detail,
+          ...(object != null && object !== "" ? { object: String(object) } : {}) };
+      });
     // The nameservers whose zone transfer was not attempted, in their own order — a record, never a finding.
     const axfrNotAttempted = (result.details?.nameservers ?? [])
       .filter((n) => n.axfr?.attempted === false)

@@ -64,7 +64,7 @@ const GRADED = [
   { key: 'anonymousLogin', label: 'anonymous FTP login (tested only when FTP_CHECK_ANON is set)', token: 'anonymous_login',
     grade: (s, { target }) => once(s.anonymousLogin === true, () => finding('Critical', 'FTP anonymous login enabled', 'ftp-anonymous-login',
       `${s.service || 'ftp'} on ${target} accepts anonymous authentication.`)) },
-  { key: 'axfrAllowed', label: 'DNS zone transfer (tested only when DNS_CHECK_AXFR and DNS_AXFR_DOMAIN are set)', token: 'axfr_allowed',
+  { key: 'axfrAllowed', label: 'a DNS zone transfer — whether this host serves the DNS_AXFR_DOMAIN zone to anyone who asks (tested only when DNS_CHECK_AXFR and DNS_AXFR_DOMAIN are set)', token: 'axfr_allowed',
     grade: (s, { target }) => once(s.axfrAllowed === true, () => finding('Critical', 'DNS zone transfer (AXFR) allowed', 'dns-zone-transfer',
       `Zone transfer permitted on ${target}; the entire zone may be enumerated.`)) },
   { key: 'community', label: 'an SNMP default community', token: 'default_community',
@@ -118,9 +118,11 @@ const GRADED = [
   { key: 'tribeHealth', label: 'the debug-endpoint audit (050)', token: 'debug_endpoint_findings',
     grade: (s) => list(s.tribeHealth?.findings).filter(actionable).map((f) => finding(normalizeSeverity(f.severity),
       `Debug endpoint: ${f.detail || f.check}`, `debug-endpoint-${ruleSafe(f.category)}-${ruleSafe(f.check)}`, null, `${f.category}/${f.check}`)) },
-  { key: 'dnsSecurity', label: 'the DNS-security audit of the domain (060; its zone-transfer attempt only when DNS_AUDIT_AXFR_CHECK is set)', token: 'dns_security_findings',
+  { key: 'dnsSecurity', label: 'the DNS-security audit of the domain (060; its zone-transfer attempt — whether each of the domain\'s nameservers serves the zone to anyone — only when DNS_AUDIT_AXFR_CHECK is set)', token: 'dns_security_findings',
+    // A check that fires once per object (060's CHECK_OBJECT_FIELD) is identified by its object as well (basis v2).
     grade: (s) => list(s.dnsSecurity?.findings).filter(actionable).map((f) => finding(normalizeSeverity(f.severity),
-      `DNS security: ${f.detail || f.check}`, `dns-security-${ruleSafe(f.check)}`, null, String(f.check))) },
+      `DNS security: ${f.detail || f.check}`, `dns-security-${ruleSafe(f.check)}`, null,
+      f.object != null && f.object !== '' ? `${f.check}@${f.object}` : String(f.check))) },
 ];
 
 // ── (s1) B — WHAT THE COMPARISON CHANNEL COMPARES ──────────────────────────────────────────────────────────────────
@@ -146,6 +148,9 @@ const prefixed = (p) => (cid) => cid.startsWith(`${p}:`);
  * that WERE (`tried`), with the reason the rest were not. A record written before 060 reported `axfrTested` leaves the
  * zone-transfer check as it always was.
  */
+// The check a DNS-security comparison item names — `ns_lame_delegation@ns1.example.test` → `ns_lame_delegation`. A check
+// id carries no '@', so everything after the first one is the object.
+const checkOfItem = (item) => { const s = String(item); const at = s.indexOf('@'); return at < 0 ? s : s.slice(0, at); };
 function dnsChecksMeasured(s) {
   const unmeasured = new Set(list(s.dnsSecurity?.notMeasured).map((e) => e?.check));
   if (s.dnsSecurity?.axfrTested !== undefined && s.dnsSecurity.axfrTested !== true) unmeasured.add('axfr');
@@ -187,7 +192,7 @@ const COMPARISON = {
   // failed (060's `notMeasured`), or the zone-transfer check when it did not run (`axfrTested` not true), measured nothing,
   // so its previous findings are not compared — never cleared — while every other check's still are.
   dnsSecurity: { producer: { id: '060', source: 'dns-sec-auditor', marker: 'dnsSecurity' }, cid: (i) => `dnsSecurity:${i}`,
-    owns: prefixed('dnsSecurity'), measured: dnsChecksMeasured, scope: 'host' },
+    owns: prefixed('dnsSecurity'), measured: dnsChecksMeasured, scope: 'host', triedKey: checkOfItem },
 };
 const MCP_COMPARISON = (key) => ({ producer: { id: '070', source: 'mcp', marker: null }, cid: () => `mcp:${key}`,
   owns: sameAs(`mcp:${key}`), measured: () => true });
@@ -225,8 +230,19 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   // producer that records it today.
   'check-not-measured': () => 'the DNS check that produces it was not measured this run — its DNS lookup failed (a timeout, SERVFAIL or a refused resolver), or the check was off',
 });
-/** The version of what a history line records about service checks. Absent on a line written before 1.3.0. */
-export const FLAGS_BASIS = 'service-flags-v1';
+/** The version of what a history line records about service checks. Absent on a line written before 1.3.0. v2 keys a
+ *  DNS-security finding that fires once per object on that object as well: `dnsSecurity:<check>@<object>`. */
+export const FLAGS_BASIS = 'service-flags-v2';
+/** Earlier bases this build still READS. A v1 line recorded no object, so a comparison with EITHER side on v1 reads both
+ *  at check granularity (`perCheckCid`) and says so; a basis outside this list and FLAGS_BASIS is refused. */
+export const FLAGS_BASIS_READ_PER_CHECK = Object.freeze(['service-flags-v1']);
+/** A comparison id at check granularity: the object dropped from an id whose row keys one (dnsSecurity); others as is. */
+export function perCheckCid(cid) {
+  const row = rowsOwning(cid).find((r) => typeof r.triedKey === 'function');
+  if (!row) return cid;
+  const at = cid.indexOf(':');
+  return `${cid.slice(0, at + 1)}${row.triedKey(cid.slice(at + 1))}`;
+}
 
 // ── (s3) NOT TESTED ──────────────────────────────────────────────────────────────────────────────────────────────
 // A check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason — never "none", never

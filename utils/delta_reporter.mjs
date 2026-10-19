@@ -36,7 +36,7 @@ function notComparedDiff(reason, detail) {
   return {
     newServices: [], removedServices: [], changedServices: [],
     newFindings: null, findingsNotComparable: false, findingsNotComparableReason: null,
-    changedFlags: [], flagsNotComparable: false, flagsNotComparableReason: null,
+    changedFlags: [], flagsNotComparable: false, flagsNotComparableReason: null, flagsBasisNote: null,
     notCompared: reason,
     summary: NOT_COMPARED_TEXT[reason](detail),
   };

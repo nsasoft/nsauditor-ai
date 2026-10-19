@@ -43,6 +43,23 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   plugin's whole time budget on this one check. The attempts now run at the same time, so silent nameservers cost one
   timeout between them; each result is recorded against its own nameserver, in the zone's order, and an attempt that
   fails outright still fails the run as before.
+- **The history delta and the `--watch` alert compare a DNS-security finding per object.** The DNS Security Auditor
+  (060) reports some checks once per nameserver, address, CNAME target, DKIM selector, SPF range or mail host, and the
+  comparison keyed each on its check alone — so with one nameserver's lame delegation fixed and another newly lame
+  between two scans, both scans carried the same identity and the comparison reported no change: a new exposure that
+  never read as appeared, and no `--watch` alert. Those checks are declared in `CHECK_OBJECT_FIELD`, the concluded
+  record carries each such finding's `object`, and its comparison identity is `dnsSecurity:<check>@<object>`; every
+  other check keeps `dnsSecurity:<check>`. The history line's comparison basis moves to `service-flags-v2`. **Upgrade
+  rule:** when either of two compared scans was recorded on `service-flags-v1`, DNS-security findings are compared per
+  check, as v1 recorded them, and the comparison says so (`flagsBasisNote: "dns-security-per-check"`) — nothing is
+  reported cleared or appeared that did not change, and a finding that moved between objects is not visible across that
+  one comparison.
+- **The two zone-transfer checks say whose transfer they measured.** The DNS check (009) asks the scanned host whether
+  it serves the `DNS_AXFR_DOMAIN` zone to anyone who asks; the DNS-security audit (060) asks each of the domain's
+  nameservers. The report's scope line now names each by its subject, and the README says when they measure one
+  exposure: when the scanned host is itself one of the domain's nameservers and `DNS_AXFR_DOMAIN` names that domain, a
+  report carries one finding from each. Two README sentences that still said the DNS-security audit "records only an
+  open transfer" — no longer true since its attempt is measured (above) — now say what it records.
 - **A nameserver at a non-public address is graded whatever its spelling.** The DNS Security Auditor (060) graded
   `ns_private_ip` from a hand-kept prefix list, so a nameserver at `127.0.0.2` or in `100.64.0.0/10` (carrier-grade NAT)
   read as public, and one reachable over IPv6 only was never classified. It now asks the classifier every connect guard

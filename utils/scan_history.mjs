@@ -4,7 +4,8 @@
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { serviceFlagState, hostFlagState, rowsOwning, SERVICE_FLAGS, NOT_COMPARED_REASONS, FLAGS_BASIS } from './service_flags.mjs';
+import { serviceFlagState, hostFlagState, rowsOwning, SERVICE_FLAGS, NOT_COMPARED_REASONS, FLAGS_BASIS, FLAGS_BASIS_READ_PER_CHECK,
+  perCheckCid } from './service_flags.mjs';
 
 export const HISTORY_FILE = 'scan_history.jsonl';
 
@@ -50,7 +51,8 @@ function measuredFor(checks, cid) {
     const st = checks?.[row.key];
     if (st === true) return { ok: true, row };
     if (st != null && typeof st === 'object' && Array.isArray(st.tried)) {
-      if (st.tried.includes(itemOf(cid))) return { ok: true, row };
+      // `tried` names checks; an item that also names its object (dnsSecurity, basis v2) is looked up by its check.
+      if (st.tried.includes(row.triedKey ? row.triedKey(itemOf(cid)) : itemOf(cid))) return { ok: true, row };
       // A state can name why its untried items were not tried (060: the check's DNS lookup failed); the default stays.
       reason ??= reasonText(st.notTried ?? 'not-tried', itemOf(cid));
       continue;
@@ -96,7 +98,7 @@ export function flagsChanged(diff) {
 }
 
 function compareFlags(current, previous) {
-  const none = { changedFlags: [], flagsNotComparable: false, flagsNotComparableReason: null };
+  const none = { changedFlags: [], flagsNotComparable: false, flagsNotComparableReason: null, flagsBasisNote: null };
   // A side with no `services` array has nothing to compare. A line carrying the basis stamp without one is MALFORMED
   // (the CLI writes both together), and is not read rather than thrown on.
   if (!Array.isArray(current?.services) || !Array.isArray(previous?.services)) return none;
@@ -105,10 +107,16 @@ function compareFlags(current, previous) {
   // Neither side recorded service checks: two lines written before 1.3.0 — and the --watch gate's scan OUTPUTS, which
   // carry no basis stamp either (and no `services`), so that gate is not changed by this comparison.
   if (bc === null && bp === null) return none;
-  if (bc !== bp) {
-    return { changedFlags: [], flagsNotComparable: true,
+  // v1 → v2 moved one thing: a DNS-security finding that fires once per object is identified by its object. A v1 line
+  // recorded no object, so across that boundary BOTH sides are read at check granularity — what v1 recorded — and the
+  // comparison says so; any other basis change is refused.
+  const readable = (b) => b === FLAGS_BASIS || FLAGS_BASIS_READ_PER_CHECK.includes(b);
+  if (bc !== bp && !(bc !== null && bp !== null && readable(bc) && readable(bp))) {
+    return { changedFlags: [], flagsNotComparable: true, flagsBasisNote: null,
       flagsNotComparableReason: bp === null ? 'baseline-predates' : 'basis-changed' };
   }
+  const perCheck = bc !== bp;
+  const at = (flags) => (perCheck ? [...new Set((flags ?? []).map(perCheckCid))].sort() : (flags ?? []));
   const changedFlags = [];
   const prevByKey = new Map(previous.services.map((s) => [serviceKey(s), s]));
   const currKeys = new Set(current.services.map((s) => serviceKey(s)));
@@ -122,12 +130,13 @@ function compareFlags(current, previous) {
   for (const s of current.services) {
     const p = prevByKey.get(serviceKey(s));
     if (!p) continue; // a new service is reported as one; its checks have no baseline to compare with
-    const c = compareChecks(p.flags ?? [], p.checks ?? {}, s.flags ?? [], s.checks ?? {});
+    const c = compareChecks(at(p.flags), p.checks ?? {}, at(s.flags), s.checks ?? {});
     if (anyEntry(c)) changedFlags.push({ port: s.port, protocol: s.protocol ?? 'tcp', ...c });
   }
-  const h = compareChecks(previous.hostFlags ?? [], previous.hostChecks ?? {}, current.hostFlags ?? [], current.hostChecks ?? {});
+  const h = compareChecks(at(previous.hostFlags), previous.hostChecks ?? {}, at(current.hostFlags), current.hostChecks ?? {});
   if (anyEntry(h)) changedFlags.push({ port: null, protocol: null, ...h });
-  return { changedFlags, flagsNotComparable: false, flagsNotComparableReason: null };
+  return { changedFlags, flagsNotComparable: false, flagsNotComparableReason: null,
+    flagsBasisNote: perCheck ? 'dns-security-per-check' : null };
 }
 
 function flagSummary(flags) {
@@ -147,6 +156,10 @@ function flagSummary(flags) {
     ...say('cleared', (c) => c.cleared),
     ...say('not compared', (c) => c.notCompared.map((n) => `${n.id} — ${n.reason}`)),
     ...say('first tested, nothing found', (c) => c.firstTestedNothingFound),
+    ...(flags.flagsBasisNote === 'dns-security-per-check'
+      ? ['DNS-security findings compared per check, not per object: one of the two scans recorded them on an earlier basis, '
+        + 'so a finding that moved from one nameserver, address, selector, target or mail host to another is not visible here']
+      : []),
   ];
 }
 
@@ -266,6 +279,7 @@ export function computeDiff(current, previous) {
       changedFlags: [],
       flagsNotComparable: false,
       flagsNotComparableReason: null,
+      flagsBasisNote: null,
       summary: 'No previous scan for comparison.',
     };
   }
