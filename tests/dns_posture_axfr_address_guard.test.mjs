@@ -73,10 +73,13 @@ const axfrOf = (result, name) => result.details.nameservers.find((n) => n.namese
 const refused = (address, addressClass, answers = 1) => ({ attempted: false, reason: 'address-refused', addressClass, address, answers });
 
 // ── FOURTH QUADRANT FIRST ─────────────────────────────────────────────────────────────────────────────────────────────
+// Since the attempt is MEASURED (tests/dns_posture_axfr_measured.test.mjs), an attempted nameserver carries its own record —
+// here the outcome this file's stub produces, a refused connection — and never a not-attempted one.
+const attemptedRefused = (address) => ({ attempted: true, address, outcome: 'refused', code: 'ECONNREFUSED' });
 test('(1, first) a public nameserver is attempted, and carries no not-attempted record', async () => {
   const { result, connects: c, records } = await run({ 'ns1.example.test': ['192.0.2.53'] });
   assert.deepEqual(c, ['192.0.2.53:53']);
-  assert.equal(axfrOf(result, 'ns1.example.test'), undefined);
+  assert.deepEqual(axfrOf(result, 'ns1.example.test'), attemptedRefused('192.0.2.53'));
   assert.equal(records[0].dnsSecurity.axfrNotAttempted, undefined);
 });
 
@@ -84,7 +87,7 @@ test('(2) a public and a refused nameserver: the public one is attempted, the re
   const { result, connects: c, records } = await run({ 'ns1.example.test': ['169.254.169.254'], 'ns2.example.test': ['192.0.2.54'] });
   assert.deepEqual(c, ['192.0.2.54:53'], 'the nameserver after the refused one must still be attempted');
   assert.deepEqual(axfrOf(result, 'ns1.example.test'), refused('169.254.169.254', 'always'));
-  assert.equal(axfrOf(result, 'ns2.example.test'), undefined);
+  assert.deepEqual(axfrOf(result, 'ns2.example.test'), attemptedRefused('192.0.2.54'));
   assert.deepEqual(records[0].dnsSecurity.axfrNotAttempted, [{ nameserver: 'ns1.example.test', ...refused('169.254.169.254', 'always') }]);
 });
 
@@ -117,7 +120,7 @@ test('(6) NSA_ALLOW_ALL_HOSTS admits a private nameserver; unset, 0 or false kee
   for (const v of ['1', 'true']) {
     const { result, connects: c } = await run({ 'ns1.example.test': ['10.0.0.53'] }, { allowAll: v });
     assert.deepEqual(c, ['10.0.0.53:53'], `NSA_ALLOW_ALL_HOSTS=${v}`);
-    assert.equal(axfrOf(result, 'ns1.example.test'), undefined);
+    assert.deepEqual(axfrOf(result, 'ns1.example.test'), attemptedRefused('10.0.0.53'));
   }
   for (const v of [undefined, '0', 'false']) {
     const { connects: c } = await run({ 'ns1.example.test': ['10.0.0.53'] }, { allowAll: v });

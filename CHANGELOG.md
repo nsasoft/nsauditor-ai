@@ -18,9 +18,24 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   entry carries `axfr: { attempted: false, reason: 'address-refused', addressClass, address, answers }`, and the concluded
   `dnsSecurity` record lists the refused nameservers, in their own order, under `axfrNotAttempted`. The decision is about
   the first answer — the literal that would be connected — with no fall-through to another; `answers` says how many the
-  name had. **Stated limits:** a nameserver whose transfer was attempted and refused, timed out, or that answered over
-  IPv6 only is not recorded as not attempted in this release; the separate `ns_private_ip` finding keeps its own
-  private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+  name had. Every other nameserver now carries a record too (the next entry). **Stated limit:** the separate `ns_private_ip`
+  finding keeps its own private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+- **The DNS-security audit's zone-transfer check is measured, nameserver by nameserver.** With the opt-in check on
+  (`DNS_AUDIT_AXFR_CHECK` / `checkAxfr`), the DNS Security Auditor (060) read "open" from the first TCP chunk alone —
+  RCODE 0 and more than 50 bytes — so a nameserver that answered an AXFR query with any record (a lone SOA, an A record)
+  was graded `axfr_open` CRITICAL; and every other outcome (refused, NOTAUTH, a timeout, a refused connection, a reply cut
+  short, a nameserver with no IPv4 address) left nothing, byte-identical to the check being off. Now each answer is read
+  message by message, and each nameserver's `details.nameservers[].axfr` says what happened: `attempted: true` with
+  `outcome` `transferred` (RCODE 0, the answer opens with the zone's SOA and carries more records; `complete` when the
+  closing SOA arrived), `answered-not-transferred` (RCODE 0 with anything else — no zone came back), `refused` (an error
+  RCODE, or TCP/53 refused the connection) or `no-answer` (a timeout, a transport error, a reply cut short or unparseable);
+  or `attempted: false` with its reason (`address-refused`, `no-ipv4-address`, `does-not-resolve`, `address-unknown`).
+  Only `transferred` is `axfr_open` (CRITICAL). `answered-not-transferred` is the new `axfr_answered_not_transferred`
+  (LOW): the nameserver answers AXFR queries instead of refusing them, and its detail names the record count and the
+  first record's type. A `no-answer` leaves the AXFR check not measured for that nameserver (`details.notMeasured`, so
+  the run is `up: false` with its reason). `details.axfrTested` is `true`, or why the check did not run (`opt-in-off`,
+  `no-nameservers`). **Stated limits:** the attempt connects over IPv4 only, and a transfer cut before its closing SOA
+  is still `axfr_open` — the records it sent did leave the server.
 - **The DNS-security audit no longer reads a resolver failure as a missing record.** The DNS Security Auditor (060)
   graded every lookup that failed as an absence: with the resolver timing out, a domain read as missing SPF, DMARC and NS
   (HIGH), DKIM and DNSSEC (MEDIUM), CAA (LOW) and MX (INFO) — byte-identical to a domain that has none of them — and a

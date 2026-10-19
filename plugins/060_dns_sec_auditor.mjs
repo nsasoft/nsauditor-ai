@@ -86,7 +86,7 @@ const failedToMeasure = (error) => Boolean(error) && !isAbsence(error);
 // The checks in the order the result lists them, and their names in the reason a not-measured run carries.
 const CHECK_LABELS = [
   ["cname", "CNAME"], ["spf", "SPF"], ["dmarc", "DMARC"], ["dkim", "DKIM"], ["ns", "NS"],
-  ["dnssec", "DNSSEC"], ["mx", "MX"], ["caa", "CAA"], ["wildcard", "wildcard"],
+  ["dnssec", "DNSSEC"], ["axfr", "AXFR"], ["mx", "MX"], ["caa", "CAA"], ["wildcard", "wildcard"],
 ];
 const andList = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
@@ -104,7 +104,7 @@ export const CHECK_IDS_BY_CATEGORY = Object.freeze({
   dkim: frozenIds("dkim_weak_key", "dkim_short_key", "dkim_testing_mode", "dkim_none_found"),
   ns: frozenIds("no_ns_records", "single_ns", "ns_private_ip", "ns_lame_delegation", "ns_same_subnet"),
   dnssec: frozenIds("no_dnssec", "dnssec_partial", "dnssec_active"),
-  axfr: frozenIds("axfr_open"),
+  axfr: frozenIds("axfr_open", "axfr_answered_not_transferred"),
   mx: frozenIds("no_mx_a_fallback", "no_mx", "null_mx", "mx_is_ip", "mx_is_cname"),
   caa: frozenIds("no_caa", "caa_present", "caa_no_iodef"),
   wildcard: frozenIds("wildcard_dns"),
@@ -112,7 +112,7 @@ export const CHECK_IDS_BY_CATEGORY = Object.freeze({
 
 // The reason a partly measured run reports: which checks were not measured and with which code, and which were. A
 // reader that only prints `reason` (a compliance gap row, for one) then still says what the result holds.
-function notMeasuredReason(notMeasured) {
+function notMeasuredReason(notMeasured, ran) {
   const codeOf = new Map();
   for (const e of notMeasured) if (!codeOf.has(e.check)) codeOf.set(e.check, e.code);
   const byCode = new Map();
@@ -123,7 +123,8 @@ function notMeasuredReason(notMeasured) {
     byCode.get(code).push(label);
   }
   const failed = andList([...byCode].map(([code, labels]) => `${labels.join(", ")} (${code})`));
-  const measured = CHECK_LABELS.filter(([check]) => !codeOf.has(check)).map(([, label]) => label);
+  // Only checks that RAN are named as measured: the opt-in zone transfer, when off, is neither.
+  const measured = CHECK_LABELS.filter(([check]) => ran.has(check) && !codeOf.has(check)).map(([, label]) => label);
   const notCount = codeOf.size === 1 ? "that check is" : `those ${codeOf.size} checks are`;
   const tail = measured.length === 0 ? "no check was measured"
     : `${andList(measured)} ${measured.length === 1 ? "was measured and its findings are" : "were measured and their findings are"} in the result`;
@@ -719,15 +720,18 @@ async function probeDNSSEC(host, notMeasured) {
 // ── Module 8: Zone Transfer Check (AXFR) ────────────────────────────────────
 // An open zone transfer is a critical finding — it dumps the entire zone.
 
-async function checkZoneTransfer(host, nameservers, config) {
+async function checkZoneTransfer(host, nameservers, config, notMeasured) {
   const issues = [];
 
-  if (!config.checkAxfr || nameservers.length === 0) {
-    return { issues };
-  }
+  if (!config.checkAxfr) return { issues, tested: "opt-in-off" };
+  if (nameservers.length === 0) return { issues, tested: "no-nameservers" };
 
+  // Every nameserver carries a record once the check is on — attempted with what it answered, or not attempted with why —
+  // so an empty finding list never has to stand in for "refused" or "not asked".
   for (const ns of nameservers) {
-    if (!ns.resolves || ns.ips.length === 0) continue;
+    if (ns.resolves === null) { ns.axfr = { attempted: false, reason: "address-unknown" }; continue; }
+    if (!ns.resolves) { ns.axfr = { attempted: false, reason: "does-not-resolve" }; continue; }
+    if (ns.ips.length === 0) { ns.axfr = { attempted: false, reason: "no-ipv4-address" }; continue; }
 
     const ip = ns.ips[0];
     // The address comes from the zone's own NS records, which no host check looked at: classify the literal that would
@@ -739,27 +743,91 @@ async function checkZoneTransfer(host, nameservers, config) {
       ns.axfr = { attempted: false, reason: "address-refused", addressClass, address: ip, answers: ns.ips.length };
       continue;
     }
-    const vulnerable = await attemptAXFR(host, ip, config.timeoutMs);
+    const measured = await attemptAXFR(host, ip, config.timeoutMs);
+    ns.axfr = { attempted: true, address: ip, ...measured };
 
-    if (vulnerable) {
+    if (measured.outcome === "transferred") {
       issues.push({
         severity: SEVERITY.CRITICAL,
         check: "axfr_open",
-        detail: `Zone transfer (AXFR) allowed on ${ns.nameserver} (${ip}) — entire zone is exposed`,
+        detail: `Zone transfer (AXFR) allowed on ${ns.nameserver} (${ip}) — entire zone is exposed`
+          + ` (${measured.records} records${measured.complete ? "" : ", the transfer was cut before its closing SOA"})`,
         nameserver: ns.nameserver,
       });
+    } else if (measured.outcome === "answered-not-transferred") {
+      issues.push({
+        severity: SEVERITY.LOW,
+        check: "axfr_answered_not_transferred",
+        detail: `Nameserver ${ns.nameserver} (${ip}) answers zone-transfer (AXFR) queries instead of refusing them — `
+          + `${measured.records} record${measured.records === 1 ? "" : "s"}${measured.firstType ? `, the first of type ${measured.firstType}` : ""}; `
+          + "no zone was transferred",
+        nameserver: ns.nameserver,
+      });
+    } else if (measured.outcome === "no-answer") {
+      notMeasured.push({ check: "axfr", rrtype: "AXFR", name: ns.nameserver, code: measured.code });
     }
   }
 
-  return { issues };
+  return { issues, tested: true };
 }
 
+// DNS record types the zone-transfer verdict names.
+const RR_TYPE_NAME = { 1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT", 28: "AAAA", 33: "SRV", 257: "CAA" };
+/** The RCODE and the answer records' types, in order, of one DNS message (no TCP length prefix). Throws on a malformed one. */
+function parseDnsAnswerTypes(m) {
+  if (m.length < 12) throw new Error("short header");
+  const rcode = m.readUInt8(3) & 0x0f;
+  const qd = m.readUInt16BE(4);
+  const an = m.readUInt16BE(6);
+  const skipName = (at) => {
+    for (let o = at; ;) {
+      if (o >= m.length) throw new Error("name past end");
+      const len = m.readUInt8(o);
+      if (len === 0) return o + 1;
+      if ((len & 0xc0) === 0xc0) { if (o + 2 > m.length) throw new Error("pointer past end"); return o + 2; }
+      o += 1 + len;
+    }
+  };
+  let off = 12;
+  for (let i = 0; i < qd; i++) off = skipName(off) + 4;
+  const types = [];
+  for (let i = 0; i < an; i++) {
+    off = skipName(off);
+    if (off + 10 > m.length) throw new Error("record header past end");
+    const type = m.readUInt16BE(off);
+    const rdlen = m.readUInt16BE(off + 8);
+    off += 10 + rdlen;
+    if (off > m.length) throw new Error("record data past end");
+    types.push(RR_TYPE_NAME[type] ?? String(type));
+  }
+  return { rcode, types };
+}
+
+// The zone-transfer attempt, MEASURED: what the nameserver answered, read message by message, never a guess from the
+// first chunk's length.
+//   transferred               RCODE 0, the answer opens with the zone's SOA and carries more records — zone data left the
+//                             server (`complete` when the closing SOA arrived; a cut transfer still leaked what it sent);
+//   answered-not-transferred  RCODE 0 with anything else — an SOA alone, or another first record: no zone came back;
+//   refused                   an error RCODE (REFUSED, NOTAUTH, SERVFAIL, …), or TCP/53 refused the connection;
+//   no-answer                 a timeout, a transport error, a reply cut short or unparseable — nothing was measured.
+const MAX_AXFR_RECORDS = 10000;
 function attemptAXFR(domain, nsIP, timeoutMs) {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      socket.destroy();
-      resolve(false);
-    }, timeoutMs);
+    let done = false;
+    let answered = false;           // a complete RCODE-0 message arrived
+    let buf = Buffer.alloc(0);
+    const types = [];
+    const verdict = (complete) => (types[0] === "SOA" && types.length > 1
+      ? { outcome: "transferred", records: types.length, firstType: "SOA", complete }
+      : { outcome: "answered-not-transferred", records: types.length, firstType: types[0] ?? null });
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { socket.destroy(); } catch { /* already gone */ }
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish(answered ? verdict(false) : { outcome: "no-answer", code: "ETIMEOUT" }), timeoutMs);
 
     const socket = net.createConnection({ host: nsIP, port: 53 }, () => {
       // Build a minimal AXFR query
@@ -770,40 +838,31 @@ function attemptAXFR(domain, nsIP, timeoutMs) {
       socket.write(Buffer.concat([lenBuf, query]));
     });
 
-    let received = Buffer.alloc(0);
-
     socket.on("data", (data) => {
-      received = Buffer.concat([received, data]);
-      // If we got more than just a header + error, AXFR probably worked
-      if (received.length > 14) {
-        // Check RCODE in response header (byte 3, lower 4 bits)
-        // Skip the 2-byte TCP length prefix
-        if (received.length > 5) {
-          const flags = received.readUInt8(5);  // 2 (len prefix) + 3 (flags byte 2)
-          const rcode = flags & 0x0f;
-          // RCODE 0 = NOERROR, and if we got answer records, AXFR is open
-          if (rcode === 0 && received.length > 50) {
-            clearTimeout(timer);
-            socket.destroy();
-            resolve(true);
-            return;
-          }
-        }
-        // REFUSED or SERVFAIL = properly denied
-        clearTimeout(timer);
-        socket.destroy();
-        resolve(false);
+      buf = Buffer.concat([buf, data]);
+      while (buf.length >= 2) {
+        const len = buf.readUInt16BE(0);
+        if (buf.length < 2 + len) break;
+        const msg = buf.subarray(2, 2 + len);
+        buf = buf.subarray(2 + len);
+        let parsed;
+        try { parsed = parseDnsAnswerTypes(msg); } catch { return finish({ outcome: "no-answer", code: "EBADRESP" }); }
+        if (parsed.rcode !== 0) return finish({ outcome: "refused", rcode: parsed.rcode });
+        answered = true;
+        types.push(...parsed.types);
+        // The closing SOA ends a transfer; a cap bounds a hostile one.
+        if (types.length > 1 && types[0] === "SOA" && types[types.length - 1] === "SOA") return finish(verdict(true));
+        if (types.length > MAX_AXFR_RECORDS) return finish(verdict(false));
       }
     });
 
-    socket.on("error", () => {
-      clearTimeout(timer);
-      resolve(false);
+    socket.on("error", (err) => {
+      const code = err?.code || "ESOCKET";
+      finish(code === "ECONNREFUSED" ? { outcome: "refused", code } : answered ? verdict(false) : { outcome: "no-answer", code });
     });
 
     socket.on("close", () => {
-      clearTimeout(timer);
-      resolve(false);
+      finish(answered ? verdict(false) : { outcome: "no-answer", code: "ECLOSED" });
     });
   });
 }
@@ -1021,11 +1080,11 @@ export default {
       Promise.resolve(analyzeCAA(records, host, notMeasured)),
       checkWildcard(host, notMeasured),
     ]);
+    // 3. Zone transfer check (depends on NS results; opt-in) — it records its own not-measured nameservers too.
+    const axfr = await checkZoneTransfer(host, nsCheck.nameservers, config, notMeasured);
     const checkOrder = new Map(CHECK_LABELS.map(([check], i) => [check, i]));
     notMeasured.sort((x, y) => checkOrder.get(x.check) - checkOrder.get(y.check));
-
-    // 3. Zone transfer check (depends on NS results)
-    const axfr = await checkZoneTransfer(host, nsCheck.nameservers, config);
+    const ran = new Set(CHECK_LABELS.map(([check]) => check).filter((check) => check !== "axfr" || config.checkAxfr));
 
     // Aggregate all issues
     const allIssues = [
@@ -1071,7 +1130,7 @@ export default {
     // `skipped` (that is the declined-address case above), and the checks it DID measure keep their findings.
     return {
       up: notMeasured.length === 0,
-      ...(notMeasured.length > 0 ? { reason: notMeasuredReason(notMeasured) } : {}),
+      ...(notMeasured.length > 0 ? { reason: notMeasuredReason(notMeasured, ran) } : {}),
       audit_type: "dns_security",
       host,
       overallSeverity,
@@ -1107,6 +1166,8 @@ export default {
         nameservers: nsCheck.nameservers,
         mxRecords: mx.mxRecords,
         dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS },
+        // The zone-transfer check: true when it ran, else why it did not ('opt-in-off', 'no-nameservers').
+        axfrTested: axfr.tested,
         notMeasured,
       },
     };
