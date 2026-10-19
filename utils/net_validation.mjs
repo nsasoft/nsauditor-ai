@@ -14,7 +14,8 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
-// Refused by every check that classifies — the MCP server's, a redirect hop's — NSA_ALLOW_ALL_HOSTS included: loopback,
+// Refused by every check that classifies — the MCP server's, a redirect hop's, the DNS audit's zone-transfer connect —
+// NSA_ALLOW_ALL_HOSTS included: loopback,
 // unspecified, link-local and the cloud metadata endpoints. The CLI's scan entry does not classify under
 // NSA_ALLOW_ALL_HOSTS (cli.mjs assertScanTargetAllowed returns first), so there the variable lifts the whole guard.
 const ALWAYS = new net.BlockList();

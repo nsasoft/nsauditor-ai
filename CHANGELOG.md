@@ -6,6 +6,22 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## Unreleased
+
+- **The DNS-security audit's zone-transfer attempt checks the address it would connect to.** With the opt-in
+  `DNS_AUDIT_AXFR_CHECK` (or the `checkAxfr` option) set, the DNS Security Auditor (060) connects to TCP/53 at the first
+  IPv4 address each of the zone's nameservers resolves to — an address that comes from the zone's own NS records, which
+  no host check resolved. It now classifies that address first, with the classifier the MCP server and a redirect hop
+  use: loopback, link-local, cloud-metadata and the unspecified address are refused in every configuration,
+  `NSA_ALLOW_ALL_HOSTS` included; RFC 1918, carrier-grade NAT and unique-local addresses are refused unless
+  `NSA_ALLOW_ALL_HOSTS` is set. A refused nameserver is never connected and never graded: its `details.nameservers[]`
+  entry carries `axfr: { attempted: false, reason: 'address-refused', addressClass, address, answers }`, and the concluded
+  `dnsSecurity` record lists the refused nameservers, in their own order, under `axfrNotAttempted`. The decision is about
+  the first answer — the literal that would be connected — with no fall-through to another; `answers` says how many the
+  name had. **Stated limits:** a nameserver whose transfer was attempted and refused, timed out, or that answered over
+  IPv6 only is not recorded as not attempted in this release; the separate `ns_private_ip` finding keeps its own
+  private-address test, which does not cover `127.0.0.2` or `100.64.0.0/10`.
+
 ## 1.0.0 (2026-10-15) — Node.js 24; a scan connects only to the addresses its host check resolved; the AI payload carries no AWS account ID; on TCP an authoritative probe's row must identify its service to be one; paired with Enterprise 2.0.0
 
 **The release:** Community 1.0.0 is the Community half of Enterprise 2.0.0. A scan now connects only to the addresses its

@@ -23,6 +23,7 @@
 import dns from "node:dns/promises";
 import dgram from "node:dgram";
 import net from "node:net";
+import { classifyAddress, allowAllHosts } from "../utils/net_validation.mjs";
 
 // ── Severity ─────────────────────────────────────────────────────────────────
 
@@ -610,6 +611,15 @@ async function checkZoneTransfer(host, nameservers, config) {
     if (!ns.resolves || ns.ips.length === 0) continue;
 
     const ip = ns.ips[0];
+    // The address comes from the zone's own NS records, which no host check looked at: classify the literal that would
+    // be connected, with the classifier every other connect uses. `always` (loopback, link-local and metadata, the
+    // unspecified address) is refused in every configuration; `private` unless NSA_ALLOW_ALL_HOSTS is set. A refusal is
+    // recorded on the nameserver, never graded, and there is no fall-through to another answer.
+    const addressClass = classifyAddress(ip);
+    if (addressClass === "always" || (addressClass === "private" && !allowAllHosts())) {
+      ns.axfr = { attempted: false, reason: "address-refused", addressClass, address: ip, answers: ns.ips.length };
+      continue;
+    }
     const vulnerable = await attemptAXFR(host, ip, config.timeoutMs);
 
     if (vulnerable) {
@@ -966,6 +976,10 @@ export default {
       .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
       .filter((f) => f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO)
       .map((f) => ({ severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
+    // The nameservers whose zone transfer was not attempted, in their own order — a record, never a finding.
+    const axfrNotAttempted = (result.details?.nameservers ?? [])
+      .filter((n) => n.axfr?.attempted === false)
+      .map((n) => ({ nameserver: n.nameserver, ...n.axfr }));
 
     return [{
       port: 53,
@@ -977,6 +991,7 @@ export default {
         severity: result.overallSeverity,
         actionable: result.summary.actionable,
         findings,
+        ...(axfrNotAttempted.length ? { axfrNotAttempted } : {}),
       },
       info: [
         `${result.summary.actionable} actionable findings`,

@@ -14,7 +14,7 @@
 //
 // WHAT IT DOES NOT COVER, by construction: `dns.resolve*` (the DNS protocol, never getaddrinfo — used for DNS posture,
 // which never connects to the target; its zone-transfer attempt, opt-in with DNS_AUDIT_AXFR_CHECK, connects to the
-// nameserver addresses `resolve4` answers, which no check looked at); SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS), so
+// nameserver addresses `resolve4` answers, which the audit classifies itself before connecting); SUBPROCESSES (curl, ping, nping, hping3, arp, nmap resolve through the OS), so
 // each of those plugins reads `pinnedAddressFor(host)` and passes the address itself; and a `dgram` socket CREATED BEFORE
 // the first pinned run, which resolves through the lookup it captured at creation (measured by the architect seat: such a
 // socket reached loopback inside a later pin; one created inside the run was pinned). No plugin or util creates a socket
