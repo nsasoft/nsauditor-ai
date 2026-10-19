@@ -31,6 +31,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import dns from 'node:dns';
 import dnsPromises from 'node:dns/promises';
+import net from 'node:net';
 import { syncBuiltinESMExports } from 'node:module';
 import { domainToASCII } from 'node:url';
 
@@ -140,4 +141,21 @@ export function pinnedAddressFor(host, { prefer } = {}) {
   const list = pinnedAnswersFor(host);
   if (!list || list.length === 0) return null;
   return (prefer && list.find((a) => a.family === prefer)?.address) || list[0].address;
+}
+
+/**
+ * The address a probe of `host` is about: an IP literal is its own; a name, its pinned answer in the current scan (IPv4
+ * first — the LAN discovery protocols answer over IPv4), or null when nothing resolved it (outside a scan).
+ * @param {string} host
+ */
+export function targetAddressFor(host) {
+  const h = String(host ?? '');
+  return net.isIP(h) ? h : pinnedAddressFor(h, { prefer: 4 });
+}
+
+/** Why a probe that needs a local-network target was not attempted against `host`, whose address is `address` (or null). */
+export function notLocalReason(probe, host, address) {
+  return address == null
+    ? `${probe} not attempted — the address of ${host} is not known (no scan resolved it)`
+    : `${probe} not attempted — it needs a local-network target, and ${host}${address !== String(host) ? ` (${address})` : ''} is not on a local network`;
 }

@@ -73,7 +73,8 @@ test('the guarded import still degrades rather than crashing (the property that 
   // where it can never be built.
   const fn = /async function runWithNodeMdns\b/.exec(SRC);
   assert.ok(fn, 'runWithNodeMdns is gone — re-point this guard at whatever replaced it');
-  const callSite = SRC.indexOf('runWithNodeMdns(host');
+  // The call takes the address the scan resolved the target to (LAN discovery decides "local" on it).
+  const callSite = SRC.indexOf('runWithNodeMdns(address');
   assert.ok(callSite > 0, 'the call site moved; the containment assertion below is now vacuous');
   // The nearest enclosing construct before the call must be a `try {`.
   const before = SRC.slice(0, callSite);

@@ -96,6 +96,7 @@ const COMPUTED_SITES = new Map([
   ['plugins/result_concluder.mjs :: protocol: proto', 'passthrough: row?.probe_protocol || result?.protocol || \'tcp\' — the service label every producer write feeds'],
   ['plugins/result_concluder.mjs :: protocol: d?.probe_protocol ?? null', 'evidence piece: a data row\'s probe_protocol verbatim, never a service label'],
   ['plugins/result_concluder.mjs :: protocol: m.protocol', 'meta entry moved to evidence: its protocol verbatim (META labels never reach the service set)'],
+  ['plugins/result_concluder.mjs :: protocol: null', 'evidence piece: a plugin that declined to run (skipped) — it measured nothing, so it names no protocol'],
   ['plugins/sunrpc_scanner.mjs :: probe_protocol: protocol', 'loop over `protocols` = opts.protocol ? [opts.protocol] : [\'tcp\', \'udp\']'],
   ['plugins/sunrpc_scanner.mjs :: protocol: protocols[0]', 'the same `protocols` list — tcp or udp'],
   ['plugins/sunrpc_scanner.mjs :: probe_protocol: protocols[0]', 'the same `protocols` list — tcp or udp'],

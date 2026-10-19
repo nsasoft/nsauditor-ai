@@ -6,6 +6,7 @@
 
 import upnp from 'node-upnp-utils';
 import { isPrivateLike, canonicalIp } from '../utils/net_validation.mjs';
+import { targetAddressFor, notLocalReason } from '../utils/scan_pin.mjs';
 
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.UPNP_DEBUG || ""));
 function dlog(...a) { if (DEBUG) console.log("[upnp-scanner]", ...a); }
@@ -495,8 +496,11 @@ export default {
   async run(host, _port = 1900, opts = {}) {
     const timeoutMs = Number(opts.timeoutMs ?? process.env.NSA_UPNP_TIMEOUT_MS ?? DEFAULT_UPNP_WINDOW_MS);
     const data = [];
+    // "Local" is decided on the address the scan resolved the target to, and devices are matched against it: a NAME pinned
+    // to a LAN address is local, and an answering device's address can equal it where it never equals a name.
+    const address = targetAddressFor(host);
 
-    if (!isPrivateLike(host)) {
+    if (!address || !isPrivateLike(address)) {
       data.push({
         probe_protocol: "upnp",
         probe_port: 1900,
@@ -505,6 +509,8 @@ export default {
       });
       return {
         up: false,
+        skipped: true,
+        reason: notLocalReason("UPnP/SSDP", host, address),
         program: "UPnP/SSDP",
         version: "Unknown",
         os: null,
@@ -513,7 +519,7 @@ export default {
       };
     }
 
-    const { rows, matched, dropped, refused = 0 } = await runWithUpnp(host, timeoutMs, opts);
+    const { rows, matched, dropped, refused = 0 } = await runWithUpnp(address, timeoutMs, opts);
     if (refused > 0) {
       console.warn(`[upnp-scanner] ${refused} ssdp:alive announcement(s) named a description URL on a host other than the announcing device and were dropped before the UPnP library could fetch it`);
     }

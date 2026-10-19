@@ -6,6 +6,7 @@
 import dgram from 'dgram';
 import { parseString } from 'xml2js';
 import { isPrivateLike } from '../utils/net_validation.mjs';
+import { targetAddressFor, notLocalReason } from '../utils/scan_pin.mjs';
 
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.WSD_DEBUG || ""));
 function dlog(...a) { if (DEBUG) console.log("[wsd-scanner]", ...a); }
@@ -156,8 +157,11 @@ export default {
     let version = "1.1"; // Always set to 1.1
     
     const timeout = opts.timeout || 5000;
+    // "Local" is decided on the address the scan resolved the target to, and devices are matched against it: a NAME pinned
+    // to a LAN address is local, and an answering device's address can equal it where it never equals a name.
+    const address = targetAddressFor(host);
 
-    if (!isPrivateLike(host)) {
+    if (!address || !isPrivateLike(address)) {
       data.push({
         probe_protocol: "udp",
         probe_port: port,
@@ -166,6 +170,8 @@ export default {
       });
       return {
         up: false,
+        skipped: true,
+        reason: notLocalReason("WS-Discovery", host, address),
         program: "WS-Discovery",
         version: "1.1",
         type: "wsdiscovery",
@@ -175,7 +181,7 @@ export default {
 
     try {
       dlog(`Starting WS-Discovery scan for host: ${host}`);
-      const devices = await discoverWsDiscoveryDevices(host, timeout);
+      const devices = await discoverWsDiscoveryDevices(address, timeout);
       
       const matchedDevices = devices.filter(d => d.isMatched);
       const matched = matchedDevices.length > 0;

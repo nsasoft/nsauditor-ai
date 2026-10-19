@@ -313,6 +313,14 @@ export default {
           continue;
         }
       }
+      // A plugin that declined to run (`skipped: true`, with its reason — the manager records it `skipped`) measured
+      // nothing, so it lists no service: its reason, and any rows it carries, go to evidence.
+      if (r?.result?.skipped === true) {
+        evidence.push({ from: name, protocol: null, port: null, status: 'skipped', info: null,
+          reason: String(r.result.reason || 'skipped by plugin gate') });
+        if (r?.result?.data) pushEvidence(name, r.result.data);
+        continue;
+      }
       for (const item of fallbackRecord(name, r?.result)) {
         const rec = normalizeService(item);
         // A fallback row identified nothing — no adapter read the plugin's result. On a TCP port the port scanner measured

@@ -8,6 +8,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **UPnP, mDNS and WS-Discovery decide "local network" on the address the scan resolved.** The three LAN-discovery
+  probes (028, 027, 016) checked the target STRING against the private address ranges, so a by-name scan of a LAN device —
+  a name the host check resolved to 192.168.1.1 — read "Non-local target — not attempted" and lost all three; they also
+  matched the answering devices against that string, which an address never equals. Each now takes the address the scan
+  resolved the target to (an IP literal is its own; a name, its resolved answer, IPv4 first) for both the decision and the
+  match. A probe that is not attempted says why: its result is `skipped`, with a reason naming the target and its address
+  (or that nothing resolved it), so the plugin status records it as skipped rather than ran; and the concluder puts a
+  skipped result from a probe with no concluder adapter in `evidence` with that reason, never in the service list — the
+  UPnP probe's not-attempted row no longer appears as a `1900/upnp` service (one recorded scan carried it). **Stated
+  limit:** a UPnP probe that ran and found no device still lists `1900/upnp` with status `unknown` (four recorded scans) —
+  a UDP row, which the rule for a port the port scanner measured closed does not cover.
 - **A probe with no concluder adapter never lists a port the port scanner measured closed.** Such a probe reaches the
   conclusion through the concluder's fallback, as one non-authoritative row named after the plugin; on a TCP port the
   port scanner (003) measured closed that row now takes the path an authoritative row that did not identify its port

@@ -5,6 +5,7 @@
 // matches the target MAC). Set MDNS_INCLUDE_NON_MATCHED=1 to keep all rows.
 
 import { isPrivateLike } from '../utils/net_validation.mjs';
+import { targetAddressFor, notLocalReason } from '../utils/scan_pin.mjs';
 
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.DEBUG_MODE || process.env.MDNS_DEBUG || ""));
 function dlog(...a) { if (DEBUG) console.log("[mdns-scanner]", ...a); }
@@ -416,8 +417,11 @@ export default {
   async run(host, _port = 0, opts = {}) {
     const timeoutMs = Number(opts.timeoutMs ?? process.env.NSA_MDNS_TIMEOUT_MS ?? 7000);
     const data = [];
+    // "Local" is decided on the address the scan resolved the target to, and answers are matched against it: a NAME pinned
+    // to a LAN address is local, and an answer's address can equal it where it never equals a name.
+    const address = targetAddressFor(host);
 
-    if (!isPrivateLike(host)) {
+    if (!address || !isPrivateLike(address)) {
       data.push({
         probe_protocol: "mdns",
         probe_port: 0,
@@ -426,6 +430,8 @@ export default {
       });
       return {
         up: false,
+        skipped: true,
+        reason: notLocalReason("mDNS", host, address),
         program: "mDNS/Bonjour",
         version: "Unknown",
         os: null,
@@ -443,7 +449,7 @@ export default {
     try {
       if (!forceFallback) {
         dlog("Trying node-mdns strategy…");
-        const out = await runWithNodeMdns(host, timeoutMs, opts);
+        const out = await runWithNodeMdns(address, timeoutMs, opts);
         rows = out.rows;
         anyMatched = out.matched;
       } else {
@@ -453,7 +459,7 @@ export default {
       dlog("node-mdns not available or forced/failure:", e?.message || e);
       try {
         dlog("Falling back to multicast-dns strategy…");
-        const out2 = await runWithMulticastDns(host, timeoutMs, opts);
+        const out2 = await runWithMulticastDns(address, timeoutMs, opts);
         rows = out2.rows;
         anyMatched = out2.matched;
       } catch (e2) {
@@ -476,14 +482,14 @@ export default {
     try {
       const postMatch = data.some(r => {
         const addrs = extractAddressesFromBanner(r?.response_banner);
-        return addrs.includes(host);
+        return addrs.includes(address);
       });
 
       if (postMatch) {
         const matchRow = {
           probe_protocol: "mdns",
           probe_port: 5353,
-          probe_info: `Matched host IP ${host} via mDNS`,
+          probe_info: `Matched host IP ${address} via mDNS`,
           response_banner: null
         };
         // Only add the match row if it's not already present
