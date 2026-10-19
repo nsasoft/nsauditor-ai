@@ -31,8 +31,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   RCODE, or TCP/53 refused the connection) or `no-answer` (a timeout, a transport error, a reply cut short or unparseable);
   or `attempted: false` with its reason (`address-refused`, `no-ipv4-address`, `does-not-resolve`, `address-unknown`).
   Only `transferred` is `axfr_open` (CRITICAL). `answered-not-transferred` is the new `axfr_answered_not_transferred`
-  (LOW): the nameserver answers AXFR queries instead of refusing them, and its detail names the record count and the
-  first record's type. A `no-answer` leaves the AXFR check not measured for that nameserver (`details.notMeasured`, so
+  (LOW): the nameserver answers AXFR queries instead of refusing them. What an answer carried — the record count, the
+  first record's type, whether the closing SOA arrived — is on the finding (`records`, `firstType`, `complete`), never in
+  its detail: the detail is the finding's identity across runs, so a zone that gains a record is still the same finding,
+  and `axfr_open` keeps the wording earlier releases wrote. A `no-answer` leaves the AXFR check not measured for that nameserver (`details.notMeasured`, so
   the run is `up: false` with its reason). `details.axfrTested` is `true`, or why the check did not run (`opt-in-off`,
   `no-nameservers`). **Stated limits:** the attempt connects over IPv4 only, and a transfer cut before its closing SOA
   is still `axfr_open` — the records it sent did leave the server.

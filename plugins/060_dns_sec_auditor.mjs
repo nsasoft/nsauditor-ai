@@ -746,22 +746,26 @@ async function checkZoneTransfer(host, nameservers, config, notMeasured) {
     const measured = await attemptAXFR(host, ip, config.timeoutMs);
     ns.axfr = { attempted: true, address: ip, ...measured };
 
+    // The detail is the finding's identity across runs (the history delta and Enterprise both key it), so it names the
+    // nameserver and nothing that moves with the zone: what the answer carried is evidence ON the finding. axfr_open's
+    // wording is the one earlier releases wrote, so an open transfer stays the same finding across the upgrade.
     if (measured.outcome === "transferred") {
       issues.push({
         severity: SEVERITY.CRITICAL,
         check: "axfr_open",
-        detail: `Zone transfer (AXFR) allowed on ${ns.nameserver} (${ip}) — entire zone is exposed`
-          + ` (${measured.records} records${measured.complete ? "" : ", the transfer was cut before its closing SOA"})`,
+        detail: `Zone transfer (AXFR) allowed on ${ns.nameserver} (${ip}) — entire zone is exposed`,
         nameserver: ns.nameserver,
+        records: measured.records,
+        complete: measured.complete,
       });
     } else if (measured.outcome === "answered-not-transferred") {
       issues.push({
         severity: SEVERITY.LOW,
         check: "axfr_answered_not_transferred",
-        detail: `Nameserver ${ns.nameserver} (${ip}) answers zone-transfer (AXFR) queries instead of refusing them — `
-          + `${measured.records} record${measured.records === 1 ? "" : "s"}${measured.firstType ? `, the first of type ${measured.firstType}` : ""}; `
-          + "no zone was transferred",
+        detail: `Nameserver ${ns.nameserver} (${ip}) answers zone-transfer (AXFR) queries instead of refusing them — no zone was transferred`,
         nameserver: ns.nameserver,
+        records: measured.records,
+        firstType: measured.firstType,
       });
     } else if (measured.outcome === "no-answer") {
       notMeasured.push({ check: "axfr", rrtype: "AXFR", name: ns.nameserver, code: measured.code });

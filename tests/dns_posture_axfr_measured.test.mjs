@@ -109,11 +109,11 @@ test('(first) a transfer across several messages and TCP chunks is still read wh
   assert.equal(ns(NS1).records, 4);
 });
 
-test('a transfer the server ends WITHOUT its closing SOA is still transferred — complete:false, axfr_open with the cut named', async () => {
+test('a transfer the server ends WITHOUT its closing SOA is still transferred — complete:false, axfr_open with the cut on the finding', async () => {
   const { checks, ns, result } = await axfr(full({ types: ['SOA', 'NS', 'A'] }));
   assert.deepEqual(checks, ['axfr_open:critical'], 'graded by what left the server, never LOW');
   assert.deepEqual(ns(NS1), { attempted: true, address: '192.0.2.53', outcome: 'transferred', records: 3, firstType: 'SOA', complete: false });
-  assert.match(result.findings.axfr[0].detail, /3 records, the transfer was cut before its closing SOA/);
+  assert.deepEqual([result.findings.axfr[0].records, result.findings.axfr[0].complete], [3, false], 'the cut is named on the finding');
 });
 
 // ── ANSWERED, NOT TRANSFERRED ──────────────────────────────────────────────────────────────────────────────────────────
@@ -121,13 +121,53 @@ test('an SOA alone is answered-not-transferred — LOW, never axfr_open', async 
   const { checks, ns, result } = await axfr(full({ types: ['SOA'] }));
   assert.deepEqual(checks, ['axfr_answered_not_transferred:low']);
   assert.deepEqual(ns(NS1), { attempted: true, address: '192.0.2.53', outcome: 'answered-not-transferred', records: 1, firstType: 'SOA' });
-  assert.match(result.findings.axfr[0].detail, /1 record\b.*first of type SOA.*no zone was transferred/);
+  assert.deepEqual([result.findings.axfr[0].records, result.findings.axfr[0].firstType], [1, 'SOA'], 'what came back is on the finding');
 });
 test('an answer whose first record is not the SOA (CNAME, A) is answered-not-transferred', async () => {
   const { checks, ns } = await axfr(full({ types: ['CNAME', 'A'] }));
   assert.deepEqual(checks, ['axfr_answered_not_transferred:low']);
   assert.equal(ns(NS1).firstType, 'CNAME');
   assert.equal(ns(NS1).records, 2);
+});
+
+// ── THE DETAIL IS THE FINDING'S IDENTITY: what the transfer carried is evidence ON the finding, never in its words ──────
+// The cross-run delta keys a host finding on its title and a digest of its detail (utils/report_inputs.mjs), and Enterprise
+// keys the same text. A record count in the detail made one open transfer a different finding each time the zone gained a
+// record — read "resolved" beside a "new" one — and moved the 1.0.0 wording, so every open transfer would read resolved
+// across the upgrade. The count, the cut and the first record's type stay on the finding and on the nameserver's record.
+const V1_AXFR_OPEN = 'Zone transfer (AXFR) allowed on ns1.example.test (192.0.2.53) — entire zone is exposed';
+async function identityOf(issue) {
+  const { shapeFinding } = await import('../utils/report_inputs.mjs');
+  const s = shapeFinding(ZONE, issue, '060', 'DNS Security Auditor');
+  return [s.title, s.contentDigest];
+}
+test('(first) the detail still names its nameserver — two open nameservers are two findings, never one', async () => {
+  TABLE = { [`NS ${ZONE}`]: [NS1, `ns2.${ZONE}`], [`A ${NS1}`]: ['192.0.2.53'], [`A ns2.${ZONE}`]: ['192.0.2.54'] };
+  SERVERS = { '192.0.2.53': full({ types: ['SOA', 'A', 'SOA'] }), '192.0.2.54': full({ types: ['SOA', 'A', 'SOA'] }) };
+  const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 80 });
+  const open = result.findings.axfr.filter((i) => i.check === 'axfr_open');
+  assert.equal(open.length, 2);
+  assert.notDeepEqual(await identityOf(open[0]), await identityOf(open[1]));
+});
+test('axfr_open keeps its 1.0.0 wording verbatim, and a zone of another size is the SAME finding', async () => {
+  const small = (await axfr(full({ types: ['SOA', 'A', 'SOA'] }))).result.findings.axfr[0];
+  const large = (await axfr(full({ types: ['SOA', 'NS', 'A', 'A', 'TXT', 'SOA'] }))).result.findings.axfr[0];
+  assert.equal(small.detail, V1_AXFR_OPEN);
+  assert.deepEqual([small.records, large.records], [3, 6], 'the count is still measured, on the finding');
+  assert.deepEqual(await identityOf(large), await identityOf(small));
+});
+test('a transfer cut before its closing SOA is the same finding as a whole one — the cut is on the finding', async () => {
+  const whole = (await axfr(full({ types: ['SOA', 'A', 'SOA'] }))).result.findings.axfr[0];
+  const cut = (await axfr(full({ types: ['SOA', 'A'] }))).result.findings.axfr[0];
+  assert.deepEqual([whole.complete, cut.complete], [true, false]);
+  assert.deepEqual(await identityOf(cut), await identityOf(whole));
+});
+test('axfr_answered_not_transferred: what came back is on the finding, and its words do not move with it', async () => {
+  const soa = (await axfr(full({ types: ['SOA'] }))).result.findings.axfr[0];
+  const cname = (await axfr(full({ types: ['CNAME', 'A'] }))).result.findings.axfr[0];
+  assert.deepEqual([soa.check, cname.check], ['axfr_answered_not_transferred', 'axfr_answered_not_transferred']);
+  assert.deepEqual([[soa.records, soa.firstType], [cname.records, cname.firstType]], [[1, 'SOA'], [2, 'CNAME']]);
+  assert.deepEqual(await identityOf(cname), await identityOf(soa));
 });
 
 // ── REFUSED: MEASURED, NOT GRADED ──────────────────────────────────────────────────────────────────────────────────────
