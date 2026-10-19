@@ -42,6 +42,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   Enterprise Edition 2.0.0, paired with this release, reads `up: false` from this audit as an evidence gap on every
   control it maps from it (today SOC 2 CC6.1 and CIS Controls v8 9.5, through the DMARC checks), so a failure of one
   unrelated lookup — CAA, say — holds those controls as a gap: over-broad, never a pass.
+- **The DNS-security audit's CAA check reads the record shape the resolver returns.** Node's `resolveCaa` keys each
+  record by its tag (`{ critical: 0, type: 'CAA', issue: 'pki.goog' }`, `issuewild`, `iodef`); the check read `tag` and
+  `value` fields that the resolver never returns. So on real answers it never reported an issuance restriction
+  (`caa_present` could not fire) and reported a missing iodef tag (`caa_no_iodef`, INFO) on every domain that publishes
+  CAA, whether it had one or not. It now names the `issue` and `issuewild` values and reports `caa_no_iodef` only when no
+  record carries `iodef`; a domain with no CAA records still reads `no_caa`.
 - **Two plugin time budgets, declared from measurement:** the MCP Scanner (070) now declares 120 s (was 100 s) — a first
   scan of a real router measured 55–73 s across three series, and the rule is 1.5 × the measured maximum. The TLS
   Scanner (011) declares 45 s (it ran under the 30 s default), so that a single port that accepts TCP and never answers

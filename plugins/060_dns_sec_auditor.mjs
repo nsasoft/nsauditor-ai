@@ -896,19 +896,20 @@ function analyzeCAA(records, host, notMeasured) {
     return { records: [], issues };
   }
 
-  const hasIssue = caa.some((r) => r.critical !== undefined);
-  const issueTags = caa.filter((r) => r.tag === "issue" || r.tag === "issuewild");
+  // node's resolveCaa keys each record by its TAG — `{ critical, type: 'CAA', issue: 'pki.goog' }`, `issuewild`, `iodef`
+  // — with no `tag` or `value` field.
+  const issueValues = caa.flatMap((r) => ["issue", "issuewild"].filter((t) => typeof r?.[t] === "string").map((t) => r[t]));
 
-  if (issueTags.length > 0) {
+  if (issueValues.length > 0) {
     issues.push({
       severity: SEVERITY.PASS,
       check: "caa_present",
-      detail: `CAA records restrict certificate issuance to: ${issueTags.map((r) => r.value).join(", ")}`,
+      detail: `CAA records restrict certificate issuance to: ${issueValues.join(", ")}`,
     });
   }
 
   // Check for iodef (incident reporting)
-  const iodef = caa.find((r) => r.tag === "iodef");
+  const iodef = caa.find((r) => typeof r?.iodef === "string");
   if (!iodef) {
     issues.push({
       severity: SEVERITY.INFO,
