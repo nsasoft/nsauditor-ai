@@ -109,6 +109,13 @@ test('(first) a transfer across several messages and TCP chunks is still read wh
   assert.equal(ns(NS1).records, 4);
 });
 
+test('a transfer the server ends WITHOUT its closing SOA is still transferred — complete:false, axfr_open with the cut named', async () => {
+  const { checks, ns, result } = await axfr(full({ types: ['SOA', 'NS', 'A'] }));
+  assert.deepEqual(checks, ['axfr_open:critical'], 'graded by what left the server, never LOW');
+  assert.deepEqual(ns(NS1), { attempted: true, address: '192.0.2.53', outcome: 'transferred', records: 3, firstType: 'SOA', complete: false });
+  assert.match(result.findings.axfr[0].detail, /3 records, the transfer was cut before its closing SOA/);
+});
+
 // ── ANSWERED, NOT TRANSFERRED ──────────────────────────────────────────────────────────────────────────────────────────
 test('an SOA alone is answered-not-transferred — LOW, never axfr_open', async () => {
   const { checks, ns, result } = await axfr(full({ types: ['SOA'] }));
