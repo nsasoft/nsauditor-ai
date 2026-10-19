@@ -33,10 +33,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   reads `incomplete` (never `hardened`) when nothing measured is actionable, and the summary line says
   `SPF not measured (ETIMEOUT)` rather than `SPF missing`. A run with any check not measured returns `up: false` with a
   `reason` naming the checks it could not measure, with their codes, and the checks it did — the measured checks'
-  findings stay in the result. `details.records.hasSOA` reads `null` when the SOA lookup failed. The scan history and
-  `--watch` delta no longer read a previous run's DNS findings as cleared when this run could not measure the audit: they
-  are listed as not compared, with the reason. That decision is made for the whole audit, not per check, so a finding
-  from a check this run did measure is not compared either. **Stated limit:**
+  findings stay in the result. `details.records.hasSOA` reads `null` when the SOA lookup failed. Neither cross-run
+  comparison reads a previous run's DNS findings as fixed when this run could not measure the audit: the scan history and
+  `--watch` delta list them as not compared, with the reason, and `report --since` lists them as not comparable, because
+  the report now carries each unmeasured check as an evidence-gap row (`Evidence gap: the SPF check was not measured — the
+  TXT lookup for <domain> failed (ETIMEOUT)`). Both decide for the whole audit, not per check, so a finding from a check
+  this run did measure is not compared either. **Stated limit:**
   Enterprise Edition 2.0.0, paired with this release, reads `up: false` from this audit as an evidence gap on every
   control it maps from it (today SOC 2 CC6.1 and CIS Controls v8 9.5, through the DMARC checks), so a failure of one
   unrelated lookup — CAA, say — holds those controls as a gap: over-broad, never a pass.

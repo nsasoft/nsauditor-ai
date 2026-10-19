@@ -480,6 +480,14 @@ export function shapeHostFindings(host, raw, queue = []) {
         if (Array.isArray(arr)) for (const f of arr) push(shapeFinding(host, f, envId(e), e?.name ?? null));
       }
     }
+    // 060 records the checks a failed DNS lookup left unmeasured in `details.notMeasured` rather than grading them. Each
+    // is an EVIDENCE GAP on this host, never a finding, so the cross-run delta reads a baseline row that is absent here as
+    // not comparable instead of resolved.
+    for (const g of (Array.isArray(res.details?.notMeasured) ? res.details.notMeasured : [])) {
+      push(shapeFinding(host, { severity: 'info', check: 'not_measured', details: { evidenceGap: true },
+        detail: `Evidence gap: the ${String(g?.check ?? '').toUpperCase()} check was not measured — the ${g?.rrtype} lookup for `
+          + `${g?.name} failed (${g?.code})` }, envId(e), e?.name ?? null));
+    }
     if (res.zeroTrust && typeof res.zeroTrust === 'object') {
       for (const dim of Object.values(res.zeroTrust)) {
         if (Array.isArray(dim?.findings)) for (const f of dim.findings) push(shapeFinding(host, f, envId(e), e?.name ?? null));

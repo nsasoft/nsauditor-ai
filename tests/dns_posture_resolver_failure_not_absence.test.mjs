@@ -333,6 +333,45 @@ test('(delta) every lookup timing out after a measured run clears nothing: the f
   assert.ok(notCompared.length > 0);
 });
 
+// ── `report --since`: the cross-run delta reads the same record ─────────────────────────────────────────────────────
+async function reportSide(id, table) {
+  const [{ shapeHostFindings }] = await Promise.all([import('../utils/report_inputs.mjs')]);
+  const { result } = await run(table);
+  return { record: { schema: 1, runId: id, startedAt: '2026-01-01T00:00:00Z', finishedAt: '2026-01-01T00:10:00Z',
+    hostsRequested: [ZONE], hostsWritten: [{ host: ZONE, dir: 'd' }], pluginsRequested: ['060'], portsRequested: null,
+    tier: 'pro', ceVersion: '1.0.0', eeVersion: null, kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null },
+  // A run whose 060 lookups failed is still `ran` in the manifest: the plugin completed and recorded what it could not measure.
+  pluginStatus: [{ host: ZONE, status: [{ id: '060', status: 'ran' }] }],
+  findings: shapeHostFindings(ZONE, { results: [{ id: '060', name: 'DNS Security Auditor', result }] }) };
+}
+test('(report, first) a weak record FIXED between two measured runs is still reported resolved', async () => {
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const d = buildScanDelta({ baseline: await reportSide('A', WEAK), current: await reportSide('B', PRESENT) });
+  assert.ok(d.resolved.some((r) => /\+all/.test(r.title ?? '')), JSON.stringify(d.resolved.map((r) => r.title)));
+  assert.deepEqual(d.notComparable, []);
+});
+test('(report) a run that could not measure the audit resolves nothing: the baseline\'s DNS rows are not comparable', async () => {
+  const { buildScanDelta } = await import('../utils/scan_delta.mjs');
+  const dead = new Proxy({}, { has: () => true, get: () => 'ETIMEOUT' });
+  const baseline = await reportSide('A', WEAK);
+  const d = buildScanDelta({ baseline, current: await reportSide('B', dead) });
+  assert.deepEqual(d.resolved, [], 'nothing was fixed: nothing was looked at');
+  assert.ok(d.notComparable.length > 0 && d.notComparable.every((n) => n.reason === 'evidence-gap'), JSON.stringify(d.notComparable));
+  assert.match(d.notComparable[0].detail, /not measured/);
+});
+test('(report) the not-measured record is a shaped evidence-gap row per check, never a finding', async () => {
+  const { shapeHostFindings } = await import('../utils/report_inputs.mjs');
+  const { result } = await run({ ...PRESENT, [`TXT ${ZONE}`]: 'ETIMEOUT' });
+  const rows = shapeHostFindings(ZONE, { results: [{ id: '060', name: 'DNS Security Auditor', result }] });
+  const gaps = rows.filter((r) => r.evidenceGap === true);
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].severity, 'INFO');
+  assert.equal(gaps[0].title, 'Evidence gap: the SPF check was not measured — the TXT lookup for example.test failed (ETIMEOUT)');
+  const { result: measured } = await run(PRESENT);
+  assert.ok(!shapeHostFindings(ZONE, { results: [{ id: '060', name: 'DNS Security Auditor', result: measured }] })
+    .some((r) => r.evidenceGap === true), 'a fully measured run carries no gap row');
+});
+
 test('a timed-out SOA is not "no SOA": hasSOA is null, not false', async () => {
   const measured = await run(PRESENT);
   assert.equal(measured.result.records.hasSOA, true);
