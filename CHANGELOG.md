@@ -48,6 +48,14 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   (`caa_present` could not fire) and reported a missing iodef tag (`caa_no_iodef`, INFO) on every domain that publishes
   CAA, whether it had one or not. It now names the `issue` and `issuewild` values and reports `caa_no_iodef` only when no
   record carries `iodef`; a domain with no CAA records still reads `no_caa`.
+- **A nameserver that answers over IPv6 only is no longer a lame delegation.** The DNS-security audit called a
+  nameserver lame (`ns_lame_delegation`, HIGH) when its A lookup came back empty, though a name with an AAAA record
+  resolves; and since the /24 diversity check compares IPv4 addresses only, the remaining IPv4 nameserver was compared
+  with itself and graded `ns_same_subnet`. An empty A answer is now followed by an AAAA lookup: an address of either
+  family resolves the nameserver (`details.nameservers[].ips6`), an absence of both is still lame, and an AAAA lookup that
+  failed for any other reason leaves the NS check not measured. The /24 check is graded only when every nameserver has
+  IPv4 addresses, so a lame nameserver beside a single IPv4 one no longer grades it either. The zone-transfer attempt still
+  connects over IPv4 only.
 - **Two plugin time budgets, declared from measurement:** the MCP Scanner (070) now declares 120 s (was 100 s) — a first
   scan of a real router measured 55–73 s across three series, and the rule is 1.5 × the measured maximum. The TLS
   Scanner (011) declares 45 s (it ran under the 30 s default), so that a single port that accepts TCP and never answers

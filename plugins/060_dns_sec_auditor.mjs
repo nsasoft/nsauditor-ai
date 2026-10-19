@@ -575,28 +575,34 @@ async function analyzeNS(records, host, notMeasured) {
       }
     } catch (err) {
       const code = err?.code || err?.message;
-      if (isAbsence(code)) {
+      // NODATA on A says the name exists with no IPv4 address — it may answer over IPv6. NXDOMAIN answers for every type.
+      const v6 = code === "ENODATA" ? await safeResolve(dns.resolve6, nsStr) : null;
+      if (v6 && !v6.error) {
+        entry.resolves = true;
+        entry.ips6 = v6;
+      } else if (isAbsence(code) && (!v6 || isAbsence(v6.error))) {
         issues.push({
           severity: SEVERITY.HIGH,
           check: "ns_lame_delegation",
           detail: `Nameserver ${nsStr} does not resolve — lame delegation`,
         });
       } else {
-        // The lookup failed, so whether the nameserver resolves is unknown — never a lame delegation.
+        // A lookup failed, so whether the nameserver resolves is unknown — never a lame delegation.
         entry.resolves = null;
-        notMeasured.push({ check: "ns", rrtype: "A", name: nsStr, code });
+        const [rrtype, failed] = failedToMeasure(code) ? ["A", code] : ["AAAA", v6.error];
+        notMeasured.push({ check: "ns", rrtype, name: nsStr, code: failed });
       }
     }
 
     nsDetails.push(entry);
   }
 
-  // Check NS diversity (all on same /24?) — not when a nameserver's address is unknown: the one that answered
-  // would be compared with itself.
+  // Check NS diversity (all on same /24?) — only when every nameserver has IPv4 addresses to compare: one with no IPv4
+  // answer (IPv6-only, lame or unknown) would leave the others compared with themselves.
   const uniqueC = new Set(
     nsDetails.flatMap((n) => n.ips.map((ip) => ip.split(".").slice(0, 3).join(".")))
   );
-  if (uniqueC.size === 1 && nsDetails.length > 1 && !nsDetails.some((n) => n.resolves === null)) {
+  if (uniqueC.size === 1 && nsDetails.length > 1 && nsDetails.every((n) => n.ips.length > 0)) {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "ns_same_subnet",
