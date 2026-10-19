@@ -81,6 +81,37 @@ test('a lame nameserver beside one IPv4 nameserver: lame is graded, the /24 chec
     'ns2.example.test': { a: 'ENODATA', aaaa: 'ENODATA' } } });
   assert.deepEqual(checks, ['ns_lame_delegation']);
 });
+// ── THE /24 CHECK: over the nameservers that resolve to IPv4; a lame one is excluded, an unknown or IPv6-only one blocks ─
+const subnetDetail = async (table) => (await ns(table)).result.findings.ns.find((i) => i.check === 'ns_same_subnet')?.detail;
+test('(first) two IPv4 nameservers in one /24 beside a lame third: lame AND ns_same_subnet, the count in the detail', async () => {
+  const { checks } = await ns({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['198.51.100.2'] },
+    'ns3.example.test': { a: 'ENODATA', aaaa: 'ENODATA' } } });
+  assert.deepEqual(checks, ['ns_lame_delegation', 'ns_same_subnet']);
+  assert.equal(await subnetDetail({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['198.51.100.2'] },
+    'ns3.example.test': { a: 'ENODATA', aaaa: 'ENODATA' } } }),
+  'The 2 nameservers that resolve (of 3) are all in one /24 subnet — no network diversity');
+});
+test('with no nameserver excluded the detail is unchanged (it is part of a finding\'s identity across runs)', async () => {
+  assert.equal(await subnetDetail({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['198.51.100.2'] } } }),
+    'All nameservers are in the same /24 subnet — no network diversity');
+});
+test('two IPv4 nameservers in different /24s beside a lame third: lame only', async () => {
+  const { checks } = await ns({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['203.0.113.1'] },
+    'ns3.example.test': { a: 'ENODATA', aaaa: 'ENODATA' } } });
+  assert.deepEqual(checks, ['ns_lame_delegation']);
+});
+test('two IPv4 nameservers in one /24 beside an IPv6-only third: no /24 finding — that third is on another network', async () => {
+  const { checks } = await ns({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['198.51.100.2'] },
+    'ns6.example.test': { a: 'ENODATA', aaaa: ['2001:db8::53'] } } });
+  assert.deepEqual(checks, []);
+});
+test('two IPv4 nameservers in one /24 beside a third whose address lookup timed out: no /24 finding, NS not measured', async () => {
+  const { checks, result } = await ns({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] }, 'ns2.example.test': { a: ['198.51.100.2'] },
+    'ns3.example.test': { a: 'ETIMEOUT' } } });
+  assert.deepEqual(checks, []);
+  assert.deepEqual(result.details.notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.name}`), ['ns:A:ns3.example.test']);
+});
+
 test('a nameserver name that does not exist (NXDOMAIN) is lame without asking for AAAA', async () => {
   const { checks } = await ns({ ns: { 'ns1.example.test': { a: ['198.51.100.1'] },
     'gone.example.test': { a: 'ENOTFOUND', aaaa: ['2001:db8::99'] } } });

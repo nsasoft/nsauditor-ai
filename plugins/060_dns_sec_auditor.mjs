@@ -597,16 +597,22 @@ async function analyzeNS(records, host, notMeasured) {
     nsDetails.push(entry);
   }
 
-  // Check NS diversity (all on same /24?) — only when every nameserver has IPv4 addresses to compare: one with no IPv4
-  // answer (IPv6-only, lame or unknown) would leave the others compared with themselves.
+  // Check NS diversity (all on same /24?) over the nameservers that RESOLVE to IPv4, when there are at least two of them.
+  // A lame nameserver (a measured absence) is excluded and does not block it; one whose address is unknown, or that
+  // answers over IPv6 only (its network is not a /24 of these), does — "all in one /24" cannot be said beside it.
+  const v4 = nsDetails.filter((n) => n.ips.length > 0);
+  const blocked = nsDetails.some((n) => n.resolves === null || (n.ips.length === 0 && (n.ips6?.length ?? 0) > 0));
   const uniqueC = new Set(
-    nsDetails.flatMap((n) => n.ips.map((ip) => ip.split(".").slice(0, 3).join(".")))
+    v4.flatMap((n) => n.ips.map((ip) => ip.split(".").slice(0, 3).join(".")))
   );
-  if (uniqueC.size === 1 && nsDetails.length > 1 && nsDetails.every((n) => n.ips.length > 0)) {
+  if (!blocked && v4.length >= 2 && uniqueC.size === 1) {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "ns_same_subnet",
-      detail: "All nameservers are in the same /24 subnet — no network diversity",
+      // The detail is part of the finding's identity across runs, so it is unchanged unless a nameserver was excluded.
+      detail: v4.length === nsDetails.length
+        ? "All nameservers are in the same /24 subnet — no network diversity"
+        : `The ${v4.length} nameservers that resolve (of ${nsDetails.length}) are all in one /24 subnet — no network diversity`,
     });
   }
 

@@ -53,9 +53,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
   resolves; and since the /24 diversity check compares IPv4 addresses only, the remaining IPv4 nameserver was compared
   with itself and graded `ns_same_subnet`. An empty A answer is now followed by an AAAA lookup: an address of either
   family resolves the nameserver (`details.nameservers[].ips6`), an absence of both is still lame, and an AAAA lookup that
-  failed for any other reason leaves the NS check not measured. The /24 check is graded only when every nameserver has
-  IPv4 addresses, so a lame nameserver beside a single IPv4 one no longer grades it either. The zone-transfer attempt still
-  connects over IPv4 only.
+  failed for any other reason leaves the NS check not measured. The /24 check is graded over the nameservers that resolve
+  to IPv4, when there are at least two: a lame nameserver is left out (the finding then says how many of the zone's
+  nameservers it covers), and a nameserver whose address is unknown, or that answers over IPv6 only, means no /24 finding
+  is graded. The zone-transfer attempt still connects over IPv4 only.
 - **Two plugin time budgets, declared from measurement:** the MCP Scanner (070) now declares 120 s (was 100 s) — a first
   scan of a real router measured 55–73 s across three series, and the rule is 1.5 × the measured maximum. The TLS
   Scanner (011) declares 45 s (it ran under the 30 s default), so that a single port that accepts TCP and never answers
