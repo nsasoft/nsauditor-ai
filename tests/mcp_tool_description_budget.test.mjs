@@ -69,12 +69,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const src = readFileSync(join(ROOT, 'mcp_server.mjs'), 'utf8');
+const { TOOLS } = await import('../mcp_server.mjs');
 
 /**
  * ⚠️ READ THIS BEFORE "CORRECTING" THE CONSTANT TO 1024. An earlier draft of this comment ended
@@ -92,26 +88,34 @@ const BUDGET = 2048;
 /** Where a load-bearing hedge must appear by, so it survives even an unmeasured bound. */
 const HEDGE_BY = 700;
 
+/**
+ * Every advertised tool's description AS A CLIENT RECEIVES IT — the evaluated string, from the exported TOOLS. ⚠️ Until the
+ * Community release after 1.0.0 this read the SOURCE with a regex: it counted the `' + '` joints and the indentation
+ * between them, a unit no client uses, and it never matched `compliance_matrix` at all — its floor (`>= 5` parsed) passed
+ * with six of seven. Measured then: scan_cloud 2,033 source units against 2,038 evaluated UTF-8 bytes, 10 bytes under the
+ * bound while the guard read 15 units of headroom.
+ */
 function descriptions() {
-  const re = /name:\s*'([a-z_]+)',\s*\n\s*description:\s*\n?\s*'([\s\S]*?)',\s*\n\s*inputSchema/g;
-  const out = [...src.matchAll(re)].map((m) => ({ name: m[1], text: m[2] }));
-  assert.ok(out.length >= 5,
-    `only ${out.length} tool description(s) parsed — the extraction regex has stopped matching and `
-    + 'this guard is measuring nothing');
-  return out;
+  return TOOLS.map((t) => ({ name: t.name, text: t.description }));
 }
 
 describe('MCP tool descriptions survive client truncation without losing their hedges', () => {
+  it('(first) the census measures EVERY advertised tool — none can fall out of it', () => {
+    const measured = descriptions();
+    assert.deepEqual(measured.map((d) => d.name).sort(), TOOLS.map((t) => t.name).sort());
+    for (const d of measured) assert.ok(typeof d.text === 'string' && d.text.length > 0, `${d.name} advertises no description`);
+  });
+
   it('BUDGET — no description exceeds the tightest advertised client bound', () => {
     /*
      * ⚠️ MEASURED IN EVERY UNIT A CLIENT MIGHT COUNT IN, because a guard that counts differently
      * from the client it models drifts by exactly the characters where the units disagree.
      * The observed 2048 was in JS string units (UTF-16 code units — the `indexOf` arithmetic that
      * located it), which `.length` also uses, so those agree by construction. But a client counting
-     * UTF-8 BYTES sees a longer string: today 1,990 bytes against 1,978 units, a 12-unit gap that
-     * is entirely the two ⚠️ sequences. Add one astral emoji (🔎, 🚨 — outside the BMP) and
-     * codepoints, code units and bytes all diverge at once. So all three are checked: whichever
-     * unit a client actually counts in, the budget holds.  [unit hazard raised at review]
+     * UTF-8 BYTES sees a longer string wherever a description carries a non-ASCII character (the ⚠️
+     * sequences), and one astral emoji (🔎, 🚨 — outside the BMP) makes codepoints, code units and
+     * bytes all diverge at once. So all three are checked, over the string the client receives:
+     * whichever unit a client actually counts in, the budget holds.  [unit hazard raised at review]
      */
     const over = descriptions()
       .flatMap((d) => {
