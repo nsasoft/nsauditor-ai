@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`report --since` no longer reads a retitled TLS-certificate row as fixed plus new across Community 0.2.57.** 0.2.57
+  retitled the certificate auditor's (040) self-signed and no-subjectAltName rows, so a pair of scans either side of it
+  reported the same certificate RESOLVED beside its new title NEW. The identity-basis declaration compared only the
+  Enterprise version, which does not move across such a pair (and is absent from a Community-only run); a Community
+  producer's change is now declared on the Community version, and the pair reads `identity-basis-changed` for one scan.
+  Two scans both on 0.2.57 or later compare as before, and a 040 row whose title did not change stays unchanged.
 - **`scan_cloud` names the AWS reads that stay in the configured region when you pass `regions`.** The `regions`
   description said a passed list is followed by every region-scoped check except three named reads; the Enterprise
   plugins make more (among them the CloudTrail auditor's trail and trail-bucket reads, the RDS and ElastiCache key

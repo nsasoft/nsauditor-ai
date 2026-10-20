@@ -142,7 +142,7 @@ test('the LATER set is exactly this — moved deliberately, like the first table
 
 // ⚠️ ONE READER. A second read of either table is a second answer to "did this pair straddle a change", and a second
 // answer is how two artifacts come to disagree about one row. Comments are blanked before the subscripts are counted.
-test('ONE READER — outside identityBasisChangesBetween no shipped file subscripts either table, and none names the later one', () => {
+test('ONE READER — outside its reader no shipped file subscripts an identity table, and none names the later or Community one', () => {
   const files = [];
   const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
     if (['node_modules', '.git', 'tests'].includes(e.name)) continue;
@@ -152,16 +152,18 @@ test('ONE READER — outside identityBasisChangesBetween no shipped file subscri
   walk(ROOT);
   assert.ok(files.some((f) => f.endsWith(join('utils', 'scan_delta.mjs'))), 'positive control: the module itself was walked');
   const code = (f) => readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-  const SUB = /\b(IDENTITY_BASIS_CHANGED_AT|LATER_IDENTITY_BASIS_CHANGES)\s*\[/g;
+  const SUB = /\b(IDENTITY_BASIS_CHANGED_AT|LATER_IDENTITY_BASIS_CHANGES|COMMUNITY_IDENTITY_BASIS_CHANGED_AT)\s*\[/g;
   for (const f of files) {
     let src = code(f);
     if (f.endsWith(join('utils', 'scan_delta.mjs'))) {
-      const at = src.indexOf('export function identityBasisChangesBetween(');
-      assert.ok(at >= 0, 'the function is defined in the module');
-      const end = src.indexOf('\n}\n', at);
-      src = src.slice(0, at) + src.slice(end);
+      for (const reader of ['export function identityBasisChangesBetween(', 'export function communityIdentityBasisChangesBetween(']) {
+        const at = src.indexOf(reader);
+        assert.ok(at >= 0, `the reader is defined in the module: ${reader}`);
+        const end = src.indexOf('\n}\n', at);
+        src = src.slice(0, at) + src.slice(end);
+      }
     } else {
-      assert.doesNotMatch(src, /LATER_IDENTITY_BASIS_CHANGES/, `${relative(ROOT, f)} names the later table`);
+      assert.doesNotMatch(src, /LATER_IDENTITY_BASIS_CHANGES|COMMUNITY_IDENTITY_BASIS_CHANGED_AT/, `${relative(ROOT, f)} names the later or Community table`);
     }
     assert.deepEqual(src.match(SUB) ?? [], [], `${relative(ROOT, f)} reads a table outside the one function`);
   }

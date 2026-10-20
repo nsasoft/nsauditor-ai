@@ -453,6 +453,20 @@ export const LATER_IDENTITY_BASIS_CHANGES = Object.freeze({
   1020: Object.freeze(['2.1.0']),
 });
 
+/**
+ * A COMMUNITY producer's identity-basis changes, keyed on the run record's `ceVersion`. The two tables above compare
+ * `eeVersion`, which cannot see a Community change: Enterprise 1.2.0 accepts Community 0.2.56 and 0.2.57 alike, so the
+ * Enterprise version does not move across such a pair, and a Community-only run records no Enterprise version at all.
+ * Same one-directional rule, same `identity-basis-changed` outcome; `communityIdentityBasisChangesBetween` is its reader.
+ */
+export const COMMUNITY_IDENTITY_BASIS_CHANGED_AT = Object.freeze({
+  // ⚠️ 040 AT 0.2.57: the TLS certificate auditor's self-signed and no-subjectAltName rows were retitled, and the title is
+  // in `keyOf`, so across a ≤0.2.56 → ≥0.2.57 pair `report --since` read the same certificate's row RESOLVED beside its
+  // retitled form NEW. Enterprise's packs are not reached: none written before Enterprise 1.3.0 carries a 040 row, and
+  // 1.3.0 requires Community 0.2.57.
+  '040': '0.2.57',
+});
+
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
 // finding-count-semantics boundary) and my first draft shipped a duplicate beside it — two
 // version comparators in one module is exactly how two call sites come to disagree about what
@@ -470,6 +484,13 @@ export function identityBasisChangesBetween(plugin, baselineEeVersion, currentEe
   if (!first) return [];
   return [first, ...(LATER_IDENTITY_BASIS_CHANGES[plugin] ?? [])]
     .filter((at) => cmpVersion(baselineEeVersion, at) < 0 && cmpVersion(currentEeVersion, at) >= 0);
+}
+
+/** Which of a COMMUNITY producer's identity-basis changes fall between the two runs, compared on their `ceVersion`. */
+export function communityIdentityBasisChangesBetween(plugin, baselineCeVersion, currentCeVersion) {
+  const at = COMMUNITY_IDENTITY_BASIS_CHANGED_AT[plugin];
+  if (!at) return [];
+  return cmpVersion(baselineCeVersion, at) < 0 && cmpVersion(currentCeVersion, at) >= 0 ? [at] : [];
 }
 
 /** Did this producer's identity basis change BETWEEN the two runs? */
@@ -915,6 +936,8 @@ const scopeOf = (side) => {
     // declaration is a property of the comparison — which releases the two runs straddle — and
     // `incomparabilityReason` sees only the two scopes.
     eeVersion: rec.eeVersion ?? null,
+    // …and the Community release that wrote it: a Community producer's identity change is declared on it (board (bd)).
+    ceVersion: rec.ceVersion ?? null,
     // Where this run's vulnerability data came from (1.2.0 build 2) — the run record's `nvdCache`, rendered in words.
     nvdCache: rec.nvdCache ?? null,
     // ⚠️ WHAT THE RUN ACTUALLY COVERED, per provider — never the FLAG. `undefined` means the
@@ -1054,6 +1077,13 @@ function incomparabilityReason(f, mine, theirs, names) {
   // feature. `identityBasisChanged` is one-directional for that reason.
   const straddled = identityBasisChangesBetween(f.plugin, mine.eeVersion, theirs.eeVersion);
   if (straddled.length === 0) straddled.push(...identityBasisChangesBetween(f.plugin, theirs.eeVersion, mine.eeVersion));
+  // A Community producer's change is declared on the Community release (board (bd)); its label says so.
+  let edition = 'EE';
+  if (straddled.length === 0) {
+    straddled.push(...communityIdentityBasisChangesBetween(f.plugin, mine.ceVersion, theirs.ceVersion));
+    if (straddled.length === 0) straddled.push(...communityIdentityBasisChangesBetween(f.plugin, theirs.ceVersion, mine.ceVersion));
+    edition = 'Community';
+  }
   if (straddled.length > 0) {
     const at = identityBasisChangeLabel(straddled);
     return { reason: IDENTITY_BASIS_CHANGED_REASON,
@@ -1064,7 +1094,7 @@ function incomparabilityReason(f, mine, theirs, names) {
       // than earlier: before this, no test could have driven it. Same class as the
       // "plugin undefined did not run in the other run" detail this engine already had to fix.
       detail: `${producerNoun(f)} ${producerLabel(f)} `
-        + `changed what it names as a finding's object at EE ${at}; `
+        + `changed what it names as a finding's object at ${edition} ${at}; `
         + 'the two runs straddle that change, so this finding\'s identity is not comparable '
         + 'between them. It is NOT reported as fixed or as new — rescan to compare.' };
   }
