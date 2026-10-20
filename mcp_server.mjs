@@ -337,7 +337,7 @@ export const TOOLS = [
       'Return the SHIPPED compliance coverage matrix for a framework — how many controls are Covered, Partial and Out of Scope, with the control ids and the per-group out-of-scope reasons. ' +
       `Frameworks: ${FRAMEWORK_STEMS.join(', ')}, or "all" for the counts across every framework. ` +
       'The gdpr map is GDPR Article 32 security-of-processing substrate ONLY, never "GDPR compliance". ' +
-      'ALWAYS call this tool before stating or tabulating any coverage matrix, and quote the numbers it returns verbatim. Do NOT derive a matrix from the plugin inventory, from a scan result, or from documentation — coverage is a property of the shipped framework maps, not of the plugin list, and a derived matrix will disagree with the customer\'s own report. Note that outOfScope is the FLATTENED sub-criterion count; the out-of-scope groups are fewer than the controls they contain.',
+      'ALWAYS call this tool before stating or tabulating any coverage matrix, and quote the numbers it returns verbatim. Do NOT derive a matrix from the plugin inventory, from a scan result, or from documentation — coverage is a property of the shipped framework maps, not of the plugin list, and a derived matrix will disagree with the customer\'s own report. Note that outOfScope is the FLATTENED sub-criterion count; the out-of-scope groups can be fewer than the controls they contain — count ids, not groups.',
     inputSchema: {
       type: 'object',
       properties: {

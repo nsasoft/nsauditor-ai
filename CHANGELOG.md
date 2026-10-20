@@ -8,6 +8,9 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`compliance_matrix`'s description no longer says the out-of-scope groups are always fewer than their controls.** It
+  is false for GDPR, whose two out-of-scope groups hold one id each. The sentence now says the groups can be fewer —
+  count ids, not groups — which holds for every shipped framework; a test derives the counter-example from the data.
 - **`scan_cloud`'s tier lines say how much of their count is evidence gaps and declared scope.** The header and each
   MEDIUM / LOW / INFO line count every record at that severity, while the categories on the line leave out the evidence
   gaps and declared scope boundaries listed above them — so the categories could sum well below the count (measured on

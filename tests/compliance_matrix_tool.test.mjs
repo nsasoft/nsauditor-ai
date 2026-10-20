@@ -64,6 +64,20 @@ test('outOfScope is the FLATTENED id count, not the GROUP count — the document
   assert.equal(soc2.total, 51);
 });
 
+test('(an) the description never says the out-of-scope groups ARE fewer than their ids — derived: a framework where they are equal', async () => {
+  // GDPR holds two out-of-scope groups of one id each, so "the out-of-scope groups are fewer than the controls they contain"
+  // is false for it. The sentence the description may carry is the one true for every shipped framework.
+  const d = TOOLS.find((t) => t.name === 'compliance_matrix').description;
+  const equal = [];
+  for (const stem of STEMS) {
+    const m = await handleComplianceMatrix({ framework: stem });
+    if (Array.isArray(m.outOfScopeGroups) && m.outOfScopeGroups.length === m.outOfScope) equal.push(stem);
+  }
+  assert.ok(equal.length > 0, 'positive control: some shipped framework has as many out-of-scope groups as ids');
+  assert.doesNotMatch(d, /groups are fewer than/, `false for ${equal.join(', ')}`);
+  assert.match(d, /groups can be fewer than the controls they contain — count ids, not groups/);
+});
+
 test('the numbers are DERIVED from the shipped JSON at call time, not transcribed', async () => {
   // The mechanism check, not a value check: re-derive independently from the same file the
   // tool reads and require agreement for all seven. A constant in the handler passes a value
