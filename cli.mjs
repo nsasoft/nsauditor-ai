@@ -807,8 +807,14 @@ export async function parseArgs(argv) {
   } else {
     args.webhookUrl = null;
   }
-  const alertSev = get('alert-severity') || get('alert_severity') || null;
-  args.alertSeverity = (alertSev && alertSev !== true) ? alertSev.toLowerCase() : 'high';
+  // The accepted values are the alert path's own rank table (SEVERITY_RANK), in any case. An unrecognised one used to
+  // become `high` in silence — the rank fallback — while the alert echoed the typo; it is refused like every value flag.
+  const alertSev = get('alert-severity') ?? get('alert_severity');
+  const ALERT_SEVERITIES = Object.keys(SEVERITY_RANK);
+  if (alertSev === undefined || alertSev === null) args.alertSeverity = 'high';
+  else if (alertSev === true || !ALERT_SEVERITIES.includes(String(alertSev).toLowerCase())) {
+    throw flagValue(`--alert-severity must be one of ${ALERT_SEVERITIES.join(' | ')}`);
+  } else args.alertSeverity = String(alertSev).toLowerCase();
   // R4: by default a watch cycle alerts only hosts whose scan CHANGED; this restores an alert on every cycle.
   args.alertEveryCycle = !!(get('alert-every-cycle') || get('alert_every_cycle'));
 
@@ -1884,7 +1890,7 @@ Scan options:
                                one-shot --host X,X scans X twice.
   --interval <minutes>         Watch interval (default 60)
   --webhook-url <url>          Send --watch alerts (must be public; private/loopback blocked)
-  --alert-severity <sev>       Min severity to alert on (default: high)
+  --alert-severity <sev>       Min severity to alert on: critical|high|medium|low|info (default: high)
   --alert-every-cycle          Alert every host with a finding at or above --alert-severity
                                on every --watch cycle, the first included (default: only
                                hosts whose scan changed)

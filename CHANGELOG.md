@@ -8,6 +8,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`--alert-severity` refuses a value it does not know.** It lower-cased any value and applied an unrecognised one — a
+  typo such as `critial` — as `high`, while the alert echoed the typo. It now takes `critical`, `high`, `medium`, `low` or
+  `info` in any case and refuses anything else, or a bare flag, with `[ERROR] --alert-severity must be one of …` and exit
+  2, as the other value flags do. Absent, it is `high`, as before.
 - **`compliance_matrix`'s description no longer says the out-of-scope groups are always fewer than their controls.** It
   is false for GDPR, whose two out-of-scope groups hold one id each. The sentence now says the groups can be fewer —
   count ids, not groups — which holds for every shipped framework; a test derives the counter-example from the data.
