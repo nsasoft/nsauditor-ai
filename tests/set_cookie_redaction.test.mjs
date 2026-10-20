@@ -10,8 +10,11 @@
 //
 // PRODUCER seam: a REAL loopback server and a REAL 006 run (only the destination port of node's request is rewritten —
 // 006 picks its scheme by port 80 / 443), asserted on the result, the record, its evidence rows and the conclusion.
-// REDACTOR seam: redactSensitiveForAI over 006-shaped and 010-shaped records (010 still reflects its headers; its own fix
-// is boarded) — so the AI path holds even where a producer does not.
+// The webapp detector (010) reflected its headers the same way — `set-cookie` and `location` verbatim in its banner — and
+// takes the same producer fix (the next Community release after 1.0.0): its PRODUCER seam drives the REAL 010 run over a
+// fetch double, since 010 fetches through `fetch`.
+// REDACTOR seam: redactSensitiveForAI over 006-shaped and 010-shaped records — so the AI path holds even where a producer
+// does not.
 import './helpers/no_operator_dotenv.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,6 +25,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import probe from '../plugins/http_probe.mjs';
+import webapp from '../plugins/webapp_detector.mjs';
 import concluder from '../plugins/result_concluder.mjs';
 import { setCookieValues } from '../utils/cookie_redaction.mjs';
 
@@ -79,6 +83,28 @@ for (const port of [80, 443]) {
     assert.deepEqual(leaks(conclusion), [], 'the whole conclusion');
   });
 }
+
+// ── PRODUCER: the webapp detector (010) ────────────────────────────────────────────────────────────────────────────────
+async function webappRun() {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<html><head><title>x</title></head><body>ok</body></html>', { status: 200,
+    headers: { server: 'nginx/1.25', 'x-powered-by': 'PHP/8.2',
+      'set-cookie': `PHPSESSID=${SECRETS[0]}; Path=/; HttpOnly, theme=${SECRETS[1]}; Path=/`,
+      location: `https://sso.example/login?ticket=${SECRETS[2]}` } });
+  try { return await webapp.run('127.0.0.1', 0, {}); } finally { globalThis.fetch = realFetch; }
+}
+test('(fourth quadrant, first) 010: the cookie NAMES, the redirect PATH and the server string survive — the fingerprint is kept', async () => {
+  const banner = (await webappRun()).data.find((r) => r.response_banner)?.response_banner ?? '';
+  assert.match(banner, /set-cookie: PHPSESSID=<redacted>; Path=\/; HttpOnly, theme=<redacted>; Path=\//);
+  assert.match(banner, /location: https:\/\/sso\.example\/login\?<redacted>/);
+  assert.match(banner, /server: nginx\/1\.25/);
+  assert.match(banner, /x-powered-by: PHP\/8\.2/);
+});
+test('010: no cookie VALUE and no Location query reaches its result', async () => {
+  const result = await webappRun();
+  assert.deepEqual(leaks(result), []);
+  assert.deepEqual(setCookieValues(result), []);
+});
 
 // ── REDACTOR ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 test('the AI redactor removes Set-Cookie values from a 006-shaped and a 010-shaped record, banner and evidence alike — names kept', () => {

@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The webapp detector no longer reflects a scanned service's cookie values or redirect query.** The webapp detector
+  (010) copied the `Set-Cookie` and `Location` headers into its banner verbatim, so a target's session token — and an SSO
+  ticket or OAuth code in a redirect's query — reached its raw result, the scan artifacts and the MCP tool result. Its
+  banner now follows the HTTP probe's rule: each cookie's NAME and attributes are kept and its value is `<redacted>`;
+  a `Location` URL is kept without its query and fragment. This closes the first stated limit of 0.2.57's entry (the AI
+  path was already redacted). A raw result an earlier release wrote is not rewritten.
 - **A webhook URL is refused for the reason that is true of it.** `--notify-webhook` and `--webhook-url` refused a value
   that is not a URL, or a URL with a scheme the flag does not take (`ftp:`, `file:`, `javascript:`), which is right, but
   told the operator "private/loopback/metadata addresses are not allowed" — the scheme check ran inside the address guard.

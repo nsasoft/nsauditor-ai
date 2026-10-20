@@ -33,6 +33,7 @@ import { fingerprint } from '../utils/tech_fingerprint.mjs';
 import { canonicalIp, classifyAddress, resolveAndValidateAll, allowAllHosts } from '../utils/net_validation.mjs';
 import { runPinned } from '../utils/scan_pin.mjs';
 import { parsePortsSpec } from '../utils/ports_spec.mjs';
+import { redactSetCookie, redactLocation } from '../utils/cookie_redaction.mjs';
 
 const DEBUG =
   String(process.env.DEBUG_MODE || '').toLowerCase() === '1' ||
@@ -56,14 +57,19 @@ function buildBanner(statusCode, headers) {
   const lines = [];
   const statusLine = `${statusCode || 0}`;
   lines.push(statusLine + (headers['status-message'] ? ' ' + headers['status-message'] : ''));
+  // Each value kept here reaches the record, the artifacts and the MCP result, so none may be the target's secret (the
+  // HTTP probe's rule, 1.3.0): a Set-Cookie value is a session token — its NAME is kept, its value redacted; a Location
+  // query can carry an SSO ticket or an OAuth code — the URL is kept without it.
+  const redact = { 'set-cookie': redactSetCookie, location: redactLocation };
   const pick = ['server', 'x-powered-by', 'www-authenticate', 'content-type', 'location', 'set-cookie'];
   for (const k of pick) {
     const v = headers[k];
     if (!v) continue;
+    const shown = (x) => (redact[k] ? redact[k](x) : x);
     if (Array.isArray(v)) {
-      for (const vv of v) lines.push(`${k}: ${vv}`);
+      for (const vv of v) lines.push(`${k}: ${shown(vv)}`);
     } else {
-      lines.push(`${k}: ${v}`);
+      lines.push(`${k}: ${shown(v)}`);
     }
   }
   return lines.join('\\r\\n');
