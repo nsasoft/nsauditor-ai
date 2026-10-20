@@ -482,8 +482,9 @@ describe('MCP Server — validateHost() checks the resolved address in both arms
   it('(y) the literals and exact names the pre-check is for are still refused with NO lookup', async () => {
     for (const env of [undefined, '1']) {
       await withEnv(env, () => withResolver({}, async (calls) => {
+        // The absolute (dotted) spellings name the same hosts: the trailing dot is stripped before the exact-name check.
         for (const h of ['127.0.0.1', '127.1.2.3', '0.0.0.0', '169.254.169.254', '::1', 'fe80::1', 'localhost', 'app.localhost',
-          'metadata.google.internal', '2130706433']) {
+          'metadata.google.internal', '2130706433', 'localhost.', 'app.localhost.', 'metadata.google.internal.']) {
           await assert.rejects(() => validateHost(h), NOT_ALLOWED, `env=${env}: ${h}`);
         }
         assert.deepEqual(calls, [], `env=${env}: a literal or an exact blocked name is never resolved`);
