@@ -106,6 +106,8 @@ test('(r4) the mapping is ONE function: the bin hands a rejection to cli.mjs\'s 
   assert.deepEqual(drive('a thrown string'), { lines: ['a thrown string'], exits: [1] });
   const target = Object.assign(new Error('Scanning blocked address range is not allowed: 127.0.0.1'), { code: 'ETARGETREFUSED' });
   assert.deepEqual(drive(target), { lines: ['[ERROR] Scanning blocked address range is not allowed: 127.0.0.1'], exits: [2] });
+  const unresolved = Object.assign(new Error('Host could not be resolved: x.example (ENOTFOUND) — …'), { code: 'ETARGETUNRESOLVED' });
+  assert.deepEqual(drive(unresolved), { lines: ['[ERROR] Host could not be resolved: x.example (ENOTFOUND) — …'], exits: [2] });
   const other = Object.assign(new Error('not a flag'), { code: 'ENOENT' });
   assert.deepEqual(drive(other).exits, [1], 'another error code is not a flag refusal');
   // No second copy of the mapping (the twin-drift class). The bin names the handler and no EFLAG code or exit; cli.mjs

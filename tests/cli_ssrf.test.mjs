@@ -82,14 +82,16 @@ test('a name is refused if ANY answer is blocked, and an unresolvable or non-sen
   await withResolver({ 'localhost': '127.0.0.1', 'multi.example': ['93.184.216.34', '127.0.0.1'] }, async () => {
     await assert.rejects(() => guard('localhost'), /SSRF guard/);
     await assert.rejects(() => guard('multi.example'), /SSRF guard/);
-    await assert.rejects(() => guard('azurex'), /SSRF guard/);   // NOT a sentinel: resolved, ENOTFOUND
-    await assert.rejects(() => guard('aws-foo'), /SSRF guard/);
+    // NOT a sentinel: resolved, ENOTFOUND — refused because it does not resolve, never passed as a cloud token.
+    for (const h of ['azurex', 'aws-foo']) {
+      await assert.rejects(() => guard(h), (e) => e.code === 'ETARGETUNRESOLVED' && /could not be resolved/.test(e.message), h);
+    }
   });
 });
 
 test('a non-string host does not crash the sentinel check and is refused', async () => {
   await withResolver({}, async () => {
-    await assert.rejects(() => guard(null), /reject|blocked|invalid/i);
+    await assert.rejects(() => guard(null), /reject|blocked|invalid|could not be resolved/i);
   });
 });
 
@@ -128,10 +130,43 @@ test('a refused scan target carries a code — the literal refusal and the name 
     const lan = await guard('lan.example').then(() => null, (e) => e);
     assert.equal(lan?.code, 'ETARGETREFUSED');
     assert.match(lan.message, /^Host rejected by SSRF guard: /);
-    const nowhere = await guard('nowhere.example').then(() => null, (e) => e);
-    assert.equal(nowhere?.code, 'ETARGETREFUSED', 'an unresolvable name is refused by the same guard');
+    // A name that does not resolve was never REFUSED by the guard: it has its own code (below).
   });
 });
+// ── (m)/(au): a target that does not RESOLVE is refused for that reason — with or without NSA_ALLOW_ALL_HOSTS ─────────
+// The override admits every address range; it never made an unresolved name scannable, which then ran UNPINNED, each plugin
+// resolving the name on its own. MCP already refused it.
+test('(fourth quadrant, first) under NSA_ALLOW_ALL_HOSTS a name that resolves is still returned with its answers — pinned', async () => {
+  await withResolver({ 'lan.example': '10.0.0.5' }, async () => {
+    assert.deepEqual(await guard('lan.example', SET), [{ address: '10.0.0.5', family: 4 }]);
+  });
+});
+test('a name that does not resolve is ETARGETUNRESOLVED in BOTH arms — and the message never says a guard refused it', async () => {
+  await withResolver({}, async () => {
+    for (const env of [UNSET, SET]) {
+      const err = await guard('nowhere.example', env).then(() => null, (e) => e);
+      assert.equal(err?.code, 'ETARGETUNRESOLVED', JSON.stringify(env));
+      assert.match(err.message, /^Host could not be resolved: nowhere\.example \(ENOTFOUND\) — /);
+      assert.doesNotMatch(err.message, /guard|SSRF|refused|rejected|blocked/i);
+    }
+  });
+});
+test('a name that resolves to a BLOCKED address is still ETARGETREFUSED — the guard did refuse that one', async () => {
+  await withResolver({ 'lan.example': '10.0.0.1' }, async () => {
+    const err = await guard('lan.example').then(() => null, (e) => e);
+    assert.equal(err?.code, 'ETARGETREFUSED');
+  });
+});
+test('through the real main() under NSA_ALLOW_ALL_HOSTS: an unresolvable name is refused before any plugin runs, exit 2 and one line', async () => {
+  const err = await withResolver({}, () => driveScan('nowhere.example', '1'));
+  assert.equal(err?.code, 'ETARGETUNRESOLVED', String(err?.stack ?? err));
+  const lines = []; const exits = [];
+  cli.exitOnMainRejection(err, { error: (x) => lines.push(String(x)), exit: (c) => exits.push(c) });
+  assert.equal(exits[0], 2);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^\[ERROR\] Host could not be resolved: nowhere\.example \(ENOTFOUND\) — /);
+});
+
 test('through the real main(): a refused target reaches the rejection handler as exit 2 and one [ERROR] line', async () => {
   const err = await driveScan('127.0.0.1', undefined);
   const lines = []; const exits = [];

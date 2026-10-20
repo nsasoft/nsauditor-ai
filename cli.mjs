@@ -1036,7 +1036,8 @@ const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
  * PINNED SINCE EE 2.0.0 (R1b — the operator's ruling "CLI pins too"): it RETURNS the answer set it resolved, and
  * scanSingleHost runs the plugins inside `runPinned` with it, so the scan connects to the addresses this check looked at.
  * NSA_ALLOW_ALL_HOSTS relaxes WHICH answers are admitted, never whether one may change between the check and the connect:
- * under it the name is resolved WITHOUT a refusal and still pinned (an unresolvable name scans unpinned, as before).
+ * under it the name is resolved WITHOUT a refusal and still pinned; a name that does not resolve is refused
+ * (ETARGETUNRESOLVED) under it as without it — until the Community release after 1.0.0 it scanned unpinned.
  * @param {string} host
  * @param {Record<string,string|undefined>} [env]
  * @returns {Promise<Array<{ address: string, family: 4|6 }> | null>} the answers to pin; null for a literal or a sentinel
@@ -1044,11 +1045,18 @@ const CLOUD_SENTINEL_HOSTS = new Set(['aws', 'gcp', 'azure']);
 export async function assertScanTargetAllowed(host, env = process.env) {
   // A refusal is an operator error, coded so the entry point names it and exits 2 rather than printing a stack.
   const refuse = (msg) => Object.assign(new Error(msg), { code: 'ETARGETREFUSED' });
+  // A name that does not resolve was not refused by the guard — it cannot be scanned at all, because a scan connects only
+  // to the addresses its check resolved. Its own code and its own sentence, with or without NSA_ALLOW_ALL_HOSTS (which
+  // admits every address range, never an unresolved name). MCP refuses it the same way.
+  const unresolved = (err) => Object.assign(new Error(`Host could not be resolved: ${host} (${err?.code ?? 'no answer'}) — `
+    + 'a scan connects only to the addresses its host check resolved, so a target that does not resolve is not scanned'),
+  { code: 'ETARGETUNRESOLVED' });
+  const BLOCKED_ANSWER = 'Host resolves to blocked IP range';
   const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
   if (isCloudSentinel) return null;
   if (allowAllHosts(env)) {
     if (canonicalIp(host)) return null;
-    try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch { return null; }
+    try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch (err) { throw unresolved(err); }
   }
   if (isBlockedIp(host)) {
     throw refuse(`Scanning blocked address range is not allowed: ${host}`);
@@ -1057,7 +1065,8 @@ export async function assertScanTargetAllowed(host, env = process.env) {
     try {
       return await resolveAndValidateAll(host);
     } catch (err) {
-      throw refuse(`Host rejected by SSRF guard: ${err.message}`);
+      if (err?.message === BLOCKED_ANSWER) throw refuse(`Host rejected by SSRF guard: ${err.message}`);
+      throw unresolved(err);
     }
   }
   return null;
@@ -3764,8 +3773,9 @@ export function pluginSelectionRefusal(plugins, pm) {
  * the suite (tests/cli_bin_entrypoint.test.mjs).
  */
 export function exitOnMainRejection(err, { error = console.error, exit = process.exit } = {}) {
-  // A refused scan target (ETARGETREFUSED) is the same class: the operator asked for something the guard does not allow.
-  if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE' || err?.code === 'ETARGETREFUSED') {
+  // A refused scan target (ETARGETREFUSED) is the same class: the operator asked for something the guard does not allow —
+  // and so is one that does not resolve (ETARGETUNRESOLVED): nothing can be scanned at a name with no address.
+  if (err?.code === 'EFLAGSHAPE' || err?.code === 'EFLAGVALUE' || err?.code === 'ETARGETREFUSED' || err?.code === 'ETARGETUNRESOLVED') {
     error(`[ERROR] ${err.message}`);
     return exit(2);
   }

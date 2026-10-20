@@ -8,6 +8,15 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A scan target that does not resolve is refused, with `NSA_ALLOW_ALL_HOSTS` set as without it.** Under
+  `NSA_ALLOW_ALL_HOSTS` a name that did not resolve at the host check was scanned UNPINNED: each plugin resolved it on its
+  own, so a name answering nothing to the check and something to a plugin was followed — the per-plugin divergence the
+  pin exists to prevent. `NSA_ALLOW_ALL_HOSTS` admits every address range; it never made an unresolved name scannable.
+  Such a target is now refused before any plugin runs — `[ERROR] Host could not be resolved: <name> (<code>) — …`, exit
+  2 (`ETARGETUNRESOLVED`) — as the MCP server already refused it. Without the variable an unresolved name was already
+  refused, but as "rejected by SSRF guard", which it was not; it now gets the same sentence. **The one case this changes
+  for a working setup:** a name only mDNS resolves (`printer.local`) on a system whose resolver has no mDNS — scan it by
+  its address.
 - **The MCP server resolves a name before refusing it.** Its quick pre-check matched the START of the host string
   against blocked spellings (`127.`, `0.`, `localhost`, `metadata.google`, …), so a name such as `0.pool.ntp.org`,
   `127.example.test`, `localhost.example.test` or `metadata.googleapis.com` was refused with no lookup, whatever it
