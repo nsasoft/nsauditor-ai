@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The README's Security note says what the pin is, and what the UPnP rule is.** It said the system tools a scan runs
+  are "handed the address", singular: every answer the check resolves is checked, an in-process connection may use any
+  of them, and a system tool is handed one — the first IPv4 answer. It said a UPnP device's description URL is "checked
+  the same way" as a redirect hop: it is fetched only on the address that answered the discovery, so a device answering
+  from a link-local or loopback address has its description fetched there. And the address classifier's NAT64 limit
+  (`64:ff9b::/96`), stated in the code, is now among the README's limits.
 - **A webhook alert travels on its own connection.** `sendWebhook` connects to the address its check resolved, but it
   requested through Node's default agent, which pools keep-alive sockets by host and port — so an idle socket another
   request had opened to the webhook's host and port could carry the alert, and the alert's socket was left for the next
