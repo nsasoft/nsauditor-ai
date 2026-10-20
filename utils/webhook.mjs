@@ -162,6 +162,10 @@ export async function sendWebhook(url, payload, opts = {}) {
     timeout,
     // Every attempt, retries included, connects to the checked address; the name stays the Host header and TLS name.
     ...(target ? { lookup: pinnedLookup(target) } : {}),
+    // Its OWN agent, keep-alive off: the default agent pools sockets by host and port, so an idle socket another caller
+    // opened to this host:port (by name, unpinned) could carry the alert, and the alert's socket would be left for the
+    // next request. Configured like the default agent — its proxy settings (NODE_USE_ENV_PROXY) included.
+    agent: new transport.Agent({ ...transport.globalAgent.options, keepAlive: false }),
   };
 
   let lastError = null;

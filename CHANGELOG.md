@@ -8,6 +8,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A webhook alert travels on its own connection.** `sendWebhook` connects to the address its check resolved, but it
+  requested through Node's default agent, which pools keep-alive sockets by host and port — so an idle socket another
+  request had opened to the webhook's host and port could carry the alert, and the alert's socket was left for the next
+  request to that host and port. Each alert now opens its own connection, configured like the default agent (proxy
+  settings included), and closes it. The README's pool limit says the webhook does not share the pool.
 - **A scan target that does not resolve is refused, with `NSA_ALLOW_ALL_HOSTS` set as without it.** Under
   `NSA_ALLOW_ALL_HOSTS` a name that did not resolve at the host check was scanned UNPINNED: each plugin resolved it on its
   own, so a name answering nothing to the check and something to a plugin was followed — the per-plugin divergence the
