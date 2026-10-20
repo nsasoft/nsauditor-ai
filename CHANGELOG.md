@@ -8,6 +8,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The delta keeps a producer's earlier identity change when it declares a later one.** A pair of runs that straddles
+  a release in which a producer changed what identifies its findings is declared `identity-basis-changed` rather than
+  reported as resolved plus new. Each producer's first change stays in `IDENTITY_BASIS_CHANGED_AT`, unmoved; a later
+  one is listed in `LATER_IDENTITY_BASIS_CHANGES`, and `identityBasisChangesBetween` answers which of them a pair
+  straddles, the detail naming each (`at EE 1.1.0 and 2.1.0`). Moving the first entry instead would drop every pair that
+  straddles the earlier change with both runs before the later one — a 1.0.x baseline against a 1.1.0 to 2.0.x run,
+  through `report --since` — and Enterprise 2.0.0 reads that entry as its label. The first later change is the S3
+  auditor (1020) at Enterprise 2.1.0, where a bucket whose location could not be read stops carrying the scan's
+  configured region. The cost: for one scan after upgrading from Enterprise 2.0.x, a 1020 finding that vanished is
+  declared rather than called fixed.
 - **`--alert-severity` refuses a value it does not know.** It lower-cased any value and applied an unrecognised one — a
   typo such as `critial` — as `high`, while the alert echoed the typo. It now takes `critical`, `high`, `medium`, `low` or
   `info` in any case and refuses anything else, or a bare flag, with `[ERROR] --alert-severity must be one of …` and exit

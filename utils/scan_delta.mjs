@@ -433,6 +433,26 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
   service_agent: '1.3.0',
 });
 
+/**
+ * A producer's identity basis can change MORE THAN ONCE, and the first table holds the FIRST change, unmoved. Each list
+ * here holds that producer's LATER changes, ascending and each after its first; `identityBasisChangesBetween` is the one
+ * reader of both tables.
+ *
+ * ⚠️ WHY THE FIRST CHANGE DOES NOT MOVE. The rule is `baseline < at <= current`, so moving a producer's `at` to a later
+ * release drops every pair that straddles the earlier change with both runs below the later one (a 1.0.x baseline against
+ * a 1.1.0 to 2.0.x run, reachable through `report --run … --since …`). And Enterprise 2.0.0, which accepts any Community
+ * from 1.0.0, reads `IDENTITY_BASIS_CHANGED_AT[producer]` as its label: every straddle a 2.0.0 run can see is a first
+ * change, so that reader stays exactly true while the first table stays as it is.
+ */
+export const LATER_IDENTITY_BASIS_CHANGES = Object.freeze({
+  // ⚠️ 1020 AT 2.1.0: A REGION NOBODY READ IS NO LONGER STAMPED. When the S3 auditor could not read a bucket's location it
+  // stamped the scan's configured region on that bucket's rows; from EE 2.1.0 such a row carries no region. `region` is in
+  // `keyOf`, so the same bucket finding straddling the upgrade would read as one resolved and one new. A bucket whose
+  // location WAS read keeps its region, but the declaration is per producer, so for one scan after the upgrade every 1020
+  // row that vanished is declared rather than called fixed — the cost, stated in the release notes.
+  1020: Object.freeze(['2.1.0']),
+});
+
 // ⚠️ NO SECOND COMPARATOR. This file already has `cmpVersion` (below, used by the
 // finding-count-semantics boundary) and my first draft shipped a duplicate beside it — two
 // version comparators in one module is exactly how two call sites come to disagree about what
@@ -441,14 +461,25 @@ export const IDENTITY_BASIS_CHANGED_AT = Object.freeze({
 // predates every declared change.
 
 /**
- * Did this producer's identity basis change BETWEEN the two runs?
- * True only when the baseline predates the declared change and the current run is at or after
- * it — never merely because the versions differ, which would declare on every upgrade for ever.
+ * Which of this producer's identity-basis changes fall BETWEEN the two runs — the versions, ascending.
+ * A change counts only when the baseline predates it and the current run is at or after it — never
+ * merely because the versions differ, which would declare on every upgrade for ever.
  */
+export function identityBasisChangesBetween(plugin, baselineEeVersion, currentEeVersion) {
+  const first = IDENTITY_BASIS_CHANGED_AT[plugin];
+  if (!first) return [];
+  return [first, ...(LATER_IDENTITY_BASIS_CHANGES[plugin] ?? [])]
+    .filter((at) => cmpVersion(baselineEeVersion, at) < 0 && cmpVersion(currentEeVersion, at) >= 0);
+}
+
+/** Did this producer's identity basis change BETWEEN the two runs? */
 export function identityBasisChanged(plugin, baselineEeVersion, currentEeVersion) {
-  const at = IDENTITY_BASIS_CHANGED_AT[plugin];
-  if (!at) return false;
-  return cmpVersion(baselineEeVersion, at) < 0 && cmpVersion(currentEeVersion, at) >= 0;
+  return identityBasisChangesBetween(plugin, baselineEeVersion, currentEeVersion).length > 0;
+}
+
+/** The releases a straddle names, as a reader reads them: `1.1.0`, `1.1.0 and 2.1.0`, `1.1.0, 2.1.0 and 3.0.0`. */
+export function identityBasisChangeLabel(versions) {
+  return versions.length < 2 ? versions.join('') : `${versions.slice(0, -1).join(', ')} and ${versions.at(-1)}`;
 }
 
 // ⚠️ THERE IS NO DISPLAY-LABEL MAP HERE, AND THE REASON IS A MEASUREMENT.
@@ -1021,9 +1052,10 @@ function incomparabilityReason(f, mine, theirs, names) {
   // It is keyed on the baseline PREDATING the declared change, never on the versions merely
   // differing — the latter would declare on every upgrade for ever and quietly retire the
   // feature. `identityBasisChanged` is one-directional for that reason.
-  if (identityBasisChanged(f.plugin, mine.eeVersion, theirs.eeVersion)
-    || identityBasisChanged(f.plugin, theirs.eeVersion, mine.eeVersion)) {
-    const at = IDENTITY_BASIS_CHANGED_AT[f.plugin];
+  const straddled = identityBasisChangesBetween(f.plugin, mine.eeVersion, theirs.eeVersion);
+  if (straddled.length === 0) straddled.push(...identityBasisChangesBetween(f.plugin, theirs.eeVersion, mine.eeVersion));
+  if (straddled.length > 0) {
+    const at = identityBasisChangeLabel(straddled);
     return { reason: IDENTITY_BASIS_CHANGED_REASON,
       // ⚠️ "producer" FOR AN AGENT. This sentence renders into the client artifact's basis cell,
       // and it hardcoded "plugin" — harmless while every declared producer WAS one, and false the
