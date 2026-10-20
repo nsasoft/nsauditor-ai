@@ -677,6 +677,18 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
 
 /* ------------------------------- CLI ----------------------------------- */
 
+/**
+ * Why a webhook URL flag's value is refused before any address is looked at, or null: it is not a URL, or its scheme is
+ * not one the flag takes. The value itself is never repeated — a Slack or Teams webhook URL carries its own credential.
+ * @param {string} flag @param {unknown} value @param {string[]} schemes e.g. ['https:'] or ['http:', 'https:']
+ */
+function webhookSchemeRefusal(flag, value, schemes) {
+  const wanted = schemes.length === 1 ? `an ${schemes[0].replace(':', '')} URL` : `an ${schemes.map((x) => x.replace(':', '')).join(' or ')} URL`;
+  let protocol;
+  try { protocol = new URL(String(value)).protocol; } catch { return `${flag} must be ${wanted}; the value given is not a URL`; }
+  return schemes.includes(protocol) ? null : `${flag} must be ${wanted}; got ${protocol}`;
+}
+
 export async function parseArgs(argv) {
   const args = { cmd: 'scan', host: undefined, plugins: 'all', insecureHttps: false };
   const a = argv.slice(2);
@@ -773,11 +785,17 @@ export async function parseArgs(argv) {
   args.watch = !!(get('watch'));
   const intervalVal = get('interval');
   args.intervalMinutes = (intervalVal && intervalVal !== true) ? Math.max(1, parseInt(intervalVal, 10) || 60) : 60;
+  // Every refusal from here on THROWS with code EFLAGVALUE (mapped to exit 2 at the entry point), never `process.exit`:
+  // parseArgs is exported and driven in-process by the suite, and an exit here kills the runner mid-file (the EFLAGSHAPE
+  // lesson — `--webhook-url` exited here until the next Community release after 1.0.0).
+  const flagValue = (msg) => Object.assign(new Error(msg), { code: 'EFLAGVALUE' });
   const whUrl = get('webhook-url') || get('webhook_url') || null;
   if (whUrl && whUrl !== true) {
+    // Not a URL, or a scheme other than http(s), is named as that — never as an internal address.
+    const schemeRefusal = webhookSchemeRefusal('--webhook-url', whUrl, ['http:', 'https:']);
+    if (schemeRefusal) throw flagValue(schemeRefusal);
     if (!(await isSafeWebhookUrl(whUrl))) {
-      console.error(`[ERROR] Webhook URL rejected: private/loopback/metadata addresses are not allowed.`);
-      process.exit(2);
+      throw flagValue('Webhook URL rejected: private/loopback/metadata addresses are not allowed.');
     }
     args.webhookUrl = whUrl;
   } else {
@@ -789,9 +807,6 @@ export async function parseArgs(argv) {
   args.alertEveryCycle = !!(get('alert-every-cycle') || get('alert_every_cycle'));
 
   // ── EE 2.0.0 (cargo 3, D3/D5): the drift notification and the watch alert's payload mode ─────────────────────────
-  // Every refusal THROWS with code EFLAGVALUE (mapped to exit 2 at the entry point), never `process.exit`: parseArgs is
-  // exported and driven in-process by the suite, and an exit here kills the runner mid-file (the EFLAGSHAPE lesson).
-  const flagValue = (msg) => Object.assign(new Error(msg), { code: 'EFLAGVALUE' });
   const oneOf = (flag, allowed, dflt) => {
     const v = get(flag);
     if (v === undefined) return dflt;
@@ -816,10 +831,12 @@ export async function parseArgs(argv) {
     // https ONLY (the architect seat's read, F3): the URL is a credential and the body is scan content, so neither
     // crosses the network in the clear. --webhook-url is unchanged.
     let notifyProtocol = null;
-    try { notifyProtocol = new URL(notifyUrl).protocol; } catch { /* not a URL — the SSRF check below refuses it */ }
+    try { notifyProtocol = new URL(notifyUrl).protocol; } catch { /* not a URL — named just below */ }
     if (notifyProtocol === 'http:') {
       throw flagValue('--notify-webhook must be an https URL: it carries its own credential, and the drift it sends is scan content');
     }
+    const notifySchemeRefusal = webhookSchemeRefusal('--notify-webhook', notifyUrl, ['https:']);
+    if (notifySchemeRefusal) throw flagValue(notifySchemeRefusal);
     // The SAME boundary check --webhook-url gets: public destinations only, DNS-resolved.
     if (!(await isSafeWebhookUrl(notifyUrl))) {
       throw flagValue('--notify-webhook rejected: private/loopback/metadata addresses are not allowed');

@@ -8,6 +8,13 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A webhook URL is refused for the reason that is true of it.** `--notify-webhook` and `--webhook-url` refused a value
+  that is not a URL, or a URL with a scheme the flag does not take (`ftp:`, `file:`, `javascript:`), which is right, but
+  told the operator "private/loopback/metadata addresses are not allowed" — the scheme check ran inside the address guard.
+  Each now says what is wrong: `--notify-webhook must be an https URL; got ftp:`, `--webhook-url must be an http or https
+  URL; the value given is not a URL`, and so on; the address refusal keeps its wording. The value is never repeated in a
+  refusal, because a Slack or Teams webhook URL carries its own credential. `--webhook-url` now reports its refusals the
+  way every other flag does (`[ERROR] …`, exit 2) — the output is unchanged for the address case.
 - **A scan target the address guard refuses exits 2 with one line, not 1 with a stack.** `nsauditor-ai scan --host
   127.0.0.1` without `NSA_ALLOW_ALL_HOSTS` — or a name that resolves to a blocked address, or does not resolve — threw an
   uncoded error, so the command printed a stack trace and exited 1, which is also `--fail-on`'s "findings at or above the
