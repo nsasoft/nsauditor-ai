@@ -305,7 +305,7 @@ export const TOOLS = [
         regions: {
           type: 'array',
           items: { type: 'string' },
-          description: 'AWS region codes (e.g. ["us-east-1","eu-west-1"]) or ["all"] for every enabled region. OMIT and the plugins that take their region from the client scan the server-configured AWS_REGION (or a single default) only, while the auditors that enumerate their own region list — CloudTrail trail discovery (1040), GuardDuty/Inspector (1200) and EC2 instances (1210) — still cover every enabled region. Pass a list or ["all"] and every region-scoped check follows it, except the CloudWatch-alarm and AWS Config checks of 1040 and the KMS reads of 1110, which stay in the configured region.',
+          description: 'AWS region codes (e.g. ["us-east-1","eu-west-1"]) or ["all"] for every enabled region. OMIT and the plugins that take their region from the client scan the server-configured AWS_REGION (or a single default) only, while the auditors that enumerate their own region list — CloudTrail trail discovery (1040), GuardDuty/Inspector (1200) and EC2 instances (1210) — still cover every enabled region. Pass a list or ["all"] and the region-scoped checks follow it; the reads that stay in the configured region are named in the response\'s `regionScope`.',
         },
       },
       required: [],
@@ -539,6 +539,36 @@ export async function handleScanHost(args) {
 
 const VALID_PROVIDERS = ['aws', 'gcp', 'azure'];
 
+/**
+ * What a passed region list does NOT reach: every read each AWS plugin that RAN declares it makes in the configured
+ * region anyway (`readsOutsideRegionList` — `exception`: a region-scoped read that ignores the list; `fail-open`: a
+ * per-object read done there because the object's own region was unread), named by plugin. Read generically: Community
+ * knows no Enterprise plugin by name. A plugin that ran with no declaration, or a malformed one, is `undeclared` — whether
+ * its reads stayed in the configured region is not known, and an empty list beside it would read as if they all followed.
+ */
+const REGION_READ_CLASSES = new Set(['exception', 'fail-open']);
+const wellFormedRead = (e) => e && typeof e === 'object' && REGION_READ_CLASSES.has(e.class)
+  && ['id', 'service', 'reads', 'reason'].every((k) => typeof e[k] === 'string' && e[k].trim() !== '');
+export function regionScopeOf(plugins, manifest) {
+  const ran = new Set((manifest || []).filter((m) => m && m.status === 'ran').map((m) => String(m.id)));
+  const readsOutsideList = [];
+  const undeclared = [];
+  for (const p of plugins || []) {
+    if (!p || p.cloudProvider !== 'aws' || !ran.has(String(p.id))) continue;
+    const list = p.readsOutsideRegionList;
+    if (!Array.isArray(list) || !list.every(wellFormedRead)) { undeclared.push(String(p.id)); continue; }
+    for (const e of list) {
+      readsOutsideList.push({ plugin: String(p.id), id: e.id, class: e.class, service: e.service, reads: e.reads, reason: e.reason });
+    }
+  }
+  return {
+    readsOutsideList,
+    undeclared,
+    ...(undeclared.length ? { note: 'These AWS plugins ran but declare nothing about the regions they read (an earlier '
+      + 'Enterprise release): whether any of their reads stayed in the configured region is not known.' } : {}),
+  };
+}
+
 export async function handleScanCloud(args) {
   // Validate providers; default → all three.
   let providers = VALID_PROVIDERS.slice();
@@ -641,6 +671,7 @@ export async function handleScanCloud(args) {
     markdown,
     scanId,
     ...(notes.length ? { notes } : {}),
+    ...(awsRegionIntent ? { regionScope: regionScopeOf(pm.plugins, output.manifest) } : {}),
   };
 }
 

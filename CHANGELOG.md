@@ -8,6 +8,14 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`scan_cloud` names the AWS reads that stay in the configured region when you pass `regions`.** The `regions`
+  description said a passed list is followed by every region-scoped check except three named reads; the Enterprise
+  plugins make more (among them the CloudTrail auditor's trail and trail-bucket reads, the RDS and ElastiCache key
+  lookups, and the S3 audits of a bucket whose location could not be read). Each Enterprise plugin now declares its own,
+  and when a list (or `["all"]`) is passed the response carries `regionScope`: every declared read of every AWS plugin
+  that ran, and `undeclared` — the plugins that ran without a declaration (an earlier Enterprise release), whose reads
+  are not known. The `regions` description points at it instead of listing reads. No import changes between the two
+  packages: Community reads the declaration from each plugin it loaded.
 - **The delta keeps a producer's earlier identity change when it declares a later one.** A pair of runs that straddles
   a release in which a producer changed what identifies its findings is declared `identity-basis-changed` rather than
   reported as resolved plus new. Each producer's first change stays in `IDENTITY_BASIS_CHANGED_AT`, unmoved; a later
