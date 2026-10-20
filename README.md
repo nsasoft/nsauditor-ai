@@ -208,7 +208,7 @@ found". A higher tier does not add tools; it unlocks the ones already in the lis
 
 | Tool | Purpose |
 |---|---|
-| `probe_service` | Run one specific plugin against a single `host:port` |
+| `probe_service` | Run one specific plugin against a single `host:port` — a plugin with its own port set probes that set instead (the TLS scanner, 011: 443, 465, 563, 993 and 995), and the response's `probe` names the ports actually probed |
 | `get_vulnerabilities` | Look up known CVEs for a CPE (Common Platform Enumeration) string via the NVD API |
 
 **Unlocked by Enterprise:**

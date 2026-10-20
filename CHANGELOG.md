@@ -8,6 +8,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`probe_service` says which ports it probed.** It is described as running a plugin against a `host:port`, but a plugin
+  with its own port set does not use the port it is given: asked for 8443, the TLS scanner (011) probes 443, 465, 563, 993
+  and 995 (or `TLS_SCANNER_PORTS`). The tool's description and the README say so, and every response carries `probe` —
+  the requested port, the ports the plugin's own rows show it probed, whether the requested one was among them, and a
+  note when it was not.
 - **The README's Security note says what the pin is, and what the UPnP rule is.** It said the system tools a scan runs
   are "handed the address", singular: every answer the check resolves is checked, an in-process connection may use any
   of them, and a system tool is handed one — the first IPv4 answer. It said a UPnP device's description URL is "checked

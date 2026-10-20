@@ -355,7 +355,10 @@ export const TOOLS = [
   {
     name: 'probe_service',
     description:
-      'Run a specific plugin against a host:port combination to probe a single service.',
+      'Run a specific plugin against a host:port combination to probe a single service. A plugin with its own port '
+      + 'set does not use `port`: the TLS scanner (011) probes 443, 465, 563, 993 and 995 (or TLS_SCANNER_PORTS) '
+      + 'whatever port is given. The response\'s `probe` names the ports actually probed, and says when the one '
+      + 'asked for was not among them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -731,7 +734,14 @@ export async function handleProbeService(args) {
   const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
   const result = await runPinned(answers ? { [host]: answers } : null,
     () => pm._runOne(plugin, host, args.port, { hostKind, [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS }));
-  return result;
+  // What was probed, read off the plugin's own rows: a plugin with its own port set (the TLS scanner, 011) does not use
+  // `port`, and a client that asked for 8443 must be able to see that 443/465/563/993/995 came back instead.
+  const rows = Array.isArray(result?.result?.data) ? result.result.data : [];
+  const ports = [...new Set(rows.map((r) => Number(r?.probe_port)).filter((p) => Number.isInteger(p) && p > 0))].sort((a, b) => a - b);
+  const probedPorts = ports.length ? ports : null;
+  const requestedPortProbed = probedPorts ? probedPorts.includes(args.port) : null;
+  return { ...result, probe: { requestedPort: args.port, probedPorts, requestedPortProbed,
+    ...(requestedPortProbed === false ? { note: `this plugin probes its own port set — port ${args.port} was not probed` } : {}) } };
 }
 
 export async function handleGetVulnerabilities(args) {
