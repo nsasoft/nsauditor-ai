@@ -441,11 +441,15 @@ export async function validateHostPinned(host) {
   const h = String(host).trim().toLowerCase();
   if (!h) throw new Error('Empty host');
   const notAllowed = () => new Error('Scanning loopback, link-local, or metadata addresses is not allowed via MCP');
-  // Cheap pre-check for the obvious spellings; the classifier below is the authority.
+  // Cheap pre-check, without a lookup, for a decimal loopback and the exact names that are loopback or metadata by
+  // definition: `localhost` and its subdomains (RFC 6761) and the GCP metadata name. Every IP literal, in any spelling,
+  // is the classifier's below; a NAME that merely starts like a blocked literal (0.pool.ntp.org, 127.example.test) is
+  // resolved and each answer classified, as the CLI does — a prefix match on the string refused those with no lookup.
   const _isAllDigits = /^\d+$/.test(h);
   const _n = _isAllDigits && h.length <= 10 ? Number(h) : -1;
   const isDecimalLoopback = _n >= 0x7F000000 && _n <= 0x7FFFFFFF;
-  if (isDecimalLoopback || /^(localhost|127\.|0\.|::1|0\.0\.0\.0|169\.254\.|fe80:|metadata\.google)/i.test(h)) {
+  const bare = h.replace(/\.$/, '');
+  if (isDecimalLoopback || bare === 'localhost' || bare.endsWith('.localhost') || bare === 'metadata.google.internal') {
     throw notAllowed();
   }
 

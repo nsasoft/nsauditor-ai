@@ -460,6 +460,37 @@ describe('MCP Server — validateHost() checks the resolved address in both arms
     }));
   });
 
+  // ── (y): the cheap pre-check is for the obvious LITERALS and two exact names, never for a name that merely starts like
+  // a blocked literal — that name is resolved and every answer classified, as the CLI does.
+  it('(y, first) a NAME that only STARTS like a blocked spelling, answering public, is admitted — and was resolved', async () => {
+    const PUBLIC = { '0.pool.ntp.org': '162.159.200.1', '127.example.test': '93.184.216.34',
+      'localhost.example.test': '93.184.216.34', 'metadata.googleapis.com': '142.250.72.10', 'fe80.example.test': '93.184.216.34' };
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver(PUBLIC, async (calls) => {
+        for (const h of Object.keys(PUBLIC)) {
+          assert.equal(await validateHost(h), h, `env=${env}: ${h} answers a public address`);
+          assert.ok(calls.includes(h), `env=${env}: ${h} was refused without a lookup`);
+        }
+      }));
+    }
+  });
+  it('(y) the same names answering LOOPBACK are refused — by the classifier over the answer', async () => {
+    await withEnv(undefined, () => withResolver({ '0.pool.ntp.org': '127.0.0.1', '127.example.test': '127.0.0.1' }, async () => {
+      for (const h of ['0.pool.ntp.org', '127.example.test']) await assert.rejects(() => validateHost(h), NOT_ALLOWED, h);
+    }));
+  });
+  it('(y) the literals and exact names the pre-check is for are still refused with NO lookup', async () => {
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({}, async (calls) => {
+        for (const h of ['127.0.0.1', '127.1.2.3', '0.0.0.0', '169.254.169.254', '::1', 'fe80::1', 'localhost', 'app.localhost',
+          'metadata.google.internal', '2130706433']) {
+          await assert.rejects(() => validateHost(h), NOT_ALLOWED, `env=${env}: ${h}`);
+        }
+        assert.deepEqual(calls, [], `env=${env}: a literal or an exact blocked name is never resolved`);
+      }));
+    }
+  });
+
   it('C: "0", "false", "no" and "off" behave as UNSET — they do NOT lift the check', async () => {
     for (const v of ['0', 'false', 'no', 'off', '']) {
       await withEnv(v, async () => assert.rejects(() => validateHost('192.168.1.1'), NOT_ALLOWED, `NSA_ALLOW_ALL_HOSTS=${JSON.stringify(v)}`));

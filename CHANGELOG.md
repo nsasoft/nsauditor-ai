@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The MCP server resolves a name before refusing it.** Its quick pre-check matched the START of the host string
+  against blocked spellings (`127.`, `0.`, `localhost`, `metadata.google`, …), so a name such as `0.pool.ntp.org`,
+  `127.example.test`, `localhost.example.test` or `metadata.googleapis.com` was refused with no lookup, whatever it
+  answered — where the CLI resolves and admits it. The pre-check now refuses, without a lookup, only a decimal loopback
+  and the names that are loopback or metadata by definition (`localhost` and its subdomains, `metadata.google.internal`);
+  every IP literal is the address classifier's, and every other name is resolved and each answer classified, as before.
 - **A plain-http `--webhook-url` says what it costs.** `--webhook-url` accepts an `http:` URL, as documented, and the
   watch alerts sent to it carry findings in the clear. The CLI now prints one line saying so when it is given one —
   `[WARN] --webhook-url is a plain http URL: findings leave in the clear over plaintext HTTP …` — without printing the
