@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A host scanned by name keeps its ARP lookup when its address is on a local network.** The ARP Scanner (026) and the
+  ping checker's ARP step ran `arp` only when the host string was itself a private IP address, so a name — `router.lan`,
+  pinned by the host check to `192.168.1.1` — got no MAC or vendor. Both now judge, and hand `arp`, the address the host
+  check pinned the name to (IPv4), as the ping step already did; a literal is its own, and a name pinned to a public
+  address, or not resolved at all, is still not attempted. The README's list of system tools handed the pinned address
+  names `arp`, held to the pin census.
 - **`report --since` no longer reads a retitled TLS-certificate row as fixed plus new across Community 0.2.57.** 0.2.57
   retitled the certificate auditor's (040) self-signed and no-subjectAltName rows, so a pair of scans either side of it
   reported the same certificate RESOLVED beside its new title NEW. The identity-basis declaration compared only the

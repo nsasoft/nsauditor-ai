@@ -244,12 +244,13 @@ export default {
       }
     }
 
-    // 3) ARP (local only)
-    if (isPrivateLike(host)) {
+    // 3) ARP (local only) — judged on, and handed, the pinned IPv4 address of a name, as ping is; a literal is its own.
+    const arpTarget = pinnedAddressFor(host, { prefer: 4 }) ?? host;
+    if (isPrivateLike(arpTarget)) {
       const interfaces = isWin ? [null] : [null, "en0"];
       let mac = null;
       for (const iface of interfaces) {
-        mac = await getMacViaArp(host, iface);
+        mac = await getMacViaArp(arpTarget, iface);
         if (mac) break;
       }
 

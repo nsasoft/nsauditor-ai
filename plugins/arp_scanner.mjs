@@ -5,6 +5,7 @@
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { isPrivateLike } from '../utils/net_validation.mjs';
+import { pinnedAddressFor } from '../utils/scan_pin.mjs';
 
 const execFileP = promisify(execFile);
 
@@ -99,8 +100,10 @@ export default {
     }
     // -------------------------------------------------------------
 
-    // Only meaningful on local subnets
-    if (!isPrivateLike(host)) {
+    // Only meaningful on local subnets. A NAME is judged, and handed to `arp`, by the address the scan's host check pinned
+    // it to (IPv4 — ARP is an IPv4 protocol); an IP literal is its own. `arp` resolves through the OS, never the pin.
+    const arpTarget = pinnedAddressFor(host, { prefer: 4 }) ?? host;
+    if (!isPrivateLike(arpTarget)) {
       dlog("Target not in private/local range; ARP not attempted.");
       data.push({
         probe_protocol: "arp",
@@ -115,7 +118,7 @@ export default {
     const interfaces = process.platform === "win32" ? [null] : [null, "en0"];
     let mac = null;
     for (const iface of interfaces) {
-      mac = await getMacViaArp(host, iface);
+      mac = await getMacViaArp(arpTarget, iface);
       if (mac) break;
     }
 

@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import { runPinned } from '../utils/scan_pin.mjs';
 import hostUpCheck from '../plugins/host_up_check.mjs';
 import pingChecker from '../plugins/ping_checker.mjs';
+import arpScanner from '../plugins/arp_scanner.mjs';
 import synScanner from '../plugins/syn_scanner.mjs';
 import { probeFirmware } from '../plugins/http_probe.mjs';
 
@@ -31,7 +32,7 @@ let dir; let log; const saved = {};
 before(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pin-shims-'));
   log = path.join(dir, 'argv.log');
-  for (const cmd of ['ping', 'nping', 'hping3', 'nmap', 'curl']) {
+  for (const cmd of ['ping', 'nping', 'hping3', 'nmap', 'curl', 'arp']) {
     fs.writeFileSync(path.join(dir, cmd), `#!/bin/sh\necho "${cmd} $*" >> "$SHIM_LOG"\nexit 1\n`, { mode: 0o755 });
   }
   for (const k of ['PATH', 'SHIM_LOG', 'ENABLE_SYN_SCAN']) saved[k] = process.env[k];
@@ -121,3 +122,41 @@ test('(sp4) the REAL curl honours --resolve: without it the name lands on loopba
     assert.equal(hits, 1, '--resolve did not govern where curl connected');
   } finally { await new Promise((r) => server.close(r)); }
 });
+
+// ── ARP (board item "ARP for a pinned name"): `arp -n <address> [-i <iface>]`, so its target is the token after `-n`. ──
+const arpTargetsOf = (lines) => lines.filter((l) => l.startsWith('arp ')).map((l) => { const a = l.split(' '); return a[a.indexOf('-n') + 1]; });
+// Loopback is private-like and refuses fast: ping_checker's in-process TCP probes go nowhere off this machine. DUAL-STACK,
+// IPv6 FIRST: ARP is an IPv4 protocol (`arp -n` takes an IPv4 address), so each plugin must take the pinned IPv4 answer
+// whatever order the resolver returned them in — a family preference no single-family fixture exercises.
+const LAN = { [NAME]: [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }] };
+const PUBLIC = { [NAME]: [{ address: '203.0.113.10', family: 4 }] };
+
+// Each plugin is recorded ALONE: driven together, either one's two `arp` runs (no interface, then en0) satisfied a count
+// meant for both, and a plugin that stopped running `arp` read green — two survivors of the first battery.
+const PLUGINS = [['arp_scanner', arpScanner], ['ping_checker', pingChecker]];
+
+test('(sp6, first) a private IP LITERAL is handed to arp as itself, by each plugin — the case that always worked', async () => {
+  for (const [name, plugin] of PLUGINS) {
+    const targets = arpTargetsOf(await recorded(() => plugin.run('127.0.0.1')));
+    assert.ok(targets.length >= 1 && targets.every((t) => t === '127.0.0.1'), `${name}: ${JSON.stringify(targets)}`);
+  }
+});
+
+test('(sp7) a NAME pinned to a LAN address: each plugin hands arp the pinned address — never the name', async () => {
+  for (const [name, plugin] of PLUGINS) {
+    const lines = await recorded(() => runPinned(LAN, () => plugin.run(NAME)));
+    const targets = arpTargetsOf(lines);
+    assert.ok(targets.length >= 1, `${name} did not run arp for a name pinned to a LAN address: ${JSON.stringify(lines)}`);
+    assert.ok(targets.every((t) => t === '127.0.0.1'), `${name}: ${JSON.stringify(targets)}`);
+  }
+});
+
+test('(sp8) a NAME pinned to a PUBLIC address, and an UNPINNED name: arp is not run, and the not-attempted row is kept', async () => {
+  const pub = await recorded(() => runPinned(PUBLIC, () => arpScanner.run(NAME)));
+  const unpinned = await recorded(() => arpScanner.run(NAME));
+  assert.deepEqual([arpTargetsOf(pub), arpTargetsOf(unpinned)], [[], []]);
+  for (const run of [await runPinned(PUBLIC, () => arpScanner.run(NAME)), await arpScanner.run(NAME)]) {
+    assert.ok(run.data.some((r) => /Non-local target — ARP not attempted/.test(String(r.probe_info))), JSON.stringify(run.data));
+  }
+});
+

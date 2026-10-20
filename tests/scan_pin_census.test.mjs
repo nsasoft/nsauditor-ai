@@ -32,13 +32,12 @@ const SUBPROCESS_TEST = fs.readFileSync(path.join(ROOT, 'tests', 'scan_pin_subpr
 
 const PINNED = 'pinned: handed the address';
 const NOT_A_CONNECT = 'an availability probe for the binary, never a connect to the target';
-const LITERAL_ONLY = 'runs only when the host string is itself a private IP LITERAL (isPrivateLike(host)) — a literal has nothing to pin';
 /** Declared: file → the commands it runs (pinned, or excused), first arguments it passes unbound, and its DNS-protocol use. */
 const DECLARED = {
   'plugins/http_probe.mjs': { commands: { curl: 'pinned: --resolve <name>:80:<address> keeps the Host header' } },
   'plugins/host_up_check.mjs': { commands: { ping: PINNED } },
-  'plugins/ping_checker.mjs': { commands: { ping: PINNED, nping: PINNED, hping3: PINNED, arp: LITERAL_ONLY } },
-  'plugins/arp_scanner.mjs': { commands: { arp: LITERAL_ONLY } },
+  'plugins/ping_checker.mjs': { commands: { ping: PINNED, nping: PINNED, hping3: PINNED, arp: PINNED } },
+  'plugins/arp_scanner.mjs': { commands: { arp: PINNED } },
   'plugins/syn_scanner.mjs': { commands: { nmap: PINNED, where: NOT_A_CONNECT, command: NOT_A_CONNECT } },
   'plugins/tls_scanner.mjs': { dnsProtocol: 'a PTR lookup (reverse) of an address the scan already holds — never a connect' },
   'plugins/060_dns_sec_auditor.mjs': { dnsProtocol: 'DNS posture of the DOMAIN (resolve*) — it never connects to the target; its zone-transfer attempt (opt-in, DNS_AUDIT_AXFR_CHECK) connects to the nameservers\' resolve4 answers, which it classifies itself (outside the pin)' },
@@ -226,7 +225,22 @@ test('every command declared PINNED reads the pin in its plugin, and is exercise
       assert.ok(shims.has(cmd), `${cmd} is declared pinned in ${rel} but no stand-in in the subprocess leg exercises it`);
     }
   }
-  assert.equal(pinned, 6, 'the pinned-command count moved — re-read the declaration');
+  // MOVED DELIBERATELY 6 → 8 (board item "ARP for a pinned name"): both plugins' `arp` was LITERAL_ONLY, so a name pinned to a
+  // LAN address lost ARP; each now hands `arp` the pinned address, driven by tests/scan_pin_subprocess.test.mjs (sp7).
+  assert.equal(pinned, 8, 'the pinned-command count moved — re-read the declaration');
+});
+
+// The README's Security note names the system tools a scan hands a pinned address. It is the published form of this
+// declaration, so it is held to it: a command declared pinned and missing there (as `arp` was) is a reader told less than
+// the scan does, and a name there that nothing declares is a claim no pin backs.
+test('the README names exactly the commands declared pinned', () => {
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const m = /the system tools a scan runs \(([^)]*)\) are handed one/.exec(readme);
+  assert.ok(m, 'the README sentence that lists the pinned system tools was not found');
+  const listed = new Set([...m[1].matchAll(/`([\w.-]+)`/g)].map((x) => x[1]));
+  const declared = new Set(Object.values(DECLARED).flatMap((d) => Object.entries(d.commands ?? {})
+    .filter(([, how]) => how.startsWith('pinned')).map(([cmd]) => cmd)));
+  assert.deepEqual([...listed].sort(), [...declared].sort());
 });
 
 test('every third-party package a plugin imports is DECLARED with why it cannot carry the target name past the pin', () => {
