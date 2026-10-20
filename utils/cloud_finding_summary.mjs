@@ -126,7 +126,8 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
     // bucketed under 'unknown' rather than silently dropped (defense-in-depth against a
     // future id collision / cloudProvider drift — never let a real finding vanish).
     const prov = providerOf(r?.id ?? r?.result?.id) || UNKNOWN_PROVIDER;
-    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], deferredScope: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map(), INFO: new Map() } });
+    const bucket = (out[prov] ||= { counts: {}, findings: [], evidenceGaps: [], deferredScope: [], truncated: false, _rollup: { MEDIUM: new Map(), LOW: new Map(), INFO: new Map() },
+      _channel: { MEDIUM: { evidenceGaps: 0, deferredScope: 0 }, LOW: { evidenceGaps: 0, deferredScope: 0 }, INFO: { evidenceGaps: 0, deferredScope: 0 } } });
     for (const x of found) {
       const sev = String(x?.severity || x?.level || 'INFO').toUpperCase();
       bucket.counts[sev] = (bucket.counts[sev] || 0) + 1;
@@ -176,6 +177,11 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
       // channel (evidence gaps, scope boundaries) are excluded, or the same record is counted
       // twice and a cross-cloud roll-up becomes arithmetically wrong.
       const hasOwnChannel = !!(x && x.details && (x.details.evidenceGap === true || x.details.deferredScope === true));
+      // A channel record still counts in its tier (counts stay complete); the tier line says how many of the count are
+      // these, so its categories plus the two equal it. Each record counts once: a gap if marked so, else declared scope.
+      if ((sev === 'MEDIUM' || sev === 'LOW' || sev === 'INFO') && hasOwnChannel) {
+        bucket._channel[sev][x.details.evidenceGap === true ? 'evidenceGaps' : 'deferredScope'] += 1;
+      }
       if ((sev === 'MEDIUM' || sev === 'LOW' || sev === 'INFO') && !hasOwnChannel) {
         const cat = (x && x.details && x.details.category)
           ? String(x.details.category)
@@ -204,6 +210,10 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
       .sort((a, c) => c.count - a.count || a.category.localeCompare(c.category));
     b.rollup = { MEDIUM: rollupOf('MEDIUM'), LOW: rollupOf('LOW'), INFO: rollupOf('INFO') };
     delete b._rollup;
+    // Disclosed only where a tier holds channel records, so a result without them reads exactly as it did.
+    const channels = Object.fromEntries(Object.entries(b._channel).filter(([, v]) => v.evidenceGaps + v.deferredScope > 0));
+    if (Object.keys(channels).length) b.channelCounts = channels;
+    delete b._channel;
   }
   return out;
 }
@@ -267,10 +277,13 @@ export function renderCloudFindingsMarkdown(summary, providers, opts = {}) {
     }
     for (const tier of ['MEDIUM', 'LOW', 'INFO']) {
       const rows = (b.rollup && b.rollup[tier]) || [];
-      if (!rows.length) continue;
+      const ch = b.channelCounts && b.channelCounts[tier];
+      if (!rows.length && !ch) continue;
       const total = c[tier] || rows.reduce((n, rr) => n + rr.count, 0);
       const body = rows.map((rr) => `${rr.category} ×${rr.count}`).join(' · ');
-      lines.push(`- **${tier} (${total})** ${body}${drill}`);
+      // The count includes the evidence gaps and declared scope itemized above; the categories do not — say how many.
+      const of = ch ? ` — of which ${ch.evidenceGaps} evidence gap${ch.evidenceGaps === 1 ? '' : 's'}, ${ch.deferredScope} declared scope, listed above` : '';
+      lines.push(`- **${tier} (${total}${of})**${body ? ` ${body}` : ''}${rows.length ? drill : ''}`);
     }
     lines.push('');
   }

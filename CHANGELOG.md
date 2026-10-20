@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`scan_cloud`'s tier lines say how much of their count is evidence gaps and declared scope.** The header and each
+  MEDIUM / LOW / INFO line count every record at that severity, while the categories on the line leave out the evidence
+  gaps and declared scope boundaries listed above them — so the categories could sum well below the count (measured on
+  a live AWS run: INFO 52 over categories summing to 35). The counts stay complete; a line now reads
+  `INFO (52 — of which 5 evidence gaps, 12 declared scope, listed above)`, a tier holding only such records still gets
+  its line, and the summary carries the same numbers per tier (`channelCounts`). A result without them reads as before.
 - **The webhook guard resolves a name before refusing it.** Its fast path refused, with no lookup, any webhook host whose
   NAME began like a private address — `10.`, `127.`, `192.168.`, `172.16–31.`, `169.254.`, `0.` — or with
   `metadata.google`, so a public name spelled that way (`10.example.com`, `metadata.googleapis.com`) was refused as
