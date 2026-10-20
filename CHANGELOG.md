@@ -8,6 +8,10 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A plain-http `--webhook-url` says what it costs.** `--webhook-url` accepts an `http:` URL, as documented, and the
+  watch alerts sent to it carry findings in the clear. The CLI now prints one line saying so when it is given one —
+  `[WARN] --webhook-url is a plain http URL: findings leave in the clear over plaintext HTTP …` — without printing the
+  URL, which carries its own credential. Nothing else changes; an https URL prints nothing.
 - **The webapp detector no longer reflects a scanned service's cookie values or redirect query.** The webapp detector
   (010) copied the `Set-Cookie` and `Location` headers into its banner verbatim, so a target's session token — and an SSO
   ticket or OAuth code in a redirect's query — reached its raw result, the scan artifacts and the MCP tool result. Its

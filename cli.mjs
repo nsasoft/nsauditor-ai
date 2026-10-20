@@ -797,6 +797,12 @@ export async function parseArgs(argv) {
     if (!(await isSafeWebhookUrl(whUrl))) {
       throw flagValue('Webhook URL rejected: private/loopback/metadata addresses are not allowed.');
     }
+    // A plain-http alert URL is accepted (documented; whether to refuse it is a MAJOR-shaped decision, boarded), and the
+    // operator is told once what it costs. The URL itself is never printed — it carries its own credential.
+    if (new URL(whUrl).protocol === 'http:') {
+      console.warn('[WARN] --webhook-url is a plain http URL: findings leave in the clear over plaintext HTTP on every '
+        + 'watch alert sent to it — use an https URL');
+    }
     args.webhookUrl = whUrl;
   } else {
     args.webhookUrl = null;

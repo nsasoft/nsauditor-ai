@@ -71,6 +71,26 @@ test('no refusal repeats the value — a webhook URL carries its own credential'
   }
 });
 
+// ── A PLAIN-HTTP --webhook-url IS ACCEPTED, AND SAYS WHAT IT COSTS (board item (ba), half 1) ───────────────────────────
+// Whether it should be refused is the operator's decision (a documented, accepted value — a MAJOR-shaped change); until
+// then the operator is told, once, that the watch alerts it receives leave in the clear.
+async function warningsOf(args) {
+  const lines = [];
+  const real = console.warn;
+  console.warn = (...a) => lines.push(a.join(' '));
+  try { await parseArgs(args); } finally { console.warn = real; }
+  return lines.filter((l) => /webhook/i.test(l));
+}
+test('(first) an https --webhook-url prints no warning', async () => {
+  assert.deepEqual(await warningsOf(argv('--webhook-url', 'https://203.0.113.10/hook')), []);
+});
+test('a plain-http --webhook-url prints exactly ONE warning naming the consequence — and never the URL', async () => {
+  const lines = await warningsOf(argv('--webhook-url', 'http://203.0.113.10/services/SECRETPATHTOKEN'));
+  assert.equal(lines.length, 1, JSON.stringify(lines));
+  assert.match(lines[0], /^\[WARN\] --webhook-url is a plain http URL: findings leave in the clear over plaintext HTTP/);
+  assert.doesNotMatch(lines[0], /SECRETPATHTOKEN|203\.0\.113\.10/);
+});
+
 // ── THROUGH THE COMMAND npm INSTALLS: --webhook-url no longer exits inside parseArgs ───────────────────────────────────
 test('--webhook-url refused through the bin: exit 2 and exactly one [ERROR] line', () => {
   const cwd = fs.mkdtempSync(join(os.tmpdir(), 'nsa-webhook-refusal-'));
