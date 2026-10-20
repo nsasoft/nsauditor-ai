@@ -8,6 +8,12 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The webhook guard resolves a name before refusing it.** Its fast path refused, with no lookup, any webhook host whose
+  NAME began like a private address — `10.`, `127.`, `192.168.`, `172.16–31.`, `169.254.`, `0.` — or with
+  `metadata.google`, so a public name spelled that way (`10.example.com`, `metadata.googleapis.com`) was refused as
+  "rejected by SSRF guard" whatever it answered. The fast path now refuses an IP literal in a blocked range (in any
+  spelling — a bracketed link-local or IPv4-mapped IPv6 address used to reach the resolver first) and `localhost`, its
+  subdomains and `metadata.google.internal`; every other name is resolved and its answers checked, as before.
 - **`probe_service` says which ports it probed.** It is described as running a plugin against a `host:port`, but a plugin
   with its own port set does not use the port it is given: asked for 8443, the TLS scanner (011) probes 443, 465, 563, 993
   and 995 (or `TLS_SCANNER_PORTS`). The tool's description and the README say so, and every response carries `probe` —

@@ -4,7 +4,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
-import { isBlockedIp, resolveAndValidate } from './net_validation.mjs';
+import { isBlockedIp, resolveAndValidate, canonicalIp } from './net_validation.mjs';
 
 /**
  * Validate that a URL is http or https.
@@ -35,11 +35,12 @@ function isValidWebhookUrl(url) {
 export async function resolveWebhookTarget(url) {
   if (!isValidWebhookUrl(url)) return null;
   const host = new URL(url).hostname.toLowerCase();
-  // Fast-path: block obvious loopback, link-local, cloud metadata, and private ranges
-  if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.|0\.|localhost$|metadata\.google)/i.test(host)) {
-    return null;
-  }
-  if (host === '::1' || host === '[::1]' || /^fe80:/i.test(host)) return null;
+  // Fast path, without a lookup: an IP LITERAL in a blocked range (the address classifier, in any spelling) and the names
+  // that are loopback or metadata by definition — `localhost`, its subdomains (RFC 6761), the GCP metadata name. A NAME
+  // that merely starts like a private literal (10.example.com, metadata.googleapis.com) is resolved and checked below.
+  const bare = host.replace(/\.$/, '');
+  if (bare === 'localhost' || bare.endsWith('.localhost') || bare === 'metadata.google.internal') return null;
+  if (canonicalIp(host) && isBlockedIp(host)) return null;
 
   // DNS resolution check — catches rebinding at the check, decimal/octal IPs, IPv6-mapped addrs
   let address;
