@@ -233,6 +233,16 @@ function appendCallSentinel(text, callId) {
 // Max findings per page — also referenced in the TOOLS inputSchema description below.
 const GET_FINDINGS_MAX_LIMIT = 20;   // ~500 chars/finding -> ~10KB page (Desktop 60s budget)
 
+// A category filter that matches nothing: the response lists what the scan holds instead. No plugin declares its
+// categories, so whether a release CAN emit a name is not answerable here — the note says exactly that, and no more.
+export const GET_FINDINGS_NO_MATCH_NOTE =
+  'No finding in this scan matches these filters. categoriesInScan lists every category this scan holds for this '
+  + 'provider. A category missing from it had no finding in this scan; that does not tell you whether this release can '
+  + 'emit it.';
+export const GET_FINDINGS_CATEGORIES_CAP = 100;
+export const GET_FINDINGS_CATEGORIES_TRUNCATED_CLAUSE =
+  `The scan holds more categories than that: categoriesInScan lists the first ${GET_FINDINGS_CATEGORIES_CAP} by name.`;
+
 // ---------------------------------------------------------------------------
 // FRAMEWORK_STEMS — the ONE CE-side name for the shipped compliance framework set.
 //
@@ -314,7 +324,7 @@ export const TOOLS = [
   {
     name: 'get_findings',
     description:
-      'Drill into the findings of the MOST RECENT scan_cloud scan (per-provider, per-session cache — NOT live state; cleared when the MCP server restarts). Filter by provider/plugin/severity/category and paginate (cursor/limit). Returns full untruncated finding text. Requires an Enterprise license. Use the scanId from the scan_cloud summary footer; if you get a "re-run scan_cloud" error the cache was cleared or superseded.',
+      'Drill into the findings of the MOST RECENT scan_cloud scan (per-provider, per-session cache — NOT live state; cleared when the MCP server restarts). Filter by provider/plugin/severity/category and paginate (cursor/limit). Returns full untruncated finding text. Requires an Enterprise license. Use the scanId from the scan_cloud summary footer; if you get a "re-run scan_cloud" error the cache was cleared or superseded. When a category filter matches nothing, the response lists every category this scan holds (categoriesInScan, with totals and the plugins that emitted them): a category missing from it had no finding in this scan, which does not tell you whether the release can emit it.',
     inputSchema: { type: 'object', properties: {
       scanId: { type: 'string', description: 'scanId from the scan_cloud summary footer (optional; staleness guard).' },
       provider: { type: 'string', enum: ['aws', 'gcp', 'azure'], description: 'Which provider slot to drill (required when multiple are cached).' },
@@ -675,6 +685,32 @@ export async function handleScanCloud(args) {
   };
 }
 
+/** A finding's category as get_findings reports it: its own, else `uncategorized(<plugin id>)`. One rule for the row
+ *  filter and for the census below, so the two cannot disagree about what a category is. */
+function _findingCategory(f, r) {
+  return (f?.details && f.details.category) ? String(f.details.category) : `uncategorized(${String(r?.id ?? '')})`;
+}
+
+/** Every category a cached scan holds, with its total and the plugins that emitted it — NO filter applied: under the
+ *  caller's plugin or severity filter, a category that exists in the scan would read absent. Sorted by name; the first
+ *  GET_FINDINGS_CATEGORIES_CAP are listed, and a longer list says it was cut. */
+function _categoriesInScan(slot) {
+  const by = new Map();
+  for (const r of (slot.results || [])) for (const f of (r?.result?.findings ?? r?.findings ?? [])) {
+    const category = _findingCategory(f, r);
+    const e = by.get(category) || { category, total: 0, plugins: new Set() };
+    e.total += 1; e.plugins.add(String(r?.id ?? '')); by.set(category, e);
+  }
+  const all = [...by.values()].sort((a, b) => (a.category < b.category ? -1 : a.category > b.category ? 1 : 0))
+    .map((e) => ({ category: e.category, total: e.total, plugins: [...e.plugins].sort() }));
+  const cut = all.length > GET_FINDINGS_CATEGORIES_CAP;
+  return {
+    categoriesInScan: all.slice(0, GET_FINDINGS_CATEGORIES_CAP),
+    ...(cut ? { categoriesInScanTruncated: true } : {}),
+    note: cut ? `${GET_FINDINGS_NO_MATCH_NOTE} ${GET_FINDINGS_CATEGORIES_TRUNCATED_CLAUSE}` : GET_FINDINGS_NO_MATCH_NOTE,
+  };
+}
+
 export async function handleGetFindings(args = {}) {
   const slots = ['aws', 'gcp', 'azure'].filter((p) => _getCloudScan(p));
   let provider = args.provider && String(args.provider).toLowerCase();
@@ -689,7 +725,7 @@ export async function handleGetFindings(args = {}) {
   let rows = [];
   for (const r of (slot.results || [])) for (const f of (r?.result?.findings ?? r?.findings ?? [])) {
     const sev = String(f?.severity || 'INFO').toUpperCase();
-    const cat = (f?.details && f.details.category) ? String(f.details.category) : `uncategorized(${String(r?.id ?? '')})`;
+    const cat = _findingCategory(f, r);
     if (args.severity && sev !== String(args.severity).toUpperCase()) continue;
     if (args.category && cat !== String(args.category)) continue;
     if (args.plugin && String(r?.id) !== String(args.plugin)) continue;
@@ -709,6 +745,12 @@ export async function handleGetFindings(args = {}) {
   const out = { provider, scanId: slot.scanId, total: rows.length, findings: page };
   if (Number(args.limit) > GET_FINDINGS_MAX_LIMIT) out.note = `limit capped server-side at ${GET_FINDINGS_MAX_LIMIT} (≈10KB/page).`;
   if (start + limit < rows.length) out.nextCursor = String(start + limit);
+  // A category filter that matched nothing: say what this scan holds, so "no rows here" cannot be read as "no such
+  // category" or the reverse. Only for a category question — every other call keeps its shape.
+  if (args.category && rows.length === 0) {
+    const census = _categoriesInScan(slot);
+    Object.assign(out, census, { note: out.note ? `${out.note} ${census.note}` : census.note });
+  }
   return out;
 }
 

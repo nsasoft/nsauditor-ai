@@ -8,6 +8,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`get_findings` says what a scan holds when a category filter matches nothing.** Filtered on a category, it answered
+  `total: 0` both when the category had no finding in this scan and when the name matched nothing at all, so a client
+  could not tell the two apart. A zero-row category call now also returns `categoriesInScan`: every category in the
+  cached scan for that provider, sorted by name, each with its `total` and the `plugins` that emitted it. The list
+  ignores the call's `plugin` and `severity` filters, so a category that exists at another severity, or from another
+  plugin, is still listed, and the totals add up to every row the provider holds. Beside it is the note "No finding in
+  this scan matches these filters. categoriesInScan lists every category this scan holds for this provider. A category
+  missing from it had no finding in this scan; that does not tell you whether this release can emit it." The list holds
+  at most 100 categories, the first by name; a longer one sets `categoriesInScanTruncated: true` and the note says so.
+  Every other call returns exactly what it did.
 - **A host scanned by name keeps its ARP lookup when its address is on a local network.** The ARP Scanner (026) and the
   ping checker's ARP step ran `arp` only when the host string was itself a private IP address, so a name — `router.lan`,
   pinned by the host check to `192.168.1.1` — got no MAC or vendor. Both now judge, and hand `arp`, the address the host
