@@ -33,6 +33,9 @@ const run = (findings, opts) => summarizeCloudFindings([{ id: '1221', result: { 
 // The oracles in the three "(first)" legs are DECLARED strings, never describeFinding's output: a marker moved INSIDE
 // describeFinding would change both sides of a computed comparison and pass. The fixtures are short on purpose, so a
 // marker would fit inside the 160 budget and could not be hidden by the cut.
+// Measured on the mutant that moves the marker into describeFinding: finding_identity, report_since and
+// cloud_finding_summary all stay green under it. Leg 1, with its declared literal, is the only thing in the suite that
+// sees a title change ride into the finding id and the delta key — do not "simplify" its oracle back to describeFinding.
 const shortTwo = { severity: 'critical', resource: 'nsg-1', region: 'eastus', issues: ['SSH 22 open to the Internet', 'RDP 3389 open to ::/0'] };
 
 test('(first) the REPORT title of a multi-entry finding is unchanged — it is part of the finding id and the delta key', () => {
