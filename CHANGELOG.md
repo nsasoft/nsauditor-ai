@@ -8,6 +8,16 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A saved response now has its request beside it, and `verify-call` can check both.** With `NSA_MCP_RESPONSE_DIR`
+  set, the server saved each response as `<call_id>.txt`, but not what the call asked for. Claude Desktop 3.x shows no
+  request at all for a `scan_cloud` call, and no log kept the arguments, so a saved scan was a response to an unrecorded
+  request: which regions it covered could only be inferred. The server now also writes `<call_id>.request.json`: the
+  tool's name and the call's arguments, verbatim, mode `0600`, never over an existing file. It is written with the
+  response, both or neither, and the footer names both files only when both exist. The call log keeps a digest of the
+  request file's bytes, read back after the write, beside the response digest, and
+  `nsauditor-ai mcp verify-call <call_id> --response <file> --request <file>` checks both. A request the server did
+  not record reads "not bound" (exit 3), never as altered. Denials and error responses save and bind their request too.
+  Without `--request`, verify-call's output is unchanged.
 - **A `scan_cloud` title says when its finding holds more than the title shows.** A cloud finding carries one or
   more entries, and the summary titles it with one of them. Before this change, nothing said there were others. On a
   test subscription, a CRITICAL on a network security group held two entries, SSH open to the Internet and RDP open to

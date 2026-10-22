@@ -2903,11 +2903,19 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       const { readFile, stat } = await import('node:fs/promises');
       const { join: _join } = await import('node:path');
       const { homedir: _homedir } = await import('node:os');
-      const { responseDigest, bodyOf } = await import('./utils/mcp_call_digest.mjs');
+      const { responseDigest, requestDigest, bodyOf } = await import('./utils/mcp_call_digest.mjs');
       const logPath = _join(_homedir(), '.nsauditor', 'mcp-calls.log');
       const uuid = rawArgs[2];
       const respAt = rawArgs.indexOf('--response');
       const respPath = respAt > 0 ? rawArgs[respAt + 1] : null;
+      // B63 (2.1.0): the request saved beside the response (<call_id>.request.json), checked against the digest the
+      // server logged of that file's bytes. Optional; absent, every output below is what it was.
+      const reqAt = rawArgs.indexOf('--request');
+      const reqPath = reqAt > 0 ? rawArgs[reqAt + 1] : null;
+      if (reqAt > 0 && !reqPath) {
+        console.error('Usage: nsauditor-ai mcp verify-call <uuid> --response <file|-> --request <file>');
+        process.exit(2);
+      }
       if (!uuid || (respAt > 0 && !respPath)) {
         console.error('Usage: nsauditor-ai mcp verify-call <uuid> --response <file|->');
         console.error('  Save the whole tool response (footer included) to a file, or pipe it in with --response -.');
@@ -2931,6 +2939,13 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
           }
         } catch (err) {
           console.error(`✗ Could not read the response from ${respPath}: ${err.message}`);
+          process.exit(2);
+        }
+      }
+      let reqBytes = null;
+      if (reqPath) {
+        try { reqBytes = await readFile(reqPath); } catch (err) {
+          console.error(`✗ Could not read the request from ${reqPath}: ${err.message}`);
           process.exit(2);
         }
       }
@@ -2968,28 +2983,48 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       })();
       const issuedLine = `${issued.tool ?? 'an unrecorded tool'}, issued ${ago} (${issued.ts ?? 'no timestamp'})`;
       const digests = entries.map((e) => e.digest).filter((d) => typeof d === 'string');
+      // With --request, the request is checked after the response and the exit is the worse of the two: any refutation
+      // is 1, otherwise anything indeterminate is 3. Without it, each exit below is exactly what it was.
+      const finish = (code) => {
+        if (reqBytes == null) process.exit(code);
+        const recorded = entries.map((e) => e.request_digest).filter((d) => typeof d === 'string');
+        let reqCode;
+        if (recorded.length === 0) {
+          console.log(`? The request is not bound: this server recorded no request digest for call_id ${uuid}.`);
+          console.log('  The call was not saved with NSA_MCP_RESPONSE_DIR set, or it predates request binding.');
+          reqCode = 3;
+        } else if (recorded.includes(requestDigest(reqBytes))) {
+          console.log(`✓ This request is the one the server recorded for that call — ${issuedLine}.`);
+          reqCode = 0;
+        } else {
+          console.log(`✗ The request does not match what this server recorded for that call (${issuedLine}).`);
+          console.log('  It was changed after the server wrote it, or it belongs to another call.');
+          reqCode = 1;
+        }
+        process.exit(code === 1 || reqCode === 1 ? 1 : (code === 3 || reqCode === 3 ? 3 : 0));
+      };
       if (digests.length === 0) {
         console.log(`? call_id ${uuid} was issued by this server for ${issued.tool ?? 'an unrecorded tool'} ${ago} (${issued.ts ?? 'no timestamp'}).`);
         console.log('  This call predates response binding: no digest of its response was recorded, so the text');
         console.log('  cannot be bound to it. The id alone does not verify a response.');
-        process.exit(3);
+        finish(3);
       }
       if (responseText == null) {
         console.log(`? call_id ${uuid} was issued by this server for ${issued.tool ?? 'an unrecorded tool'} ${ago} (${issued.ts ?? 'no timestamp'}).`);
         console.log('  That alone does not verify the text you are reading: an id from an earlier response can be');
         console.log('  pasted under a fabricated one. Save the raw tool response and run:');
         console.log(`    nsauditor-ai mcp verify-call ${uuid} --response <file>`);
-        process.exit(3);
+        finish(3);
       }
       if (digests.includes(responseDigest(bodyOf(responseText)))) {
         console.log(`✓ This response text was produced by this server for that call — ${issuedLine}.`);
         console.log(`  log: ${logPath}`);
-        process.exit(0);
+        finish(0);
       }
       console.log(`✗ The text does not match what this server sent for that call (${issuedLine}).`);
       console.log('  Either it was altered after copying (rendering, re-wrapping) or it was not produced by this');
       console.log('  call — re-copy the RAW tool output and verify again.');
-      process.exit(1);
+      finish(1);
     } else {
       console.log('Usage:');
       console.log('  nsauditor-ai mcp install-key            Generate a new key, persist, print Claude config');
@@ -2999,6 +3034,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('  nsauditor-ai mcp status                 Show storage source without revealing the key');
       console.log('  nsauditor-ai mcp tier                   Print actual MCP server tier (ground truth, bypasses Claude AI synthesis)');
       console.log('  nsauditor-ai mcp verify-call <uuid> --response <file|->   Check that a saved tool response is the text this server produced for that call');
+      console.log('      [--request <file>]   …and that a saved request (<call_id>.request.json) is the one it recorded');
       console.log('');
       console.log('Environment variables:');
       console.log(`  ${MCP_AUTH_ENV_VAR}        Read by mcp_server.mjs at startup; client supplies via Claude config`);

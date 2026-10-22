@@ -333,8 +333,12 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
   exactly as it returned it, as `<call_id>.txt` (the directory is created `0700` if missing, each file `0600`, and an
   existing file is never overwritten). It exists for `nsauditor-ai mcp verify-call <call_id> --response <file>`, which
   needs the whole response: Claude Desktop shows long tool output truncated, and a truncated copy cannot be verified.
-  When a copy was saved, the response's receipt footer says so (it names the file, not the directory). The files hold
-  scan results — keep the directory private, and clear it yourself; nothing removes them. It is a server setting, not a
+  Beside each response the server saves its request as `<call_id>.request.json`: the tool's name and the call's own
+  arguments, verbatim (a `scan_host` host, `scan_cloud`'s providers and regions) — both files or neither, `0600`.
+  `verify-call <call_id> --response <file> --request <file>` checks both: the server logs a digest of each.
+  When the copies were saved, the response's receipt footer says so (it names the files, not the directory). The files
+  hold scan results and the targets you asked about — keep the directory private, and clear it yourself; nothing
+  removes them. It is a server setting, not a
   scan target: set it in this `env` block (not in an `NSA_ENV_FILE` file), then fully quit and reopen Claude Desktop.
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 

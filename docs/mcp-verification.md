@@ -52,15 +52,21 @@ Matching ignores whitespace and is exact on words: a copy your client soft-wrapp
 3. Copy the RAW tool result (not the assistant's rendered summary) into response.txt and run that command.
    If the client shows the response truncated (Claude Desktop does, for long output), a copy cannot be verified:
    set NSA_MCP_RESPONSE_DIR to an absolute directory in the server's config env block, fully quit and reopen the
-   client, and the server saves each response there as <call_id>.txt. Run the command over that file. The footer
-   of a saved response says so: "A copy of this response was saved as <call_id>.txt in the directory
-   NSA_MCP_RESPONSE_DIR names."
+   client, and the server saves each response there as <call_id>.txt, with the call's request beside it as
+   <call_id>.request.json (the tool and its arguments, verbatim). Run the command over those files:
+       nsauditor-ai mcp verify-call <call_id> --response <call_id>.txt --request <call_id>.request.json
+   The footer of a saved response says so: "A copy of this response was saved as <call_id>.txt, and its request
+   as <call_id>.request.json, in the directory NSA_MCP_RESPONSE_DIR names."
 
 4. Reading the output:
        ✓ (exit 0) → this text is what the server produced for that call; note how long ago
        ✗ (exit 1) → not produced by this call (or altered after copying) — re-copy the raw output and retry;
                     if it still fails, ignore the response
        ? (exit 3) → the id is real but the text is unverified — supply --response
+   With --request, the request is checked too, and the exit is the worse of the two:
+       ✓ → this is the request the server recorded for that call
+       ✗ (exit 1) → it was changed after the server wrote it, or belongs to another call
+       ? (exit 3) → not bound: the call was not saved with NSA_MCP_RESPONSE_DIR set, so no request was recorded
 ```
 
 ## When you'd use this in practice

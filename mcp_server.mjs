@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { responseDigest, RECEIPT_MARKER } from './utils/mcp_call_digest.mjs';
+import { responseDigest, requestDigest, RECEIPT_MARKER } from './utils/mcp_call_digest.mjs';
 import { appendFile, mkdir, chmod } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -219,7 +219,7 @@ async function recordToolCall(toolName) {
 
 /** The footer line, present exactly when the file exists. */
 export const MCP_RESPONSE_SAVED_LINE = (callId) =>
-  `A copy of this response was saved as ${callId}.txt in the directory NSA_MCP_RESPONSE_DIR names.`;
+  `A copy of this response was saved as ${callId}.txt, and its request as ${callId}.request.json, in the directory NSA_MCP_RESPONSE_DIR names.`;
 
 /** The directory responses are saved to, or null when saving is off. A relative path is refused: the server's working
  *  directory under a desktop client is not one the operator chose. Read on every call, so a test can toggle it. */
@@ -259,6 +259,42 @@ export function _persistResponse(dir, callId, text) {
   }
 }
 
+// A response is half a record: a client may show no request for a call (Claude Desktop 3.x shows none for scan_cloud)
+// and no log holds the arguments. So the request is saved beside the response, as `<call_id>.request.json` — the
+// call's tool and arguments exactly as received — under the same rules, and BOTH OR NEITHER: the request is written
+// first, the response second, and if either fails both are removed, so the footer line is present exactly when both
+// files exist. The digest the call log keeps is of the request file's bytes READ BACK after the write, never of the
+// text meant to be written: the record is the file.
+let _requestBytes = (t) => t;
+/** Test seam: transform the request text at the write, to prove the digest follows the file. null restores. */
+export function _setRequestBytesSeam(fn) { _requestBytes = typeof fn === 'function' ? fn : ((t) => t); }
+
+function _requestText(callId, request) {
+  return JSON.stringify({ call_id: callId, tool: request?.tool ?? null, arguments: request?.arguments ?? {} }, null, 2) + '\n';
+}
+
+/** Write `<callId>.request.json` then `<callId>.txt`, both or neither. Returns { saved, requestDigest }. Never throws. */
+export function _persistCall(dir, callId, responseText, requestText) {
+  const reqFile = _nodePath.join(dir, `${callId}.request.json`);
+  let fd = null;
+  let wrote = false;
+  try {
+    if (!_nodeFs.existsSync(dir)) _nodeFs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fd = _nodeFs.openSync(reqFile, 'wx', 0o600);
+    wrote = true;
+    _nodeFs.writeSync(fd, typeof requestText === 'string' ? _requestBytes(requestText) : requestText);
+    _nodeFs.closeSync(fd); fd = null;
+    const digest = requestDigest(_nodeFs.readFileSync(reqFile));
+    if (!_persistResponse(dir, callId, responseText).saved) throw new Error('the response was not saved');
+    return { saved: true, requestDigest: digest };
+  } catch (err) {
+    if (fd != null) { try { _nodeFs.closeSync(fd); } catch { /* already closed */ } }
+    if (wrote) { try { _nodeFs.unlinkSync(reqFile); } catch { /* nothing to remove */ } }
+    process.stderr.write(`[nsauditor-mcp] this call was not saved to NSA_MCP_RESPONSE_DIR (${(err && (err.code || err.message)) || 'error'}).\n`);
+    return { saved: false };
+  }
+}
+
 function _receiptText(text, callId, savedLine) {
   return (
     `${text}\n\n${RECEIPT_MARKER}\n` +
@@ -270,21 +306,26 @@ function _receiptText(text, callId, savedLine) {
   );
 }
 
-function appendCallSentinel(text, callId) {
+function appendCallSentinel(text, callId, request = null) {
   // The digest of the BODY — the text the receipt is appended to — is what binds this response to its id. It is
   // logged, never printed: a digest in the footer would replay together with the id. Best-effort like the id line: a
-  // failed write leaves the call verifiable only as "issued", never as a false ✓.
+  // failed write leaves the call verifiable only as "issued", never as a false ✓. The request digest joins it only
+  // when the request file was saved: both-or-neither governs the files and the footer, never the response digest.
+  const dir = _responseDir();
+  let out = null;
+  let reqDigest = null;
+  if (dir) {
+    const saved = _receiptText(text, callId, MCP_RESPONSE_SAVED_LINE(callId));
+    const r = _persistCall(dir, callId, saved, _requestText(callId, request));
+    if (r.saved) { out = saved; reqDigest = r.requestDigest; }
+  }
   try {
-    _nodeFs.appendFileSync(MCP_CALL_LOG_PATH, JSON.stringify({ call_id: callId, digest: responseDigest(text) }) + '\n', { encoding: 'utf8' });
+    _nodeFs.appendFileSync(MCP_CALL_LOG_PATH, JSON.stringify({ call_id: callId, digest: responseDigest(text),
+      ...(reqDigest ? { request_digest: reqDigest } : {}) }) + '\n', { encoding: 'utf8' });
   } catch (err) {
     process.stderr.write(`[nsauditor-mcp] call-log digest write failed: ${err.message}\n`);
   }
-  const dir = _responseDir();
-  if (dir) {
-    const saved = _receiptText(text, callId, MCP_RESPONSE_SAVED_LINE(callId));
-    if (_persistResponse(dir, callId, saved).saved) return saved;
-  }
-  return _receiptText(text, callId, null);
+  return out ?? _receiptText(text, callId, null);
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1151,8 @@ export function createServer() {
     // call hit the server. The id alone does NOT authenticate a response — a fabricated response can carry a real id
     // copied from an earlier one — so the receipt also logs a digest of the body (appendCallSentinel, 1.3.0 (s6)).
     const callId = await recordToolCall(name);
+    // What this call asked for, saved beside its response when NSA_MCP_RESPONSE_DIR is set (verbatim; {} when absent).
+    const callRequest = { tool: name, arguments: args ?? {} };
 
     // Gate Pro-tier tools at the MCP dispatch layer
     if (name === 'probe_service' || name === 'get_vulnerabilities') {
@@ -1118,7 +1161,7 @@ export function createServer() {
         return {
           ...denied,
           content: denied.content.map((c) =>
-            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId) } : c,
+            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId, callRequest) } : c,
           ),
         };
       }
@@ -1131,7 +1174,7 @@ export function createServer() {
         return {
           ...denied,
           content: denied.content.map((c) =>
-            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId) } : c,
+            c.type === 'text' ? { ...c, text: appendCallSentinel(c.text, callId, callRequest) } : c,
           ),
         };
       }
@@ -1182,16 +1225,16 @@ export function createServer() {
         const tierSuffix = `\n\nCurrent tier: ${tierLabel[_tier] ?? _tier}. ${_capabilities.proMCP ? '' : 'Upgrade to Pro for probe_service and get_vulnerabilities.'}`;
 
         return {
-          content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2) + tierSuffix + versionLines, callId) }],
+          content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2) + tierSuffix + versionLines, callId, callRequest) }],
         };
       }
 
       return {
-        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2), callId) }],
+        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify(result, null, 2), callId, callRequest) }],
       };
     } catch (err) {
       return {
-        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify({ error: err.message }), callId) }],
+        content: [{ type: 'text', text: appendCallSentinel(JSON.stringify({ error: err.message }), callId, callRequest) }],
         isError: true,
       };
     }

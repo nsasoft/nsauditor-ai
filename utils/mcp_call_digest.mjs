@@ -23,6 +23,12 @@ export function responseDigest(body) {
   return createHash('sha256').update(canonicalResponse(body), 'utf8').digest('hex');
 }
 
+/** SHA-256 (hex) of a saved request file's EXACT bytes. No canonicalisation: the server writes the file and reads it
+ *  back, so the bytes are the record — a re-saved or re-formatted copy is a different file. */
+export function requestDigest(bytes) {
+  return createHash('sha256').update(Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes ?? ''), 'utf8')).digest('hex');
+}
+
 /** The body of a saved response: everything before the receipt footer, which is not part of what the tool produced. */
 export function bodyOf(saved) {
   const text = String(saved ?? '');
