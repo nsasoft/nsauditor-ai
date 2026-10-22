@@ -386,7 +386,7 @@ export const TOOLS = [
   {
     name: 'get_findings',
     description:
-      'Drill into the findings of the MOST RECENT scan_cloud scan (per-provider, per-session cache — NOT live state; cleared when the MCP server restarts). Filter by provider/plugin/severity/category and paginate (cursor/limit). Returns full untruncated finding text. Requires an Enterprise license. Use the scanId from the scan_cloud summary footer; if you get a "re-run scan_cloud" error the cache was cleared or superseded. When a category filter matches nothing, the response lists every category this scan holds (categoriesInScan, with totals and the plugins that emitted them): a category missing from it had no finding in this scan, which does not tell you whether the release can emit it.',
+      'Drill into the findings of the MOST RECENT scan_cloud scan (per-provider, per-session cache — NOT live state; cleared when the MCP server restarts). Filter by provider/plugin/severity/category and paginate (cursor/limit). Returns full untruncated finding text. Requires an Enterprise license. Use the scanId from the scan_cloud summary footer; if you get a "re-run scan_cloud" error the cache was cleared or superseded. When a category filter matches nothing, the response lists every category this scan holds (categoriesInScan, with totals and the plugins that emitted them): a category missing from it had no finding in this scan, which does not tell you whether the release can emit it. A scan_cloud title ending "(+N more via get_findings)" shows one of that finding\'s N+1 entries: filter here by its plugin and severity, and the row whose resource begins the title holds them all. Entries include evidence statements, not only defects; read them before counting.',
     inputSchema: { type: 'object', properties: {
       scanId: { type: 'string', description: 'scanId from the scan_cloud summary footer (optional; staleness guard).' },
       provider: { type: 'string', enum: ['aws', 'gcp', 'azure'], description: 'Which provider slot to drill (required when multiple are cached).' },
@@ -712,7 +712,10 @@ export async function handleScanCloud(args) {
   // network-host concluder (result_concluder.mjs) doesn't understand cloud
   // compliance findings and silently drops them (the false-clean this fixes).
   const providerOf = (id) => (pm.plugins || []).find((p) => String(p.id) === String(id))?.cloudProvider || null;
-  const findingsSummary = summarizeCloudFindings(output.results || [], providerOf);
+  // A title that shows one of several entries says so, naming get_findings — only when this server
+  // offers it (the same condition as the markdown's pointers below).
+  const findingsSummary = summarizeCloudFindings(output.results || [], providerOf, undefined,
+    typeof toolHandlers.get_findings === 'function' ? { moreVia: 'get_findings' } : {});
 
   // Render Markdown FROM the findings summary (NOT the host renderer, which is
   // empty for a cloud conclusion). Best-effort.

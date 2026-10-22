@@ -8,6 +8,17 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **A `scan_cloud` title says when its finding holds more than the title shows.** A cloud finding carries one or
+  more entries, and the summary titles it with one of them. Before this change, nothing said there were others. On a
+  test subscription, a CRITICAL on a network security group held two entries, SSH open to the Internet and RDP open to
+  `::/0`. Only the first reached the reader, and a summary built on the titles counted one exposed rule too few. A
+  CRITICAL/HIGH or evidence-gap title in `scan_cloud`'s `findingsSummary` now ends ` (+N more via get_findings)` when
+  its finding holds N more non-blank entries. The marker is reserved inside the same 160-character budget and is
+  never cut. There is no noun on purpose: the entries include evidence statements as well as defects, so read the
+  row's text before counting. The `get_findings` description says how to drill: filter by the line's plugin and
+  severity and read the row whose resource begins the title. A single-entry finding, a PASS record, the deferred-scope
+  channel, the report titles (which feed each finding's id and the delta's identity key) and the Enterprise CLI's
+  cloud conclusion are unchanged.
 - **`scan_host` stops at a total time limit and says so, instead of being cut by the client with nothing returned.**
   `scan_host` runs a host's plugins one after another, so the call takes about the sum of their times (54–122 s on one
   home router), and Claude Desktop 3.x ends a tool call at about 60 s, whatever `MCP_TIMEOUT` says: the server finished

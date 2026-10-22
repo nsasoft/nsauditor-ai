@@ -75,6 +75,16 @@ function pickClause(issues, prefer) {
  *   where a 160-char slice discloses one deferred dimension out of eight and so claims more
  *   coverage than it has).
  */
+/**
+ * The marker a summary title carries when its finding holds `n` more non-blank entries than the one
+ * it shows, naming the tool that shows them all. No noun on purpose: a finding's entries are not all
+ * defects — evidence statements sit beside them — so "issues" would overclaim. No " — " (a reader
+ * splits a title on the first one) and no word a gate reads as a gap or a verdict.
+ */
+export function moreMarker(n, via) {
+  return ` (+${n} more via ${via})`;
+}
+
 export function describeFinding(x, opts = {}) {
   const max = Number.isFinite(opts.max) ? opts.max : 160;
   const flat = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -100,12 +110,39 @@ function findingsOf(r) {
  * @param {Array} results              out.results (each {id, result:{findings|data}})
  * @param {(id:any)=>string|null} providerOf  plugin id -> cloudProvider
  * @param {number} [cap]               max CRITICAL/HIGH entries listed per provider (also caps evidenceGaps independently)
+ * @param {{moreVia?: string}} [opts] moreVia: the tool that shows a finding's every entry; when set, a
+ *   CRITICAL/HIGH or evidence-gap title of a finding holding more entries than it shows ends moreMarker(n, moreVia)
  * @returns {Object} { [provider]: { counts:{SEV:n}, findings:[{severity,plugin,title}], truncated:boolean,
  *                                   evidenceGaps:[{severity,plugin,title}], evidenceGapsTruncated?:boolean } }
  *   evidenceGaps surfaces findings carrying `details.evidenceGap === true` (the no-false-clean
  *   "could not verify" disclosures) REGARDLESS of severity, so a LOW/INFO gap is never invisible.
  */
-export function summarizeCloudFindings(results, providerOf, cap = Number(process.env.CLOUD_FINDINGS_CAP) || 60) {
+// How many more non-blank entries a finding holds than the one its title shows. Counts ENTRIES of
+// issues[], never clauses (a bulleted single entry is one), skips null/blank ones — the marker counts
+// what get_findings will show — and is 0 for a PASS record, which is never marked.
+function moreEntries(x) {
+  if (!x || typeof x !== 'object' || !Array.isArray(x.issues)) return 0;
+  if (String(x.severity || x.level || '').toUpperCase() === 'PASS') return 0;
+  const n = x.issues.filter((i) => i != null && String(i).replace(/\s+/g, ' ').trim() !== '').length;
+  return n > 1 ? n - 1 : 0;
+}
+
+// A summary title, with the marker when `via` names a tool and the finding holds more. The marker is
+// RESERVED inside the budget (describeFinding is cut to max − marker), so the title keeps today's
+// "at most max + 1" bound and the marker itself is never cut. describeFinding stays byte-identical:
+// the report path derives identity from it.
+function summaryTitle(x, dOpts, via) {
+  const n = via ? moreEntries(x) : 0;
+  if (!n) return describeFinding(x, dOpts);
+  const suffix = moreMarker(n, via);
+  const max = Number.isFinite(dOpts.max) ? dOpts.max : 160;
+  return describeFinding(x, { ...dOpts, max: max - suffix.length }) + suffix;
+}
+
+export function summarizeCloudFindings(results, providerOf, cap = Number(process.env.CLOUD_FINDINGS_CAP) || 60, opts = {}) {
+  // opts.moreVia: a tool name. Set ONLY by a caller that offers that tool (the MCP server, when
+  // get_findings is registered); the EE CLI passes nothing and its titles are unchanged.
+  const via = typeof opts.moreVia === 'string' && opts.moreVia ? opts.moreVia : null;
   const out = {};
   // Scan for the FIRST plugin that carries a scanScope (AWS plugins emit it on
   // result.summary.scanScope). Used to derive the incomplete-coverage advisory.
@@ -149,14 +186,14 @@ export function summarizeCloudFindings(results, providerOf, cap = Number(process
       }
       let findingEntry = null;
       if (sev === 'CRITICAL' || sev === 'HIGH') {
-        findingEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x) };
+        findingEntry = { severity: sev, plugin: String(r?.id ?? ''), title: summaryTitle(x, {}, via) };
         bucket.findings.push(findingEntry);
       }
       if (x && typeof x === 'object' && x.details && x.details.evidenceGap === true) {
         // Lead with the GAP clause (the badge says "unverified" — badging a verified
         // fact is incoherent); carry the first actionable clause as a companion so a
         // mixed rollup's actionable content still reaches the caller (review fold D3).
-        const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: describeFinding(x, { prefer: 'gap' }) };
+        const gapEntry = { severity: sev, plugin: String(r?.id ?? ''), title: summaryTitle(x, { prefer: 'gap' }, via) };
         gapEntry.gapKind = (x.details.walkthroughRequired === true) ? 'walkthrough-required' : 'couldnt-read';
         const clauses = Array.isArray(x.issues) ? x.issues.filter(Boolean).map(String) : [];
         const actionableClauses = clauses.filter((i) => classifyClause(i) === 'actionable');
