@@ -328,6 +328,13 @@ The exact `NSA_MCP_AUTH_KEY` value to paste is printed by `nsauditor-ai mcp inst
 - `PLUGIN_TIMEOUT_CEILING_MS` — the upper bound on any plugin's DECLARED budget (default 120000). A few plugins declare their own budget because their cost grows with what they scan (the UPnP and MCP scanners here; several cloud auditors in Enterprise). On the CLI a declaration outranks `PLUGIN_TIMEOUT_MS`, so this is the setting that caps every plugin there. The MCP tools already bind declarations with their own limits.
 - `CLOUD_SCAN_CONCURRENCY` — max cloud plugins run at once by `scan_cloud` (default 20).
 - `CLOUD_PLUGIN_TIMEOUT_MS` — per-plugin timeout for `scan_cloud` (default 25000; independent of the network `PLUGIN_TIMEOUT_MS`). It bounds each plugin, not the call — see the all-region note above before raising it.
+- `NSA_MCP_RESPONSE_DIR` — off unless set. An **absolute** directory where the server saves each tool response,
+  exactly as it returned it, as `<call_id>.txt` (the directory is created `0700` if missing, each file `0600`, and an
+  existing file is never overwritten). It exists for `nsauditor-ai mcp verify-call <call_id> --response <file>`, which
+  needs the whole response: Claude Desktop shows long tool output truncated, and a truncated copy cannot be verified.
+  When a copy was saved, the response's receipt footer says so (it names the file, not the directory). The files hold
+  scan results — keep the directory private, and clear it yourself; nothing removes them. It is a server setting, not a
+  scan target: set it in this `env` block (not in an `NSA_ENV_FILE` file), then fully quit and reopen Claude Desktop.
 - `AI_PROVIDER` and API key — optional, enables AI-powered analysis of scan results
 
 #### `NSA_ENV_FILE` — point the MCP server at an environment file

@@ -50,6 +50,11 @@ Matching ignores whitespace and is exact on words: a copy your client soft-wrapp
          nsauditor-ai mcp verify-call 3f8a1b22-7e44-4c91-9d62-12bd0a4f5e91 --response <file>
 
 3. Copy the RAW tool result (not the assistant's rendered summary) into response.txt and run that command.
+   If the client shows the response truncated (Claude Desktop does, for long output), a copy cannot be verified:
+   set NSA_MCP_RESPONSE_DIR to an absolute directory in the server's config env block, fully quit and reopen the
+   client, and the server saves each response there as <call_id>.txt. Run the command over that file. The footer
+   of a saved response says so: "A copy of this response was saved as <call_id>.txt in the directory
+   NSA_MCP_RESPONSE_DIR names."
 
 4. Reading the output:
        ✓ (exit 0) → this text is what the server produced for that call; note how long ago

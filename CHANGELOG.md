@@ -8,6 +8,15 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **The MCP server can save each tool response, so a response the client truncates can still be verified.** The
+  receipt check, `nsauditor-ai mcp verify-call <call_id> --response <file>`, needs the whole response, and Claude
+  Desktop shows long tool output truncated, in the app and in the browser view; the server's call log holds a digest of
+  each response, never its text. With `NSA_MCP_RESPONSE_DIR` set to an absolute directory, the server writes each
+  response, exactly as returned, to `<call_id>.txt` there — denials and error responses included — creating the
+  directory `0700` if it is missing, each file `0600`, never over an existing file or through a link at that name. The
+  receipt footer then gains the line "A copy of this response was saved as <call_id>.txt in the directory
+  NSA_MCP_RESPONSE_DIR names.", only when the file was written; it names no path. Off unless set; a relative path is
+  refused. The files hold scan results, and nothing removes them. A symlinked directory is used as it is.
 - **`get_findings` says what a scan holds when a category filter matches nothing.** Filtered on a category, it answered
   `total: 0` both when the category had no finding in this scan and when the name matched nothing at all, so a client
   could not tell the two apart. A zero-row category call now also returns `categoriesInScan`: every category in the

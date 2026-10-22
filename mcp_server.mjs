@@ -208,6 +208,68 @@ async function recordToolCall(toolName) {
   return callId;
 }
 
+// ── An opt-in local copy of each response (NSA_MCP_RESPONSE_DIR) ─────────────────────────────────────────────────────
+// verify-call needs the WHOLE response, and a client may show a long one truncated (Claude Desktop does, in the app and
+// in the browser view), while the call log holds a digest, never the bytes. With NSA_MCP_RESPONSE_DIR set to an absolute
+// directory, each response is written there as `<call_id>.txt`, exactly as returned. OFF unless set: the files hold scan
+// results, and nothing here removes them. The footer says a copy was saved only when it was — the line is composed into
+// the text BEFORE the write, so the file and the returned text are the same bytes — and it names no path, because the
+// response goes to the AI client and a path carries the user's home directory name. The digest covers the body only,
+// so verify-call reads a saved copy as it reads any other.
+
+/** The footer line, present exactly when the file exists. */
+export const MCP_RESPONSE_SAVED_LINE = (callId) =>
+  `A copy of this response was saved as ${callId}.txt in the directory NSA_MCP_RESPONSE_DIR names.`;
+
+/** The directory responses are saved to, or null when saving is off. A relative path is refused: the server's working
+ *  directory under a desktop client is not one the operator chose. Read on every call, so a test can toggle it. */
+function _responseDir() {
+  const v = process.env.NSA_MCP_RESPONSE_DIR;
+  if (v == null || String(v).trim() === '') return null;
+  const d = String(v).trim();
+  if (!_nodePath.isAbsolute(d)) {
+    process.stderr.write('[nsauditor-mcp] NSA_MCP_RESPONSE_DIR is not an absolute path; this response was not saved.\n');
+    return null;
+  }
+  return d;
+}
+
+/**
+ * Write one response to `<dir>/<callId>.txt`. A missing directory is created 0700; an existing one — a symlinked one
+ * included, which is the operator's choice — is used as it is. The file is created 0600 with O_EXCL ('wx'), so an
+ * existing file is never overwritten and a link planted at that name is never followed. A write that fails after the
+ * open removes what it wrote, so no partial copy stands beside a footer that does not mention it. Never throws.
+ */
+export function _persistResponse(dir, callId, text) {
+  const file = _nodePath.join(dir, `${callId}.txt`);
+  let fd = null;
+  try {
+    if (!_nodeFs.existsSync(dir)) _nodeFs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fd = _nodeFs.openSync(file, 'wx', 0o600);
+    _nodeFs.writeSync(fd, text);
+    _nodeFs.closeSync(fd);
+    return { saved: true };
+  } catch (err) {
+    if (fd != null) {
+      try { _nodeFs.closeSync(fd); } catch { /* already closed */ }
+      try { _nodeFs.unlinkSync(file); } catch { /* nothing to remove */ }
+    }
+    process.stderr.write(`[nsauditor-mcp] this response was not saved to NSA_MCP_RESPONSE_DIR (${(err && (err.code || err.message)) || 'error'}).\n`);
+    return { saved: false };
+  }
+}
+
+function _receiptText(text, callId, savedLine) {
+  return (
+    `${text}\n\n${RECEIPT_MARKER}\n` +
+    `call_id: ${callId}\n` +
+    (savedLine ? `${savedLine}\n` : '') +
+    `To check that this exact response came from this server, save the whole response (footer included)\n` +
+    `to a file and run:\n` +
+    `  nsauditor-ai mcp verify-call ${callId} --response <file>`
+  );
+}
+
 function appendCallSentinel(text, callId) {
   // The digest of the BODY — the text the receipt is appended to — is what binds this response to its id. It is
   // logged, never printed: a digest in the footer would replay together with the id. Best-effort like the id line: a
@@ -217,13 +279,12 @@ function appendCallSentinel(text, callId) {
   } catch (err) {
     process.stderr.write(`[nsauditor-mcp] call-log digest write failed: ${err.message}\n`);
   }
-  return (
-    `${text}\n\n${RECEIPT_MARKER}\n` +
-    `call_id: ${callId}\n` +
-    `To check that this exact response came from this server, save the whole response (footer included)\n` +
-    `to a file and run:\n` +
-    `  nsauditor-ai mcp verify-call ${callId} --response <file>`
-  );
+  const dir = _responseDir();
+  if (dir) {
+    const saved = _receiptText(text, callId, MCP_RESPONSE_SAVED_LINE(callId));
+    if (_persistResponse(dir, callId, saved).saved) return saved;
+  }
+  return _receiptText(text, callId, null);
 }
 
 // ---------------------------------------------------------------------------
