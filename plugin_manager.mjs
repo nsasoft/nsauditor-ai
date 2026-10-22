@@ -69,6 +69,14 @@ export const PLUGIN_TIMEOUT_MS = Number(process.env.PLUGIN_TIMEOUT_MS || 30000);
 // STRIPS it before any plugin's opts are built. `opts.timeoutMs` is forwarded untouched and is no
 // longer a wall for anyone.
 export const PLUGIN_WALL_KEY = 'pluginWallMs';
+
+// ── A CALL'S DEADLINE, FOR THE ONE TOOL THAT RUNS PLUGINS ONE AFTER ANOTHER (scan_host, 2.1.0) ─────────────────────
+// An absolute time (ms since the epoch) by which the orchestrated run must have stopped starting and running plugins.
+// Like the wall, a manager-only carrier: read in run() and _runOrchestrated, never forwarded to a plugin.
+export const CALL_DEADLINE_KEY = 'callDeadlineMs';
+/** The manifest reason of a plugin the deadline reached before it started. */
+export const SCAN_HOST_NOT_STARTED_REASON =
+  'not started: the scan_host call reached its total time limit (SCAN_HOST_WALL_MS)';
 function splitWall(opts) {
   if (!opts || typeof opts !== 'object') return { wallMs: undefined, forwarded: {} };
   const { [PLUGIN_WALL_KEY]: wallMs, ...forwarded } = opts;
@@ -823,7 +831,15 @@ export class PluginManager {
   }
 
   /* -------------------- Orchestrated execution path -------------------- */
-  async _runOrchestrated(host, selection, opts = {}) {
+  async _runOrchestrated(host, selection, optsIn = {}) {
+    // The call's deadline (scan_host): taken off the opts every plugin is handed, and read here alone. A plugin reached
+    // after it is NOT STARTED and reads `timeout` — requested and not measured, which is the truth, where `skipped`
+    // would read as never requested; a running plugin's own wall shrinks to what is left, and if that is what stops it,
+    // it is CUT SHORT. Both lists keep the order the plugins would have run in.
+    const { [CALL_DEADLINE_KEY]: deadline, ...opts } = optsIn || {};
+    const hasDeadline = Number.isFinite(deadline);
+    const notStarted = [];
+    const cutShort = [];
     // Shared context flows through all plugins (+ OUI helpers injected)
     const ctx = withBaseContext({
       host,
@@ -882,11 +898,29 @@ export class PluginManager {
         continue;
       }
 
+      // The deadline, checked where a plugin would START: one gated out above would not have run regardless.
+      let runOpts = opts;
+      let shortened = false;
+      if (hasDeadline) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          manifest.push({ id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'timeout',
+            reason: SCAN_HOST_NOT_STARTED_REASON, duration_ms: 0 });
+          ctx.pluginRunStatus.set(String(mod.id || ''), 'timeout');
+          notStarted.push(String(mod.id || ''));
+          continue;
+        }
+        const own = Number(opts[PLUGIN_WALL_KEY]);
+        const wall = Number.isFinite(own) && own > 0 ? Math.min(own, remaining) : remaining;
+        shortened = resolvePluginTimeoutMs(mod, wall) < resolvePluginTimeoutMs(mod, opts[PLUGIN_WALL_KEY]);
+        runOpts = { ...opts, [PLUGIN_WALL_KEY]: wall };
+      }
+
       vlog(`Running ${mod.name} (priority ${getPriority(mod)}) on ${host}`);
       // **FIX**: pass prior outputs into OS Detector via callPlugin(..., priorOutputs)
       // **N.27 FIX**: forward CLI-derived opts (ports, etc.) so plugins can honor CLI flags
       const startMs = Date.now();
-      const wrappedRuns = await callPlugin(mod, host, ctx, outputs, opts);
+      const wrappedRuns = await callPlugin(mod, host, ctx, outputs, runOpts);
       const duration_ms = Date.now() - startMs;
 
       // Determine manifest status from the plugin results. A gate-skip envelope
@@ -901,7 +935,7 @@ export class PluginManager {
       for (const wrapped of wrappedRuns) {
         if (wrapped.result?.timedOut) {
           status = 'timeout';
-          reason = wrapped.result.error || `timed out after ${resolvePluginTimeoutMs(mod, opts && opts[PLUGIN_WALL_KEY])}ms`;
+          reason = wrapped.result.error || `timed out after ${resolvePluginTimeoutMs(mod, runOpts && runOpts[PLUGIN_WALL_KEY])}ms`;
         } else if (wrapped.result?.error && status !== 'timeout') {
           status = 'error';
           reason = wrapped.result.error;
@@ -923,6 +957,7 @@ export class PluginManager {
         reason,
         duration_ms,
       });
+      if (shortened && status === 'timeout') cutShort.push(String(mod.id || ''));
       // Recorded from the SAME `status` the manifest reports, so the context and the run record
       // cannot disagree about what an upstream did — a second derivation is a second thing to rot.
       ctx.pluginRunStatus.set(String(mod.id || ''), status);
@@ -938,7 +973,7 @@ export class PluginManager {
       }
     }
 
-    return { ctx, results: outputs, manifest };
+    return { ctx, results: outputs, manifest, ...(hasDeadline ? { callWall: { notStarted, cutShort } } : {}) };
   }
 
   /**
@@ -975,6 +1010,11 @@ export class PluginManager {
       ...opts,
       hostKind: isCloudSentinelHost(host) ? `cloud:${String(host).trim().toLowerCase()}` : 'network',
     };
+    // The call's deadline is the manager's alone: taken off `opts` here, so no path below forwards it to a plugin, and
+    // handed only to the orchestrated runner, the path scan_host takes. (The legacy path — no plugin declares a priority
+    // or requirements — runs without it.)
+    const { [CALL_DEADLINE_KEY]: callDeadline, ...withoutDeadline } = opts;
+    opts = withoutDeadline;
 
     // Sentinel-host scoping: on --host aws|gcp|azure with the implicit `all`,
     // run only that cloud's plugins; skip other clouds + non-cloud plugins.
@@ -1057,10 +1097,13 @@ export class PluginManager {
     // R-5: surface excluded cloud auditors as skipped manifest entries (before
     // the dispatched plugins), so the exclusion is machine-visible, not stderr-only.
     if (cloudSkipManifest.length) manifest.push(...cloudSkipManifest);
+    let callWall;
     if (orchestrate) {
-      const orch = await this._runOrchestrated(host, selection, opts);
+      const orch = await this._runOrchestrated(host, selection,
+        Number.isFinite(callDeadline) ? { ...opts, [CALL_DEADLINE_KEY]: callDeadline } : opts);
       results = orch.results;
       manifest = manifest.concat(orch.manifest);
+      callWall = orch.callWall;
     } else {
       // Legacy path: simple run across ports for each plugin (except concluder)
       const toRun = selection.filter((p) => !isConcluder(p));
@@ -1115,6 +1158,8 @@ export class PluginManager {
       results,
       conclusion,
       manifest: this._stampProducedBy(manifest),
+      // Only when the caller set a deadline (scan_host); every other caller's result keeps its shape.
+      ...(callWall ? { callWall } : {}),
       ai: null,
       ai_meta: null,
       ai_error: null,

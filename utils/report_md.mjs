@@ -95,6 +95,11 @@ function safeFenceFor(content) {
  * @param {string|Date} [scanData.scanTime] - Scan timestamp (defaults to now in ISO format)
  * @returns {string} Markdown report
  */
+/** scan_host stopped at its total time limit: the note the response and the head of the markdown both carry. */
+export const SCAN_HOST_WALL_NOTE =
+  'This scan stopped at its total time limit (SCAN_HOST_WALL_MS), so it is a partial result, not a clean result: the '
+  + 'plugins it did not start, or stopped at the limit, did not measure their surfaces. Raise SCAN_HOST_WALL_MS, or run '
+  + 'the CLI, for a complete scan.';
 export function buildMarkdownReport(scanData) {
   if (!scanData || typeof scanData !== 'object') {
     throw new TypeError('scanData required');
@@ -116,6 +121,19 @@ export function buildMarkdownReport(scanData) {
   // ---- Header ----
   lines.push(`# NSAuditor AI Scan Report`);
   lines.push('');
+  // scan_host stopped at its total time limit: said FIRST, above the summary and the service table, so a reader who
+  // stops early still sees that this is a partial — with the plugins it did not start, and those it stopped at the
+  // limit, in the order they would have run (the same lists as the response's callWall).
+  const wall = scanData.callWall;
+  if (wall && wall.reached) {
+    const nameOf = new Map((Array.isArray(scanData.manifest) ? scanData.manifest : []).map((m) => [String(m?.id), m?.name || 'Plugin']));
+    const named = (ids) => ids.map((id) => `${id} — ${nameOf.get(String(id)) ?? 'Plugin'}`).join(', ');
+    lines.push(`> **${SCAN_HOST_WALL_NOTE}**`);
+    lines.push('>');
+    if (wall.notStarted.length) lines.push(`> - Not started: ${named(wall.notStarted)}`);
+    if (wall.cutShort.length) lines.push(`> - Stopped at the limit: ${named(wall.cutShort)}`);
+    lines.push('');
+  }
   const headerRows = [
     ['Host', host],
     ['Scan time', scanTime],

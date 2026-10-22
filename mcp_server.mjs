@@ -28,7 +28,7 @@ import { buildRegionIntent } from './utils/region_intent.mjs';
 import { excludeMismatchedCloudPlugins, isCloudSentinelHost } from './utils/sentinel_scope.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
-import { buildMarkdownReport } from './utils/report_md.mjs';
+import { buildMarkdownReport, SCAN_HOST_WALL_NOTE } from './utils/report_md.mjs';
 import { summarizeCloudFindings, renderCloudFindingsMarkdown, describeFinding, RESOURCE_KEYS } from './utils/cloud_finding_summary.mjs';
 import { authorizeMcpServerStartup, getMcpAuthKeyAge, getRotationWarningDays, reportMcpAuthSource } from './utils/mcp_auth.mjs';
 import _nodeFs from 'node:fs';
@@ -349,7 +349,8 @@ export const TOOLS = [
       + 'statement that the host has no known vulnerabilities. For CVEs, call get_vulnerabilities (Pro) with each '
       + 'service\'s cpe where it names a concrete version; a service whose cpe is null gets no lookup, so its CVE coverage'
       + ' is unknown, not clean. The CLI scan (Enterprise package, Pro or Enterprise licence) runs the CVE mapper, the '
-      + 'analysis agents and, with a KEV / EPSS store, exploit intelligence.',
+      + 'analysis agents and, with a KEV / EPSS store, exploit intelligence. The call stops at SCAN_HOST_WALL_MS: if '
+      + 'callWall.reached, its listed plugins did not measure — partial, never clean.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -561,7 +562,28 @@ function validatePort(port) {
 // Tool handler implementations (exported for direct testing)
 // ---------------------------------------------------------------------------
 
+// ── scan_host's TOTAL time limit (2.1.0) ──────────────────────────────────────────────────────────────────────────
+// scan_host runs a host's plugins one after another, each bounded only by its own budget, so the call takes about the
+// sum of their times — 54–122 s measured on one home router. A client that ends a tool call at a fixed limit (Claude
+// Desktop 3.x at about 60 s, whatever MCP_TIMEOUT says) then returns NOTHING: the server finishes and the result is
+// lost. SCAN_HOST_WALL_MS bounds the CALL instead, so the client gets a DISCLOSED PARTIAL — the principle
+// plugin_manager.mjs states for every wall. On by default because the default client is the one that cuts; 0 turns it
+// off. The reserve is kept for the concluder, the markdown and the response.
+export const SCAN_HOST_WALL_DEFAULT_MS = 50000;
+export const SCAN_HOST_CALL_RESERVE_MS = 3000;
+function _scanHostWallMs() {
+  const v = process.env.SCAN_HOST_WALL_MS;
+  if (v == null || String(v).trim() === '') return SCAN_HOST_WALL_DEFAULT_MS;
+  const n = Number(v);
+  if (Number.isFinite(n) && n >= 0) return n;
+  process.stderr.write(`[nsauditor-mcp] SCAN_HOST_WALL_MS is not a number of milliseconds; using ${SCAN_HOST_WALL_DEFAULT_MS}.\n`);
+  return SCAN_HOST_WALL_DEFAULT_MS;
+}
+
 export async function handleScanHost(args) {
+  // The deadline starts HERE, before the host check and the pin, so everything this call does counts against it.
+  const callStart = Date.now();
+  const limitMs = _scanHostWallMs();
   if (!args?.host || typeof args.host !== 'string') {
     throw new Error('Missing required parameter: host');
   }
@@ -576,9 +598,15 @@ export async function handleScanHost(args) {
   // declarations existed; the CLI, which names no wall, gets the declarations. A plugin over the wall
   // reads `timeout` in `manifest`. (This tool used to advertise a `timeout` input it never read; it was
   // removed rather than wired, because a per-call override would have to travel on this same carrier.)
-  const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY } = await import('./plugin_manager.mjs');
+  const { PLUGIN_TIMEOUT_MS, PLUGIN_WALL_KEY, CALL_DEADLINE_KEY } = await import('./plugin_manager.mjs');
+  const runOpts = { [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS,
+    ...(limitMs > 0 ? { [CALL_DEADLINE_KEY]: callStart + limitMs - SCAN_HOST_CALL_RESERVE_MS } : {}) };
   // R1b: the plugins connect to the addresses the check resolved (utils/scan_pin.mjs), never to a second answer.
-  const output = await runPinned(answers ? { [host]: answers } : null, () => pm.run(host, 'all', { [PLUGIN_WALL_KEY]: PLUGIN_TIMEOUT_MS }));
+  const output = await runPinned(answers ? { [host]: answers } : null, () => pm.run(host, 'all', runOpts));
+  // On EVERY call, so its absence never needs interpreting: which plugins the limit stopped, in priority order.
+  const notStarted = output.callWall?.notStarted ?? [];
+  const cutShort = output.callWall?.cutShort ?? [];
+  const callWall = { limitMs, reached: notStarted.length + cutShort.length > 0, notStarted, cutShort };
 
   // Render a Markdown summary of the scan so AI assistants get a ready-to-quote
   // report alongside the structured fields. Failure to render must not break the
@@ -593,6 +621,7 @@ export async function handleScanHost(args) {
         toolVersion: TOOL_VERSION,
         // Build 4 (Gate 3-A F-1): the manifest, so an audit that did not run — 060's decline of an IP address — is said.
         manifest: output.manifest ?? [],
+        callWall,
       });
     }
   } catch { /* swallow — markdown is best-effort */ }
@@ -605,6 +634,8 @@ export async function handleScanHost(args) {
     // error / timeout / gate-skip envelopes. Same count scan_cloud reports.
     pluginsRan: (output.manifest || []).filter((m) => m.status === 'ran').length,
     markdown,
+    callWall,
+    ...(callWall.reached ? { note: SCAN_HOST_WALL_NOTE } : {}),
   };
 }
 

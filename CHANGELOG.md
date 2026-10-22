@@ -8,6 +8,21 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- **`scan_host` stops at a total time limit and says so, instead of being cut by the client with nothing returned.**
+  `scan_host` runs a host's plugins one after another, so the call takes about the sum of their times (54–122 s on one
+  home router), and Claude Desktop 3.x ends a tool call at about 60 s, whatever `MCP_TIMEOUT` says: the server finished
+  and the result was lost. `SCAN_HOST_WALL_MS` (default 50000; `0` turns it off) now bounds the call, counted from the
+  moment it starts, with 3 s kept for the summary and the response. A plugin still running at the limit is stopped and
+  the plugins after it are not started; each reads `timeout` in `manifest` (a plugin not started carries the reason
+  "not started: the scan_host call reached its total time limit (SCAN_HOST_WALL_MS)"). Every response carries
+  `callWall: { limitMs, reached, notStarted, cutShort }`, the lists in the order the plugins would have run; when the
+  limit was reached, the response's `note` and the head of `markdown` say "This scan stopped at its total time limit
+  (SCAN_HOST_WALL_MS), so it is a partial result, not a clean result: the plugins it did not start, or stopped at the
+  limit, did not measure their surfaces. Raise SCAN_HOST_WALL_MS, or run the CLI, for a complete scan." and name those
+  plugins. **What it costs, measured:** the MCP Scanner (070) runs early and took 44.6 s on a router that dropped its
+  probes; with `PLUGIN_TIMEOUT_MS` at 45 s or more it runs into the limit, and every plugin after it in priority order is
+  not started — the TLS Scanner (011) and the TLS Certificate & Cipher Auditor (040) among them. The CLI, `probe_service`
+  and `scan_cloud` are unchanged.
 - **The MCP server can save each tool response, so a response the client truncates can still be verified.** The
   receipt check, `nsauditor-ai mcp verify-call <call_id> --response <file>`, needs the whole response, and Claude
   Desktop shows long tool output truncated, in the app and in the browser view; the server's call log holds a digest of
