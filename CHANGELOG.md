@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## Unreleased
+## 1.1.0 (⏳ PRE-PUBLISH — opened 2026-10-25, NOT YET ON npm) — Node.js 24.22.1; scan_host stops at a time limit and names what it did not run; a saved response keeps its request beside it; a multi-entry cloud title says so; get_findings says what a scan holds; paired with Enterprise 2.1.0
 
 - ⚠️ **The supported runtime floor rises to Node.js 24.22.1** (`engines.node` `>=24.0.0` → `>=24.22.1`). The supported runtime stays the Node.js 24 line; its floor moves to the security release Node.js published on 2026-10-21 (https://nodejs.org/en/blog/vulnerability/october-2026-security-releases): of the ten CVEs that advisory lists, eight name the 24.x line, four of them high — among them CVE-2026-111497, a Brotli decoder out-of-bounds write that can corrupt process memory and lead to remote code execution. **What to do:** install Node.js 24.22.1 or newer before upgrading. On an older runtime npm prints an `EBADENGINE` warning and installs anyway; it does not refuse. **It is a scanner-surface fix, not only hygiene:** the web-application detector, the UPnP device-description fetch and plugin 050 read a scanned host's HTTP response bodies through Node's `fetch`, which decodes a `content-encoding: br` body itself (measured on v24.22.1: a Brotli body came back as its plaintext), so on a runtime below 24.22.1 a scanned host that answers with crafted Brotli reaches the decoder CVE-2026-111497 names. Reachable is not exploited — the trigger conditions are the advisory's — but every install on an older 24.x sits in that position until it moves.
 - **A saved response now has its request beside it, and `verify-call` can check both.** With `NSA_MCP_RESPONSE_DIR`
