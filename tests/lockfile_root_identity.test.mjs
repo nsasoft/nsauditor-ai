@@ -53,7 +53,8 @@ export function lockRootMismatches(pkgJson, lockJson) {
       out.push(`${field}: package.json ${JSON.stringify(a)} vs lock root ${JSON.stringify(b)}`);
     }
   };
-  for (const f of ['name', 'version', 'dependencies', 'optionalDependencies', 'peerDependencies']) {
+  // `engines` joined in 2.1.0: the Node floor is a field a reader of the lock acts on, and nothing else compared it.
+  for (const f of ['name', 'version', 'dependencies', 'optionalDependencies', 'peerDependencies', 'engines']) {
     eq(f);
   }
   return out;
@@ -93,9 +94,21 @@ describe('the lockfile root agrees with package.json', () => {
     assert.match(m[0], /^version: package.json "0\.2\.51" vs lock root "0\.2\.50"$/);
   });
 
+  it('a lock root whose engines.node differs from package.json is a MISMATCH (2.1.0) — nothing else compares them', () => {
+    // Found by the L2 review of the 2.1.0 floor raise: with both locks' root engines put back to >=24.0.0 under a
+    // package.json at >=24.22.1, every guard that reads package-lock.json stayed green. The lock root is what a
+    // reader of the lock sees, and an understated floor there is the dangerous direction.
+    const pkg = { name: 'x', version: '1.0.0', engines: { node: '>=24.22.1' } };
+    const lock = { packages: { '': { name: 'x', version: '1.0.0', engines: { node: '>=24.0.0' } } } };
+    const m = lockRootMismatches(pkg, lock);
+    assert.equal(m.length, 1, JSON.stringify(m));
+    assert.match(m[0], /^engines: /);
+    assert.deepEqual(lockRootMismatches(pkg, { packages: { '': { name: 'x', version: '1.0.0', engines: { node: '>=24.22.1' } } } }), []);
+  });
+
   it('a matching pair with UNRELATED root fields differing still passes', () => {
-    // Fourth quadrant: the comparison is scoped to the five fields `npm ci` needs or
-    // ignores. A lock root legitimately carries keys package.json does not (`license`,
+    // Fourth quadrant: the comparison is scoped to the six fields `npm ci` needs or
+    // ignores (`engines` among them since 2.1.0). A lock root legitimately carries keys package.json does not (`license`,
     // `hasInstallScript`); flagging those would make the guard noisy enough to disable.
     const pkg = { name: 'x', version: '1.0.0', dependencies: { a: '^1' } };
     const lock = { packages: { '': { name: 'x', version: '1.0.0', dependencies: { a: '^1' }, license: 'MIT', hasInstallScript: true } } };

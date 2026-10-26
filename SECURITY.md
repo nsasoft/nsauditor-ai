@@ -2,6 +2,15 @@
 
 NSAuditor AI Community Edition runs entirely on your infrastructure.
 
+## The Node.js runtime: 24.22.1 or newer
+
+The supported runtime floor is **Node.js 24.22.1** (`engines.node >=24.22.1`), the security release of 2026-10-21
+(https://nodejs.org/en/blog/vulnerability/october-2026-security-releases): of the ten CVEs that advisory lists, eight
+name the 24.x line, four of them high. One of them, CVE-2026-111497 (a Brotli decoder out-of-bounds write), is
+reachable from a scanned host: the web-application detector, the UPnP device-description fetch and plugin 050 read
+response bodies through Node's `fetch`, which decodes `content-encoding: br` itself. Reachable is not exploited; the
+trigger conditions are the advisory's. npm only warns on an older runtime (`EBADENGINE`), so check `node --version`.
+
 ## Known `npm audit` notices
 
 | Advisory | Where | Status |
