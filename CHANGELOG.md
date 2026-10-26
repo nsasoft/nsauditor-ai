@@ -8,6 +8,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ## Unreleased
 
+- ⚠️ **The supported runtime floor rises to Node.js 24.22.1** (`engines.node` `>=24.0.0` → `>=24.22.1`). The supported runtime stays the Node.js 24 line; its floor moves to the security release Node.js published on 2026-10-21 (https://nodejs.org/en/blog/vulnerability/october-2026-security-releases): of the ten CVEs that advisory lists, eight name the 24.x line, four of them high — among them CVE-2026-111497, a Brotli decoder out-of-bounds write that can corrupt process memory and lead to remote code execution. **What to do:** install Node.js 24.22.1 or newer before upgrading. On an older runtime npm prints an `EBADENGINE` warning and installs anyway; it does not refuse.
 - **A saved response now has its request beside it, and `verify-call` can check both.** With `NSA_MCP_RESPONSE_DIR`
   set, the server saved each response as `<call_id>.txt`, but not what the call asked for. Claude Desktop 3.x shows no
   request at all for a `scan_cloud` call, and no log kept the arguments, so a saved scan was a response to an unrecorded
