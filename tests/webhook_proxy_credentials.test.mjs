@@ -8,6 +8,20 @@
 // carries the proxy URL WITH its credentials, which sendWebhook used to return as `error` (printed to stderr by the
 // watch loop; written into Enterprise's drift file). It is redacted now.
 //
+// ⚠️ ON NODE v24.22.1 THE RUNTIME STRIPS IT FIRST — a change in the 24.x line, not part of the October 2026 security
+// fixes (measured 2026-10-26 from each binary's embedded lib source). The tunnel error quotes `ProxyConfig.href`.
+// v24.14.0 sets `this.href = proxyUrl`, the userinfo kept; v24.22.1 sets
+//     if (username || password) { parsedURL.username = ''; parsedURL.password = ''; this.href = parsedURL.href; }
+//     else { this.href = proxyUrl; }
+// and in both the Proxy-Authorization is built from the ORIGINAL username and password, so the proxy still receives the
+// credential. v22.23.4, itself an October 2026 security release, still sets `this.href = proxyUrl`. On v24.22.1 the
+// error reads `via http://127.0.0.1:<port>/`, so the old positive control here — the `<credentials>@` marker — could
+// not appear, and the no-secret vetoes beside it passed with nothing to catch: a positive control that depended on an
+// upstream leak vanishes when upstream closes it. The control is now the credential at the point it is SENT — the
+// CONNECT's Proxy-Authorization, decoded and compared by value — and the error must carry exactly ONE of the two known
+// proxy-URL shapes with the port the proxy bound (redacted, from a runtime that quotes the userinfo; or stripped), the
+// run printing which. Redaction itself stays driven with credential-bearing strings by (p3) below.
+//
 // The env proxy is read at process start, so the sender runs in a CHILD process; the proxy runs here and records what
 // it is asked. The child's check resolver is stubbed for one RFC 6761 name, so nothing reaches a real resolver.
 //
@@ -25,11 +39,16 @@ const WEBHOOK = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.u
 
 /** A proxy that refuses every tunnel, recording what it was asked; the child posts once through it. */
 async function viaProxy(scheme, secret = 'PROXYSECRET') {
-  const seen = [];
+  const seen = []; const auths = [];
   const proxy = http.createServer((req, res) => { seen.push({ method: req.method, url: req.url }); res.writeHead(502); res.end(); });
-  proxy.on('connect', (req, sock) => { seen.push({ method: 'CONNECT', url: req.url }); sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); });
+  proxy.on('connect', (req, sock) => {
+    seen.push({ method: 'CONNECT', url: req.url });
+    auths.push(req.headers['proxy-authorization'] ?? null);
+    sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+  });
   await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
-  const proxyUrl = `http://proxyuser:${secret}@127.0.0.1:${proxy.address().port}`;
+  const { port } = proxy.address();
+  const proxyUrl = `http://proxyuser:${secret}@127.0.0.1:${port}`;
   const child = `
     import dnsP from 'node:dns/promises';
     const { sendWebhook } = await import(${JSON.stringify(WEBHOOK)});
@@ -47,7 +66,29 @@ async function viaProxy(scheme, secret = 'PROXYSECRET') {
     p.on('close', () => resolve({ stdout, stderr }));
   });
   await new Promise((r) => proxy.close(r));
-  return { seen, result: JSON.parse(out.stdout || '{}'), stderr: out.stderr };
+  const sent = auths.map((a) => (a && a.startsWith('Basic ') ? Buffer.from(a.slice(6), 'base64').toString('utf8') : a));
+  return { seen, sent, port, result: JSON.parse(out.stdout || '{}'), stderr: out.stderr };
+}
+
+/**
+ * The checks every tunnel-error leg makes: the credential was really in play (the proxy RECEIVED it, compared by value),
+ * the error carries exactly one of the two known proxy-URL shapes for the port the proxy bound, and no encoding of the
+ * credential — plaintext, percent-encoded, or the Proxy-Authorization value itself — reaches the error or stderr.
+ */
+function assertTunnelErrorCarriesNoCredential(t, { sent, port, result, stderr }, secret, pieces = []) {
+  assert.ok(sent.includes(`proxyuser:${secret}`),
+    `positive control: the proxy did not receive this leg's credential (${JSON.stringify(secret)}); it received ${JSON.stringify(sent)}`);
+  assert.match(result.error, /tunnel/i, `not the tunnel error under test: ${result.error}`);
+  const FORMS = { redacted: `via http://<credentials>@127.0.0.1:${port}: `, stripped: `via http://127.0.0.1:${port}/: ` };
+  const observed = Object.keys(FORMS).filter((k) => result.error.includes(FORMS[k]));
+  assert.equal(observed.length, 1, `the error carries ${observed.length} of the two known proxy-URL shapes for port ${port}: ${result.error}`);
+  t.diagnostic(`${JSON.stringify(secret)} on ${process.version}: the tunnel error's proxy URL is ${observed[0]}`);
+  const secrets = [...new Set([secret, encodeURIComponent(secret), 'proxyuser',
+    Buffer.from(`proxyuser:${secret}`, 'utf8').toString('base64'), ...pieces])];
+  for (const s of secrets) {
+    assert.ok(!result.error.includes(s), `the returned error carries ${JSON.stringify(s)}: ${result.error}`);
+    assert.ok(!stderr.includes(s), `the sender's stderr carries ${JSON.stringify(s)}`);
+  }
 }
 
 test('(p1, first) under NODE_USE_ENV_PROXY the webhook really goes THROUGH the proxy, by NAME — the pin governs only that hop', async () => {
@@ -56,30 +97,25 @@ test('(p1, first) under NODE_USE_ENV_PROXY the webhook really goes THROUGH the p
   assert.equal(result.success, false);
 });
 
-test('(p2) a failed tunnel\'s error carries NO proxy credential — redacted before it can reach stderr or a drift file', async () => {
-  const { seen, result } = await viaProxy('https');
-  assert.equal(seen.length, 1, 'positive control: the request reached the proxy');
-  assert.match(result.error, /tunnel/i, `not the tunnel error under test: ${result.error}`);
-  assert.ok(!result.error.includes('PROXYSECRET'), `the proxy password reached the returned error: ${result.error}`);
-  assert.ok(!result.error.includes('proxyuser'), 'the proxy user reached the returned error');
-  assert.match(result.error, /<credentials>@127\.0\.0\.1/);
+test('(p2) a failed tunnel\'s error carries NO proxy credential — redacted before it can reach stderr or a drift file', async (t) => {
+  const run = await viaProxy('https');
+  assert.equal(run.seen.length, 1, 'positive control: the request reached the proxy');
+  assertTunnelErrorCarriesNoCredential(t, run, 'PROXYSECRET');
 });
 
-test('(p2b) a password carrying a RAW @ — which Node accepts and still routes through — is redacted WHOLE', async () => {
+test('(p2b) a password carrying a RAW @ — which Node accepts and still routes through — is redacted WHOLE', async (t) => {
   // The background security review of the first cut (44c4586): a first-@ rule left "XYSECRET" of "PRO@XYSECRET" in the error.
-  const { seen, result } = await viaProxy('https', 'PRO@XYSECRET');
-  assert.equal(seen.length, 1, 'positive control: Node took the raw-@ proxy URL and the request reached the proxy');
-  assert.ok(!result.error.includes('XYSECRET') && !result.error.includes('PRO'), `part of the password survived: ${result.error}`);
-  assert.match(result.error, /<credentials>@127\.0\.0\.1/);
+  const run = await viaProxy('https', 'PRO@XYSECRET');
+  assert.equal(run.seen.length, 1, 'positive control: Node took the raw-@ proxy URL and the request reached the proxy');
+  assertTunnelErrorCarriesNoCredential(t, run, 'PRO@XYSECRET', ['XYSECRET', 'PRO']);
 });
 
-test('(p2c) a password carrying a RAW SPACE — which Node also accepts — is redacted whole, through the variable Node read', async () => {
+test('(p2c) a password carrying a RAW SPACE — which Node also accepts — is redacted whole, through the variable Node read', async (t) => {
   // Measured 2026-10-11 while answering the second background review: no URL-shaped pattern can bound a userinfo with a
   // space in it, and the first two cuts returned this error UNREDACTED.
-  const { seen, result } = await viaProxy('https', 'PRO XYSECRET');
-  assert.equal(seen.length, 1, 'positive control: Node took the raw-space proxy URL and the request reached the proxy');
-  assert.ok(!result.error.includes('XYSECRET') && !result.error.includes('PRO '), `part of the password survived: ${result.error}`);
-  assert.match(result.error, /<credentials>@127\.0\.0\.1/);
+  const run = await viaProxy('https', 'PRO XYSECRET');
+  assert.equal(run.seen.length, 1, 'positive control: Node took the raw-space proxy URL and the request reached the proxy');
+  assertTunnelErrorCarriesNoCredential(t, run, 'PRO XYSECRET', ['XYSECRET', 'PRO ']);
 });
 
 test('(p3) redactUrlCredentials replaces userinfo in any URL and leaves a URL without one untouched', () => {
