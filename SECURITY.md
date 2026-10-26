@@ -16,6 +16,8 @@ trigger conditions are the advisory's. npm only warns on an older runtime (`EBAD
 | Advisory | Where | Status |
 |---|---|---|
 | GHSA-p7fg-763f-g4gf (`@anthropic-ai/sdk` Filesystem Memory Tool permissions) | `@anthropic-ai/sdk` | **Resolved in 0.1.86** — bumped to ^0.100.0, above the affected 0.79.0–0.91.0 range. The Memory Tool is never used (we call `messages.create` only). |
+| GHSA-mrhx-c7xc-m3w5 (`zod` < 4.6.6, memory exhaustion validating oversized constrained collections) | `openai@4` (optional peer) and the MCP SDK → `zod` | **Resolved in 1.1.0** — `zod ^4.6.6` is a direct dependency, so the tree installs one `zod` 4.x (4.6.7 at release). This package imports `zod` nowhere. |
+| GHSA-27r3-jxmh-p828 (`body-parser` >= 2.0.0 < 2.4.0, denial of service on trailing bytes after compressed data) | the MCP SDK → `express` → `body-parser` (the lockfile, which the air-gap carrier installs) | **Resolved in 1.1.0** — the lockfile resolves `body-parser` 2.4.0. A fresh install already resolved 2.4.0. |
 | `node-domexception@1.0.0` (deprecation notice, not a CVE) | `openai@4` → `formdata-node@4` → `node-domexception`. | Non-exploitable — a now-redundant `DOMException` polyfill. **Fix available on our side** (not upstream-gated): `openai@6` dropped `formdata-node` entirely, so a bump clears it. Scheduled for a tested CE patch — the `openai` client also backs the Ollama provider (`responses.create` / `chat.completions.create`), so those paths get re-verified on the major bump. |
 
 The abandoned `wappalyzer-core` (via `simple-wappalyzer`) was replaced by an in-house
