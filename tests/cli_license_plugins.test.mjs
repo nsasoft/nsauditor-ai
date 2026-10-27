@@ -128,9 +128,10 @@ test('CE-0.1.30.3: --help documents the --plugins flag', () => {
 });
 
 test('CE-0.1.30.3: bare `license` Usage line lists --plugins', () => {
+  // B99 (2026-10-27): bare `license` is a failed call — usage on stderr, exit 2 (tests/cli_license_unknown_subcommand.test.mjs).
   const r = runCli(['license']);
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /--plugins/, 'bare-`license` Usage should mention --plugins');
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--plugins/, 'bare-`license` Usage should mention --plugins');
 });
 
 // ── 4. Tier-aware status: required-capabilities reflects current tier ───────

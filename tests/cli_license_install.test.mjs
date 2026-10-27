@@ -98,9 +98,10 @@ test('CE-0.1.30.4: --help Examples block has an install line', () => {
 });
 
 test('CE-0.1.30.4: bare `license` (no subcommand) Usage line lists install', () => {
+  // B99 (2026-10-27): bare `license` is a failed call — usage on stderr, exit 2 (tests/cli_license_unknown_subcommand.test.mjs).
   const r = runCli(['license']);
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /install <KEY>/);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /install <KEY>/);
 });
 
 // ── 3. License-key value safety ──────────────────────────────────────────────

@@ -2454,7 +2454,14 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       console.log('');
       console.log('  Verify with: nsauditor-ai license --status');
     } else {
-      console.log('Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY> | --reset [--purge]');
+      const usage = 'Usage: nsauditor-ai license --status | --capabilities | --plugins | install <KEY> | --reset [--purge]';
+      // B99: anything that reached here — no subcommand at all, a typo, or one a later release adds — is a call that
+      // FAILED: the usage goes to stderr and the exit code is 2, as `feed` and `compliance` with no verb do, so a script
+      // or an AI agent never reads it as a success. The explicit ask for the usage is `license --help`, which the global
+      // help answers with exit 0.
+      console.error(rawArgs.length <= 1 ? 'missing license subcommand' : `unknown license subcommand: ${rawArgs[1]}`);
+      console.error(usage);
+      process.exit(2);
     }
     process.exit(0);
   }
