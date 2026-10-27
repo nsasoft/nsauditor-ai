@@ -29,9 +29,16 @@ export function requestDigest(bytes) {
   return createHash('sha256').update(Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes ?? ''), 'utf8')).digest('hex');
 }
 
-/** The body of a saved response: everything before the receipt footer, which is not part of what the tool produced. */
+// The marker as a pattern whose whitespace is any whitespace run: the canonicalisation above is whitespace-insensitive,
+// so finding the footer must be as well — the marker carries spaces, and an exact search lost the footer of a copy whose
+// soft wrap fell inside it, refuting that copy (found 2026-10-27; tests/mcp_call_digest_marker_whitespace.test.mjs).
+const MARKER_RE = new RegExp(RECEIPT_MARKER.trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'g');
+
+/** The body of a saved response: everything before the LAST receipt marker (found whitespace-insensitively), which
+ *  begins the footer — not part of what the tool produced. */
 export function bodyOf(saved) {
   const text = String(saved ?? '');
-  const at = text.lastIndexOf(RECEIPT_MARKER);
+  let at = -1;
+  for (const m of text.matchAll(MARKER_RE)) at = m.index;
   return at < 0 ? text : text.slice(0, at);
 }
