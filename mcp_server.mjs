@@ -55,35 +55,49 @@ export function _setTier(tier) {
   _capabilities = resolveCapabilities(_tier);
 }
 
-/** @internal Test-only. Returns the Pro-gate denial object (or null if allowed). */
-export function _requireProCapability(toolName) {
+/** @internal Test-only. Returns the Pro-gate denial object (or null if allowed). `opts.resolveEE` replaces the resolver. */
+export function _requireProCapability(toolName, opts) {
   if (process.env.NODE_ENV === 'production') throw new Error('_requireProCapability is test-only and disabled in production');
-  return requireProCapability(toolName);
+  return requireProCapability(toolName, opts);
 }
 
-/** @internal Test-only. Returns the Enterprise-gate denial object (or null if allowed). */
-export function _requireEnterpriseCapability(toolName) {
+/** @internal Test-only. Returns the Enterprise-gate denial object (or null if allowed). `opts.resolveEE` replaces the resolver. */
+export function _requireEnterpriseCapability(toolName, opts) {
   if (process.env.NODE_ENV === 'production') throw new Error('_requireEnterpriseCapability is test-only and disabled in production');
-  return requireEnterpriseCapability(toolName);
+  return requireEnterpriseCapability(toolName, opts);
 }
 
-function requireProCapability(toolName) {
+/**
+ * The tools this caller can use now, for a denial to name (B97, B98). DERIVED from the same gates the dispatcher applies
+ * — Pro adds probe_service and get_vulnerabilities — and from whether Enterprise resolves, since compliance_matrix reads
+ * the framework maps Enterprise ships and throws without them. It used to be one constant, "CE tools available:
+ * scan_host, list_plugins, compliance_matrix", so a Pro caller denied an Enterprise tool never learned it held the Pro
+ * tools, and a Community-only install was told compliance_matrix was available where it throws.
+ */
+function toolsAvailableLine({ resolveEE = _defaultResolveEE } = {}) {
+  const tools = ['scan_host', 'list_plugins'];
+  if (_capabilities.proMCP) tools.push('probe_service', 'get_vulnerabilities');
+  try { resolveEE(); tools.push('compliance_matrix'); } catch { /* Enterprise not installed: the matrix is not available */ }
+  return `**Tools available to you now:** ${tools.join(', ')}`;
+}
+
+function requireProCapability(toolName, opts) {
   if (_capabilities.proMCP) return null; // Pro/Enterprise: allow
   return {
     content: [{
       type: 'text',
-      text: `🔒 **${toolName}** requires a Pro license.\n\nView Pro/Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins, compliance_matrix`,
+      text: `🔒 **${toolName}** requires a Pro license.\n\nView Pro/Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n${toolsAvailableLine(opts)}`,
     }],
     isError: true,
   };
 }
 
-export function requireEnterpriseCapability(toolName) {
+export function requireEnterpriseCapability(toolName, opts) {
   if (_capabilities.enterpriseMCP) return null; // Enterprise: allow
   return {
     content: [{
       type: 'text',
-      text: `🔒 **${toolName}** (cloud account auditing) requires an Enterprise license.\n\nView Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n**CE tools available:** scan_host, list_plugins, compliance_matrix`,
+      text: `🔒 **${toolName}** (cloud account auditing) requires an Enterprise license.\n\nView Enterprise pricing at https://www.nsauditor.com/ai/pricing/\n\n${toolsAvailableLine(opts)}`,
     }],
     isError: true,
   };
@@ -1064,10 +1078,13 @@ export async function handleComplianceMatrix(args = {}) {
   try {
     eeRoot = resolveEE();
   } catch {
+    // B98: the package is RESTRICTED on npm, so an install command is one a non-buyer cannot run; name the licence it
+    // needs and where a buyer finds the command (the licence email), and where anyone else goes.
     throw new Error(
-      'The compliance coverage matrix is shipped with the Enterprise plugin pack, and ' +
-      '@nsasoft/nsauditor-ai-ee is not installed / not resolvable from this server. ' +
-      'Install it (npm i -g @nsasoft/nsauditor-ai-ee) and restart the MCP server. ' +
+      'The compliance coverage matrix is shipped with the Enterprise plugin pack (@nsasoft/nsauditor-ai-ee), ' +
+      'which is not installed / not resolvable from this server. That package needs a Pro or Enterprise license: ' +
+      'with one, install it with the command in your license email and restart the MCP server; without one, see ' +
+      'https://www.nsauditor.com/ai/pricing/. ' +
       'Do NOT reconstruct the matrix from the plugin inventory or from documentation — ' +
       'coverage is a property of the shipped framework maps, not of the plugin list.',
     );
