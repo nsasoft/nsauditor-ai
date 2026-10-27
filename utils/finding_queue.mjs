@@ -29,12 +29,21 @@ export class FindingQueue {
     return this.getByStatus('UNVERIFIED');
   }
 
+  /**
+   * @deprecated No shipped code calls this. The re-probe layer that would have set `VERIFIED` is withdrawn and
+   * not planned (EE 0.32.7; operator ruling 2026-09-28); the status value is reserved. Kept for the FindingQueue
+   * API; removal deferred to the next major.
+   */
   markVerified(id, verification) {
     const f = this._find(id);
     f.status = 'VERIFIED';
     f.evidence = { ...(f.evidence ?? {}), verification };
   }
 
+  /**
+   * @deprecated No shipped code calls this; `FALSE_POSITIVE` is reserved (see markVerified). The shipped way to
+   * record a false positive is Enterprise's operator suppression workflow. Removal deferred to the next major.
+   */
   markFalsePositive(id, reason) {
     const f = this._find(id);
     f.status = 'FALSE_POSITIVE';

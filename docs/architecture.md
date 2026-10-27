@@ -199,7 +199,7 @@ NSAuditor AI operates as a phased pipeline with conditional execution. Phases 1�
 │                                                                  │
 │  PHASE 5: SCORING, REPORTING & COMPLIANCE (Pro/Enterprise)       │
 │  ──────────────────────────────────                              │
-│  Risk Scoring Engine: CVSS × verification weight                 │
+│  Risk Scoring Engine: CVSS/10 × 0.6 (every finding UNVERIFIED)   │
 │  Pro AI Prompts: intelligence-enriched prompts (any provider)    │
 │  Compliance Mapping: NIST/HIPAA/GDPR/PCI (Enterprise)            │
 │  CTEM Integration: store to DB, delta detection, trends          │
@@ -272,7 +272,7 @@ All intelligence components — CVE matching, analysis agents, and verifiers —
 export const FindingSchema = {
   id: "string",             // Unique finding ID (e.g., "F-3d7e4b2a-91f0-4c3e-b8a6-7f2d5e9c1a04")
   category: "enum",         // AUTH | CRYPTO | CONFIG | SERVICE | EXPOSURE | CVE
-  status: "enum",           // UNVERIFIED | VERIFIED | POTENTIAL | FALSE_POSITIVE
+  status: "enum",           // UNVERIFIED | VERIFIED | POTENTIAL | FALSE_POSITIVE — only UNVERIFIED is ever emitted; the other three are reserved: no shipped code sets them, and the re-probe engine that would have is withdrawn and not planned
 
   // What was found
   title: "string",          // "SSH server allows password authentication"
@@ -340,9 +340,9 @@ export class FindingQueue {
   add(finding)           { /* validate against schema, assign ID, push */ }
   getByCategory(cat)     { /* filter by category */ }
   getByStatus(status)    { /* filter by verification status */ }
-  getUnverified()        { /* findings awaiting verification */ }
-  markVerified(id, evidence) { /* update status + verification evidence */ }
-  markFalsePositive(id, reason) { /* update status, log reason */ }
+  getUnverified()        { /* status UNVERIFIED — every scanner-emitted finding today */ }
+  markVerified(id, evidence) { /* DEPRECATED — no shipped caller; removal deferred to the next major */ }
+  markFalsePositive(id, reason) { /* DEPRECATED — no shipped caller; removal deferred to the next major */ }
   prioritize()           { /* sorts by SEVERITY RANK ALONE */ }
   toJSON()               { /* serialize for file output */ }
   toSARIF()              { /* convert to SARIF 2.1.0 format */ }
