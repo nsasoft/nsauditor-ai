@@ -21,11 +21,14 @@ test('CE no longer declares simple-wappalyzer (abandoned wappalyzer-core)', () =
 });
 
 // zod and body-parser (1.1.0). Every zod 3.x is inside GHSA-mrhx-c7xc-m3w5 (memory exhaustion while validating oversized
-// constrained collections; patched in 4.6.6), and openai@4 lists zod only as an OPTIONAL peer (^3.23.8). So zod is a DIRECT
-// dependency at the patched floor: npm then installs one zod 4.x for the whole tree, including under `npm install -g`, where a
-// package's own `overrides` are not applied. When this package IS the install root (development, and the air-gap carrier's
-// `npm ci`), openai's optional peer conflicts with the direct zod and npm refuses to resolve (ERESOLVE); `overrides.zod: "$zod"`
-// settles that peer on the declared zod. CE imports zod nowhere and uses no openai zod helper; the MCP SDK accepts ^4.0.
+// constrained collections; patched in 4.6.6). zod is a DIRECT dependency at the patched floor: npm then installs one zod 4.x
+// for the whole tree, including under `npm install -g`, where a package's own `overrides` are not applied. Under openai@4, whose
+// OPTIONAL zod peer was ^3.23.8, an install rooted at this package (development, and the air-gap carrier's `npm ci`) refused
+// to resolve (ERESOLVE) without `overrides.zod: "$zod"`, and a project depending on this package still got zod 3.25.76 at its
+// root. B87 (1.1.1) moved to openai 7, whose optional zod peer is ^3.25 || ^4.0, so the declared zod satisfies it. Measured
+// 2026-10-28: the lockfile is IDENTICAL with and without the override, and a dependent project gets zod 4.6.7 only. So the
+// override is retired, and the leg below pins the condition that made it unnecessary. CE imports zod nowhere and uses no
+// openai zod helper; the MCP SDK accepts ^4.0.
 // body-parser below 2.4.0 is inside GHSA-27r3-jxmh-p828; the lockfile is what the air-gap carrier installs.
 const lock = JSON.parse(readFileSync(fileURLToPath(new URL('../package-lock.json', import.meta.url)), 'utf8'));
 const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
@@ -54,6 +57,12 @@ test('the lockfile resolves every body-parser copy at 2.4.0 or newer, and holds 
   assert.deepEqual(below, [], `body-parser copies below 2.4.0: ${JSON.stringify(below)}`);
 });
 
-test('overrides.zod points at the declared zod, so an install rooted at this package resolves openai\'s optional peer', () => {
-  assert.equal((pkg.overrides || {}).zod, '$zod', 'without it, npm install at this package\'s root refuses with ERESOLVE');
+test('openai\'s zod peer ADMITS the declared zod, so no override is needed at this package\'s root (B87, openai 7)', () => {
+  const entry = lock.packages['node_modules/openai'];
+  assert.ok(entry, 'positive control: the lockfile holds openai');
+  const peer = entry.peerDependencies?.zod;
+  assert.equal(typeof peer, 'string', 'openai declares zod as a peer');
+  const admitsZod4 = peer.split('||').some((r) => /^\^?4(\.|$)/.test(r.trim()));
+  assert.ok(admitsZod4, `openai's zod peer (${peer}) does not admit zod 4. Under openai 4 it was ^3.23.8, and an install rooted `
+    + 'here refused to resolve without overrides.zod; restore the override, or keep openai at a release whose peer admits ^4');
 });

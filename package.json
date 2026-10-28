@@ -44,9 +44,6 @@
   "optionalDependencies": {
     "mdns": "^2.7.2"
   },
-  "overrides": {
-    "zod": "$zod"
-  },
   "engines": {
     "node": ">=24.22.1"
   },
