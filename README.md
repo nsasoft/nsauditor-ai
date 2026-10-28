@@ -17,20 +17,24 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 1.1.0 + Enterprise 2.1.0 — *Node.js 24.22.1; scan_host stops at a time limit and names what it did not run; a saved response keeps its request beside it; a multi-entry cloud title says so; get_findings says what a scan holds*.**
-⚠️ **The supported runtime floor rises to Node.js 24.22.1** — the October 2026 Node.js security release for the 24
-line (`engines.node >=24.22.1`); npm only warns on an older runtime, so check `node --version`. Through the MCP server,
-`scan_host` stops at a total time limit by default (`SCAN_HOST_WALL_MS`, 50 s; `0` turns it off) and names the plugins it
-did not run; with `NSA_MCP_RESPONSE_DIR` set, each response is saved with its request beside it, and
-`nsauditor-ai mcp verify-call` checks both; a CRITICAL, HIGH or evidence-gap title in `scan_cloud` says when its finding
-holds more entries than it shows (` (+N more via get_findings)`); and a `get_findings` category filter that matches
-nothing returns the categories the scan does hold.
+**Latest: CE 1.1.1 + Enterprise 2.1.1 — *the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand*.**
+The OpenAI client moves from `openai` 4 to `openai` 7, so a project that depends on this package holds one `zod` at
+4.6.6 or later (GHSA-mrhx-c7xc-m3w5), with no `overrides`, and no `node-domexception`. After every AI response the CLI
+compares the input tokens the provider reports with its own estimate of the input (characters ÷ 4); when the provider
+reports reading less than half of it, `scan_response_ai.txt` and `.html` open with one line saying the assessment covers
+part of the scan, and `scan_response_ai.json` and the run record carry both numbers. Measured with a local Ollama model
+whose settings were left at their defaults, which read about a tenth of a host scan
+([docs/openai.md](./docs/openai.md#when-the-provider-reads-part-of-the-input)). A tool refused for its licence tier
+names the tools the caller can use now, and `compliance_matrix` without the Enterprise package names the licence it
+needs instead of an install command that fails. `nsauditor-ai license` with an unknown subcommand, or none, exits 2. The
+supported runtime is Node.js 24.22.1 or newer (`engines.node >=24.22.1`, since 1.1.0); npm only warns on an older
+runtime, so check `node --version`.
 Two limits from Enterprise 1.3.0 still hold in the Pro delta and Enterprise MTTR: a scan made before Enterprise 1.3.0
 could not record a plugin left out of it, so in a comparison with one an agent's row that scan lacks is not refused;
 and a scan that discovered ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the
 CVE mapper's row on a port it did not measure can read RESOLVED and count as closed in MTTR, and the control it failed
 can read PASS — include the port scanner (003).
-Plugin count UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.0 pairs with this
+Plugin count UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.1 pairs with this
 release, and its peer floor stays at `nsauditor-ai >= 1.0.0`. The free last-vs-current webhook alerting delta is
 untouched and stays free (see Continuous Monitoring below).
 
