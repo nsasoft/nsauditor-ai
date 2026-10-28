@@ -45,7 +45,7 @@ Scan → Analyze → Prioritize → Track → Act
 - **27 scanner plugins** probe networks across ICMP, TCP, UDP, HTTP, TLS, SNMP, DNS, SMB, RPC, mDNS, UPnP, WS-Discovery, MCP (Model Context Protocol), and more
 - **Smart result fusion** — the Result Concluder merges all plugin outputs into a normalized view with OS detection, service fingerprinting, and evidence linking
 - **Structured finding format** — all findings use a common schema with category, severity, evidence, and remediation — enabling consistent SARIF export and MCP integration
-- **AI-powered analysis** — send redacted scan results to OpenAI or Claude (your keys, your choice) for vulnerability assessments and remediation guidance
+- **AI-powered analysis** — send redacted scan results to OpenAI, Claude or a local Ollama model (your keys, your choice) for vulnerability assessments and remediation guidance
 - **Risk-scored prioritization (Pro/Enterprise)** — findings carry a composite risk score: CVSS/10 × a status weight, plus a 15% uplift for findings carrying an initial-access MITRE technique, capped at 1.0. Every finding the scanner emits is `UNVERIFIED`, so the weight is 0.6 for all of them (CVSS 9.8 → 0.59; with T1190 → 0.68; no CVSS → 0.30). The `VERIFIED` (1.0) and `FALSE_POSITIVE` (0.0) weights are unreachable in the shipped product: those status values are reserved, no shipped code or registered MCP tool sets them, and the re-probe engine that would have is withdrawn and not planned. Enterprise adds an operator suppression workflow for compliance findings (accepted-risk / false-positive with expiry): the compliance report shows a suppressed finding as suppressed, naming its approver and rationale, and an expired suppression no longer applies
 - **Continuous monitoring (CTEM)** — watch mode rescans on a schedule, compares each host with the previous cycle and alerts a host whose scan changed and that carries a finding at or above `--alert-severity`
 - **MCP integration** — expose scanning tools to AI assistants like Claude Code via Model Context Protocol
@@ -66,8 +66,9 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 | AI analysis (OpenAI, Claude, Ollama — your keys) | ✅ basic | ✅ enriched | ✅ enriched |
 | Structured findings + SARIF + CSV export | ✅ | ✅ | ✅ |
 | CTEM watch mode | ✅ basic | ✅ advanced | ✅ advanced |
+| MITRE ATT&CK technique mapping — every scan maps the detected services to technique ids, linked in the report | ✅ | ✅ | ✅ |
 | **Pro features** | | | |
-| CVE matching + MITRE ATT&CK mapping | — | ✅ | ✅ |
+| CVE matching + per-finding MITRE ATT&CK annotations (`evidence.mitre`) | — | ✅ | ✅ |
 | Risk scoring + prioritization | — | ✅ | ✅ |
 | Exploit intelligence — **CISA KEV** + **FIRST EPSS** joined onto the CVE matches, exploit-first ordering (a KEV-listed MEDIUM outranks an unexploited CRITICAL); stores are operator-populated — no feed data ships | — | ✅ | ✅ |
 | Parallel analysis agents | — | ✅ | ✅ |
