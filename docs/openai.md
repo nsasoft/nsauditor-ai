@@ -77,9 +77,29 @@ Every scan writes into its own per-scan folder under `--out`. The AI stage adds:
 |---|---|
 | `scan_response_ai_payload.json` | The scan payload sent to OpenAI, written **before** the request — your audit record of the scan data that left the machine. The system prompt is the next row |
 | `scan_response_ai_system_prompt.txt` | From Community 1.0.0: the system prompt sent with it — the prompt mode's own text, preceded on Pro and Enterprise by the intelligence block — written **before** the request. With the payload file it is the content of the request; the model name and your key are the rest |
-| `scan_response_ai.json` | The raw API response |
+| `scan_response_ai.json` | The raw API response. From Community 1.1.1 it also carries `nsauditorMeta.inputCoverage` when the provider reported an input count (see the next section) |
 | `scan_response_ai.txt` / `.html` | The model's assessment as text and HTML |
 | `scan_response_ai_error.json` | Written if the call fails or times out; `scan_response_ai.txt` then holds a readable failure notice naming the error |
+
+## When the provider reads part of the input
+
+From Community 1.1.1, after every response the AI stage compares the input tokens the provider reports with an estimate
+of the input's size: the characters of the system prompt and the payload, divided by four. When the provider reports
+reading less than half of that estimate:
+
+- `scan_response_ai.json` records `nsauditorMeta.inputCoverage` with `inputTruncated: true`, `providerInputTokens` and
+  `estimatedInputTokens`;
+- `scan_response_ai.txt` and `scan_response_ai.html` open with one line: *the provider reports reading N tokens of an
+  input estimated at M; this assessment covers part of the scan*;
+- the console summary line and the run record carry the same figures for that host.
+
+What was measured, on 2026-10-28: the four OpenAI runs (three network scans and an AWS scan) reported 1.12 to 1.26
+times the estimate. A scan sent
+through Ollama 0.40.11 and `llama3.2`, with Ollama's settings left at their defaults, reported reading 2,050 tokens of
+an input estimated at 19,992 (about 80,000 characters), so the model assessed about a tenth of the scan, and before this
+release nothing said so. If the line appears with Ollama, check the model's context length in your Ollama
+configuration and re-run until the line is gone. A provider that reports no input count is recorded as unknown, never
+as whole. The Claude provider's `input_tokens` is read the same way; the threshold was not measured on it.
 
 ## Timeouts
 

@@ -20,6 +20,11 @@ CONFIDENTIAL_KEYWORDS=serial,password,token,secret
 
 What the AI step sends, what the redactor masks and does not mask, and every file it writes: [openai.md](./openai.md).
 
+With `AI_PROVIDER=ollama`, the model has to read the whole scan payload. On 2026-10-28, with Ollama's settings left at
+their defaults, `llama3.2` read 2,050 tokens of an input estimated at 19,992. From Community 1.1.1 the AI stage says so
+at the head of its assessment whenever a provider reports reading less than half of the input
+([openai.md](./openai.md#when-the-provider-reads-part-of-the-input)).
+
 **Plugin-specific:**
 
 ```ini

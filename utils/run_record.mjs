@@ -190,7 +190,7 @@ function withRunLock(runId, fn) {
 // scanned" on a client's cover — FALSE, because they WERE scanned; only the record was never
 // finalized. A false "not scanned" over scanned hosts is the exact false clean this record exists
 // to prevent, inverted.
-export async function appendHostWritten(outRoot, runId, { host, dir, scopeScanned = null }) {
+export async function appendHostWritten(outRoot, runId, { host, dir, scopeScanned = null, aiInputCoverage = null }) {
   return withRunLock(runId, async () => {
     const existing = await readRunRecord(outRoot, runId);
     if (!existing) return false;
@@ -208,6 +208,10 @@ export async function appendHostWritten(outRoot, runId, { host, dir, scopeScanne
     // scan is a normal operator action, and nothing in the record could tell it from a fix.
     if (scopeScanned && typeof scopeScanned === 'object') {
       existing.scopeScanned = { ...(existing.scopeScanned ?? {}), [normalised]: scopeScanned };
+    }
+    // B113a (2.1.1): what share of the input the AI provider read for this host, when it reported one. Absent when unknown.
+    if (aiInputCoverage && typeof aiInputCoverage === 'object') {
+      existing.aiInputCoverage = { ...(existing.aiInputCoverage ?? {}), [normalised]: aiInputCoverage };
     }
     return Boolean(await writeJsonSafe(runRecordPath(outRoot, runId), existing, 'host append'));
   });

@@ -117,9 +117,31 @@ export function aiFailureStubText({ host, model, providerLabel, errorMessage, ti
  *   'failed'        — the provider call threw (carries ai_error as the cause)
  * Any unknown status falls to the FAILED branch (fail-visible default).
  */
-export function aiSummaryLine({ host, ai_status, ai_error }) {
+// B113a (2.1.1): AN ASSESSMENT OF PART OF THE SCAN MUST SAY SO. The provider's reported input tokens are compared with the
+// input's own size estimate (characters / 4). Measured on the B87 e2e (2026-10-28): every OpenAI run read 1.12–1.26 of the
+// estimate (its tokenizer counts a little more than chars/4), while a local Ollama model behind its default context window
+// read 0.10 (2,050 of an input estimated at ~20,000). 0.5 sits in that gap.
+export const AI_INPUT_TRUNCATION_RATIO = 0.5;
+
+/** `{ providerInputTokens, estimatedInputTokens, inputTruncated }`, or null when the provider reported no input count. */
+export function aiInputCoverage({ resp, promptText, userContent }) {
+  const usage = resp?.usage ?? {};
+  const reported = [usage.input_tokens, usage.prompt_tokens].find((n) => Number.isFinite(n) && n >= 0);
+  const estimatedInputTokens = Math.ceil((String(promptText ?? '').length + String(userContent ?? '').length) / 4);
+  if (reported === undefined || estimatedInputTokens <= 0) return null;   // unknown is never read as "whole"
+  return { providerInputTokens: reported, estimatedInputTokens,
+    inputTruncated: reported < estimatedInputTokens * AI_INPUT_TRUNCATION_RATIO };
+}
+
+/** The ONE caveat line, the same words in the TXT, the HTML and the summary line. */
+export function aiTruncationCaveat(cov) {
+  return `⚠️ Partial input: the provider reports reading ${cov.providerInputTokens} tokens of an input estimated at `
+    + `${cov.estimatedInputTokens}; this assessment covers part of the scan.`;
+}
+
+export function aiSummaryLine({ host, ai_status, ai_error, ai_input_coverage = null }) {
   switch (ai_status) {
-    case 'ok':             return `AI conclusion: OK (${host})`;
+    case 'ok':             return `AI conclusion: OK (${host})${ai_input_coverage?.inputTruncated ? ` — ${aiTruncationCaveat(ai_input_coverage)}` : ''}`;
     case 'empty':          return `AI conclusion: EMPTY — provider returned no text (${host})`;
     case 'skipped':        return `AI conclusion: SKIPPED — AI_ENABLED not set (${host})`;
     case 'key_unresolved': return `AI conclusion: SKIPPED — API key could not be resolved (${host})`;

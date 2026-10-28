@@ -19,7 +19,7 @@ import { buildCsv } from './utils/export_csv.mjs';
 import { buildMarkdownReport } from './utils/report_md.mjs';
 import { conclusionFindings, maxRank, severityRank as flagSeverityRank, OPEN_SERVICE_SEVERITY } from './utils/service_flags.mjs';
 import { recordScan, getLastScan, computeDiff, formatDiffReport, pruneForCE, HISTORY_FILE, historyServiceEntry, historyHostEntry } from './utils/scan_history.mjs';
-import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine } from './utils/ai_stage.mjs';
+import { aiBailMessage, computeAiTimeoutMs, aiFailureStubText, aiSummaryLine, aiInputCoverage, aiTruncationCaveat } from './utils/ai_stage.mjs';
 import { getTierFromEnv, loadLicense } from './utils/license.mjs';
 import { resolveCapabilities, hasCapability, inferRequiredTier, CAPABILITIES } from './utils/capabilities.mjs';
 import { createScheduler } from './utils/scheduler.mjs';
@@ -571,9 +571,14 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
       clearTimeout(aiTimer);
     }
 
+    // B113a: what share of the input the provider says it read. Written BESIDE the raw response, never into it.
+    const inputCoverage = aiInputCoverage({ resp, promptText, userContent });
+    const truncationCaveat = inputCoverage?.inputTruncated ? aiTruncationCaveat(inputCoverage) : null;
+
     // Write full AI response
     try {
-      await fsp.writeFile(aiResponsePath, JSON.stringify(resp, null, 2), 'utf8');
+      const recorded = inputCoverage ? { ...JSON.parse(JSON.stringify(resp)), nsauditorMeta: { inputCoverage } } : resp;
+      await fsp.writeFile(aiResponsePath, JSON.stringify(recorded, null, 2), 'utf8');
       console.log(`[${providerLabel}] Wrote AI response:`, aiResponsePath);
     } catch (e) {
       console.warn(`[${providerLabel}] Failed to write AI response:`, e?.message || e);
@@ -582,6 +587,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
     // Write TXT & HTML
     try {
       const lines = [
+        ...(truncationCaveat ? [truncationCaveat, ``] : []),
         `Model: ${model}`,
         `Provider: ${providerLabel}`,
         `When: ${new Date().toISOString()}`,
@@ -601,7 +607,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
           host,
           whenIso: new Date().toISOString(),
           model,
-          md: aiConclusionText.trim()
+          md: `${truncationCaveat ? `> ${truncationCaveat}\n\n` : ''}${aiConclusionText.trim()}`
         });
         await fsp.writeFile(aiHtmlPath, html, 'utf8');
         console.log(`[${providerLabel}] Wrote AI HTML:`, aiHtmlPath);
@@ -623,6 +629,7 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
       // review fold D: a 200 with no extractable text is NOT "ok" — the
       // end-of-scan summary must not read "OK" when there is no conclusion.
       ai_status: (typeof aiConclusionText === 'string' && aiConclusionText.trim()) ? 'ok' : 'empty',
+      ai_input_coverage: inputCoverage,
     };
   } catch (err) {
     const errMsg = String(err?.message || err);
@@ -1225,12 +1232,12 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
     conclusion.result.eeEnrichmentError = String(err?.message ?? err);
   }
 
-  const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error } = await maybeSendToOpenAI({
+  const { file_paths: ai_file_paths, ai_conclusion, ai_status, ai_error, ai_input_coverage = null } = await maybeSendToOpenAI({
     host, results, conclusion, promptMode, outDir, runId: opts?.runId ?? null, pluginStatus,
   });
   // BUG1 (fail-VISIBLE): a one-line end-of-scan AI status so a failed/aborted AI
   // conclusion is not silently swallowed under the per-stage logs.
-  console.log(aiSummaryLine({ host, ai_status, ai_error }));
+  console.log(aiSummaryLine({ host, ai_status, ai_error, ai_input_coverage }));
 
   // --- Scan history: record & compare ---
   let scanDiff = null;
@@ -1306,6 +1313,7 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
       hostAppended = await appendHostWritten(runRecordRoot, opts.runId, {
         host, dir: path.basename(outDir),
         scopeScanned: hostScopeScanned,
+        aiInputCoverage: ai_input_coverage,   // B113a: per host, beside the scope
       });
     }
 
