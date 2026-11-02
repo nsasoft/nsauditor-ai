@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 1.1.1 (⏳ PRE-PUBLISH — opened 2026-10-27, NOT YET ON npm) — the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand; paired with Enterprise 2.1.1
+## 1.1.1 (2026-11-01) — the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand; paired with Enterprise 2.1.1
 
 - **The OpenAI client moves from `openai` 4 to `openai` 7.45.1 (board B87).** `openai` 7 accepts `zod` 3.25 or 4 as an optional peer and no longer depends on `formdata-node`, so the tree no longer holds the `node-domexception` polyfill. Nothing about how a scan talks to OpenAI or Ollama changed; the change is pinned by `tests/ai_stage_openai_responses_wire.test.mjs`, which drives the real SDK against a local server that stands in for the OpenAI API and holds the following on 4 and on 7:
   - one request to `/v1/responses`, carrying the model and the system and user input;
