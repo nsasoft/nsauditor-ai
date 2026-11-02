@@ -6,6 +6,11 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
+## Unreleased
+
+- **The README's editions sentence states each tier against the feature grid beneath it (marketing task #226).** It now reads: Community is free and open source (MIT) with no licence key, no restrictions and no telemetry; Pro ($49/month) and Enterprise (from $2,000/year, up to 5 seats) unlock with a licence key from one private package; Pro adds CVE matching and exploit-first triage; Enterprise adds cloud auditors, compliance evidence for eight frameworks, and air-gapped delivery as a dependency-complete offline installation tarball, distributed restricted. The draft this replaced said Enterprise adds air-gapped operation; the grid says air-gapped operation once installed is every tier (offline licence validation, with offline CVE matching at Pro) and that the restricted offline installation tarball is the Enterprise-only row, so the sentence says delivery. The prices were read on the live pages (`/ai/pro/`: "$49 billed monthly"; `/ai/enterprise/`: "Base at $2,000/yr (up to 5 seats)"). Documentation only; it reaches the npm page with the next Community publish.
+- **Product name WITHDRAWN:** "Enterprise Edition 2.0.0" and the like in earlier entries name the paired release by a name the product no longer uses. The product is NSAuditor AI Enterprise; an entry names it with its version, without "Edition".
+
 ## 1.1.1 (2026-11-01) — the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand; paired with Enterprise 2.1.1
 
 - **The OpenAI client moves from `openai` 4 to `openai` 7.45.1 (board B87).** `openai` 7 accepts `zod` 3.25 or 4 as an optional peer and no longer depends on `formdata-node`, so the tree no longer holds the `node-domexception` polyfill. Nothing about how a scan talks to OpenAI or Ollama changed; the change is pinned by `tests/ai_stage_openai_responses_wire.test.mjs`, which drives the real SDK against a local server that stands in for the OpenAI API and holds the following on 4 and on 7:
