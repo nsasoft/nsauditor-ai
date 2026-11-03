@@ -8,7 +8,7 @@ These plugins require `@nsasoft/nsauditor-ai-ee` and a Pro or Enterprise licence
 
 **29 enterprise plugins: 28 cloud auditors across AWS, GCP and Azure substrate, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — all mapped to AICPA Trust Services Criteria 2017 (10 covered + 4 partial controls). EE plugins live in the disjoint 1000+ ID range; CE reserves 001-099. Once licensed, the EE package installs alongside the CE binary and discovers automatically. A cloud `--host` pass auto-scopes on `cloudProvider`, which only the 28 declare, so `1023` never runs on a cloud pass. It runs on a network-host scan with the full plugin set — measured on the shipped CLI, selecting it by id on its own does not work, because it requires the host to be confirmed up by a discovery plugin.
 
-→ **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the evidence pack actually looks like.
+→ **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — a fictional Acme Corp, scanned on AWS, Azure and GCP: real scanner output, sanitized, no signup required. See the multi-region GuardDuty audit, the GCP IAM auditor's transitive service-account impersonation path, and what the evidence pack actually looks like.
 
 → **[Buy NSAuditor AI Enterprise](https://www.nsauditor.com/ai/enterprise/)** · $2k / $5k / $10k+ per year · 5 / 25 / unlimited seats · onboarding call included.
 
