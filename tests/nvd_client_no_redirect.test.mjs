@@ -103,6 +103,18 @@ describe('a redirect from the NVD API is refused: nothing reaches the host it po
     }
   }
 
+  // Owed on the audit seat's read of f6cef5d: the bounds of the refusal itself, not only the five common statuses.
+  for (const status of [300, 399]) {
+    it(`a ${status} at the bound is refused with the named refusal, and nothing is cached`, async () => {
+      const nvd = await listener(() => [status, { location: `${elsewhere.origin}/x` }, '']);
+      const cacheDir = freshCache();
+      try {
+        await assert.rejects(againstNvdAt(nvd.origin, async () => (await client(cacheDir)).queryCvesByCpe(CPE)), new RegExp(`NVD API ${status} → .*never followed`));
+        assert.deepEqual(cached(cacheDir), []);
+      } finally { await nvd.close(); }
+    });
+  }
+
   it('validateCveId on a redirect: transient, not cached, nothing elsewhere', async () => {
     const before = elsewhere.seen.length;
     const nvd = await listener(() => [302, { location: `${elsewhere.origin}/x` }, '']);

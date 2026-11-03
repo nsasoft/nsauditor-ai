@@ -49,6 +49,22 @@ function parseCve(vuln) {
   };
 }
 
+/**
+ * EE board B160 (the release paired with Enterprise 2.1.2): the CVE list an NVD answer carries, or a throw. Both lookups
+ * read `body.vulnerabilities || []`, so a 200 whose body carried no such list — malformed, a proxy's page, another host's
+ * answer — read as "no CVEs" (or as a CVE that does not exist) and was CACHED that way for the cache's lifetime. Now an
+ * answer whose `vulnerabilities` is absent, null or not a list is a FAILED LOOKUP: it throws, so the caller caches
+ * nothing — Enterprise reports it as its lookup-failure gap, a CVE check reads transient. Scoped to that one key; an
+ * empty list is still a real answer of zero. Stated limit: an empty list beside `totalResults > 0` is read as zero.
+ */
+function vulnerabilitiesOf(body) {
+  const list = body?.vulnerabilities;
+  if (!Array.isArray(list)) {
+    throw new Error('NVD API answer carried no vulnerabilities list — a failed lookup, not "no CVEs"; nothing was cached');
+  }
+  return list;
+}
+
 // --- Client ---
 
 class NvdClient {
@@ -98,7 +114,7 @@ class NvdClient {
 
     const url = `${NVD_BASE}?cpeName=${encodeURIComponent(cpeString)}`;
     const body = await this._fetch(url);
-    const results = (body.vulnerabilities || []).map(parseCve);
+    const results = vulnerabilitiesOf(body).map(parseCve);
 
     await this.cache.set(cacheKey, results);
     return results;
@@ -113,7 +129,7 @@ class NvdClient {
     try {
       const url = `${NVD_BASE}?cveId=${encodeURIComponent(cveId)}`;
       const body = await this._fetch(url);
-      const vulns = body.vulnerabilities || [];
+      const vulns = vulnerabilitiesOf(body);
       if (vulns.length === 0) {
         result = { exists: false, cveId };
       } else {
