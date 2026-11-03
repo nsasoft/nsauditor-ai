@@ -36,6 +36,18 @@ const PROVIDER_CRED_KEYS = [
   // involved. Added 2026-08-27 alongside the EE sovereign-cloud resolver
   // (utils/azure_cloud.mjs), which is what made these reachable.
   'AZURE_ENVIRONMENT', 'ARM_ENVIRONMENT', 'AZURE_ARM_ENDPOINT', 'AZURE_AUTHORITY_HOST',
+  // GCP SELECTORS (board B136, the release paired with Enterprise 2.1.2), for the same reason. Enterprise reads
+  // GCP_PROJECT_ID FIRST, ahead of GOOGLE_CLOUD_PROJECT, so an ambient one scanned another project than the file named;
+  // GOOGLE_IMPERSONATE_SERVICE_ACCOUNT picks the identity; STORAGE_EMULATOR_HOST and GOOGLE_CLOUD_UNIVERSE_DOMAIN move
+  // the Google clients' endpoints (a false clean on Enterprise 2.1.1, a refusal on 2.1.2); and GCE_METADATA_HOST /
+  // GCE_METADATA_IP choose the host that mints the token for a file with no key. NOT here, by decision:
+  // METADATA_SERVER_DETECTION (clearing an ambient `none` would turn the metadata probe back on); the lowercase
+  // google_application_credentials the Google auth library also reads (on Windows process.env is case-insensitive, so
+  // deleting it would delete the file's own GOOGLE_APPLICATION_CREDENTIALS — a residual that holds for every key here);
+  // and GOOGLE_API_USE_CLIENT_CERTIFICATE / GOOGLE_API_USE_MTLS_ENDPOINT, deferred to Enterprise 2.2.0's
+  // credential-source decision. tests/mcp_env_file_gcp_selectors.test.mjs holds the six and the four.
+  'STORAGE_EMULATOR_HOST', 'GOOGLE_CLOUD_UNIVERSE_DOMAIN', 'GCP_PROJECT_ID', 'GOOGLE_IMPERSONATE_SERVICE_ACCOUNT',
+  'GCE_METADATA_HOST', 'GCE_METADATA_IP',
 ];
 
 /**
@@ -69,10 +81,12 @@ export function applyScanEnvFile({ env, fileExists, readFile, log = () => {} }) 
   const applied = Object.keys(set);
   Object.assign(env, set); // override-on — the file is the environment selector
 
-  // Anti-false-clean: clear leftover ambient provider creds the file did NOT set.
+  // Anti-false-clean: clear leftover ambient provider creds the file did NOT set. An EMPTY ambient value is cleared too
+  // (B136): the libraries that read these count an empty string as set (Cloud Storage's emulator check, the Google
+  // clients' universe), so keeping one kept the defect.
   const cleared = [];
   for (const k of PROVIDER_CRED_KEYS) {
-    if (!(k in set) && env[k] != null && env[k] !== '') {
+    if (!(k in set) && typeof env[k] === 'string') {
       delete env[k];
       cleared.push(k);
     }
