@@ -4,7 +4,7 @@ The long-form edition comparison. The summary table lives in the top-level [READ
 
 ### Why upgrade to Enterprise?
 
-If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, GDPR Article 32, or NIST SP 800-171 / CMMC Level 2 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **auditor-ready evidence packs** that pass institutional scrutiny:
+If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS Controls v8, GDPR Article 32, or NIST SP 800-171 / CMMC Level 2 audit** — or need to satisfy customer security questionnaires citing those frameworks, or an IG1 attestation for cyber-insurance renewal — Enterprise turns scan output into **evidence packs built for auditor review**, each mapped to its framework with its limits stated; what the evidence is worth is the auditor's decision:
 
 - ☁️ **29 enterprise plugins — 28 cloud auditors across AWS / Azure / GCP, plus **`1023 Zero Trust Assessment`**, which scores zero-trust posture (segmentation, encryption-in-transit, identity, lateral-movement risk) from a **network-host** scan** — find the configuration risks an auditor will flag, before they do (CloudTrail integrity, KMS custody, S3 Object Lock, IAM shadow-admin paths, GCP IAM impersonation chains, Azure RBAC sprawl, and more)
 - 📋 **8 compliance frameworks shipped** — generate any combination from a single scan:
@@ -24,5 +24,5 @@ If you're heading into a **SOC 2, HIPAA, NIST CSF 2.0, PCI DSS, ISO 27001, CIS C
 - 🎯 **14 adversarial-audit Claude Code skills** authored per the Per-Framework Adversarial-Audit Skill Pairing institutional pattern — Phase-4 Compliance/GRC chain 9-of-9 COMPLETE for all shipped frameworks (SOC 2 + HIPAA + NIST CSF + PCI DSS + ISO 27001 + CIS Controls v8 + GDPR Article 32 + NIST SP 800-171 + GRC connector)
 
 → **[See sample EE scan output](https://www.nsauditor.com/ai/docs/sample-scan/)** — full evidence pack against synthetic Acme Corp AWS account (no signup required)
-→ **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
+→ **[Buy NSAuditor AI Enterprise](https://www.nsauditor.com/ai/pricing/)** — $2k / $5k / $10k+ per year for 5 / 25 / unlimited seats + custom SLA. Onboarding call included.
 

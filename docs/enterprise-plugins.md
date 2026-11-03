@@ -10,7 +10,7 @@ These plugins require `@nsasoft/nsauditor-ai-ee` and a Pro or Enterprise licence
 
 → **[Watch a sample scan run end-to-end](https://www.nsauditor.com/ai/docs/sample-scan/)** — synthetic Acme Corp AWS account + home-office router. Real real scan output, no signup required. See the transitive SG chain reachability finding, the multi-region GuardDuty audit, the dnsmasq CVE detection, and what the evidence pack actually looks like.
 
-→ **[Buy NSAuditor AI Enterprise Edition](https://www.nsauditor.com/ai/enterprise/)** · $2k / $5k / $10k+ per year · 5 / 25 / unlimited seats · onboarding call included.
+→ **[Buy NSAuditor AI Enterprise](https://www.nsauditor.com/ai/enterprise/)** · $2k / $5k / $10k+ per year · 5 / 25 / unlimited seats · onboarding call included.
 
 **All EE plugins follow the same institutional plumbing pattern:**
 
