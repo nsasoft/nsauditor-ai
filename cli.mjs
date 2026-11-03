@@ -593,8 +593,10 @@ async function maybeSendToOpenAI({ host, results, conclusion, promptMode = 'basi
         `When: ${new Date().toISOString()}`,
         `Host: ${host}`,
         ``,
-        `Payload path: ${aiPayloadPath}`,
-        `Response path: ${aiResponsePath}`,
+        // RELATIVE to this TXT's own directory (B111): the TXT is a shareable artifact, and an absolute path names the
+        // operator's machine. All four AI files are written into outDir, so the name is the file name.
+        `Payload path: ${path.relative(path.dirname(aiTxtPath), aiPayloadPath)}`,
+        `Response path: ${path.relative(path.dirname(aiTxtPath), aiResponsePath)}`,
         ``,
         `==== ${providerLabel} Conclusion ====`,
         aiConclusionText ? aiConclusionText : '(no text content returned)'
