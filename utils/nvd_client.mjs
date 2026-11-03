@@ -67,7 +67,20 @@ class NvdClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res = await fetch(url, { headers, signal: controller.signal });
+      // EE board B158 (the Community release paired with Enterprise 2.1.2): the lookup goes ONLY to the NVD API. `fetch`
+      // follows a redirect by default, and Node FORWARDS a custom header such as `apiKey` wherever a cross-origin one
+      // points — measured: the key and the CPE reached another host, whose empty answer was returned and cached as "no
+      // CVEs". So a 3xx is refused, naming the status and the HOST only (this message reaches Enterprise's lookup-failure
+      // gap, its AI payload and a GRC push), and nothing is cached. Enterprise's egress register anchors on this call.
+      const res = await fetch(url, { headers, signal: controller.signal, redirect: 'manual' });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers?.get?.('location');
+        let to = 'no Location header';
+        if (location) {
+          try { to = new URL(location, url).host; } catch { to = 'an unparseable Location header'; }
+        }
+        throw new Error(`NVD API ${res.status} → ${to}: the NVD API redirected the request, and a redirect is never followed`);
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`NVD API ${res.status}: ${text}`);
