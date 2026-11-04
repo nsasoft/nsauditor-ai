@@ -57,13 +57,13 @@ Scan → Analyze → Prioritize → Track → Act
 
 ## Editions
 
-NSAuditor AI comes in three tiers. **Community** is free and open source (MIT): no licence key, no restrictions, no telemetry. **Pro** ($49/month) and **Enterprise** (from $2,000/year, up to 5 seats) unlock with a licence key from one private package. Pro adds CVE matching and exploit-first triage. Enterprise adds cloud auditors, compliance evidence for eight frameworks, and air-gapped delivery as a dependency-complete offline installation tarball, distributed restricted.
+NSAuditor AI comes in three tiers. **Community** is free and open source (MIT): no licence key, no restrictions, no telemetry. **Pro** ($470/year) and **Enterprise** (from $2,000/year, up to 5 seats) unlock with a licence key from one private package. Pro adds CVE matching and exploit-first triage. Enterprise adds cloud auditors, compliance evidence for eight frameworks, and air-gapped delivery as a dependency-complete offline installation tarball, distributed restricted.
 
 **→ [What Pro and Enterprise add](./docs/editions.md)** — the long-form comparison behind the table below.
 
 ### Feature comparison
 
-| | Community (Free) | Pro ($49/mo) | Enterprise ($2k+/yr) |
+| | Community (Free) | Pro ($470/yr) | Enterprise ($2k+/yr) |
 |---|:---:|:---:|:---:|
 | **Network scanning** | | | |
 | 27 scanner plugins (SSH, HTTP, TLS, DNS, SMB, RPC, mDNS, etc.) | ✅ | ✅ | ✅ |
