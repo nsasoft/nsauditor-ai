@@ -5,7 +5,7 @@
 //
 // A redirect policy is a credential-forwarding decision before it is a transport one: on Node 24.22.1 `fetch` strips
 // `Authorization` and `Cookie` on a cross-origin redirect but FORWARDS a custom header (`apiKey`, `x-api-key`) wherever it
-// points (EE audit-evidence-samples/ee-2.1.2/b129/04). The NVD client's `apiKey` did exactly that until this release.
+// points (EE audit-evidence-samples/ee-2.2.0/b129/04). The NVD client's `apiKey` did exactly that until this release.
 // This census holds every first-party `fetch` in the shipped tree (package.json `files`) to the pin, DENY-BY-DEFAULT,
 // keyed on the CALL, never on the string `fetch(`. Comments and string literals are blanked first. The pin counts when it
 // is in the call's own arguments, or in the object literal a bare-identifier argument names in the same file

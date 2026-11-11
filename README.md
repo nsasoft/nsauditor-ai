@@ -6,7 +6,7 @@ A modular, AI-assisted network security audit platform that scans, understands, 
 
 [![npm](https://img.shields.io/npm/v/nsauditor-ai.svg)](https://www.npmjs.com/package/nsauditor-ai)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js 24.22.1+](https://img.shields.io/badge/node-24.22.1%2B-green.svg)](https://nodejs.org)
+[![Node.js 24.22.3+](https://img.shields.io/badge/node-24.22.3%2B-green.svg)](https://nodejs.org)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#tests)
 
 ---
@@ -27,7 +27,7 @@ whose settings were left at their defaults, which read about a tenth of a host s
 ([docs/openai.md](./docs/openai.md#when-the-provider-reads-part-of-the-input)). A tool refused for its licence tier
 names the tools the caller can use now, and `compliance_matrix` without the Enterprise package names the licence it
 needs instead of an install command that fails. `nsauditor-ai license` with an unknown subcommand, or none, exits 2. The
-supported runtime is Node.js 24.22.1 or newer (`engines.node >=24.22.1`, since 1.1.0); npm only warns on an older
+supported runtime is Node.js 24.22.3 or newer (`engines.node >=24.22.3`, since 1.2.0); npm only warns on an older
 runtime, so check `node --version`.
 Two limits from Enterprise 1.3.0 still hold in the Pro delta and Enterprise MTTR: a scan made before Enterprise 1.3.0
 could not record a plugin left out of it, so in a comparison with one an agent's row that scan lacks is not refused;
@@ -179,7 +179,7 @@ Results land in `./out/<host>_<timestamp>/` (two scans of one host whose plugin 
 | `scan_results.csv` | CSV — only with `--output-format csv` |
 | `scan_report.md` | GitHub-flavored Markdown report — only with `--output-format md` (or `markdown`) |
 
-> Requires Node.js 24.22.1 or newer (tested on Node 24.22.1). npm only warns on an older runtime, so check `node --version` yourself.
+> Requires Node.js 24.22.3 or newer (tested on Node 24.22.1). npm only warns on an older runtime, so check `node --version` yourself.
 
 ---
 
@@ -962,7 +962,7 @@ Commonly requested plugins: RDP, VNC, SMTP/POP3/IMAP, MySQL/PostgreSQL/MSSQL/Mon
 
 For the full technical architecture, see [ARCHITECTURE.md](docs/architecture.md).
 
-**Tech stack:** Node.js 24.22.1+ · ES Modules (.mjs) · OpenAI + Anthropic SDKs · Node.js built-in test runner · MCP stdio transport
+**Tech stack:** Node.js 24.22.3+ · ES Modules (.mjs) · OpenAI + Anthropic SDKs · Node.js built-in test runner · MCP stdio transport
 
 **Design patterns:** Factory (PluginManager.create) · Strategy (orchestrated/legacy execution) · Context (shared state) · Adapter (plugin conclude()) · Guard Clause (requirement gating) · Capability gating (CE/Pro/EE) · Semaphore (concurrency control) · Delta (scan history diff) · Boundary Guard (SSRF/injection protection) · Finding Queue (structured intermediate format) · Parallel Agents (concurrent specialized analysis)
 

@@ -80,6 +80,7 @@ export function pinnedLookup({ address, family }) {
  * Measured on Node 24.12 (2026-10-11): Node ACCEPTS a raw space or a raw `@` inside a proxy password and still routes
  * through the proxy, and its tunnel error then prints the URL verbatim — no URL-shaped pattern can bound a userinfo that
  * contains whitespace. Reading the variables Node itself reads removes the exact string, whatever it contains.
+ * (The raw-space routing was NOT re-measured on 24.22.x; the 2026-11-11 re-measurement below covers the tunnel message.)
  * @param {Record<string, string|undefined>} [env]
  * @returns {string[]} longest first
  */
@@ -99,7 +100,9 @@ export function proxyUserinfo(env = process.env) {
  * Credentials replaced, wherever they appear in a message. Measured on Node 24.12 (2026-10-11): with NODE_USE_ENV_PROXY and
  * an HTTPS_PROXY carrying `user:password@`, a failed tunnel's error reads "Failed to establish tunnel to <host> via
  * http://user:password@proxy:port", and that string is what this module returns as `error` — which callers print to stderr
- * and Enterprise writes into the drift file. Every error this module returns passes through here. Two passes: the EXACT
+ * and Enterprise writes into the drift file. Re-measured on Node 24.22.1 and 24.22.3 (2026-11-11, the 24.22.3 floor's C1):
+ * the tunnel error no longer carries the userinfo, and neither the drift file nor the returned errors carried the password
+ * in any shape tried; the two passes stay for a runtime that prints it and for any other message that does. Every error this module returns passes through here. Two passes: the EXACT
  * userinfo of the proxy variables (any characters, a raw space included), then any URL's userinfo up to the last `@`
  * before the path (an `@` in a PATH is not userinfo: the userinfo segment ends at the first `/`, `?` or `#`).
  */

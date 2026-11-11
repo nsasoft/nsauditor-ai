@@ -4,7 +4,7 @@
 // Community release paired with Enterprise 2.1.2, placed by the two seats under the operator's delegation of 2026-11-03).
 //
 // The client's one `fetch` (utils/nvd_client.mjs) passed no `redirect` option, so it followed. Measured on Node 24.22.1
-// (EE audit-evidence-samples/ee-2.1.2/b129/04): a CUSTOM header such as `apiKey` is FORWARDED to wherever a cross-origin
+// (EE audit-evidence-samples/ee-2.2.0/b129/04): a CUSTOM header such as `apiKey` is FORWARDED to wherever a cross-origin
 // redirect points — so with NVD_API_KEY set, a redirect from the API sent the key to another host, with the CPE (scan
 // content) in the query string — and the redirect target's answer was returned, and CACHED, as NVD's.
 // Now the request pins `redirect: 'manual'` and a 3xx is refused, naming the status and the host it pointed at (the host

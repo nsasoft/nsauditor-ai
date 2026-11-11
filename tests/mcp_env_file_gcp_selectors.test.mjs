@@ -7,7 +7,7 @@
 // NSA_ENV_FILE is "the AUTHORITATIVE scan-target selector" (utils/mcp_env_file.mjs): an ambient provider variable the file
 // does not set is cleared, so a partial file cannot scan a leftover account. The list named the AWS, Azure and GCP
 // credential variables and the four Azure cloud selectors — and no GCP selector. Measured against Enterprise's readers
-// (the placement re-derivation, audit-evidence-samples/ee-2.1.2/placement-rederive/B136/):
+// (the placement re-derivation, audit-evidence-samples/ee-2.2.0/placement-rederive/B136/):
 //   - an ambient GCP_PROJECT_ID — which Enterprise reads FIRST, ahead of GOOGLE_CLOUD_PROJECT — scanned the ambient project,
 //     not the one the file selected, and recorded the wrong project as the scope;
 //   - an ambient GOOGLE_IMPERSONATE_SERVICE_ACCOUNT ran Enterprise's Cloud Storage and IAM auditors as another identity;

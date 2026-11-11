@@ -45,7 +45,7 @@
     "mdns": "^2.7.2"
   },
   "engines": {
-    "node": ">=24.22.1"
+    "node": ">=24.22.3"
   },
   "license": "MIT",
   "homepage": "https://www.nsauditor.com/ai/",

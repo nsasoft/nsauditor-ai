@@ -2,9 +2,33 @@
 
 NSAuditor AI Community Edition runs entirely on your infrastructure.
 
-## The Node.js runtime: 24.22.1 or newer
+## The Node.js runtime: 24.22.3 or newer
 
-The supported runtime floor is **Node.js 24.22.1** (`engines.node >=24.22.1`), the security release of 2026-10-21
+From Community 1.2.0 the supported runtime floor is **Node.js 24.22.3** (`engines.node >=24.22.3`), the security release
+of 2026-11-10 (https://nodejs.org/en/blog/vulnerability/november-2026-security-releases); 24.22.2 (2026-10-27) was
+not a security release. npm only warns on an older runtime (`EBADENGINE`), so check `node --version`. What we assessed
+against that advisory, measured 2026-11-11:
+
+- **Proxy credentials at startup.** With `NODE_USE_ENV_PROXY=1`, a malformed proxy URL stops Node.js before any NSAuditor
+  code runs, and Node.js prints the URL, password included, on stderr. On 24.22.3 every malformed `HTTPS_PROXY` /
+  `https_proxy` value we tried still prints it; for `HTTP_PROXY` / `http_proxy`, 24.22.3 redacts three of the four shapes we
+  tried, where 24.22.1 redacted none. The raise does not close this: keep credentials out of proxy URLs, or keep that
+  process's stderr out of shared logs. A well-formed proxy URL that fails when the request runs is printed without its
+  credentials, and the webhook and drift-notification redactors strip them as well.
+- **Proxy schemes.** `NODE_USE_ENV_PROXY` honours `http://` and `https://` proxy URLs. A `socks5://` URL is ignored and the
+  request goes direct, with no error (measured on 24.22.1 and 24.22.3). Use an HTTP(S) proxy where egress must pass one.
+- **Child processes.** Two shipped paths in this package keep a child process's stderr: the host check's `ping` error and
+  the SYN scan's `nmap` error land in `scan_conclusion_raw.json`. Neither is a Node.js process; driven under
+  `NODE_USE_ENV_PROXY=1` with a password in every proxy variable, their output carried none.
+- **Servers.** No shipped code in the Enterprise, Community or agent-skill packages creates an HTTP/2 or TLS server (their
+  own `.mjs`/`.js`/`.cjs` outside tests and `node_modules` were searched for `createServer`, `createSecureServer`, `http2`,
+  `addContext` and `SNICallback`). Dependencies under `node_modules` were not searched, and the HTTP/2 client that the
+  gRPC-based Google Cloud SDKs use was not assessed against the advisory's peer-frame issues: there we rely on the 24.22.3
+  runtime itself.
+- **TLS session reuse.** No `https.Agent` or TLS session is shared across certificate-verification policies in shipped
+  Community code: each TLS probe opens its own connection.
+
+From Community 1.1.0 until 1.2.0 the supported runtime floor was **Node.js 24.22.1** (`engines.node >=24.22.1`), the security release of 2026-10-21
 (https://nodejs.org/en/blog/vulnerability/october-2026-security-releases): of the ten CVEs that advisory lists, eight
 name the 24.x line, four of them high. One of them, CVE-2026-111497 (a Brotli decoder out-of-bounds write), is
 reachable from a scanned host: the web-application detector, the UPnP device-description fetch and plugin 050 read
