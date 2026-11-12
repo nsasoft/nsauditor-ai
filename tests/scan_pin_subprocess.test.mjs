@@ -182,6 +182,73 @@ test('(sp10) the REAL curl, handed http_probe\'s own argv: a brace or range name
   } finally { await new Promise((r) => server.close(r)); }
 });
 
+// ── N1 of the architect's verdict on Community 7b91fea: a literal is ADMITTED on its canonical reading ─────────────────
+// The entries skip the lookup and the pin for a host canonicalIp reads as an IP literal, so http_probe must hand curl that
+// SAME literal. Until 2.2.0 it handed curl the typed string: `0x08080808.` and `8.8.8.8.` were admitted as 8.8.8.8 while curl
+// kept each as a host NAME and resolved it through the OS (outside the check), a CLI-typed leading NBSP or trailing U+3000
+// reached the URL untrimmed, and an unbracketed IPv6 literal made the URL malformed (curl rc=3: the probe never ran).
+// The URL now carries the canonical literal — bracketed when it is IPv6, with no zone id.
+const URL_OF = (h) => `http://${h}/currentsetting.htm`;
+const LITERAL_ROWS = [
+  // [typed, the host the URL must carry] — the first two held before the fix: the fourth quadrant, written first.
+  ['8.8.8.8', '8.8.8.8'],
+  ['[2001:db8::1]', '[2001:db8::1]'],
+  ['2001:db8::1', '[2001:db8::1]'],
+  ['2001:db8::1%en0', '[2001:db8::1]'],
+  ['[2001:db8::1%25en0]', '[2001:db8::1]'],
+  ['0x08080808.', '8.8.8.8'],
+  ['8.8.8.8.', '8.8.8.8'],
+  [' 8.8.8.8', '8.8.8.8'],
+  ['8.8.8.8　', '8.8.8.8'],
+];
+
+test('(sp11, first rows hold pre-fix) an IP literal reaches curl as its CANONICAL form — bracketed when IPv6, no zone — with no --resolve', async () => {
+  for (const [typed, want] of LITERAL_ROWS) {
+    const line = (await recorded(() => probeFirmware(typed, 'NETGEAR R7000'))).find((l) => l.startsWith('curl '));
+    assert.ok(line, `curl was not run for ${JSON.stringify(typed)}`);
+    assert.equal(line.split(' ').pop(), URL_OF(want), `${JSON.stringify(typed)}: ${line}`);
+    assert.ok(!line.includes('--resolve'), `${JSON.stringify(typed)}: a literal is never pinned, yet --resolve was passed: ${line}`);
+    assert.equal(line.split(' ')[1], '-g', `${JSON.stringify(typed)}: -g is not curl's first argument: ${line}`);
+  }
+});
+
+test('(sp12) the REAL curl, handed http_probe\'s own argv for a literal: its request names the canonical address; the pre-fix argv names the typed string', async () => {
+  const real = ['/usr/bin/curl', '/usr/local/bin/curl', '/opt/homebrew/bin/curl'].find((p) => fs.existsSync(p));
+  assert.ok(real, 'no real curl on this machine — this leg cannot measure, and a skipped leg is not a pass');
+  // A loopback PROXY receives curl's request line, which carries curl's own reading of the URL host — and nothing leaves
+  // this machine. A literal is unpinned, so the shipped argv takes the environment's proxy (asserted: no --noproxy).
+  const urls = [];
+  const server = http.createServer((req, res) => { urls.push(req.url); res.end('Firmware=V1.0.0'); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const env = { ...process.env, http_proxy: `http://127.0.0.1:${server.address().port}` };
+  for (const k of ['no_proxy', 'NO_PROXY', 'ALL_PROXY', 'all_proxy', 'HTTP_PROXY']) delete env[k];
+  const run = (args) => new Promise((resolve) => { const p = spawn(real, args, { stdio: 'ignore', env }); p.on('close', (code) => resolve(code)); p.on('error', () => resolve(-1)); });
+  const shipped = async (typed) => {
+    const line = (await recorded(() => probeFirmware(typed, 'NETGEAR R7000'))).find((l) => l.startsWith('curl '));
+    assert.ok(line, `curl was not run for ${JSON.stringify(typed)}`);
+    const args = line.split(' ').slice(1);
+    assert.ok(!args.includes('--noproxy') && !args.includes('-q'), `the literal argv refuses the proxy — this leg cannot measure: ${line}`);
+    return args;
+  };
+  try {
+    for (const [typed, want] of LITERAL_ROWS) {
+      urls.length = 0;
+      const code = await run(await shipped(typed));
+      assert.equal(code, 0, `${JSON.stringify(typed)}: curl failed (rc=${code}) on the shipped argv`);
+      assert.deepEqual(urls, [URL_OF(want)], `${JSON.stringify(typed)}: curl's request did not name the canonical address`);
+    }
+    // Negative control: the pre-fix argv (the typed string in the URL). curl keeps each of these as a host NAME, which it would
+    // resolve through the OS — so this leg tells the canonical URL from the typed one.
+    for (const typed of ['0x08080808.', '8.8.8.8.']) {
+      urls.length = 0;
+      const args = await shipped(typed);
+      args[args.length - 1] = URL_OF(typed);
+      await run(args);
+      assert.deepEqual(urls, [URL_OF(typed)], `${typed}: the pre-fix argv did not reach the proxy as the typed name — this leg cannot tell the fix from its absence`);
+    }
+  } finally { await new Promise((r) => server.close(r)); }
+});
+
 // ── ARP (board item "ARP for a pinned name"): `arp -n <address> [-i <iface>]`, so its target is the token after `-n`. ──
 const arpTargetsOf = (lines) => lines.filter((l) => l.startsWith('arp ')).map((l) => { const a = l.split(' '); return a[a.indexOf('-n') + 1]; });
 // Loopback is private-like and refuses fast: ping_checker's in-process TCP probes go nowhere off this machine. DUAL-STACK,

@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import net from 'node:net';
 import { pinnedAddressFor, canonicalHost } from '../utils/scan_pin.mjs';
+import { canonicalIp } from '../utils/net_validation.mjs';
 import { redactSetCookie, redactLocation } from '../utils/cookie_redaction.mjs';
 
 const execFileP = promisify(execFile);
@@ -109,10 +110,16 @@ export async function probeFirmware(host, vendor) {
   // R1b (EE 2.0.0): a subprocess resolves through the OS, never through the pinned node:dns, so the command is handed the address
   // the scan's host check resolved (utils/scan_pin.mjs) — or the name, when nothing is pinned. curl's --resolve keeps the
   // name as the Host header while connecting to the pinned address.
-  const pinned = net.isIP(host) ? null : pinnedAddressFor(host, { prefer: 4 });
+  // N1 (architect verdict on Community 7b91fea): an IP literal is handed over as its CANONICAL form — the reading the entries
+  // admitted it on (they skip the lookup and the pin for a literal) — bracketed when IPv6, with no zone id. The typed string
+  // is not the same host to curl: `0x08080808.` and `8.8.8.8.` read as 8.8.8.8 to canonicalIp but as host NAMES to curl, which
+  // would resolve them through the OS outside the check; a CLI-typed edge NBSP or U+3000 is trimmed by canonicalIp and not
+  // by curl; and an unbracketed IPv6 literal makes the URL malformed (rc=3), so the probe never ran for an IPv6 target.
+  const literal = canonicalIp(host);
+  const pinned = literal ? null : pinnedAddressFor(host, { prefer: 4 });
   // Pinned, curl gets the name the pin keys on (its ASCII form) in BOTH --resolve and the URL: an IDN-built curl converts the
   // URL host before it reads --resolve, and one without IDN matches raw bytes, so only the one form in both holds on both.
-  const name = pinned ? canonicalHost(host) : host;
+  const name = literal ? (net.isIP(literal) === 6 ? `[${literal}]` : literal) : pinned ? canonicalHost(host) : host;
   const resolveArgs = pinned ? ['--resolve', `${name}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
   // Pinned, curl takes no proxy and no config file: it reads http_proxy / ALL_PROXY from the environment and a .curlrc
   // (proxy, connect-to) from its config directory, and any of them would route the name around the pin — the proxy
