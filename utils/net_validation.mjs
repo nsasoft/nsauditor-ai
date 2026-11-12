@@ -48,7 +48,8 @@ LINK_LOCAL.addSubnet('fe80::', 10, 'ipv6');
  * URL parser (canonicalIp's) reads such a part as OCTAL, macOS getaddrinfo reads it as DECIMAL in a dotted quad, so
  * `0127.0.0.1` was classified as public 87.0.0.1 and connected to 127.0.0.1, and `010.0.0.01` reached 10.0.0.1 classified as
  * 8.0.0.1. Refused at admission, before any lookup — a single-part number too (`02130706433`): macOS agrees there today, but
- * no honest target needs the spelling and the resolvers on other systems are not measured. A name with a non-numeric part
+ * no honest target needs the spelling and the resolvers on other systems are not measured. This reads ASCII digits only; the
+ * same spelling in other digit or dot glyphs is refused by isHostnameSyntax's reads-as-an-address rule. A name with a non-numeric part
  * (`0123.cafe`) is a name.
  * @param {string} s
  */
@@ -184,6 +185,8 @@ export async function resolveAndValidate(hostname, { allowPrivate = false } = {}
 
 const HOST_SYNTAX_REFUSAL = 'Host is not a valid host name: an IP literal, or dot-separated labels of letters, digits, '
   + 'hyphens and underscores';
+const READS_AS_ADDRESS_REFUSAL = (address) => `Host is written in characters that a URL parser reads as the IP address ${address}, `
+  + 'which the system resolver may read differently — type the address in ASCII digits';
 const AMBIGUOUS_NUMERIC_REFUSAL = 'Host is a numeric address with a leading zero in a part: some resolvers read that part as '
   + 'octal and others as decimal, so it is not one address — write it without the leading zero (for example 10.0.0.1)';
 const HOST_LABEL_RE = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
@@ -210,9 +213,13 @@ export function isHostnameSyntax(host) {
   if (/[\x00-\x2c\x2f\x3a-\x40\x5b-\x5e\x60\x7b-\x7f]/.test(host)) return false;   // ASCII other than [A-Za-z0-9._-]
   const name = canonicalHost(host);   // what the pin keys on and curl's URL carries; one trailing dot already dropped
   if (name.length > 253) return false;   // an empty name fails the label rule below
-  // N2: octal to one reader, decimal to another. The TYPED string is the one read: canonicalHost serialises an all-numeric
-  // ASCII form as a plain dotted quad (or answers '' and falls back to the typed string), so its form adds no case.
+  // N2: octal to one reader, decimal to another — in ASCII digits.
   if (hasAmbiguousLeadingZero(host)) return false;
+  // N2 review (81d299c): a NAME whose canonical form IS an IP address. Typed in other digits or dots (U+FF10, U+FF0E,
+  // U+1D7CE), `0177.0.0.1` is no literal to canonicalIp, so it was resolved as a name — the system resolver answered 177.0.0.1
+  // (decimal, public) — while canonicalHost and the URL parser normalise the glyphs and read 127.0.0.1 (octal), and a plugin
+  // that builds a URL connected there with no lookup to pin. Refused whatever the glyphs: no honest name reads as an address.
+  if (net.isIP(name)) return false;
   return name.split('.').every((label) => HOST_LABEL_RE.test(label));
 }
 
@@ -230,8 +237,11 @@ export async function resolveAndValidateAll(hostname, { allowPrivate = false, ch
   // B216: a host that is neither an IP literal nor a host name is refused BEFORE the lookup, whatever the answer mode — a
   // wildcard zone answers a brace name, so the lookup cannot be the refusal. Coded, so each entry names it as a syntax refusal.
   if (!canonicalIp(hostname) && !isHostnameSyntax(hostname)) {
-    const ambiguous = hasAmbiguousLeadingZero(String(hostname ?? '').trim());
-    throw Object.assign(new Error(ambiguous ? AMBIGUOUS_NUMERIC_REFUSAL : HOST_SYNTAX_REFUSAL), { code: 'EHOSTSYNTAX' });
+    const typed = String(hostname ?? '').trim();
+    const asAddress = canonicalHost(typed);
+    const message = hasAmbiguousLeadingZero(typed) ? AMBIGUOUS_NUMERIC_REFUSAL
+      : net.isIP(asAddress) ? READS_AS_ADDRESS_REFUSAL(asAddress) : HOST_SYNTAX_REFUSAL;
+    throw Object.assign(new Error(message), { code: 'EHOSTSYNTAX' });
   }
   const answers = await dns.lookup(hostname, { all: true, verbatim: true });
   const list = (Array.isArray(answers) ? answers : [answers]).filter((a) => a && typeof a.address === 'string');

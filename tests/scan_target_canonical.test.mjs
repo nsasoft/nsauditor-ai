@@ -76,7 +76,7 @@ test('(n2-1, first) both entries hand the plugins the CANONICAL literal — the 
 });
 
 test('(n2-2) a name that merely LOOKS numeric is still a name — `0123.cafe` passes the syntax check; `[::1]` is refused as before', async () => {
-  for (const name of ['0123.cafe', '010.example', 'a0127.0.0.1']) {
+  for (const name of ['0123.cafe', '010.example', 'a0127.0.0.1', 'bücher.example', '6425673729']) {
     assert.equal(canonicalIp(name), null, name);
     assert.equal(isHostnameSyntax(name), true, `${name}: a name with a leading-zero label but a non-numeric part is not ambiguous`);
   }
@@ -186,4 +186,45 @@ test('(n2-6) REAL plugins behind the CLI entry: every subprocess row receives th
     process.env.PATH = saved.PATH;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── The independent review of 81d299c: a NAME the URL parser reads as an IP address ────────────────────────────────────────
+// The belt above reads ASCII digits. Typed in other digits or dots (U+FF10 fullwidth zero, U+FF0E fullwidth dot, U+1D7CE
+// mathematical bold zero), `0177.0.0.1` is not an IP literal to canonicalIp, so it is a NAME: the system resolver answers
+// 177.0.0.1 (decimal, public) and both entries admitted it, while canonicalHost and the WHATWG URL parser normalise the glyphs
+// and read `0177` as octal — 127.0.0.1 — so a plugin that builds a URL (webapp_detector, tribe_health) connected to loopback
+// with no lookup to pin. A name whose canonical form IS an IP address is refused before any lookup.
+const READS_AS_ADDRESS = ['０177.0.0.1', '0177．0．0．1', '\u{1D7CE}177.0.0.1', '０１２７．０．０．１', '８.８.８.８'];
+
+test('(n2-7) a name that the URL parser reads as an IP address is refused before any lookup — CLI in both arms, and MCP; a REAL URL client never reaches loopback', async () => {
+  let hits = 0;
+  const server = net.createServer((sock) => { hits += 1; sock.destroy(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const fetchIt = async (host) => { try { await fetch(`http://${host}:${port}/`, { signal: AbortSignal.timeout(1500) }); } catch { /* the listener hangs up */ } };
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+  try {
+    await fetchIt('０177.0.0.1');
+    await settle();
+    assert.ok(hits >= 1, 'positive control: a URL client handed the typed glyph host did not reach the loopback listener — this leg cannot tell the fix from its absence');
+    hits = 0;
+    for (const typed of READS_AS_ADDRESS) {
+      assert.equal(canonicalIp(typed), null, `${JSON.stringify(typed)}: admitted as a literal`);
+      assert.equal(isHostnameSyntax(typed), false, `${JSON.stringify(typed)}: passes as a host name`);
+      for (const arm of [false, true]) {
+        allowAll(arm);
+        lookups.length = 0;
+        await assert.rejects(cliScan(hostPm([], fetchIt), typed),
+          (e) => e.code === 'ETARGETREFUSED' && /not a valid host name.*reads as the IP address/s.test(e.message),
+          `CLI${arm ? ' (NSA_ALLOW_ALL_HOSTS)' : ''}, ${JSON.stringify(typed)}`);
+        assert.ok(!lookups.includes(typed), `CLI${arm ? ' (NSA_ALLOW_ALL_HOSTS)' : ''}, ${JSON.stringify(typed)}: looked up before the refusal`);
+      }
+      allowAll(false);
+      lookups.length = 0;
+      await assert.rejects(mcpScan(hostPm([], fetchIt), typed), (e) => notStop(e) && /not a valid host name via MCP/.test(e.message), `MCP, ${JSON.stringify(typed)}`);
+      assert.ok(!lookups.some((l) => l === typed || l === typed.toLowerCase()), `MCP, ${JSON.stringify(typed)}: looked up before the refusal`);
+    }
+    await settle();
+    assert.equal(hits, 0, 'a scan reached the loopback listener through an entry');
+  } finally { allowAll(false); await new Promise((r) => server.close(r)); }
 });
