@@ -10,7 +10,9 @@
 // result, and from the plugin manager that text reaches every artifact, so the scrub sits at the receipt and nowhere else.
 //
 // Strings go through Community's credentialRedactor (utils/webhook.mjs): the proxy userinfo, any URL's userinfo, and each
-// proxy password of at least PROXY_SECRET_MIN_LENGTH characters wherever it appears.
+// proxy password wherever it appears — as written, decoded, re-encoded and JSON-escaped, each form when it is at least
+// PROXY_SECRET_MIN_LENGTH characters. NOT covered: a Base64 Proxy-Authorization value, a token in the user-name position
+// outside a URL, and any other encoding. Any URL's userinfo is replaced whether or not a proxy is set.
 //
 // Walked: strings, plain objects (keys and values), arrays, and an Error's message, stack, cause and own enumerable
 // fields. NOT walked (stated limit): a string inside a Map, a Set, a typed array or Buffer, a Date, or any other class

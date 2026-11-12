@@ -217,3 +217,13 @@ test('(w13) a result the walk cannot read does not abort the batch: the other pl
   const bad = out.results.find((r) => r.id === 'BAD');
   assert.match(String(bad?.result?.error), /withheld/, 'the unreadable result is a named failure');
 });
+
+test('(w-c1) a result field holding a JSON-stringified stderr, and a re-encoded password, are scrubbed at the receipt (C1)', () => {
+  const pw = 'Zq7!canary"x\\y@9';
+  const env = { HTTPS_PROXY: `http://u:${pw}@127.0.0.1:9` };
+  const result = { up: false, data: [{ detail: JSON.stringify({ stderr: `auth failed for ${pw}` }), url: encodeURIComponent(pw) }] };
+  const { value, replaced } = scrubPluginOutput(result, { env });
+  assert.equal(replaced, 2);
+  assert.ok(!JSON.stringify(value).includes('canary'), JSON.stringify(value));
+  assert.ok(JSON.stringify(result).includes('canary'), 'the plugin\'s own object is not mutated');
+});

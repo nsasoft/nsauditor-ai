@@ -9,8 +9,9 @@
 // third one replaces each proxy variable's password, as written and decoded, wherever it appears.
 //
 // The guard: a password shorter than PROXY_SECRET_MIN_LENGTH (8) is never replaced bare, because a short value would
-// shred ordinary text; it is still removed inside a URL by the first two passes. A userinfo with no `:` is a token
-// carried as the user name, and it is the secret.
+// shred ordinary text; it is still removed inside a URL by the first two passes. A userinfo with no `:` (a token carried
+// as the user name) is NOT replaced bare — it is removed only inside a URL (the c4aeccd review fold; stated limit).
+// C1 (2026-11-12): each password is also replaced JSON-escaped and re-encoded, each form held to the guard by its own length.
 //
 // FOURTH QUADRANT FIRST: text that names an e-mail, an ARN or an `@` in a URL's path comes through byte-identical,
 // with a credential-bearing proxy variable set — a scrub that shreds identifiers moves a finding's sentence.
@@ -88,9 +89,10 @@ test('(q3) proxySecrets reads the variables Node reads, splits at the FIRST colo
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://127.0.0.1:9' }), [], 'no userinfo, no secret');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://user:@h:1' }), [], 'an empty password is no secret');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://tok3nonlyABCDEF@h:1' }), [], 'a user name alone is no secret');
-  assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://u:pass:word123@h:1' }), ['pass:word123'], 'a colon inside the password is kept');
+  // a colon inside the password is kept; its re-encoded form (C1) carries it as %3A
+  assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://u:pass:word123@h:1' }), ['pass%3Aword123', 'pass:word123'], 'a colon inside the password is kept');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: `  http://proxyuser:${CANARY}@h:1  ` }), [CANARY], 'padding trimmed, as Node does');
-  assert.deepEqual(proxySecrets({ NO_PROXY: `http://u:${CANARY}@h:1`, PROXY: `http://u:${CANARY}@h:1` }), [], 'only the six proxy variables');
+  assert.deepEqual(proxySecrets({ NO_PROXY: `http://u:${CANARY}@h:1`, PROXY: `http://u:${CANARY}@h:1` }), [], 'only the proxy variables the closure reads (q9)');
   const got = proxySecrets({ http_proxy: 'http://a:SECRETpw12345@h:1', HTTPS_PROXY: 'http://b:SECRETpw12345678@h:2' });
   assert.deepEqual(got, ['SECRETpw12345678', 'SECRETpw12345']);
 });
@@ -106,5 +108,81 @@ test('(q4) the bare pass never rewrites a placeholder, so redaction is idempoten
       assert.equal(redactUrlCredentials(once, e), once, `idempotent: ${JSON.stringify(x)}`);
       assert.ok(!once.includes('<<') && !once.includes('>>'), `no mangled placeholder: ${once}`);
     }
+  }
+});
+
+// ── C1 (the architect's verdict of 2026-11-12 on c4aeccd, G1) ─────────────────────────────────────────────────────────
+// Two more forms of the password pass whole without a fourth and fifth variant: the JSON-escaped form (what any
+// JSON.stringify of a stderr string produces) and encodeURIComponent of the decoded value. Each FORM is held to the
+// 8-character guard by its own length, as the written and decoded forms already are. The probe password is the
+// architect's: it carries a `"`, a `\` and an `@`, so its escaped and encoded forms differ from it.
+const SPECIAL = 'Zq7!canary"x\\y@9';
+const SPECIAL_JSON = 'Zq7!canary\\"x\\\\y@9';
+const SPECIAL_ENC = 'Zq7!canary%22x%5Cy%409';
+const SPECIAL_ENVS = Object.freeze([
+  { HTTPS_PROXY: `http://u:${SPECIAL}@127.0.0.1:9` },       // written raw (the userinfo runs to the LAST @)
+  { HTTPS_PROXY: `http://u:${SPECIAL_ENC}@127.0.0.1:9` },   // written percent-encoded
+]);
+
+test('(q5) fourth quadrant: a password with no special character yields no extra form, and identifiers stay byte-identical', () => {
+  assert.deepEqual(proxySecrets(PROXY), [CANARY], 'escaping and re-encoding a plain password change nothing, so no variant is added');
+  assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://u:plainpassword8@h:1' }), ['plainpassword8']);
+  for (const env of SPECIAL_ENVS) {
+    for (const s of FOURTH_QUADRANT) {
+      assert.equal(redactUrlCredentials(s, env), s, `${JSON.stringify(s)} under ${JSON.stringify(env)}`);
+      const sentence = `Bucket policy grants ${s} read access`;
+      assert.equal(redactUrlCredentials(sentence, env), sentence);
+    }
+  }
+});
+
+test('(q6) the password is replaced JSON-escaped and re-encoded too, whichever way the variable writes it (C1)', () => {
+  for (const env of SPECIAL_ENVS) {
+    const tag = JSON.stringify(env);
+    assert.deepEqual(proxySecrets(env), [SPECIAL_ENC, SPECIAL_JSON, SPECIAL], `the three forms, longest first: ${tag}`);
+    for (const form of [SPECIAL, SPECIAL_JSON, SPECIAL_ENC]) {
+      assert.equal(redactUrlCredentials(`stderr: ${form} rejected`, env), 'stderr: <credentials> rejected', `${form} under ${tag}`);
+    }
+    // the shape that produces the escaped form: a stderr string stringified into a field
+    const stringified = JSON.stringify({ stderr: `auth failed for ${SPECIAL}` });
+    const out = redactUrlCredentials(stringified, env);
+    assert.ok(!out.includes('canary'), `nothing of the password survives JSON.stringify: ${out}`);
+    assert.deepEqual(JSON.parse(out), { stderr: 'auth failed for <credentials>' }, 'and the text still parses');
+    // idempotent with the new forms in play
+    for (const form of [SPECIAL, SPECIAL_JSON, SPECIAL_ENC]) {
+      const once = redactUrlCredentials(`a ${form} b`, env);
+      assert.equal(redactUrlCredentials(once, env), once);
+    }
+  }
+});
+
+test('(q7) each form is held to the guard by its own length: a 7-character password is replaced only in a form of 8 or more', () => {
+  // `ab"cdef` is 7 characters; its escaped form `ab\"cdef` is 8 and its encoded form `ab%22cdef` is 9.
+  const env = { HTTPS_PROXY: 'http://u:ab"cdef@h:1' };
+  assert.deepEqual(proxySecrets(env), ['ab%22cdef', 'ab\\"cdef']);
+  assert.equal(redactUrlCredentials('bare ab"cdef stays', env), 'bare ab"cdef stays', 'the 7-character form is below the guard');
+  assert.equal(redactUrlCredentials('via http://u:ab"cdef@h:1', env), 'via http://<credentials>@h:1', 'still removed inside a URL');
+});
+
+test('(q8) stated limit: a Base64 Proxy-Authorization value is NOT replaced (delete this leg if it ever is)', () => {
+  const env = { HTTPS_PROXY: `http://proxyuser:${CANARY}@127.0.0.1:9` };
+  const header = `Proxy-Authorization: Basic ${Buffer.from(`proxyuser:${CANARY}`).toString('base64')}`;
+  assert.equal(redactUrlCredentials(header, env), header);
+});
+
+// ── C2 (the architect's verdict of 2026-11-12, G2) ────────────────────────────────────────────────────────────────────
+// The variable list is DERIVED from what the packed closure reads, and held equal to that derivation by Enterprise's
+// tests/proxy_variable_census.test.mjs (the cloud SDKs are Enterprise's dependencies, so the census lives there).
+// Measured 2026-11-12 over the clean-room customer closure: @grpc/grpc-js 1.14.7 reads `grpc_proxy` before
+// `https_proxy` and sends its decoded `user:password` as Proxy-Authorization, so it carries a password. No package in
+// the closure reads `npm_config_proxy` or `npm_config_https_proxy`.
+test('(q9) the proxy variables are the six Node reads plus grpc_proxy; npm_config_* is not read by the closure', () => {
+  assert.deepEqual([...W.PROXY_VARIABLES], ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'grpc_proxy']);
+  assert.ok(Object.isFrozen(W.PROXY_VARIABLES));
+  const grpc = { grpc_proxy: `http://u:${CANARY}@127.0.0.1:9` };
+  assert.deepEqual(proxySecrets(grpc), [CANARY]);
+  assert.equal(redactUrlCredentials(`child printed ${CANARY}`, grpc), 'child printed <credentials>');
+  for (const k of ['npm_config_proxy', 'npm_config_https_proxy', 'GRPC_PROXY', 'no_grpc_proxy']) {
+    assert.deepEqual(proxySecrets({ [k]: `http://u:${CANARY}@127.0.0.1:9` }), [], `${k} is not a proxy variable the closure reads`);
   }
 });

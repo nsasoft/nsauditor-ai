@@ -75,7 +75,14 @@ export function pinnedLookup({ address, family }) {
   };
 }
 
-const PROXY_VARIABLES = Object.freeze(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']);
+/**
+ * The variables read as a forward-proxy URL, whose userinfo authenticates to the proxy. DERIVED (EE 2.2.0 I3, C2 of the
+ * architect's verdict of 2026-11-12) from the packed closure, and held equal to that derivation by Enterprise's
+ * tests/proxy_variable_census.test.mjs: Node 24's env-proxy support, gaxios, teeny-request and @typespec/ts-http-runtime
+ * read the upper- and lower-case HTTP(S)_PROXY (ts-http-runtime also ALL_PROXY, lower-casing each name at run time), and
+ * @grpc/grpc-js reads grpc_proxy first. NOT read by the closure: npm_config_proxy, npm_config_https_proxy.
+ */
+export const PROXY_VARIABLES = Object.freeze(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'grpc_proxy']);
 /** The userinfo of each proxy variable as written, or none. The userinfo runs to the LAST @. */
 function writtenUserinfo(env) {
   const out = [];
@@ -87,6 +94,8 @@ function writtenUserinfo(env) {
   return out;
 }
 const tryDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };   // not percent-encoded
+const reEncode = (s) => { try { return encodeURIComponent(s); } catch { return s; } };    // a lone surrogate
+const jsonEscape = (s) => JSON.stringify(s).slice(1, -1);
 const longestFirst = (set) => [...set].sort((a, b) => b.length - a.length);
 
 /**
@@ -111,8 +120,12 @@ export function proxyUserinfo(env = process.env) {
 export const PROXY_SECRET_MIN_LENGTH = 8;
 
 /**
- * The secret of every proxy variable, as written and percent-decoded, longest first, each at least
- * PROXY_SECRET_MIN_LENGTH characters. The secret is the password: the userinfo after its FIRST `:` (a `:` inside the
+ * The secret of every proxy variable, longest first, in five forms: as written, percent-decoded, the decoded value
+ * re-encoded (encodeURIComponent), and the written and decoded values JSON-escaped (what JSON.stringify of a stderr string
+ * holds; EE 2.2.0 I3, C1 of the architect's verdict of 2026-11-12). Each FORM is kept when it is at least
+ * PROXY_SECRET_MIN_LENGTH characters by its own length, so a 7-character password with a `"` is replaced in its 8-character
+ * escaped form and not bare. A password with no character that escaping or encoding changes yields one form. NOT covered:
+ * a Base64 `Proxy-Authorization` value, and any other encoding. The secret is the password: the userinfo after its FIRST `:` (a `:` inside the
  * password is kept, and the split is made on the written form, so an encoded `%3A` is never a separator). A user name
  * is not a secret, with or without a password: a userinfo with no `:` yields none, and is removed only inside a URL.
  *
@@ -129,7 +142,10 @@ export function proxySecrets(env = process.env) {
     const colon = info.indexOf(':');
     if (colon < 0) continue;   // a user name alone is not a secret: replaced bare it would shred host names and banners
     const secret = info.slice(colon + 1);
-    for (const s of [secret, tryDecode(secret)]) if (s.length >= PROXY_SECRET_MIN_LENGTH) out.add(s);
+    const decoded = tryDecode(secret);
+    for (const s of [secret, decoded, reEncode(decoded), jsonEscape(secret), jsonEscape(decoded)]) {
+      if (s.length >= PROXY_SECRET_MIN_LENGTH) out.add(s);
+    }
   }
   return longestFirst(out);
 }
