@@ -61,8 +61,11 @@ test('(q1) the password is replaced wherever it appears — bare, decoded, repea
   assert.equal(redactUrlCredentials('child said B164@I3 SECRET', enc), 'child said <credentials>');
   assert.equal(redactUrlCredentials('child said B164%40I3%20SECRET', enc), 'child said <credentials>');
 
-  // a token carried as the user name, no ':'
-  assert.equal(redactUrlCredentials('token tok3nonlyABCDEF expired', { ALL_PROXY: 'http://tok3nonlyABCDEF@h:2' }), 'token <credentials> expired');
+  // a user name with no password is NOT a secret replaced bare (review fold: an ordinary user name would be shredded
+  // across host names, banners and keys); inside a URL it is still removed by the first two passes
+  const tok = { ALL_PROXY: 'http://tok3nonlyABCDEF@h:2' };
+  assert.equal(redactUrlCredentials('user tok3nonlyABCDEF connected', tok), 'user tok3nonlyABCDEF connected');
+  assert.equal(redactUrlCredentials('via http://tok3nonlyABCDEF@h:2', tok), 'via http://<credentials>@h:2');
 
   // longest first: one password a prefix of another leaves no tail behind
   const two = { HTTP_PROXY: 'http://a:SECRETpw12345@h:1', HTTPS_PROXY: 'http://b:SECRETpw12345678@h:2' };
@@ -84,9 +87,24 @@ test('(q3) proxySecrets reads the variables Node reads, splits at the FIRST colo
   assert.deepEqual(proxySecrets({}), []);
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://127.0.0.1:9' }), [], 'no userinfo, no secret');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://user:@h:1' }), [], 'an empty password is no secret');
+  assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://tok3nonlyABCDEF@h:1' }), [], 'a user name alone is no secret');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: 'http://u:pass:word123@h:1' }), ['pass:word123'], 'a colon inside the password is kept');
   assert.deepEqual(proxySecrets({ HTTPS_PROXY: `  http://proxyuser:${CANARY}@h:1  ` }), [CANARY], 'padding trimmed, as Node does');
   assert.deepEqual(proxySecrets({ NO_PROXY: `http://u:${CANARY}@h:1`, PROXY: `http://u:${CANARY}@h:1` }), [], 'only the six proxy variables');
   const got = proxySecrets({ http_proxy: 'http://a:SECRETpw12345@h:1', HTTPS_PROXY: 'http://b:SECRETpw12345678@h:2' });
   assert.deepEqual(got, ['SECRETpw12345678', 'SECRETpw12345']);
+});
+
+test('(q4) the bare pass never rewrites a placeholder, so redaction is idempotent even when the password is "credentials"', () => {
+  const env = { HTTPS_PROXY: 'http://u:credentials@p:1' };
+  assert.equal(redactUrlCredentials('http://a:b@h', env), 'http://<credentials>@h');
+  assert.equal(redactUrlCredentials('the credentials leaked', env), 'the <credentials> leaked');
+  const two = { HTTP_PROXY: 'http://a:credentials@p:1', HTTPS_PROXY: `http://b:${CANARY}@p:2` };
+  for (const x of ['http://a:b@h', `${CANARY} and credentials`, 'credentials <credentials>', `via http://b:${CANARY}@p:2`]) {
+    for (const e of [env, two, PROXY]) {
+      const once = redactUrlCredentials(x, e);
+      assert.equal(redactUrlCredentials(once, e), once, `idempotent: ${JSON.stringify(x)}`);
+      assert.ok(!once.includes('<<') && !once.includes('>>'), `no mangled placeholder: ${once}`);
+    }
+  }
 });

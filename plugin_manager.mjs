@@ -23,8 +23,9 @@ import { resolveCapabilities } from './utils/capabilities.mjs';
 import { scopeSelectionForHost, scopeSelectionForProviders, excludeMismatchedCloudPlugins, isCloudSentinelHost } from './utils/sentinel_scope.mjs';
 import { mapLimit } from './utils/concurrency.mjs';
 // EE 2.2.0, I3: a plugin's return value and its throw are scrubbed of proxy credentials at the two receipt points below
-// (callPlugin and _runOne) — every shipped path that runs a plugin goes through one of them, and every artifact is
-// written downstream. See utils/plugin_output_scrub.mjs for what is walked and the stated limits.
+// (callPlugin and _runOne) — every shipped path that runs a plugin goes through one of them, and every artifact built
+// from a plugin's result is written downstream. A plugin's own console output and its writes into the shared context
+// do not pass here. See utils/plugin_output_scrub.mjs for what is walked and the stated limits.
 import { scrubPluginOutput, scrubThrown } from './utils/plugin_output_scrub.mjs';
 
 const __filename = fileURLToPath(import.meta.url);

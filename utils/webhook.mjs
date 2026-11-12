@@ -75,15 +75,6 @@ export function pinnedLookup({ address, family }) {
   };
 }
 
-/**
- * The userinfo (`user:password`) of every proxy variable Node's env-proxy support reads, exactly as written and decoded.
- * Measured on Node 24.12 (2026-10-11): Node ACCEPTS a raw space or a raw `@` inside a proxy password and still routes
- * through the proxy, and its tunnel error then prints the URL verbatim — no URL-shaped pattern can bound a userinfo that
- * contains whitespace. Reading the variables Node itself reads removes the exact string, whatever it contains.
- * (The raw-space routing was NOT re-measured on 24.22.x; the 2026-11-11 re-measurement below covers the tunnel message.)
- * @param {Record<string, string|undefined>} [env]
- * @returns {string[]} longest first
- */
 const PROXY_VARIABLES = Object.freeze(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']);
 /** The userinfo of each proxy variable as written, or none. The userinfo runs to the LAST @. */
 function writtenUserinfo(env) {
@@ -98,6 +89,15 @@ function writtenUserinfo(env) {
 const tryDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };   // not percent-encoded
 const longestFirst = (set) => [...set].sort((a, b) => b.length - a.length);
 
+/**
+ * The userinfo (`user:password`) of every proxy variable Node's env-proxy support reads, exactly as written and decoded.
+ * Measured on Node 24.12 (2026-10-11): Node ACCEPTS a raw space or a raw `@` inside a proxy password and still routes
+ * through the proxy, and its tunnel error then prints the URL verbatim — no URL-shaped pattern can bound a userinfo that
+ * contains whitespace. Reading the variables Node itself reads removes the exact string, whatever it contains.
+ * (The raw-space routing was NOT re-measured on 24.22.x; the 2026-11-11 re-measurement below covers the tunnel message.)
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {string[]} longest first
+ */
 export function proxyUserinfo(env = process.env) {
   const out = new Set();
   for (const info of writtenUserinfo(env)) { out.add(info); out.add(tryDecode(info)); }
@@ -113,8 +113,8 @@ export const PROXY_SECRET_MIN_LENGTH = 8;
 /**
  * The secret of every proxy variable, as written and percent-decoded, longest first, each at least
  * PROXY_SECRET_MIN_LENGTH characters. The secret is the password: the userinfo after its FIRST `:` (a `:` inside the
- * password is kept, and the split is made on the written form, so an encoded `%3A` is never a separator). A userinfo
- * with no `:` is a token carried as the user name, and that token is the secret. The user name is not a secret.
+ * password is kept, and the split is made on the written form, so an encoded `%3A` is never a separator). A user name
+ * is not a secret, with or without a password: a userinfo with no `:` yields none, and is removed only inside a URL.
  *
  * Why (EE 2.2.0, I3, measured 2026-11-11 on Node 24.22.3): @aws-sdk/credential-provider-process carries a configured
  * child's full stderr into the CredentialsProviderError it throws, and a child can print the proxy password alone or
@@ -127,7 +127,8 @@ export function proxySecrets(env = process.env) {
   const out = new Set();
   for (const info of writtenUserinfo(env)) {
     const colon = info.indexOf(':');
-    const secret = colon >= 0 ? info.slice(colon + 1) : info;
+    if (colon < 0) continue;   // a user name alone is not a secret: replaced bare it would shred host names and banners
+    const secret = info.slice(colon + 1);
     for (const s of [secret, tryDecode(secret)]) if (s.length >= PROXY_SECRET_MIN_LENGTH) out.add(s);
   }
   return longestFirst(out);
@@ -155,6 +156,7 @@ export function redactUrlCredentials(message, env = process.env) {
  * @param {Record<string, string|undefined>} [env]
  * @returns {(message: unknown) => string}
  */
+const PLACEHOLDER = '<credentials>';
 export function credentialRedactor(env = process.env) {
   const infos = proxyUserinfo(env);
   const secrets = proxySecrets(env);
@@ -163,7 +165,9 @@ export function credentialRedactor(env = process.env) {
     if (!out.includes('@') && !secrets.some((s) => out.includes(s))) return out;
     for (const info of infos) out = out.split(`${info}@`).join('<credentials>@');
     out = out.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
-    for (const s of secrets) out = out.split(s).join('<credentials>');
+    // Each secret is replaced BETWEEN placeholders, never inside one: a password such as `credentials` would otherwise
+    // rewrite `<credentials>` itself, and redacting twice would not give the same text.
+    for (const s of secrets) out = out.split(PLACEHOLDER).map((seg) => seg.split(s).join(PLACEHOLDER)).join(PLACEHOLDER);
     return out;
   };
 }

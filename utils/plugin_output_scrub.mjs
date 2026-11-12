@@ -14,7 +14,8 @@
 //
 // Walked: strings, plain objects (keys and values), arrays, and an Error's message, stack, cause and own enumerable
 // fields. NOT walked (stated limit): a string inside a Map, a Set, a typed array or Buffer, a Date, or any other class
-// instance — those are passed by reference. A value with nothing to redact is returned BY REFERENCE; only a value that
+// instance — those are passed by reference. NOT covered: what a plugin prints itself (console, stderr) and what it
+// writes into the shared scan context; only its return value and its throw pass the receipt. A value with nothing to redact is returned BY REFERENCE; only a value that
 // carries a credential is copied, and the plugin's own objects are never mutated.
 // ─────────────────────────────────────────────────────────────────────────────
 import { credentialRedactor } from './webhook.mjs';
@@ -37,14 +38,26 @@ const errorEntries = (e) => Object.getOwnPropertyNames(e).flatMap((k) => {
  * @param {{ env?: Record<string, string|undefined>, redact?: (s: string) => string }} [opts]
  * @returns {{ value: unknown, replaced: number }} replaced = the number of strings that changed
  */
-export function scrubPluginOutput(value, { env = process.env, redact = credentialRedactor(env) } = {}) {
+const errName = (e) => { try { return String(e?.name || 'Error'); } catch { return 'Error'; } };
+const WITHHELD = 'could not be checked for proxy credentials and was withheld';
+
+/**
+ * A value the walk cannot read (a throwing getter, nesting deeper than the stack) is WITHHELD: replaced by a named
+ * failure envelope, never thrown into the plugin manager (where it would abort the batch) and never passed on unchecked.
+ */
+export function scrubPluginOutput(value, opts = {}) {
+  try { return scrubOrThrow(value, opts); }
+  catch (e) { return { value: { up: false, data: [], error: `the plugin's result ${WITHHELD} (${errName(e)})` }, replaced: 0, withheld: true }; }
+}
+
+function scrubOrThrow(value, { env = process.env, redact = credentialRedactor(env) } = {}) {
   // Pass 1: does anything need redacting? Answered without copying, so the common case keeps every reference.
   const seen = new Set();
   const needs = (v) => {
     if (typeof v === 'string') return redact(v) !== v;
     if (v === null || typeof v !== 'object' || seen.has(v)) return false;
     seen.add(v);
-    if (v instanceof Error) return errorEntries(v).some(([, x]) => needs(x));   // the same properties pass 2 copies
+    if (v instanceof Error) return errorEntries(v).some(([, x]) => needs(x)) || needs(v.message);   // own properties, and an INHERITED message
     if (!isPlain(v)) return false;
     if (Array.isArray(v)) return v.some(needs);
     return Object.keys(v).some((k) => needs(k) || needs(v[k]));
@@ -62,11 +75,14 @@ export function scrubPluginOutput(value, { env = process.env, redact = credentia
     if (v instanceof Error) {
       // A REAL Error (it carries the internal error slot that Error.isError and util.inspect read) with the original's
       // prototype, so it keeps its class; every own property becomes a data property holding the scrubbed value.
-      const out = new Error('');
+      const out = new Error();   // NO argument: an own '' message would shadow a message the prototype carries
       Object.setPrototypeOf(out, Object.getPrototypeOf(v));
       memo.set(v, out);
       for (const [k, x, enumerable] of errorEntries(v)) {
         Object.defineProperty(out, k, { value: walk(x), writable: true, configurable: true, enumerable });
+      }
+      if (!Object.prototype.hasOwnProperty.call(v, 'message') && typeof v.message === 'string') {
+        Object.defineProperty(out, 'message', { value: walk(v.message), writable: true, configurable: true, enumerable: false });
       }
       return out;
     }
@@ -81,8 +97,13 @@ export function scrubPluginOutput(value, { env = process.env, redact = credentia
     memo.set(v, out);
     // defineProperty, never `out[k] =`: an own `__proto__` key (JSON.parse makes one from API data) assigned would set
     // the copy's PROTOTYPE, and the key and its text would vanish from every artifact.
+    // A REDACTED key that lands on a name already taken takes `#2`, `#3`, …: an original key keeps its name, and no entry
+    // is ever overwritten (two URL keys differing only in userinfo would otherwise collapse into one — a lost finding).
+    const used = new Set(Object.keys(v));
     for (const k of Object.keys(v)) {
-      Object.defineProperty(out, str(k), { value: walk(v[k]), writable: true, enumerable: true, configurable: true });
+      let key = str(k);
+      if (key !== k) { const base = key; for (let n = 2; used.has(key); n++) key = `${base}#${n}`; used.add(key); }
+      Object.defineProperty(out, key, { value: walk(v[k]), writable: true, enumerable: true, configurable: true });
     }
     return out;
   };
@@ -95,5 +116,6 @@ export function scrubPluginOutput(value, { env = process.env, redact = credentia
  * @param {{ env?: Record<string, string|undefined>, redact?: (s: string) => string }} [opts]
  */
 export function scrubThrown(thrown, opts = {}) {
-  return scrubPluginOutput(thrown, opts).value;
+  try { return scrubOrThrow(thrown, opts).value; }
+  catch (e) { return new Error(`the plugin's error ${WITHHELD} (${errName(e)})`); }
 }

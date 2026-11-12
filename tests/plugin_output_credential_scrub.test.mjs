@@ -112,6 +112,42 @@ test('(w9) an own `__proto__` key (JSON.parse makes one from API data) stays a K
   assert.equal(JSON.stringify(value), `{"__proto__":{"tag":"kept"},"reason":"x <credentials>"}`);
 });
 
+test('(w10) a redacted key never overwrites another key: originals keep their names, a collision takes #n', () => {
+  const { value } = scrubPluginOutput({ [`a ${CANARY}`]: 1, 'a <credentials>': 2 }, { env: ENV });
+  assert.deepEqual(value, { 'a <credentials>': 2, 'a <credentials>#2': 1 });
+  const urls = scrubPluginOutput({ 'http://a:x@h': 1, 'http://b:y@h': 2 }, { env: {} }).value;
+  assert.deepEqual(Object.values(urls).sort(), [1, 2], 'a URL-keyed map keeps every entry');
+  assert.deepEqual(Object.keys(urls), ['http://<credentials>@h', 'http://<credentials>@h#2']);
+});
+
+test('(w11) an Error whose message lives on its PROTOTYPE keeps a message, scrubbed', () => {
+  class E extends Error {}
+  E.prototype.message = `default msg ${CANARY}`;
+  const got = scrubThrown(new E(), { env: ENV });
+  assert.ok(got instanceof E);
+  assert.equal(got.message, 'default msg <credentials>');
+});
+
+test('(w12) a value the walk cannot read is WITHHELD as a named error, never thrown and never passed on unchecked', () => {
+  const getter = { reason: 'ok', get boom() { throw new Error(`getter ${CANARY}`); } };
+  let deep = { reason: `x ${CANARY}` }; for (let i = 0; i < 20000; i++) deep = { n: deep };
+  for (const [label, v] of [['a throwing getter', getter], ['nesting 20000 deep', deep]]) {
+    let got;
+    assert.doesNotThrow(() => { got = scrubPluginOutput(v, { env: ENV }); }, label);
+    assert.equal(got.withheld, true, label);
+    assert.equal(got.value.up, false);
+    assert.match(got.value.error, /could not be checked for proxy credentials and was withheld/);
+    assert.ok(!JSON.stringify(got.value).includes(CANARY));
+  }
+  // an Error's own throwing getter is SKIPPED (reading it throws everywhere, so it reaches no artifact); the rest is kept
+  const g = new Error(`outer ${CANARY}`); Object.defineProperty(g, 'detail', { get() { throw new Error('x'); }, enumerable: true });
+  assert.equal(scrubThrown(g, { env: ENV }).message, 'outer <credentials>');
+  // a throw the walk cannot finish is withheld as a named Error
+  const e = scrubThrown(new Error('outer', { cause: deep }), { env: ENV });
+  assert.ok(e instanceof Error);
+  assert.match(e.message, /error could not be checked for proxy credentials and was withheld \(RangeError\)/);
+});
+
 // ── THROUGH THE PLUGIN MANAGER — every receipt point (callPlugin and _runOne), every path that reaches them ─────────
 import { PluginManager } from '../plugin_manager.mjs';
 
@@ -165,4 +201,19 @@ test('(w8) callPlugin via runCloud (MCP scan_cloud, CLI --host aws): both stubs 
   const { out, stderr } = await withProxyEnv(() => pm.runCloud(['aws'], {}));
   assert.equal(out.results.length, 2, `both cloud stubs ran — manifest ${JSON.stringify(out.manifest)}`);
   assertScrubbed(t, 'runCloud', out, stderr);
+});
+
+test('(w13) a result the walk cannot read does not abort the batch: the other plugin\'s result arrives', async () => {
+  const plugins = [
+    { id: 'BAD', name: 'Throwing getter', priority: 50, runStrategy: 'single', protocols: [], ports: [],
+      async run() { return { up: true, data: [], get boom() { throw new Error('getter'); } }; } },
+    { id: 'GOOD', name: 'Ordinary', priority: 50, runStrategy: 'single', protocols: [], ports: [],
+      async run() { return { up: true, data: [], findings: [{ title: 'kept' }] }; } },
+  ];
+  const pm = await PluginManager.create({ plugins });
+  const { out } = await withProxyEnv(() => pm.run('127.0.0.1', 'all', {}));
+  const good = out.results.find((r) => r.id === 'GOOD');
+  assert.equal(good?.result?.findings?.[0]?.title, 'kept', 'the ordinary plugin\'s result survived');
+  const bad = out.results.find((r) => r.id === 'BAD');
+  assert.match(String(bad?.result?.error), /withheld/, 'the unreadable result is a named failure');
 });
