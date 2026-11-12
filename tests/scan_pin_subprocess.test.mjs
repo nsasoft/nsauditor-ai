@@ -202,8 +202,12 @@ const LITERAL_ROWS = [
   ['8.8.8.8　', '8.8.8.8'],
 ];
 
-test('(sp11, first rows hold pre-fix) an IP literal reaches curl as its CANONICAL form — bracketed when IPv6, no zone — with no --resolve', async () => {
-  for (const [typed, want] of LITERAL_ROWS) {
+// N2: a LINK-LOCAL literal keeps its zone, which names the host; in the URL its delimiter is `%25` (RFC 6874). Stand-ins only:
+// with no proxy curl would need the zone's interface to exist on the machine running the suite.
+const ZONE_ROWS = [['fe80::1%en0', '[fe80::1%25en0]'], ['[fe80::1%25en0]', '[fe80::1%25en0]']];
+
+test('(sp11, first rows hold pre-fix) an IP literal reaches curl as its CANONICAL form — bracketed when IPv6, zone only when link-local — with no --resolve', async () => {
+  for (const [typed, want] of [...LITERAL_ROWS, ...ZONE_ROWS]) {
     const line = (await recorded(() => probeFirmware(typed, 'NETGEAR R7000'))).find((l) => l.startsWith('curl '));
     assert.ok(line, `curl was not run for ${JSON.stringify(typed)}`);
     assert.equal(line.split(' ').pop(), URL_OF(want), `${JSON.stringify(typed)}: ${line}`);

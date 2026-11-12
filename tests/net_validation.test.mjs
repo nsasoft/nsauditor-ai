@@ -174,9 +174,12 @@ test('a URL-shaped string is never canonicalised into a literal — userinfo, a 
 // while curl, handed the typed string in http_probe's URL, read everything before `@` as userinfo and sent a GET to loopback.
 // A zone is stripped only from an IPv6 address, and only when it is interface-name characters; anything else carrying `%` is a
 // name, which the syntax check refuses. FOURTH QUADRANT FIRST: the zones an operator really types.
-test('(B216 r1, fourth quadrant, first) an IPv6 zone id of interface-name characters is still stripped — bracketed, RFC 6874-encoded, numeric', () => {
-  for (const [v, want] of [['fe80::1%en0', 'fe80::1'], ['[fe80::1%25en0]', 'fe80::1'], ['fe80::1%1', 'fe80::1'],
-    ['2001:db8::1%eth0.100', '2001:db8::1'], ['fe80::1%wlan_0-a', 'fe80::1']]) {
+// N2 (the architect's verdict on Community 1264650, step 2) MOVED this leg deliberately: it read "stripped" for every row. A
+// link-local address now KEEPS its zone, which names the host (an unscoped fe80::1 is not the host fe80::1%en0); any other
+// address still drops it. Same inputs, each still admitted as a literal.
+test('(B216 r1, fourth quadrant, first) an IPv6 zone id of interface-name characters is still a literal — kept on a link-local address (N2), dropped elsewhere — bracketed, RFC 6874-encoded, numeric', () => {
+  for (const [v, want] of [['fe80::1%en0', 'fe80::1%en0'], ['[fe80::1%25en0]', 'fe80::1%en0'], ['fe80::1%1', 'fe80::1%1'],
+    ['2001:db8::1%eth0.100', '2001:db8::1'], ['fe80::1%wlan_0-a', 'fe80::1%wlan_0-a']]) {
     assert.equal(nv.canonicalIp(v), want, `${v} must canonicalise to ${want}`);
   }
   assert.equal(nv.classifyAddress('fe80::1%en0'), 'always', 'a zoned link-local literal is still refused in every arm');

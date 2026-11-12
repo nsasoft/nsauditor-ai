@@ -593,7 +593,10 @@ export async function validateHostPinned(host) {
   const allowPrivate = allowAllHosts();
   const cls = classifyAddress(h);
   if (cls === 'always' || (cls === 'private' && !allowPrivate)) throw notAllowed();
-  if (canonicalIp(h)) return { name: h, answers: null };   // a permitted literal — nothing to resolve or pin
+  // A permitted literal — nothing to resolve or pin. N2 (2.2.0): the scan is handed the canonical literal the check
+  // classified, never the typed spelling, which a plugin would hand to the OS resolver to read again.
+  const literal = canonicalIp(h);
+  if (literal) return { name: literal, answers: null };
 
   let answers;
   try {

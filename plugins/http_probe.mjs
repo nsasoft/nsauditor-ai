@@ -119,7 +119,8 @@ export async function probeFirmware(host, vendor) {
   const pinned = literal ? null : pinnedAddressFor(host, { prefer: 4 });
   // Pinned, curl gets the name the pin keys on (its ASCII form) in BOTH --resolve and the URL: an IDN-built curl converts the
   // URL host before it reads --resolve, and one without IDN matches raw bytes, so only the one form in both holds on both.
-  const name = literal ? (net.isIP(literal) === 6 ? `[${literal}]` : literal) : pinned ? canonicalHost(host) : host;
+  // A link-local literal keeps its zone (N2); in a URL its delimiter is `%25` (RFC 6874).
+  const name = literal ? (net.isIP(literal) === 6 ? `[${literal.replace('%', '%25')}]` : literal) : pinned ? canonicalHost(host) : host;
   const resolveArgs = pinned ? ['--resolve', `${name}:80:${net.isIP(pinned) === 6 ? `[${pinned}]` : pinned}`] : [];
   // Pinned, curl takes no proxy and no config file: it reads http_proxy / ALL_PROXY from the environment and a .curlrc
   // (proxy, connect-to) from its config directory, and any of them would route the name around the pin — the proxy

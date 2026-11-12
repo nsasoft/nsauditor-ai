@@ -1097,6 +1097,9 @@ export async function scanSingleHost(pm, host, plugins, opts, promptMode) {
   // server's guard admits private ranges only).
   // Cloud-sentinel hosts (see CLOUD_SENTINEL_HOSTS above) skip the guard.
   const answers = await assertScanTargetAllowed(host);
+  // N2 (2.2.0): an IP literal is scanned as the canonical literal the check classified — never the typed spelling, which a
+  // plugin's socket or command would hand to the OS resolver to read again (`8.8.8.8.`, `0x08080808`, `[2001:db8::1]`).
+  host = canonicalIp(host) ?? host;
 
   // `manifest` classifies every selected plugin as ran|skipped|timeout|error with a reason.
   // Discarding it is what makes "no findings" ambiguous between a clean estate and one whose

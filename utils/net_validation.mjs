@@ -38,13 +38,33 @@ PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');      // RFC 1918
 PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');       // RFC 6598 CGNAT
 PRIVATE.addSubnet('fc00::', 7, 'ipv6');            // unique local
 
+// N2 (2.2.0): the one IPv6 range whose zone id names the host — an unscoped fe80::1 is not the host fe80::1%en0.
+const LINK_LOCAL = new net.BlockList();
+LINK_LOCAL.addSubnet('fe80::', 10, 'ipv6');
+
+/**
+ * N2 (2.2.0, the architect's verdict on Community 1264650): whether `s` is a NUMERIC host with a leading-zero part — every
+ * dot-separated part decimal digits or `0x` hex, and some part a `0` followed by a digit. Its readers disagree: the WHATWG
+ * URL parser (canonicalIp's) reads such a part as OCTAL, macOS getaddrinfo reads it as DECIMAL in a dotted quad, so
+ * `0127.0.0.1` was classified as public 87.0.0.1 and connected to 127.0.0.1, and `010.0.0.01` reached 10.0.0.1 classified as
+ * 8.0.0.1. Refused at admission, before any lookup — a single-part number too (`02130706433`): macOS agrees there today, but
+ * no honest target needs the spelling and the resolvers on other systems are not measured. A name with a non-numeric part
+ * (`0123.cafe`) is a name.
+ * @param {string} s
+ */
+function hasAmbiguousLeadingZero(s) {
+  const parts = String(s).replace(/\.$/, '').split('.');
+  return parts.every((p) => /^(?:0x[0-9a-f]*|\d+)$/i.test(p)) && parts.some((p) => /^0\d/.test(p));
+}
+
 /**
  * Canonical IP literal for `input`, or null when it is not an IP literal (a name).
  * Strips brackets and an IPv6 zone id of interface-name characters (any other `%` makes the input a name — see
  * literalOf), then accepts what net.isIP accepts; anything else is run
  * through the WHATWG URL parser — but only when it is shaped like a legacy IPv4 spelling (digits,
- * hex, x, dots) — which reads those spellings (0x7f000001, 0177.0.0.1, 2130706433, 127.1) as the
- * dotted quad an OS resolver would.
+ * hex, x, dots) — which reads those spellings (0x7f000001, 2130706433, 127.1) as the dotted quad an OS resolver would.
+ * A spelling with a leading-zero part (0177.0.0.1) is NOT admitted: readers disagree on it (N2, hasAmbiguousLeadingZero).
+ * A link-local IPv6 address keeps its zone (`fe80::1%en0`); any other address is returned without one.
  * @param {string} input
  * @returns {string|null}
  */
@@ -65,17 +85,25 @@ export function canonicalIp(input) {
  * @param {boolean} liberalZone
  */
 function literalOf(input, liberalZone) {
-  let s = String(input ?? '').trim().replace(/^\[|\]$/g, '');
+  const typed = String(input ?? '').trim();
+  let s = typed.replace(/^\[|\]$/g, '');
+  let zone = '';
   if (s.includes('%')) {
     if (liberalZone) s = s.replace(/%.*$/, '');
     else {
-      const zoned = /^([^%]+)%[\w.-]+$/.exec(s);
+      const zoned = /^([^%]+)%([\w.-]+)$/.exec(s);
       if (!zoned || net.isIP(zoned[1]) !== 6) return null;
       s = zoned[1];
+      // N2: the zone is kept only for a link-local address, where it names the host; elsewhere it is dropped. Inside brackets
+      // RFC 6874 writes the delimiter as `%25`, so `[fe80::1%25en0]` is the zone `en0`.
+      if (LINK_LOCAL.check(s, 'ipv6')) zone = typed.startsWith('[') && /^25./.test(zoned[2]) ? zoned[2].slice(2) : zoned[2];
     }
   }
   if (!s) return null;
-  if (net.isIP(s)) return s;
+  if (net.isIP(s)) return zone ? `${s}%${zone}` : s;
+  // N2: the admitting reader refuses a spelling its readers disagree on (hasAmbiguousLeadingZero); the classifying reader
+  // keeps reading it, because a classifier only ever refuses.
+  if (!liberalZone && hasAmbiguousLeadingZero(s)) return null;
   // Only a legacy-IPv4-SHAPED string may reach the URL parser. Fed anything else it reads
   // userinfo, a port or a path: '127.0.0.1@8.8.8.8' parses to host 8.8.8.8 and '126.0.0.0/7' to
   // host 126.0.0.0 — a public literal and a public network whose /7 spans 127/8. Those are NAMES
@@ -156,6 +184,8 @@ export async function resolveAndValidate(hostname, { allowPrivate = false } = {}
 
 const HOST_SYNTAX_REFUSAL = 'Host is not a valid host name: an IP literal, or dot-separated labels of letters, digits, '
   + 'hyphens and underscores';
+const AMBIGUOUS_NUMERIC_REFUSAL = 'Host is a numeric address with a leading zero in a part: some resolvers read that part as '
+  + 'octal and others as decimal, so it is not one address — write it without the leading zero (for example 10.0.0.1)';
 const HOST_LABEL_RE = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
 
 /**
@@ -180,6 +210,9 @@ export function isHostnameSyntax(host) {
   if (/[\x00-\x2c\x2f\x3a-\x40\x5b-\x5e\x60\x7b-\x7f]/.test(host)) return false;   // ASCII other than [A-Za-z0-9._-]
   const name = canonicalHost(host);   // what the pin keys on and curl's URL carries; one trailing dot already dropped
   if (name.length > 253) return false;   // an empty name fails the label rule below
+  // N2: octal to one reader, decimal to another. The TYPED string is the one read: canonicalHost serialises an all-numeric
+  // ASCII form as a plain dotted quad (or answers '' and falls back to the typed string), so its form adds no case.
+  if (hasAmbiguousLeadingZero(host)) return false;
   return name.split('.').every((label) => HOST_LABEL_RE.test(label));
 }
 
@@ -197,7 +230,8 @@ export async function resolveAndValidateAll(hostname, { allowPrivate = false, ch
   // B216: a host that is neither an IP literal nor a host name is refused BEFORE the lookup, whatever the answer mode — a
   // wildcard zone answers a brace name, so the lookup cannot be the refusal. Coded, so each entry names it as a syntax refusal.
   if (!canonicalIp(hostname) && !isHostnameSyntax(hostname)) {
-    throw Object.assign(new Error(HOST_SYNTAX_REFUSAL), { code: 'EHOSTSYNTAX' });
+    const ambiguous = hasAmbiguousLeadingZero(String(hostname ?? '').trim());
+    throw Object.assign(new Error(ambiguous ? AMBIGUOUS_NUMERIC_REFUSAL : HOST_SYNTAX_REFUSAL), { code: 'EHOSTSYNTAX' });
   }
   const answers = await dns.lookup(hostname, { all: true, verbatim: true });
   const list = (Array.isArray(answers) ? answers : [answers]).filter((a) => a && typeof a.address === 'string');
