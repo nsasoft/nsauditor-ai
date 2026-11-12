@@ -22,6 +22,10 @@ import { getTierFromEnv } from './utils/license.mjs';
 import { resolveCapabilities } from './utils/capabilities.mjs';
 import { scopeSelectionForHost, scopeSelectionForProviders, excludeMismatchedCloudPlugins, isCloudSentinelHost } from './utils/sentinel_scope.mjs';
 import { mapLimit } from './utils/concurrency.mjs';
+// EE 2.2.0, I3: a plugin's return value and its throw are scrubbed of proxy credentials at the two receipt points below
+// (callPlugin and _runOne) — every shipped path that runs a plugin goes through one of them, and every artifact is
+// written downstream. See utils/plugin_output_scrub.mjs for what is walked and the stated limits.
+import { scrubPluginOutput, scrubThrown } from './utils/plugin_output_scrub.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -294,17 +298,18 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
 
   return results.map((r) => {
     if (!r.ok) {
-      const isTimeout = r.error?.message?.includes('timed out') || false;
+      const error = scrubThrown(r.error);   // RECEIPT POINT 1 of 2 (I3): the throw
+      const isTimeout = error?.message?.includes('timed out') || false;
       if (isTimeout) {
         vlog(`Plugin "${mod.name}" timed out after ${resolvedTimeoutMs}ms — skipping`);
       }
       return {
         id: String(mod.id || ""),
         name: mod.name || "Plugin",
-        result: { up: false, error: String(r.error?.message || r.error), data: [], timedOut: isTimeout },
+        result: { up: false, error: String(error?.message || error), data: [], timedOut: isTimeout },
       };
     }
-    const raw = r.value;
+    const raw = scrubPluginOutput(r.value).value;   // RECEIPT POINT 1 of 2 (I3): the return
     // Normalize to wrapped envelope if needed
     if (raw && raw.id && raw.result) return raw;
     return { id: String(mod.id || ""), name: mod.name || "Plugin", result: jclone(raw) || { up: false, data: [] } };
@@ -643,10 +648,10 @@ export class PluginManager {
       // Ensure every run gets the BASE_CTX helpers merged into opts.context — and the budget raced below,
       // LAST, so a caller's context cannot name a budget the manager is not enforcing.
       const mergedOpts = { ...forwarded, context: { ...withBaseContext(forwarded.context || {}), effectiveTimeoutMs: timeoutMs } };
-      const raw = await Promise.race([
+      const raw = scrubPluginOutput(await Promise.race([   // RECEIPT POINT 2 of 2 (I3): the return
         plugin.run(host, port, mergedOpts),
         timeoutPromise,
-      ]);
+      ])).value;
       clearTimeout(timer);
 
       // If plugin returned wrapped shape already, keep it
@@ -661,8 +666,9 @@ export class PluginManager {
       if (!Array.isArray(wrapped.result.data)) wrapped.result.data = [];
       vlog(`${plugin.name} Result:`, JSON.stringify(wrapped, null, 2));
       return wrapped;
-    } catch (err) {
+    } catch (thrown) {
       clearTimeout(timer);
+      const err = scrubThrown(thrown);   // RECEIPT POINT 2 of 2 (I3): the throw — before verror prints it
       const isTimeout = err?.message?.includes('timed out') || false;
       if (isTimeout) {
         vlog(`Plugin "${plugin.name}" timed out after ${timeoutMs}ms — skipping`);

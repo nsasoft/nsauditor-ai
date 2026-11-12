@@ -84,16 +84,53 @@ export function pinnedLookup({ address, family }) {
  * @param {Record<string, string|undefined>} [env]
  * @returns {string[]} longest first
  */
+const PROXY_VARIABLES = Object.freeze(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']);
+/** The userinfo of each proxy variable as written, or none. The userinfo runs to the LAST @. */
+function writtenUserinfo(env) {
+  const out = [];
+  for (const k of PROXY_VARIABLES) {
+    const v = typeof env[k] === 'string' ? env[k].trim() : '';
+    const m = /^[a-z][a-z0-9+.-]*:\/\/([\s\S]*)@[^@]*$/i.exec(v);
+    if (m && m[1]) out.push(m[1]);
+  }
+  return out;
+}
+const tryDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };   // not percent-encoded
+const longestFirst = (set) => [...set].sort((a, b) => b.length - a.length);
+
 export function proxyUserinfo(env = process.env) {
   const out = new Set();
-  for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
-    const v = typeof env[k] === 'string' ? env[k].trim() : '';
-    const m = /^[a-z][a-z0-9+.-]*:\/\/([\s\S]*)@[^@]*$/i.exec(v);   // the userinfo runs to the LAST @
-    if (!m || !m[1]) continue;
-    out.add(m[1]);
-    try { out.add(decodeURIComponent(m[1])); } catch { /* not percent-encoded */ }
+  for (const info of writtenUserinfo(env)) { out.add(info); out.add(tryDecode(info)); }
+  return longestFirst(out);
+}
+
+/**
+ * The shortest proxy password replaced BARE (EE 2.2.0, I3). A shorter one would shred ordinary text wherever its
+ * characters happen to occur, so it is removed only inside a URL's userinfo (the first two passes), never on its own.
+ */
+export const PROXY_SECRET_MIN_LENGTH = 8;
+
+/**
+ * The secret of every proxy variable, as written and percent-decoded, longest first, each at least
+ * PROXY_SECRET_MIN_LENGTH characters. The secret is the password: the userinfo after its FIRST `:` (a `:` inside the
+ * password is kept, and the split is made on the written form, so an encoded `%3A` is never a separator). A userinfo
+ * with no `:` is a token carried as the user name, and that token is the secret. The user name is not a secret.
+ *
+ * Why (EE 2.2.0, I3, measured 2026-11-11 on Node 24.22.3): @aws-sdk/credential-provider-process carries a configured
+ * child's full stderr into the CredentialsProviderError it throws, and a child can print the proxy password alone or
+ * percent-decoded, where no `@` follows it. google-auth-library's pluggable-auth handler and @azure/identity's
+ * AzureCliCredential carry a child's stderr into their errors the same way (read from code; `az` was not measured).
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {string[]} longest first
+ */
+export function proxySecrets(env = process.env) {
+  const out = new Set();
+  for (const info of writtenUserinfo(env)) {
+    const colon = info.indexOf(':');
+    const secret = colon >= 0 ? info.slice(colon + 1) : info;
+    for (const s of [secret, tryDecode(secret)]) if (s.length >= PROXY_SECRET_MIN_LENGTH) out.add(s);
   }
-  return [...out].sort((a, b) => b.length - a.length);
+  return longestFirst(out);
 }
 
 /**
@@ -107,9 +144,28 @@ export function proxyUserinfo(env = process.env) {
  * before the path (an `@` in a PATH is not userinfo: the userinfo segment ends at the first `/`, `?` or `#`).
  */
 export function redactUrlCredentials(message, env = process.env) {
-  let out = String(message ?? '');
-  for (const info of proxyUserinfo(env)) out = out.split(`${info}@`).join('<credentials>@');
-  return out.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
+  return credentialRedactor(env)(message);
+}
+
+/**
+ * redactUrlCredentials with the environment read ONCE, for a caller that redacts many strings (the plugin manager walks
+ * every string a plugin returns or throws). Three passes, in order: the EXACT userinfo of the proxy variables followed by
+ * `@`; any URL's userinfo; then each proxy secret (proxySecrets) wherever it appears, replaced by `<credentials>`.
+ * A string with no `@` that contains no secret is returned as it came — every pass needs one or the other.
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {(message: unknown) => string}
+ */
+export function credentialRedactor(env = process.env) {
+  const infos = proxyUserinfo(env);
+  const secrets = proxySecrets(env);
+  return (message) => {
+    let out = String(message ?? '');
+    if (!out.includes('@') && !secrets.some((s) => out.includes(s))) return out;
+    for (const info of infos) out = out.split(`${info}@`).join('<credentials>@');
+    out = out.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1<credentials>@');
+    for (const s of secrets) out = out.split(s).join('<credentials>');
+    return out;
+  };
 }
 
 // Injectable SSRF checker — overridable in tests only (see _setWebhookSafeChecker).
