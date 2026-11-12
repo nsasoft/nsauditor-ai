@@ -197,7 +197,9 @@ test('(B216, fourth quadrant, first) an LDH name and an underscore name still re
 test('(B216) a brace list, a bracket range or a fullwidth brace is ETARGETREFUSED before any lookup — in both arms', async () => {
   await withResolver({ 'nasa.invalid': '93.184.216.34', 'nasb.invalid': '93.184.216.34' }, async (calls) => {
     for (const env of [UNSET, SET]) {
-      for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas｛a,b｝.invalid']) {
+      for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas\uFF5Ba\uFF0Cb\uFF5D.invalid',
+        // B216 review finding 1: a `%` "zone" carrying userinfo — read as a literal, unpinned, until the zone rule was narrowed.
+        '2001:db8::1%@127.0.0.1:51448/admin/reboot?x=', '192.0.2.1%x@localhost:80/a']) {
         const err = await guard(h, env).then(() => null, (e) => e);
         assert.equal(err?.code, 'ETARGETREFUSED', `${JSON.stringify(h)} ${JSON.stringify(env)}: ${err?.message}`);
         assert.match(err.message, /not a valid host name/, err.message);

@@ -603,7 +603,9 @@ describe('MCP Server — validateHostPinned() refuses a host curl would expand (
     const { validateHostPinned } = await import('../mcp_server.mjs');
     for (const env of [undefined, '1']) {
       await withEnv(env, () => withResolver({ 'nasa.invalid': '93.184.216.34', 'nasb.invalid': '93.184.216.34' }, async (calls) => {
-        for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas｛a,b｝.invalid']) {
+        for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas\uFF5Ba\uFF0Cb\uFF5D.invalid',
+          // B216 review finding 1: a `%` "zone" carrying userinfo — read as a literal, unpinned, until the zone rule was narrowed.
+          '2001:db8::1%@127.0.0.1:51448/admin/reboot?x=', '192.0.2.1%x@localhost:80/a']) {
           const err = await validateHostPinned(h).then(() => null, (e) => e);
           assert.match(String(err?.message), /not a valid host name via MCP/, `${JSON.stringify(h)} env=${env}`);
           assert.doesNotMatch(err.message, /could not be resolved|not allowed/, err.message);

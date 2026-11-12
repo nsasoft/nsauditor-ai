@@ -40,7 +40,8 @@ PRIVATE.addSubnet('fc00::', 7, 'ipv6');            // unique local
 
 /**
  * Canonical IP literal for `input`, or null when it is not an IP literal (a name).
- * Strips brackets and an IPv6 zone id, then accepts what net.isIP accepts; anything else is run
+ * Strips brackets and an IPv6 zone id of interface-name characters (any other `%` makes the input a name — see
+ * literalOf), then accepts what net.isIP accepts; anything else is run
  * through the WHATWG URL parser — but only when it is shaped like a legacy IPv4 spelling (digits,
  * hex, x, dots) — which reads those spellings (0x7f000001, 0177.0.0.1, 2130706433, 127.1) as the
  * dotted quad an OS resolver would.
@@ -48,7 +49,31 @@ PRIVATE.addSubnet('fc00::', 7, 'ipv6');            // unique local
  * @returns {string|null}
  */
 export function canonicalIp(input) {
-  const s = String(input ?? '').trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  return literalOf(input, false);
+}
+
+/**
+ * canonicalIp's body. B216 review finding 1: canonicalIp ADMITS a literal — the entries skip the lookup and the pin for it —
+ * so it strips an IPv6 zone id only from an IPv6 address, and only when the zone is interface-name characters (RFC 6874's
+ * `%25` encoding included). Until 2.2.0 `%.*$` was stripped from ANY string, so '2001:db8::1%@127.0.0.1:51448/admin/reboot?x='
+ * read as a public literal — admitted unpinned, with no lookup — while curl, handed the typed string in http_probe's URL, read
+ * everything before `@` as userinfo and sent its GET to loopback. Any other string carrying `%` is a NAME there, which the
+ * syntax check (isHostnameSyntax) refuses. classifyAddress keeps the LENIENT strip (`liberalZone`): a classifier only ever
+ * refuses, and a lenient resolver may read the suffix away (macOS getaddrinfo answers '::1%@x.invalid' with ::1), so
+ * '127.0.0.1%en0' stays loopback to it.
+ * @param {unknown} input
+ * @param {boolean} liberalZone
+ */
+function literalOf(input, liberalZone) {
+  let s = String(input ?? '').trim().replace(/^\[|\]$/g, '');
+  if (s.includes('%')) {
+    if (liberalZone) s = s.replace(/%.*$/, '');
+    else {
+      const zoned = /^([^%]+)%[\w.-]+$/.exec(s);
+      if (!zoned || net.isIP(zoned[1]) !== 6) return null;
+      s = zoned[1];
+    }
+  }
   if (!s) return null;
   if (net.isIP(s)) return s;
   // Only a legacy-IPv4-SHAPED string may reach the URL parser. Fed anything else it reads
@@ -74,7 +99,7 @@ export function canonicalIp(input) {
  * @returns {'always'|'private'|null}
  */
 export function classifyAddress(ip) {
-  const addr = canonicalIp(ip);
+  const addr = literalOf(ip, true);   // the lenient zone strip: see literalOf
   if (!addr) return null;
   const type = net.isIP(addr) === 6 ? 'ipv6' : 'ipv4';
   if (ALWAYS.check(addr, type)) return 'always';
@@ -151,6 +176,7 @@ const HOST_LABEL_RE = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
  */
 export function isHostnameSyntax(host) {
   if (typeof host !== 'string') return false;
+  if (host.trim() !== host) return false;   // canonicalHost trims Unicode whitespace (NBSP, U+3000, U+FEFF); the lookup does not
   if (/[\x00-\x2c\x2f\x3a-\x40\x5b-\x5e\x60\x7b-\x7f]/.test(host)) return false;   // ASCII other than [A-Za-z0-9._-]
   const name = canonicalHost(host);   // what the pin keys on and curl's URL carries; one trailing dot already dropped
   if (name.length > 253) return false;   // an empty name fails the label rule below

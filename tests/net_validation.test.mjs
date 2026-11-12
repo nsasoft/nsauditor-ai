@@ -169,6 +169,45 @@ test('a URL-shaped string is never canonicalised into a literal — userinfo, a 
   }
 });
 
+// B216 review finding 1 (2026-11-11): canonicalIp stripped `%.*$` from ANY string as an IPv6 zone id, so
+// '2001:db8::1%@127.0.0.1:51448/admin/reboot?x=' read as the public literal 2001:db8::1 — admitted with no lookup and no pin —
+// while curl, handed the typed string in http_probe's URL, read everything before `@` as userinfo and sent a GET to loopback.
+// A zone is stripped only from an IPv6 address, and only when it is interface-name characters; anything else carrying `%` is a
+// name, which the syntax check refuses. FOURTH QUADRANT FIRST: the zones an operator really types.
+test('(B216 r1, fourth quadrant, first) an IPv6 zone id of interface-name characters is still stripped — bracketed, RFC 6874-encoded, numeric', () => {
+  for (const [v, want] of [['fe80::1%en0', 'fe80::1'], ['[fe80::1%25en0]', 'fe80::1'], ['fe80::1%1', 'fe80::1'],
+    ['2001:db8::1%eth0.100', '2001:db8::1'], ['fe80::1%wlan_0-a', 'fe80::1']]) {
+    assert.equal(nv.canonicalIp(v), want, `${v} must canonicalise to ${want}`);
+  }
+  assert.equal(nv.classifyAddress('fe80::1%en0'), 'always', 'a zoned link-local literal is still refused in every arm');
+});
+
+test('(B216 r1) a `%` that is not an IPv6 zone of interface-name characters makes the string a NAME — userinfo, a port, a path, an IPv4 "zone"', () => {
+  for (const v of ['2001:db8::1%@127.0.0.1:51448/admin/reboot?x=', '::1%@x.invalid', '192.0.2.1%x@localhost:80/a', '127.0.0.1%lo',
+    'fe80::1%', 'fe80::1%en0%x', 'fe80::1%en 0', 'fe80::1%en0/x', 'fe80::1%en0@h', 'fe80::1%en0:80', 'nothex%en0']) {
+    assert.equal(nv.canonicalIp(v), null, `${JSON.stringify(v)} must not canonicalise to a literal`);
+  }
+});
+
+test('(B216 r1) the CLASSIFIER keeps the lenient zone strip — it only ever refuses, and a lenient resolver may read the suffix away', () => {
+  // macOS getaddrinfo answers '::1%@x.invalid' with ::1 (measured by the B216 reviewer), so the classifier reads each of these
+  // by the address before `%`. Declared, not computed: two loopback-shaped, two public-shaped.
+  for (const [v, want] of [['::1%@x.invalid', 'always'], ['127.0.0.1%lo', 'always'],
+    ['2001:db8::1%@127.0.0.1:51448/admin/reboot?x=', null], ['8.8.8.8%x@localhost:80/a', null]]) {
+    assert.equal(nv.classifyAddress(v), want, JSON.stringify(v));
+  }
+});
+
+test('(B216 r1) resolveAndValidateAll refuses the userinfo-shaped "zone" strings BEFORE any lookup (EHOSTSYNTAX)', async () => {
+  await withLookup(['127.0.0.1'], async (calls) => {
+    for (const v of ['2001:db8::1%@127.0.0.1:51448/admin/reboot?x=', '192.0.2.1%x@localhost:80/a']) {
+      const err = await nv.resolveAndValidateAll(v, { checkAnswers: false }).then(() => null, (e) => e);
+      assert.equal(err?.code, 'EHOSTSYNTAX', `${JSON.stringify(v)}: ${err?.message}`);
+    }
+    assert.deepEqual(calls, []);
+  });
+});
+
 test('fails CLOSED: a name the resolver cannot answer, or answers with nothing, is refused — never "not blocked"', async () => {
   // classifyAddress returns null for anything that is not an IP literal: that is a ROUTE ("resolve
   // it"), not a verdict. net.BlockList itself answers false, silently, for a non-IP string — so the
@@ -211,7 +250,14 @@ const HOST_OK = ['example.com', 'EXAMPLE.Com', 'example.com.', 'router', 'my_hos
 const HOST_BAD = {
   'a brace list (curl expands it)': 'nas{a,b}.invalid',
   'a bracket range (curl expands it)': 'nas[1-2].invalid',
-  'a fullwidth brace list (UTS 46 maps it to braces)': 'x｛a,b｝.com',
+  // Every glob character fullwidth (U+FF5B U+FF0C U+FF5D): the typed-string rule sees no ASCII to refuse, so only the read of
+  // canonicalHost's form — UTS 46 maps all three to `{` `,` `}` — refuses it (the B216 review's finding 2: the earlier fixture
+  // carried an ASCII comma, refused before the conversion was ever read).
+  'a fullwidth brace list (UTS 46 maps it to braces)': 'x\uFF5Ba\uFF0Cb\uFF5D.com',
+  // Leading or trailing Unicode whitespace: canonicalHost trims it, the lookup does not (B216 review finding 5).
+  'a leading no-break space': '\u00A0example.com',
+  'a trailing ideographic space': 'example.com\u3000',
+  'a leading byte-order mark': '\uFEFFexample.com',
   'a comma': 'a,b.com',
   'an asterisk': '*.example',
   'a space': 'a b.example',
@@ -259,7 +305,7 @@ test('(B216, fourth quadrant, first) resolveAndValidateAll still resolves an LDH
 
 test('(B216) resolveAndValidateAll refuses a malformed host BEFORE the first lookup — EHOSTSYNTAX, in both answer modes and through resolveAndValidate', async () => {
   await withLookup(['93.184.216.34'], async (calls) => {
-    for (const h of ['nas{a,b}.invalid', 'nas[1-2].invalid', 'x｛a,b｝.com', 'x%41.com']) {
+    for (const h of ['nas{a,b}.invalid', 'nas[1-2].invalid', 'x\uFF5Ba\uFF0Cb\uFF5D.com', 'x%41.com']) {
       for (const run of [() => nv.resolveAndValidateAll(h), () => nv.resolveAndValidateAll(h, { checkAnswers: false }),
         () => nv.resolveAndValidateAll(h, { allowPrivate: true }), () => resolveAndValidate(h)]) {
         const err = await run().then(() => null, (e) => e);
