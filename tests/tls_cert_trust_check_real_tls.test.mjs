@@ -66,7 +66,7 @@ before(() => { DIR = makeFixtures(); });
 after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
 
 /** Run one case in a child whose CA store trusts only `trusted.pem`. */
-function caseFor(t, { key, cert = key, opts = null, pin = null }) {
+function caseFor(t, { key, cert = key, opts = null, pin = null, mode = null }) {
   if (!DIR) {
     if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
     t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
@@ -74,7 +74,7 @@ function caseFor(t, { key, cert = key, opts = null, pin = null }) {
   }
   const env = { ...process.env, NODE_EXTRA_CA_CERTS: path.join(DIR, 'trusted.pem') };
   delete env.NODE_TEST_CONTEXT;
-  const args = [HELPER, path.join(DIR, `${key}.key`), path.join(DIR, `${cert}.pem`), opts ? JSON.stringify(opts) : '', ...(pin ? [pin] : [])];
+  const args = [HELPER, path.join(DIR, `${key}.key`), path.join(DIR, `${cert}.pem`), opts ? JSON.stringify(opts) : '', pin ?? '', ...(mode ? [mode] : [])];
   let out;
   // A child that dies or times out (close() waiting on a lingering connection) still printed its @@ATWRITE@@ snapshot.
   try { out = execFileSync(process.execPath, args, { env, encoding: 'utf8', timeout: 30000 }); }
@@ -86,13 +86,14 @@ function caseFor(t, { key, cert = key, opts = null, pin = null }) {
 
 /**
  * B212 (ruling (d), the architect's verdict on cd8bd08). `n` looks are `n` TCP connections: a connection is accepted before any
- * handshake, so this count cannot race one. Once the server has closed, every connection has ended as exactly one server-side
- * session or one tlsClientError, so the two sum to `n`. `sessionsAtWrite` (the count when 040's result was taken) is reported
- * and never asserted: it read 0 where 1 was expected once in five full runs, with no mechanism established. No retry, and
- * never a bare 0.
+ * handshake, so this count cannot race one. Every connection ends as exactly one server-side session or one tlsClientError,
+ * so the two sum to `n`. The helper reads them after close AND after every accepted connection has reported its outcome
+ * (B212-C3: a connection that ends before its handshake reports its tlsClientError only after close resolves; `settled`
+ * false means one never reported). `sessionsAtWrite` (the count when 040's result was taken) is reported and never
+ * asserted: it read 0 where 1 was expected once in five full runs, with no mechanism established. No retry, and never a bare 0.
  */
 function assertLooks(r, n, why = '') {
-  const counters = { connections: r.connections, sessionsAtWrite: r.sessionsAtWrite, sessionsAfterClose: r.sessionsAfterClose, tlsClientErrors: r.tlsClientErrors, socketErrors: r.socketErrors };
+  const counters = { connections: r.connections, sessionsAtWrite: r.sessionsAtWrite, sessionsAfterClose: r.sessionsAfterClose, tlsClientErrors: r.tlsClientErrors, socketErrors: r.socketErrors, settled: r.settled };
   assert.equal(r.connections, n, `${why ? why + ' — ' : ''}TCP connections ${JSON.stringify(counters)}`);
   assert.equal(r.sessionsAfterClose + r.tlsClientErrors, n, `${why ? why + ' — ' : ''}every connection ends as one session or one tlsClientError ${JSON.stringify(counters)}`);
 }
@@ -173,22 +174,38 @@ test('the second look runs inside the scan\'s pin: a name only the pin answers r
 });
 
 test('(control) the same name OUTSIDE the pin resolves nowhere: the audit never reaches the server', (t) => {
-  if (!DIR) { t.skip('openssl unavailable'); return; }
+  if (!DIR) {
+    if (process.env.CI) assert.fail('openssl is required for these real-TLS legs — refusing to skip in CI');
+    t.skip('openssl unavailable — cannot build the TLS fixtures (would hard-fail in CI)');
+    return;
+  }
   const env = { ...process.env, NODE_EXTRA_CA_CERTS: path.join(DIR, 'trusted.pem') };
   delete env.NODE_TEST_CONTEXT;
   // The helper with a NAME as its target but no pin: run 040 against the name directly.
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', `
     import tls from 'node:tls'; import fs from 'node:fs';
     const { default: auditor } = await import(${JSON.stringify(new URL('../plugins/040_tls_cert_auditor.mjs', import.meta.url).href)});
+    const { rawConnectOnce } = await import(${JSON.stringify(new URL('./helpers/tls_case_clients.mjs', import.meta.url).href)});
     const srv = tls.createServer({ key: fs.readFileSync(process.argv[1]), cert: fs.readFileSync(process.argv[2]), ciphers: 'DEFAULT:@SECLEVEL=0' }, (s) => s.end());
     let connections = 0; srv.on('connection', () => { connections += 1; });
     await new Promise((r) => srv.listen(0, '127.0.0.1', r));
     const res = await auditor.run(${JSON.stringify(PIN_NAME)}, srv.address().port, { timeoutMs: 3000 });
+    const connectionsAfterAudit = connections;
+    // B212-C1: one raw TCP connect, accepted by the server, then destroyed — the counter's liveness on the same server.
+    await rawConnectOnce(srv, srv.address().port);
     await new Promise((r) => srv.close(r));
-    process.stdout.write(JSON.stringify({ connections, reached: (res.portResults ?? []).length }));
+    process.stdout.write(JSON.stringify({ connectionsAfterAudit, connectionsAfterProbe: connections, reached: (res.portResults ?? []).length,
+      failed: (res.failedPorts ?? []).map((f) => f.error) }));
   `, path.join(DIR, 'rsa1024.key'), path.join(DIR, 'rsa1024.pem')], { env, encoding: 'utf8', timeout: 30000 });
   // B212: TCP connections, read after close — a connect that reached the server is counted even if no handshake completed.
-  assert.deepEqual(JSON.parse(out), { connections: 0, reached: 0 });
+  // B212-C1 (the architect's verdict 0395a014): the audit's 0 sits beside a 1 from the SAME counter — one raw TCP connect,
+  // made after the audit returned, is counted. A counter that never fires would read 0 for both and fail on the 1.
+  const r = JSON.parse(out);
+  assert.deepEqual({ connectionsAfterAudit: r.connectionsAfterAudit, connectionsAfterProbe: r.connectionsAfterProbe, reached: r.reached },
+    { connectionsAfterAudit: 0, connectionsAfterProbe: 1, reached: 0 });
+  // The miss is the name not resolving (ENOTFOUND; EAI_* on a runner with no resolver), not 040 returning before it tried.
+  assert.equal(r.failed.length, 1, `one failed port (${JSON.stringify(r.failed)})`);
+  assert.match(r.failed[0], /^(ENOTFOUND|EAI_[A-Z]+)$/, 'the audit tried the name and the resolver refused it');
 });
 
 // ── THE VERDICT NO MEASURED RUNTIME REACHES, driven through the injected-result seam (`opts._trustCheckResult`) ──────────
@@ -219,5 +236,23 @@ for (const [name, injected] of [['a THROW', { throws: 'ERR_SSL_NO_CIPHER_MATCH' 
     assert.deepEqual(r.caTrust, ["Certificate chain refused by this runtime's verifier — Node reports no named reason (UNSPECIFIED); "
       + 'the graded weak key / signature on this certificate is the actionable finding']);
     assertLooks(r, 1, 'the injected result replaced the second handshake');
+  });
+}
+
+// ── THE SUM'S SECOND TERM (B212-C3, the architect's verdict 0395a014) ───────────────────────────────────────────────────
+// assertLooks adds tlsClientErrors to sessions. Every leg above reads that term as 0, so these legs show it counting, through
+// the same server and the same counters, with no audit: the helper's modes make ONE connection that ends as a tlsClientError.
+// Each states assertLooks' two lines with the terms separated, so assertLooks itself would add nothing here.
+for (const [mode, how, client] of [
+  ['raw-connect', 'a connection destroyed before any ClientHello', null],
+  // A handshake that STARTED: the server read the ClientHello and refused it with a protocol_version alert.
+  ['refused-hello', 'a ClientHello the server refuses', 'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION'],
+]) {
+  test(`(sum) ${how} ends as one tlsClientError and no session`, (t) => {
+    const r = caseFor(t, { key: 'strong', mode }); if (!r) return;
+    assert.equal(r.mode, mode, 'the helper ran the mode, not the audit');
+    assert.equal(r.client, client, 'what the client saw');
+    assert.deepEqual({ connections: r.connections, sessionsAfterClose: r.sessionsAfterClose, tlsClientErrors: r.tlsClientErrors, settled: r.settled },
+      { connections: 1, sessionsAfterClose: 0, tlsClientErrors: 1, settled: true }, `the term counts ${JSON.stringify(r)}`);
   });
 }
