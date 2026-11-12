@@ -13,6 +13,7 @@
 
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { canonicalHost } from './scan_pin.mjs';
 
 // Refused by every check that classifies — the MCP server's, a redirect hop's, the DNS audit's zone-transfer connect —
 // NSA_ALLOW_ALL_HOSTS included: loopback,
@@ -128,6 +129,34 @@ export async function resolveAndValidate(hostname, { allowPrivate = false } = {}
   return (await resolveAndValidateAll(hostname, { allowPrivate }))[0].address;
 }
 
+const HOST_SYNTAX_REFUSAL = 'Host is not a valid host name: an IP literal, or dot-separated labels of letters, digits, '
+  + 'hyphens and underscores';
+const HOST_LABEL_RE = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
+
+/**
+ * Whether `host` is a host NAME a scan may resolve and hand to a subprocess (B216, 2.2.0): dot-separated labels of ASCII
+ * letters, digits, hyphens and underscores — no label empty, longer than 63 or starting or ending with a hyphen; at most 253
+ * characters; one trailing dot allowed. Read TWICE, because the lookup uses the string as typed while the pin and curl's URL
+ * use canonicalHost's form (utils/scan_pin.mjs): the typed string may carry no ASCII outside that alphabet (`%` and `\` are
+ * refused there — the URL parser decodes `%41` and cuts at a backslash, so the conversion would launder them), and
+ * canonicalHost's form must pass the label rule. That form is the domainToASCII conversion — UTS 46 maps a fullwidth brace
+ * (U+FF5B) to `{`, refused there — or the typed name lowercased when the conversion answers '' (a name ending in digits is
+ * read as a failed IPv4: '6425673729' reaches the lookup, whose loopback answer refuses it; a non-ASCII name the conversion
+ * refuses keeps its non-ASCII and fails the label rule).
+ *
+ * Underscores are admitted: internal DNS and container names carry them, the --host-file line rule (utils/host_iterator.mjs)
+ * already does, and none is a curl glob character. An IP literal is NOT a host name — callers test canonicalIp first.
+ * @param {unknown} host
+ * @returns {boolean}
+ */
+export function isHostnameSyntax(host) {
+  if (typeof host !== 'string') return false;
+  if (/[\x00-\x2c\x2f\x3a-\x40\x5b-\x5e\x60\x7b-\x7f]/.test(host)) return false;   // ASCII other than [A-Za-z0-9._-]
+  const name = canonicalHost(host);   // what the pin keys on and curl's URL carries; one trailing dot already dropped
+  if (name.length > 253) return false;   // an empty name fails the label rule below
+  return name.split('.').every((label) => HOST_LABEL_RE.test(label));
+}
+
 /**
  * The WHOLE checked answer set, in resolver order — what a scan PINS (EE 2.0.0, R1b: the operator's ruling "CLI pins too").
  * Every answer passes the check, as resolveAndValidate requires. With `checkAnswers: false` (the CLI's NSA_ALLOW_ALL_HOSTS,
@@ -139,6 +168,11 @@ export async function resolveAndValidate(hostname, { allowPrivate = false } = {}
  * @throws {Error} if DNS fails, nothing resolves, or (when checked) any answer is in a blocked range
  */
 export async function resolveAndValidateAll(hostname, { allowPrivate = false, checkAnswers = true } = {}) {
+  // B216: a host that is neither an IP literal nor a host name is refused BEFORE the lookup, whatever the answer mode — a
+  // wildcard zone answers a brace name, so the lookup cannot be the refusal. Coded, so each entry names it as a syntax refusal.
+  if (!canonicalIp(hostname) && !isHostnameSyntax(hostname)) {
+    throw Object.assign(new Error(HOST_SYNTAX_REFUSAL), { code: 'EHOSTSYNTAX' });
+  }
   const answers = await dns.lookup(hostname, { all: true, verbatim: true });
   const list = (Array.isArray(answers) ? answers : [answers]).filter((a) => a && typeof a.address === 'string');
   if (list.length === 0) throw new Error(`Host did not resolve`);

@@ -123,6 +123,65 @@ test('(sp4) the REAL curl honours --resolve: without it the name lands on loopba
   } finally { await new Promise((r) => server.close(r)); }
 });
 
+// ── B216 (M1 of the architect's verdict on EE cc422af): curl globs its URL unless told not to ───────────────────────────
+// curl expands `{}` and `[]` in a URL into several names and resolves each through the OS; --resolve pins only the name it
+// was given, so the expanded names skip the pin. http_probe passes -g (--globoff) right after the pin arguments (-q is only
+// effective as curl's FIRST argument). The entry check (utils/net_validation.mjs isHostnameSyntax) refuses such a host
+// before a scan; this is the second line, at the argv.
+test('(sp9, first) unpinned, curl\'s first argument is -g; pinned, -g follows -q --noproxy * — and the URL still carries the name', async () => {
+  const bare = (await recorded(() => probeFirmware(NAME, 'NETGEAR R7000'))).find((l) => l.startsWith('curl '));
+  assert.ok(bare, 'curl was not run unpinned');
+  assert.equal(bare.split(' ')[1], '-g', `unpinned, -g is not curl's first argument: ${bare}`);
+  const pinned = (await recorded(() => runPinned(PIN, () => probeFirmware(NAME, 'NETGEAR R7000')))).find((l) => l.startsWith('curl '));
+  assert.ok(pinned, 'curl was not run pinned');
+  assert.deepEqual(pinned.split(' ').slice(1, 5), ['-q', '--noproxy', '*', '-g'], `pinned, the head of curl's argv is wrong: ${pinned}`);
+  assert.ok(pinned.endsWith(`http://${NAME}/currentsetting.htm`), pinned);
+});
+
+test('(sp10) the REAL curl, handed http_probe\'s own argv: a brace or range name reaches no address with -g; without it, an expanded name reaches one the pin never named', async () => {
+  const real = ['/usr/bin/curl', '/usr/local/bin/curl', '/opt/homebrew/bin/curl'].find((p) => fs.existsSync(p));
+  assert.ok(real, 'no real curl on this machine — this leg cannot measure, and a skipped leg is not a pass');
+  const hits = [];
+  const server = http.createServer((req, res) => { hits.push(req.headers.host); res.end('Firmware=V1.0.0'); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const run = (args) => new Promise((resolve) => { const p = spawn(real, args, { stdio: 'ignore' }); p.on('close', (code) => resolve(code)); p.on('error', () => resolve(-1)); });
+  // The argv probeFirmware hands curl, recorded by the stand-in, with its port moved from 80 to the receiver's in exactly the
+  // two places that carry it (asserted). Every other argument — -q, --noproxy, -g, the timeouts — is the shipped one.
+  const shipped = async (host, address) => {
+    const line = (await recorded(() => runPinned({ [host]: [{ address, family: 4 }] }, () => probeFirmware(host, 'NETGEAR R7000')))).find((l) => l.startsWith('curl '));
+    assert.ok(line, `curl was not run for ${host}`);
+    const args = line.split(' ').slice(1);
+    const r = args.indexOf('--resolve');
+    assert.ok(r > 0 && args[r + 1].endsWith(`:80:${address}`), `no --resolve on port 80: ${line}`);
+    args[r + 1] = args[r + 1].replace(/:80:([^:]+)$/, `:${port}:$1`);
+    assert.ok(args.at(-1).endsWith('/currentsetting.htm') && !args.at(-1).slice(7).includes(':'), `the URL already carries a port: ${line}`);
+    args[args.length - 1] = args.at(-1).replace(/^(http:\/\/[^/]+)\//, `$1:${port}/`);
+    return args;
+  };
+  try {
+    // Positive control: the shipped argv, -g included, still reaches the PINNED address for an ordinary name.
+    const plain = await shipped('pin.test', '127.0.0.1');
+    assert.equal(await run(plain), 0, 'positive control: curl failed on an ordinary pinned name');
+    assert.deepEqual(hits, [`pin.test:${port}`], 'positive control: the pinned name did not reach the receiver exactly once');
+    // `localhos{t,x}` and `localhos[s-t]` each expand to `localhost`, which the OS answers with loopback — where the receiver
+    // listens. The pin sends the typed name to TEST-NET-1 (192.0.2.1), so any hit on the receiver is a name the pin did not cover.
+    for (const host of ['localhos{t,x}', 'localhos[s-t]']) {
+      hits.length = 0;
+      const args = await shipped(host, '192.0.2.1');
+      assert.ok(args.includes('-g'), `the shipped argv lacks -g: ${args.join(' ')}`);
+      const withG = await run(args);
+      assert.deepEqual(hits, [], `${host}: with -g an expanded name still reached loopback`);
+      assert.notEqual(withG, 0, `${host}: with -g curl reported success`);
+      // The pre-fix argv is the shipped one minus -g: curl expands the name and the OS sends `localhost` to the receiver.
+      const preFix = args.filter((a) => a !== '-g');
+      assert.equal(preFix.length, args.length - 1, 'exactly one -g was removed');
+      await run(preFix);
+      assert.ok(hits.some((h) => h === `localhost:${port}`), `${host}: the pre-fix argv did not reach loopback — this leg cannot tell -g from a dead probe (hits ${JSON.stringify(hits)})`);
+    }
+  } finally { await new Promise((r) => server.close(r)); }
+});
+
 // ── ARP (board item "ARP for a pinned name"): `arp -n <address> [-i <iface>]`, so its target is the token after `-n`. ──
 const arpTargetsOf = (lines) => lines.filter((l) => l.startsWith('arp ')).map((l) => { const a = l.split(' '); return a[a.indexOf('-n') + 1]; });
 // Loopback is private-like and refuses fast: ping_checker's in-process TCP probes go nowhere off this machine. DUAL-STACK,

@@ -599,6 +599,8 @@ export async function validateHostPinned(host) {
   try {
     answers = await resolveAndValidateAll(h, { allowPrivate });
   } catch (err) {
+    // B216: refused BEFORE the lookup — not one host name (curl would expand `{}` / `[]` in it into names outside the pin).
+    if (err?.code === 'EHOSTSYNTAX') throw new Error(`Host is not a valid host name via MCP: ${JSON.stringify(h)} — ${err.message}`);
     if (/blocked/.test(String(err && err.message))) throw notAllowed();
     throw new Error(`Host could not be resolved via MCP: ${h}`);
   }

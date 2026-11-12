@@ -559,3 +559,57 @@ describe('MCP Server — internal API markers', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// B216 (M1 of the architect's verdict on EE cc422af): MCP's scan_host / probe_service take the host from a tool argument, and
+// http_probe hands it to curl's URL, where `{}` / `[]` expand into names curl resolves itself, outside the --resolve pin. The
+// shared resolver refuses such a host before any lookup (EHOSTSYNTAX); validateHostPinned names it as a syntax refusal — never
+// "could not be resolved", because nothing was looked up — in both arms of NSA_ALLOW_ALL_HOSTS.
+// ---------------------------------------------------------------------------
+describe('MCP Server — validateHostPinned() refuses a host curl would expand (B216)', () => {
+  async function withResolver(table, fn) {
+    const dns = (await import('node:dns/promises')).default;
+    const orig = dns.lookup;
+    const calls = [];
+    dns.lookup = async (name, opts) => {
+      calls.push(name);
+      const raw = table[name];
+      if (raw === undefined) { const e = new Error(`getaddrinfo ENOTFOUND ${name}`); e.code = 'ENOTFOUND'; throw e; }
+      const list = [].concat(raw).map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+      return opts && opts.all ? list : list[0];
+    };
+    try { return await fn(calls); } finally { dns.lookup = orig; }
+  }
+  async function withEnv(value, fn) {
+    const had = Object.prototype.hasOwnProperty.call(process.env, 'NSA_ALLOW_ALL_HOSTS');
+    const prev = process.env.NSA_ALLOW_ALL_HOSTS;
+    if (value === undefined) delete process.env.NSA_ALLOW_ALL_HOSTS; else process.env.NSA_ALLOW_ALL_HOSTS = value;
+    try { return await fn(); } finally { if (had) process.env.NSA_ALLOW_ALL_HOSTS = prev; else delete process.env.NSA_ALLOW_ALL_HOSTS; }
+  }
+
+  it('(fourth quadrant, first) an LDH name and an underscore name still resolve, with their answers, in both arms', async () => {
+    const { validateHostPinned } = await import('../mcp_server.mjs');
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({ 'nas.example': '93.184.216.34', 'my_nas.example': '93.184.216.34' }, async (calls) => {
+        for (const h of ['nas.example', 'my_nas.example']) {
+          assert.deepEqual(await validateHostPinned(h), { name: h, answers: [{ address: '93.184.216.34', family: 4 }] }, `${h} env=${env}`);
+        }
+        assert.equal(calls.length, 2);
+      }));
+    }
+  });
+
+  it('a brace list, a bracket range or a fullwidth brace is refused as not a host name, before any lookup, in both arms', async () => {
+    const { validateHostPinned } = await import('../mcp_server.mjs');
+    for (const env of [undefined, '1']) {
+      await withEnv(env, () => withResolver({ 'nasa.invalid': '93.184.216.34', 'nasb.invalid': '93.184.216.34' }, async (calls) => {
+        for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas｛a,b｝.invalid']) {
+          const err = await validateHostPinned(h).then(() => null, (e) => e);
+          assert.match(String(err?.message), /not a valid host name via MCP/, `${JSON.stringify(h)} env=${env}`);
+          assert.doesNotMatch(err.message, /could not be resolved|not allowed/, err.message);
+        }
+        assert.deepEqual(calls, [], `env=${env}: a host curl would expand reached the lookup`);
+      }));
+    }
+  });
+});

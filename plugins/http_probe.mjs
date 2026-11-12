@@ -119,8 +119,13 @@ export async function probeFirmware(host, vendor) {
   // resolving it itself, or connect-to overriding --resolve. -q (only effective as the FIRST argument) skips every
   // config file; --noproxy '*' refuses every proxy. NODE_USE_ENV_PROXY still governs Node's own clients, as stated.
   const pinArgs = pinned ? ['-q', '--noproxy', '*'] : [];
+  // B216: -g (--globoff), pinned or not. Without it curl expands `{}` and `[]` in the URL into several names and resolves
+  // each through the OS — --resolve pins only the name it was given, so the expanded names skip the pin. The entry check
+  // (utils/net_validation.mjs isHostnameSyntax) refuses such a host before a scan; this holds at the argv too. After pinArgs:
+  // -q is only effective as curl's FIRST argument.
   const args = [
     ...pinArgs,
+    "-g",
     "-s", "-m", "5",
     `--connect-timeout`, "3",
     ...resolveArgs,

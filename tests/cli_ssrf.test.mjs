@@ -180,3 +180,30 @@ test('C: "0", "false", "no" and "off" do NOT lift the CLI guard — loopback is 
     assert.match(String(err && err.message), /blocked address range/, `NSA_ALLOW_ALL_HOSTS=${v} must not lift the guard`);
   }
 });
+
+// ── B216 (M1 of the architect's verdict on EE cc422af): a host curl would expand is refused BEFORE any lookup ─────────────
+// http_probe hands the scan host to curl's URL, and curl expands `{}` / `[]` there into names it resolves itself, outside the
+// --resolve pin. The shared resolver refuses such a host (EHOSTSYNTAX); the CLI names it as a refusal — ETARGETREFUSED, never
+// ETARGETUNRESOLVED, because nothing was looked up — in BOTH arms: NSA_ALLOW_ALL_HOSTS admits address ranges, not a string
+// that is not one host name.
+test('(B216, fourth quadrant, first) an LDH name and an underscore name still resolve and pin, in both arms', async () => {
+  await withResolver({ 'nas.example': '93.184.216.34', 'my_nas.example': '93.184.216.34' }, async (calls) => {
+    for (const env of [UNSET, SET]) {
+      for (const h of ['nas.example', 'my_nas.example']) assert.deepEqual(await guard(h, env), [{ address: '93.184.216.34', family: 4 }], `${h} ${JSON.stringify(env)}`);
+    }
+    assert.equal(calls.length, 4);
+  });
+});
+test('(B216) a brace list, a bracket range or a fullwidth brace is ETARGETREFUSED before any lookup — in both arms', async () => {
+  await withResolver({ 'nasa.invalid': '93.184.216.34', 'nasb.invalid': '93.184.216.34' }, async (calls) => {
+    for (const env of [UNSET, SET]) {
+      for (const h of ['nas{a,b}.invalid', 'nas[a-b].invalid', 'nas｛a,b｝.invalid']) {
+        const err = await guard(h, env).then(() => null, (e) => e);
+        assert.equal(err?.code, 'ETARGETREFUSED', `${JSON.stringify(h)} ${JSON.stringify(env)}: ${err?.message}`);
+        assert.match(err.message, /not a valid host name/, err.message);
+        assert.ok(err.message.includes(JSON.stringify(h)), `the refusal names the host as typed: ${err.message}`);
+      }
+    }
+    assert.deepEqual(calls, [], 'a host curl would expand reached the lookup');
+  });
+});

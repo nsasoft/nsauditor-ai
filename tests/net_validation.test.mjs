@@ -191,3 +191,82 @@ test('resolveAndValidate reads EVERY answer: one blocked answer refuses the name
     await assert.rejects(() => resolveAndValidate('mapped-metadata.example'), /blocked/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B216 (M1 of the architect's verdict on EE cc422af): a scan host reaches curl's URL in http_probe, and curl expands `{}` and
+// `[]` there into names it resolves itself, outside the --resolve pin. The resolver every entry shares (the CLI's
+// assertScanTargetAllowed and MCP's validateHostPinned both call resolveAndValidateAll for a name) now refuses a host that is
+// neither an IP literal nor dot-separated labels of letters, digits, hyphens and underscores — BEFORE the first lookup,
+// because a wildcard zone answers a brace name (dns.lookup('nas{a,b}.invalid') is ENOTFOUND, a resolution failure, not a
+// syntax refusal). The check reads the typed string AND its domainToASCII form: the pin and curl's URL use the ASCII form
+// (utils/scan_pin.mjs keyOf), and UTS 46 maps a fullwidth brace (U+FF5B) to `{`.
+// FOURTH QUADRANT FIRST: the names a scan must keep accepting.
+// ---------------------------------------------------------------------------
+
+const HOST_OK = ['example.com', 'EXAMPLE.Com', 'example.com.', 'router', 'my_host.lan', 'a-b.example', 'xn--bcher-kva.example',
+  'bücher.example', `${'a'.repeat(63)}.example`, '0.pool.ntp.org', '127.example.test',
+  // Digits are LDH: a name ending in digits reaches the lookup (domainToASCII answers '' for it, reading a failed IPv4), where
+  // the OS reads '6425673729' as 127.0.0.1 and the answer check refuses it (cli_ssrf, mcp_server).
+  '6425673729', 'host.123'];
+const HOST_BAD = {
+  'a brace list (curl expands it)': 'nas{a,b}.invalid',
+  'a bracket range (curl expands it)': 'nas[1-2].invalid',
+  'a fullwidth brace list (UTS 46 maps it to braces)': 'x｛a,b｝.com',
+  'a comma': 'a,b.com',
+  'an asterisk': '*.example',
+  'a space': 'a b.example',
+  'a percent escape (the URL parser decodes it)': 'x%41.com',
+  'a backslash (the URL parser cuts at it)': 'a\\b.example',
+  // Each of these two converts to a valid ASCII name (xn--ba-xka.example; xn--b-eha, cut at the backslash), so only the
+  // typed-string rule refuses them — the lookup would receive a string that is not the name the pin and curl are given.
+  'a percent escape beside non-ASCII (the conversion launders it)': 'b\u00fc%41.example',
+  'a backslash beside non-ASCII (the conversion cuts at it)': 'b\u00fc\\x.example',
+  'a slash': 'a/b.example',
+  'a port': 'example.com:80',
+  'userinfo': 'user@example.com',
+  'a leading hyphen': '-a.example',
+  'a trailing hyphen': 'a-.example',
+  'an empty label': 'a..example',
+  'a lone dot': '.',
+  'empty': '',
+  'a 64-character label': `${'a'.repeat(64)}.example`,
+  'a 254-character name': `${'a.'.repeat(126)}ab`,
+  'an unassigned code point (domainToASCII answers empty)': 'a\u0378b.example',
+  'a private-use code point (domainToASCII answers empty)': 'a\uE000b.example',
+};
+
+test('(B216, fourth quadrant, first) isHostnameSyntax accepts LDH names, underscores, a trailing dot, single labels and IDN', () => {
+  assert.equal(typeof nv.isHostnameSyntax, 'function', 'net_validation must export isHostnameSyntax');
+  for (const h of HOST_OK) assert.equal(nv.isHostnameSyntax(h), true, `${JSON.stringify(h)} must be accepted`);
+});
+
+test('(B216) isHostnameSyntax refuses every shape curl or the URL parser would read as something other than one name', () => {
+  assert.equal(typeof nv.isHostnameSyntax, 'function', 'net_validation must export isHostnameSyntax');
+  for (const [why, h] of Object.entries(HOST_BAD)) assert.equal(nv.isHostnameSyntax(h), false, `${why}: ${JSON.stringify(h)} must be refused`);
+  for (const v of [null, undefined, 42, {}]) assert.equal(nv.isHostnameSyntax(v), false, `a non-string ${String(v)} must be refused`);
+});
+
+test('(B216, fourth quadrant, first) resolveAndValidateAll still resolves an LDH name, an underscore name and an IP literal', async () => {
+  await withLookup(['93.184.216.34'], async (calls) => {
+    for (const h of ['public.example', 'my_host.example', 'bücher.example']) {
+      assert.deepEqual(await nv.resolveAndValidateAll(h), [{ address: '93.184.216.34', family: 4 }], h);
+    }
+    // An IP literal is not a host NAME, and it is not refused for that: the lookup answers it as itself.
+    assert.deepEqual(await nv.resolveAndValidateAll('2001:db8::1'), [{ address: '93.184.216.34', family: 4 }]);
+    assert.equal(calls.length, 4, 'every accepted host reached the lookup once');
+  });
+});
+
+test('(B216) resolveAndValidateAll refuses a malformed host BEFORE the first lookup — EHOSTSYNTAX, in both answer modes and through resolveAndValidate', async () => {
+  await withLookup(['93.184.216.34'], async (calls) => {
+    for (const h of ['nas{a,b}.invalid', 'nas[1-2].invalid', 'x｛a,b｝.com', 'x%41.com']) {
+      for (const run of [() => nv.resolveAndValidateAll(h), () => nv.resolveAndValidateAll(h, { checkAnswers: false }),
+        () => nv.resolveAndValidateAll(h, { allowPrivate: true }), () => resolveAndValidate(h)]) {
+        const err = await run().then(() => null, (e) => e);
+        assert.equal(err?.code, 'EHOSTSYNTAX', `${JSON.stringify(h)}: ${err?.message}`);
+        assert.doesNotMatch(err.message, /blocked|did not resolve/, 'a syntax refusal must not read as a range refusal or a resolution failure');
+      }
+    }
+    assert.deepEqual(calls, [], 'a malformed host reached the lookup');
+  });
+});

@@ -1067,11 +1067,15 @@ export async function assertScanTargetAllowed(host, env = process.env) {
     + 'a scan connects only to the addresses its host check resolved, so a target that does not resolve is not scanned'),
   { code: 'ETARGETUNRESOLVED' });
   const BLOCKED_ANSWER = 'Host resolves to blocked IP range';
+  // B216: the shared resolver refuses a host that is not one host name (curl would expand `{}` / `[]` in it into names
+  // outside the pin) BEFORE its lookup — a refusal, in both arms: NSA_ALLOW_ALL_HOSTS admits address ranges, not such a string.
+  const notAName = (err) => err?.code === 'EHOSTSYNTAX'
+    && refuse(`Host rejected before any lookup: ${JSON.stringify(host)} is not a valid host name — ${err.message}`);
   const isCloudSentinel = typeof host === 'string' && CLOUD_SENTINEL_HOSTS.has(host.toLowerCase());
   if (isCloudSentinel) return null;
   if (allowAllHosts(env)) {
     if (canonicalIp(host)) return null;
-    try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch (err) { throw unresolved(err); }
+    try { return await resolveAndValidateAll(host, { checkAnswers: false }); } catch (err) { throw notAName(err) || unresolved(err); }
   }
   if (isBlockedIp(host)) {
     throw refuse(`Scanning blocked address range is not allowed: ${host}`);
@@ -1081,7 +1085,7 @@ export async function assertScanTargetAllowed(host, env = process.env) {
       return await resolveAndValidateAll(host);
     } catch (err) {
       if (err?.message === BLOCKED_ANSWER) throw refuse(`Host rejected by SSRF guard: ${err.message}`);
-      throw unresolved(err);
+      throw notAName(err) || unresolved(err);
     }
   }
   return null;
