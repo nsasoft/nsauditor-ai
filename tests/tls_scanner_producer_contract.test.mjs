@@ -16,14 +16,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// Point the plugin at the cert-aware stub BEFORE importing it (TLS_MODULE_ID is
-// resolved at module-load time).
-process.env.TLS_SCANNER_TLS_MODULE = new URL('./_tls_producer_stub.mjs', import.meta.url).href;
+import * as producerStub from './_tls_producer_stub.mjs';
 process.env.TLS_SCANNER_PORTS = '4443:https';
 process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_TIMEOUT_MS = '1500';
 
-const { default: tlsScanner, conclude, authoritativePorts } = await import('../plugins/tls_scanner.mjs');
+const { default: tlsScanner, conclude, authoritativePorts, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
+__setTlsModuleForTests(producerStub); // the cert-aware stub
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 
 async function scanTo443(scenario) {

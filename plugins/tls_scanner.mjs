@@ -8,7 +8,6 @@
 //   TLS_SCANNER_PORTS        CSV of ports to scan (defaults to common TLS ports below)
 //   TLS_SCANNER_DEBUG        "1"/"true" to include per-version errors in data rows
 //   TLS_SCANNER_SNI          optional explicit SNI/hostname for handshake
-//   TLS_SCANNER_TLS_MODULE   module id/url for TLS API (for tests), default 'node:tls'
 //
 // Notes:
 // - We do not rejectUnauthorized to allow protocol negotiation without CA trust.
@@ -16,26 +15,18 @@
 // - We capture the agreed protocol (e.g., "TLSv1.2") and a representative cipher name.
 
 import dns from 'node:dns/promises';
+import nodeTls from 'node:tls';
 
-// Lazy TLS import — test injection allowed in non-production environments only.
-// In production (NODE_ENV=production) only 'node:tls' is accepted.
-const _rawTlsEnv = process.env.TLS_SCANNER_TLS_MODULE;
-const TLS_MODULE_ID = (() => {
-  if (!_rawTlsEnv) return 'node:tls';
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('[tls_scanner] TLS_SCANNER_TLS_MODULE is ignored in production');
-    return 'node:tls';
+// The TLS API is node:tls, imported statically. No environment variable chooses it: a scan's --env file reaches
+// process.env before the plugins load, so a variable here would let a credentials file choose code to run (EE board
+// B217). A test injects a stub through __setTlsModuleForTests, which takes a module OBJECT, never a specifier.
+let __tlsOverride = null;
+export function __setTlsModuleForTests(mod) {
+  if (mod === null) { __tlsOverride = null; return; }
+  if (typeof mod !== 'object' || typeof mod.connect !== 'function') {
+    throw new TypeError('__setTlsModuleForTests takes a module object with a connect() function, or null for node:tls');
   }
-  // In non-production (test/dev): allow any value for stub injection
-  return _rawTlsEnv;
-})();
-let __tlsMod;
-async function loadTls() {
-  if (!__tlsMod) {
-    const m = await import(TLS_MODULE_ID);
-    __tlsMod = m.default ?? m; // support default/named exports
-  }
-  return __tlsMod;
+  __tlsOverride = mod;
 }
 
 const DEFAULT_PORTS = {
@@ -163,7 +154,7 @@ export default {
     const debug = /^(1|true|yes|on)$/i.test(String(process.env.TLS_SCANNER_DEBUG || ''));
     const sni = process.env.TLS_SCANNER_SNI || null;
     const hostname = sni || (await reverseHostname(host)) || host;
-    const tlsApi = await loadTls();
+    const tlsApi = __tlsOverride ?? nodeTls;
 
     async function checkOnePort(port, service) {
       const result = {

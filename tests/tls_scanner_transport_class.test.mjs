@@ -7,12 +7,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-process.env.TLS_SCANNER_TLS_MODULE = new URL('./_tls_transport_stub.mjs', import.meta.url).href;
+import * as transportStub from './_tls_transport_stub.mjs';
 process.env.TLS_SCANNER_PORTS = '4443:tls-x';
 process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_SNI = '127.0.0.1'; // equal to the IP: no SNI suffix in probe_info
 
-const { default: tlsScanner } = await import('../plugins/tls_scanner.mjs');
+const { default: tlsScanner, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
+__setTlsModuleForTests(transportStub);
 
 async function infoFor(scenario) {
   process.env.TLS_TRANSPORT_SCENARIO = scenario;

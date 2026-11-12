@@ -2,10 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// Point the plugin to our stub BEFORE importing it
-process.env.TLS_SCANNER_TLS_MODULE = new URL('./_tls_stub.mjs', import.meta.url).href;
+import * as tlsStub from './_tls_stub.mjs';
 
-const { default: tlsScanner, conclude }  = await import('../plugins/tls_scanner.mjs');
+const { default: tlsScanner, conclude, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
+__setTlsModuleForTests(tlsStub);
 const { default: concluder }   = await import('../plugins/result_concluder.mjs');
 
 test('TLS Scanner: detects supported TLS versions and integrates with concluder', async () => {
@@ -35,22 +35,8 @@ test('TLS Scanner: detects supported TLS versions and integrates with concluder'
   assert.equal(svc.status, 'open');
 });
 
-test('TLS_SCANNER_TLS_MODULE is ignored in production', async () => {
-  // Re-import with NODE_ENV=production and a bogus module — must use node:tls
-  // Since TLS_MODULE_ID is evaluated at module load, test via a fresh import
-  // or just verify the guard logic directly
-  const orig = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  // The actual guard is at module-load time, so we test the logic directly:
-  const rawEnv = 'file:///malicious/evil.mjs';
-  const resolvedId = (() => {
-    if (!rawEnv) return 'node:tls';
-    if (process.env.NODE_ENV === 'production') return 'node:tls';
-    return rawEnv;
-  })();
-  assert.equal(resolvedId, 'node:tls', 'production must ignore custom TLS module');
-  process.env.NODE_ENV = orig;
-});
+// No environment variable chooses the TLS module (EE board B217): tests/tls_scanner_env_seam_removed.test.mjs runs the
+// plugin in a child with the old variable set. The test that stood here re-implemented the old guard inline and could not fail.
 
 test('TLS Scanner conclude(): evidence contains only its own port data, not all rows', async () => {
   const fakeResult = {

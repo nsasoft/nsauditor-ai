@@ -3,7 +3,7 @@
 // ANTI-MOCK-MASKING GUARD for the crypto_agent producer contract.
 //
 // The stub-driven contract test (tls_scanner_producer_contract.test.mjs) injects a
-// fake TLS module via TLS_SCANNER_TLS_MODULE, and a stub can "support" a protocol or
+// fake TLS module via __setTlsModuleForTests, and a stub can "support" a protocol or
 // cipher the REAL node:tls client cannot. That masked a live defect: node 20+/OpenSSL 3
 // refuse to PROPOSE TLSv1/TLSv1.1 at their default security level, failing client-side
 // with ERR_SSL_NO_PROTOCOLS_AVAILABLE (error:0A0000BF tls_setup_handshake) — so
@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-// NOTE: no TLS_SCANNER_TLS_MODULE here — real node:tls on purpose.
+// NOTE: no __setTlsModuleForTests here — real node:tls on purpose.
 process.env.TLS_SCANNER_SNI = 'localhost'; // avoid a reverse-DNS lookup; matches the cert CN
 process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_TIMEOUT_MS = '4000';
