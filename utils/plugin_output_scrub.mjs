@@ -79,7 +79,11 @@ export function scrubPluginOutput(value, { env = process.env, redact = credentia
     }
     const out = Object.getPrototypeOf(v) === null ? Object.create(null) : {};
     memo.set(v, out);
-    for (const k of Object.keys(v)) out[str(k)] = walk(v[k]);
+    // defineProperty, never `out[k] =`: an own `__proto__` key (JSON.parse makes one from API data) assigned would set
+    // the copy's PROTOTYPE, and the key and its text would vanish from every artifact.
+    for (const k of Object.keys(v)) {
+      Object.defineProperty(out, str(k), { value: walk(v[k]), writable: true, enumerable: true, configurable: true });
+    }
     return out;
   };
   return { value: walk(value), replaced };

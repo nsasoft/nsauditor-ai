@@ -103,6 +103,15 @@ test('(w4) a thrown value is scrubbed: same class, message and stack and cause r
   assert.equal(scrubThrown(clean, { env: ENV }), clean, 'nothing to redact: the same reference');
 });
 
+test('(w9) an own `__proto__` key (JSON.parse makes one from API data) stays a KEY in the copy, never the prototype', () => {
+  const r = JSON.parse(`{"__proto__": {"tag": "kept"}, "reason": "x ${CANARY}"}`);
+  assert.ok(Object.prototype.hasOwnProperty.call(r, '__proto__'), 'positive control: the input carries the own key');
+  const { value } = scrubPluginOutput(r, { env: ENV });
+  assert.equal(Object.getPrototypeOf(value), Object.prototype, 'the copy\'s prototype did not move');
+  assert.ok(Object.prototype.hasOwnProperty.call(value, '__proto__'), 'the key survived as an own property');
+  assert.equal(JSON.stringify(value), `{"__proto__":{"tag":"kept"},"reason":"x <credentials>"}`);
+});
+
 // ── THROUGH THE PLUGIN MANAGER — every receipt point (callPlugin and _runOne), every path that reaches them ─────────
 import { PluginManager } from '../plugin_manager.mjs';
 
