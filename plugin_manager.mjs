@@ -228,7 +228,10 @@ function withBaseContext(ctxLike) {
   return { ...base, ...live };
 }
 
-async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
+// `onTimeout` (manager-only, never forwarded to a plugin): called when THIS call's timer fires, before it rejects. B213: the
+// orchestrated path passes it when the timer IS what is left of the call's deadline, so the next start gate reads the clock
+// that fired, not Date.now().
+async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}, { onTimeout } = {}) {
   // Decide if we run once per matching open port, or once total.
   const req = mod?.requirements || {};
   const runs = [];
@@ -270,7 +273,7 @@ async function callPlugin(mod, host, ctx, priorOutputs = null, cliOpts = {}) {
     const timeoutMs = resolvedTimeoutMs;
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)), timeoutMs);
+      timer = setTimeout(() => { onTimeout?.(); reject(new Error(`Plugin "${mod.name}" timed out after ${timeoutMs}ms`)); }, timeoutMs);
     });
 
     return Promise.race([pluginPromise, timeoutPromise]).finally(() => clearTimeout(timer));
@@ -845,6 +848,11 @@ export class PluginManager {
     // it is CUT SHORT. Both lists keep the order the plugins would have run in.
     const { [CALL_DEADLINE_KEY]: deadline, ...opts } = optsIn || {};
     const hasDeadline = Number.isFinite(deadline);
+    // B213: ONE CLOCK DECIDES. A running plugin's wall is a timer on libuv's loop clock,
+    // and it can fire while Date.now() still reads a millisecond before the deadline; the gate below then started the next
+    // plugin, which the wall cut at once. Set when the DEADLINE's own timer fires (not a plugin's shorter budget, not a
+    // plugin reporting its own timeout); the gate reads it beside the clock.
+    let deadlineFired = false;
     const notStarted = [];
     const cutShort = [];
     // Shared context flows through all plugins (+ OUI helpers injected)
@@ -908,9 +916,10 @@ export class PluginManager {
       // The deadline, checked where a plugin would START: one gated out above would not have run regardless.
       let runOpts = opts;
       let shortened = false;
+      let callHooks = {};
       if (hasDeadline) {
         const remaining = deadline - Date.now();
-        if (remaining <= 0) {
+        if (deadlineFired || remaining <= 0) {
           manifest.push({ id: String(mod.id || ''), name: mod.name || 'Plugin', status: 'timeout',
             reason: SCAN_HOST_NOT_STARTED_REASON, duration_ms: 0 });
           ctx.pluginRunStatus.set(String(mod.id || ''), 'timeout');
@@ -919,15 +928,19 @@ export class PluginManager {
         }
         const own = Number(opts[PLUGIN_WALL_KEY]);
         const wall = Number.isFinite(own) && own > 0 ? Math.min(own, remaining) : remaining;
-        shortened = resolvePluginTimeoutMs(mod, wall) < resolvePluginTimeoutMs(mod, opts[PLUGIN_WALL_KEY]);
+        const timerMs = resolvePluginTimeoutMs(mod, wall);   // the number callPlugin races
+        shortened = timerMs < resolvePluginTimeoutMs(mod, opts[PLUGIN_WALL_KEY]);
         runOpts = { ...opts, [PLUGIN_WALL_KEY]: wall };
+        // The raced timer is min(declared budget, caller's wall, remaining): it is the deadline's own timer only when it
+        // EQUALS what is left — a shorter budget or a shorter caller wall firing leaves the deadline unreached.
+        if (timerMs === remaining) callHooks = { onTimeout: () => { deadlineFired = true; } };
       }
 
       vlog(`Running ${mod.name} (priority ${getPriority(mod)}) on ${host}`);
       // **FIX**: pass prior outputs into OS Detector via callPlugin(..., priorOutputs)
       // **N.27 FIX**: forward CLI-derived opts (ports, etc.) so plugins can honor CLI flags
       const startMs = Date.now();
-      const wrappedRuns = await callPlugin(mod, host, ctx, outputs, runOpts);
+      const wrappedRuns = await callPlugin(mod, host, ctx, outputs, runOpts, callHooks);
       const duration_ms = Date.now() - startMs;
 
       // Determine manifest status from the plugin results. A gate-skip envelope
