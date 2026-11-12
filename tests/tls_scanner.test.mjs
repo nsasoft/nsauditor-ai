@@ -1,11 +1,12 @@
 // tests/tls_scanner.test.mjs
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as tlsStub from './_tls_stub.mjs';
 
 const { default: tlsScanner, conclude, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
 __setTlsModuleForTests(tlsStub);
+after(() => __setTlsModuleForTests(null)); // never leave the stub installed for a later file in a shared process
 const { default: concluder }   = await import('../plugins/result_concluder.mjs');
 
 test('TLS Scanner: detects supported TLS versions and integrates with concluder', async () => {

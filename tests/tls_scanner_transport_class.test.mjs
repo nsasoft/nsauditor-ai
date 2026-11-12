@@ -4,7 +4,7 @@
 // (the real-socket legs in tls_scanner_real_tls_integration.test.mjs pin the real codes; this file pins the cases a
 // real server cannot produce — a client-side refusal — and the mixed ones). The row leads with the transport class
 // ONLY when every attempt that reached the wire failed in transport; one server answer anywhere is a measurement.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as transportStub from './_tls_transport_stub.mjs';
@@ -14,6 +14,7 @@ process.env.TLS_SCANNER_SNI = '127.0.0.1'; // equal to the IP: no SNI suffix in 
 
 const { default: tlsScanner, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
 __setTlsModuleForTests(transportStub);
+after(() => __setTlsModuleForTests(null)); // never leave the stub installed for a later file in a shared process
 
 async function infoFor(scenario) {
   process.env.TLS_TRANSPORT_SCENARIO = scenario;

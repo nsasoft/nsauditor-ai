@@ -13,7 +13,7 @@
 // consumer branches were inert: no CE producer set any of these fields, so a real
 // scan read clean over deprecated TLS / weak ciphers / expired / self-signed certs.
 // Mirrors the cisImageInventory producer-contract discipline.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as producerStub from './_tls_producer_stub.mjs';
@@ -22,7 +22,8 @@ process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_TIMEOUT_MS = '1500';
 
 const { default: tlsScanner, conclude, authoritativePorts, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
-__setTlsModuleForTests(producerStub); // the cert-aware stub
+__setTlsModuleForTests(producerStub);
+after(() => __setTlsModuleForTests(null)); // never leave the stub installed for a later file in a shared process // the cert-aware stub
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 
 async function scanTo443(scenario) {

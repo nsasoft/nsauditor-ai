@@ -17,12 +17,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-// NOTE: no __setTlsModuleForTests here — real node:tls on purpose.
+// Real node:tls on purpose: installed explicitly below, so a stub another file left behind in a shared process cannot
+// stand in for it.
 process.env.TLS_SCANNER_SNI = 'localhost'; // avoid a reverse-DNS lookup; matches the cert CN
 process.env.TLS_SCANNER_VERSIONS = 'TLSv1,TLSv1.1,TLSv1.2,TLSv1.3';
 process.env.TLS_SCANNER_TIMEOUT_MS = '4000';
 
-const { default: tlsScanner } = await import('../plugins/tls_scanner.mjs');
+const { default: tlsScanner, __setTlsModuleForTests } = await import('../plugins/tls_scanner.mjs');
+__setTlsModuleForTests(null);
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 
 /**
