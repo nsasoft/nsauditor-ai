@@ -85,17 +85,22 @@ function caseFor(t, { key, cert = key, opts = null, pin = null, mode = null }) {
 }
 
 /**
- * B212 (ruling (d), the architect's verdict on cd8bd08). `n` looks are `n` TCP connections: a connection is accepted before any
- * handshake, so this count cannot race one. Every connection ends as exactly one server-side session or one tlsClientError,
- * so the two sum to `n`. The helper reads them after close AND after every accepted connection has reported its outcome
- * (B212-C3: a connection that ends before its handshake reports its tlsClientError only after close resolves; `settled`
- * false means one never reported). `sessionsAtWrite` (the count when 040's result was taken) is reported and never
- * asserted: it read 0 where 1 was expected once in five full runs, with no mechanism established. No retry, and never a bare 0.
+ * B212 (ruling (d), the architect's verdict on cd8bd08; C4, the verdict cc229187 on fbd47c9). `n` looks are `n` TCP
+ * connections: a connection is accepted before any handshake, so this count cannot race one. 040 completes every handshake it
+ * starts (it does not reject the chain), so each look ends as one server-side session and none as a tlsClientError. The
+ * helper reads both after close AND after every accepted connection has reported its outcome (B212-C3: a connection that ends
+ * before its handshake reports its tlsClientError only after close resolves; `settled` false means one never reported).
+ * Sessions 0 with tlsClientErrors 1 is candidate (b) of RECORD.md — 040's socket destroyed before its Finished reached the
+ * server — a product observation: record the counters, never retry. The (sum) legs below read the same tlsClientErrors counter
+ * as 1, so its 0 here is not bare. `sessionsAtWrite` (the count when 040's result was taken) is reported and never asserted:
+ * it read 0 where 1 was expected once in five full runs, with no mechanism established. No retry, and never a bare 0.
  */
 function assertLooks(r, n, why = '') {
   const counters = { connections: r.connections, sessionsAtWrite: r.sessionsAtWrite, sessionsAfterClose: r.sessionsAfterClose, tlsClientErrors: r.tlsClientErrors, socketErrors: r.socketErrors, settled: r.settled };
-  assert.equal(r.connections, n, `${why ? why + ' — ' : ''}TCP connections ${JSON.stringify(counters)}`);
-  assert.equal(r.sessionsAfterClose + r.tlsClientErrors, n, `${why ? why + ' — ' : ''}every connection ends as one session or one tlsClientError ${JSON.stringify(counters)}`);
+  const w = why ? why + ' — ' : '';
+  assert.equal(r.connections, n, `${w}TCP connections ${JSON.stringify(counters)}`);
+  assert.equal(r.sessionsAfterClose, n, `${w}every look ends as a server-side session ${JSON.stringify(counters)}`);
+  assert.equal(r.tlsClientErrors, 0, `${w}no look ends as a tlsClientError — sessions 0 with tlsClientErrors 1 is candidate (b) of RECORD.md; record the counters, do not retry ${JSON.stringify(counters)}`);
 }
 
 // ── FOURTH QUADRANT FIRST: weak crypto never launders an untrusted chain ───────────────────────────────────────────────
@@ -240,9 +245,9 @@ for (const [name, injected] of [['a THROW', { throws: 'ERR_SSL_NO_CIPHER_MATCH' 
 }
 
 // ── THE SUM'S SECOND TERM (B212-C3, the architect's verdict 0395a014) ───────────────────────────────────────────────────
-// assertLooks adds tlsClientErrors to sessions. Every leg above reads that term as 0, so these legs show it counting, through
-// the same server and the same counters, with no audit: the helper's modes make ONE connection that ends as a tlsClientError.
-// Each states assertLooks' two lines with the terms separated, so assertLooks itself would add nothing here.
+// assertLooks holds every 040 look to tlsClientErrors 0. These legs are what make that 0 non-bare: through the same server and
+// the same counters, with no audit, the helper's modes make ONE connection that ends as a tlsClientError, and the counter
+// reads 1. (They assert the terms directly; assertLooks expects a session, not a tlsClientError.)
 for (const [mode, how, client] of [
   ['raw-connect', 'a connection destroyed before any ClientHello', null],
   // A handshake that STARTED: the server read the ClientHello and refused it with a protocol_version alert.
