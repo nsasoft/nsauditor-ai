@@ -179,7 +179,7 @@ Results land in `./out/<host>_<timestamp>/` (two scans of one host whose plugin 
 | `scan_results.csv` | CSV — only with `--output-format csv` |
 | `scan_report.md` | GitHub-flavored Markdown report — only with `--output-format md` (or `markdown`) |
 
-> Requires Node.js 24.22.3 or newer (tested on Node 24.22.1). npm only warns on an older runtime, so check `node --version` yourself.
+> Requires Node.js 24.22.3 or newer (tested on Node 24.22.3). npm only warns on an older runtime, so check `node --version` yourself.
 
 ---
 
