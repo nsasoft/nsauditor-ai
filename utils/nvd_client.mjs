@@ -50,7 +50,7 @@ function parseCve(vuln) {
 }
 
 /**
- * EE board B160 (the release paired with Enterprise 2.1.2): the CVE list an NVD answer carries, or a throw. Both lookups
+ * EE board B160 (the release paired with Enterprise 2.2.0): the CVE list an NVD answer carries, or a throw. Both lookups
  * read `body.vulnerabilities || []`, so a 200 whose body carried no such list — malformed, a proxy's page, another host's
  * answer — read as "no CVEs" (or as a CVE that does not exist) and was CACHED that way for the cache's lifetime. Now an
  * answer whose `vulnerabilities` is absent, null or not a list is a FAILED LOOKUP: it throws, so the caller caches
@@ -83,7 +83,7 @@ class NvdClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      // EE board B158 (the Community release paired with Enterprise 2.1.2): the lookup goes ONLY to the NVD API. `fetch`
+      // EE board B158 (the Community release paired with Enterprise 2.2.0): the lookup goes ONLY to the NVD API. `fetch`
       // follows a redirect by default, and Node FORWARDS a custom header such as `apiKey` wherever a cross-origin one
       // points — measured: the key and the CPE reached another host, whose empty answer was returned and cached as "no
       // CVEs". So a 3xx is refused, naming the status and the HOST only (this message reaches Enterprise's lookup-failure

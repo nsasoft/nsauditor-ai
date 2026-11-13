@@ -1,7 +1,7 @@
 // tests/nvd_client_no_redirect.test.mjs
 //
 // THE NVD LOOKUP GOES ONLY TO THE NVD API — A REDIRECT IS REFUSED, NEVER FOLLOWED (EE board B158's Community site; the
-// Community release paired with Enterprise 2.1.2, placed by the two seats under the operator's delegation of 2026-11-03).
+// Community release paired with Enterprise 2.2.0, placed by the two seats under the operator's delegation of 2026-11-03).
 //
 // The client's one `fetch` (utils/nvd_client.mjs) passed no `redirect` option, so it followed. Measured on Node 24.22.1
 // (EE audit-evidence-samples/ee-2.2.0/b129/04): a CUSTOM header such as `apiKey` is FORWARDED to wherever a cross-origin

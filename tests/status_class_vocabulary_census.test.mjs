@@ -1,9 +1,9 @@
 // tests/status_class_vocabulary_census.test.mjs
 //
 // NOTHING IN COMMUNITY CONSUMES ENTERPRISE'S GRC STATUS-CLASS VOCABULARY (EE board B158's Community half; the release
-// paired with Enterprise 2.1.2).
+// paired with Enterprise 2.2.0).
 //
-// Enterprise 2.1.2 adds a sixth value, '3xx', to the `statusClass` its GRC push writes into each push-audit row
+// Enterprise 2.2.0 adds a sixth value, '3xx', to the `statusClass` its GRC push writes into each push-audit row
 // (nsauditor.grc-push-audit/v1), a change ruled a PATCH because the vocabulary is consumed nowhere but the module that
 // defines it. Enterprise's CHANGELOG says "nothing in Enterprise or Community enumerates the values"; Enterprise holds its
 // own half by census (EE tests/grc_connector_no_redirect.test.mjs), and this file holds Community's, so the sentence is

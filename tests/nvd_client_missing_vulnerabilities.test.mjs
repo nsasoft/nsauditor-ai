@@ -1,7 +1,7 @@
 // tests/nvd_client_missing_vulnerabilities.test.mjs
 //
 // AN NVD ANSWER WITHOUT A `vulnerabilities` LIST IS A FAILED LOOKUP, NOT "NO CVEs" — AND IS NEVER CACHED (EE board B160;
-// the Community release paired with Enterprise 2.1.2, placed by the two seats under the operator's delegation of
+// the Community release paired with Enterprise 2.2.0, placed by the two seats under the operator's delegation of
 // 2026-11-03).
 //
 // `queryCvesByCpe` read `(body.vulnerabilities || [])` and `validateCveId` read `body.vulnerabilities || []`, so a 200

@@ -1,7 +1,7 @@
 // tests/mcp_env_file_gcp_selectors.test.mjs
 //
 // THE ENV FILE IS THE SCAN TARGET FOR GCP TOO: AMBIENT GCP SELECTORS THE FILE DOES NOT SET ARE CLEARED — AN EMPTY ONE
-// INCLUDED (board B136, the Community release paired with Enterprise 2.1.2; placed by the two seats under the operator's
+// INCLUDED (board B136, the Community release paired with Enterprise 2.2.0; placed by the two seats under the operator's
 // delegation of 2026-11-03).
 //
 // NSA_ENV_FILE is "the AUTHORITATIVE scan-target selector" (utils/mcp_env_file.mjs): an ambient provider variable the file
@@ -12,7 +12,7 @@
 //     not the one the file selected, and recorded the wrong project as the scope;
 //   - an ambient GOOGLE_IMPERSONATE_SERVICE_ACCOUNT ran Enterprise's Cloud Storage and IAM auditors as another identity;
 //   - an ambient STORAGE_EMULATOR_HOST or GOOGLE_CLOUD_UNIVERSE_DOMAIN survived the file — on Enterprise 2.1.1 a false clean
-//     (an unauthenticated bucket list from the emulator; the credential sent to another universe), on 2.1.2 a refusal;
+//     (an unauthenticated bucket list from the emulator; the credential sent to another universe), on 2.2.0 a refusal;
 //   - an ambient GCE_METADATA_HOST or GCE_METADATA_IP chose the host that minted the token for a file with no key;
 //   - and the clear rule kept an ambient EMPTY value, which those libraries still count.
 // Now those six are cleared when the file does not set them, and the clear rule clears an ambient empty value too.

@@ -1,7 +1,7 @@
 // tests/fetch_redirect_policy_census.test.mjs
 //
 // EVERY `fetch` THIS PACKAGE SHIPS CARRIES AN EXPLICIT `redirect: 'manual'` (EE board B158's Community half; the release
-// paired with Enterprise 2.1.2).
+// paired with Enterprise 2.2.0).
 //
 // A redirect policy is a credential-forwarding decision before it is a transport one: on Node 24.22.1 `fetch` strips
 // `Authorization` and `Cookie` on a cross-origin redirect but FORWARDS a custom header (`apiKey`, `x-api-key`) wherever it

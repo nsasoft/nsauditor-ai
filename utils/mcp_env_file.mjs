@@ -36,10 +36,10 @@ const PROVIDER_CRED_KEYS = [
   // involved. Added 2026-08-27 alongside the EE sovereign-cloud resolver
   // (utils/azure_cloud.mjs), which is what made these reachable.
   'AZURE_ENVIRONMENT', 'ARM_ENVIRONMENT', 'AZURE_ARM_ENDPOINT', 'AZURE_AUTHORITY_HOST',
-  // GCP SELECTORS (board B136, the release paired with Enterprise 2.1.2), for the same reason. Enterprise reads
+  // GCP SELECTORS (board B136, the release paired with Enterprise 2.2.0), for the same reason. Enterprise reads
   // GCP_PROJECT_ID FIRST, ahead of GOOGLE_CLOUD_PROJECT, so an ambient one scanned another project than the file named;
   // GOOGLE_IMPERSONATE_SERVICE_ACCOUNT picks the identity; STORAGE_EMULATOR_HOST and GOOGLE_CLOUD_UNIVERSE_DOMAIN move
-  // the Google clients' endpoints (a false clean on Enterprise 2.1.1, a refusal on 2.1.2); and GCE_METADATA_HOST /
+  // the Google clients' endpoints (a false clean on Enterprise 2.1.1, a refusal on 2.2.0); and GCE_METADATA_HOST /
   // GCE_METADATA_IP choose the host that mints the token for a file with no key. NOT here, by decision:
   // METADATA_SERVER_DETECTION (clearing an ambient `none` would turn the metadata probe back on); the lowercase
   // google_application_credentials the Google auth library also reads (on Windows process.env is case-insensitive, so

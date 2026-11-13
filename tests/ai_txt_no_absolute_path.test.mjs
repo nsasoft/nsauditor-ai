@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { newRunId, writeRunStart } from '../utils/run_record.mjs';
 
-// B111 (EE board; the Community half, 2.1.2) — THE AI TXT REPORT CARRIES NO OPERATOR-LOCAL PATH.
+// B111 (EE board; the Community half, 2.2.0) — THE AI TXT REPORT CARRIES NO OPERATOR-LOCAL PATH.
 // Every scan_response_ai.txt opened with `Payload path: /Users/…` and `Response path: /Users/…` (6 of 6 runs in the
 // 2026-10-27 demo smoke; the HTML carried none). The TXT is a shareable artifact, so the header now names both files
 // RELATIVE TO THE TXT'S OWN DIRECTORY — all four AI files are written into one output directory, so the name is the file
