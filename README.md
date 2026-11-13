@@ -102,7 +102,7 @@ NSAuditor AI comes in three tiers. **Community** is free and open source (MIT): 
 | GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation — built, **not reachable** (no caller) | — | — | 🚧 |
 | Air-gapped **operation** once installed — offline licence validation (local ES256, no callback, every tier) and offline CVE matching under `NSAUDITOR_OFFLINE_ONLY=1`, which is the **Pro** intelligence engine. The `feed bundle` / `feed import` hand-carry pipeline (EE 0.37.0) moves the NVD feeds **you downloaded**; it needs the Enterprise **package** installed but is not licence-gated, so a Pro licensee can run it. | — | ✅ | ✅ |
-| Air-gapped **DELIVERY** — the dependency-complete offline installation tarball, install script and checksums (EE 0.37.0), distributed **restricted**, amd64 only. No container image bundle ships and arm64 images remain WITHDRAWN. | — | — | ✅ |
+| Restricted air-gapped **DELIVERY** — the dependency-complete offline installation tarball, install script and checksums (EE 0.37.0), distributed **restricted**, amd64 only. No container image bundle ships and arm64 images remain WITHDRAWN. | — | — | ✅ |
 
 **This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions, no telemetry. Pro and Enterprise features ship via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package and install alongside the CE binary once licensed.
 

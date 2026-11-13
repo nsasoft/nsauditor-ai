@@ -453,7 +453,7 @@ Each agent produces an array of findings conforming to the FindingSchema:
 
 Traditional scanners match service versions against CVE databases. This produces false positives when vendors backport patches (e.g., Ubuntu's OpenSSH 8.2p1 may be patched for CVE-2023-38408 even though the version string still says 8.2p1). **That problem is real and NSAuditor AI does not solve it** — findings are labelled from banner-grab and configuration evidence and stamped `UNVERIFIED`.
 
-**WITHDRAWN — the following describes the intended design only.** The verification engine was to send safe non-destructive probes against findings to confirm they are actually exploitable; nothing does. No finding is ever re-classified after Phase 3.
+**WITHDRAWN — the following describes the intended design only.** The WITHDRAWN verification engine was to send safe non-destructive probes against findings to confirm they are actually exploitable; nothing does. No finding is ever re-classified after Phase 3.
 
 ### 6.2 Verification Flow (as designed; never executed)
 
@@ -740,7 +740,7 @@ is the actionable form.
 
 ### 11.2 save_finding Tool — WITHDRAWN (never registered)
 
-> ⚠️ **WITHDRAWN.** This section previously showed a `tools.register('save_finding', …)` call
+> ⚠️ **WITHDRAWN:** this section previously showed a `tools.register('save_finding', …)` call
 > as shipped code. It is WITHDRAWN and always was: `save_finding` appears in **zero `.mjs`
 > files in this repo** (measured 2026-08-07), and there is no `tools.register` API — the real
 > registry is the single exported `TOOLS` array in §11.1, whose seven members are the complete
