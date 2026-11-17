@@ -1,7 +1,8 @@
 // tests/port_set_source_line.test.mjs
 // WHEN A WORKING-DIRECTORY config/services.json REPLACES THE PORT SET, THE SCAN SAYS SO, every run, on stderr:
 // the relative path and the tcp/udp counts, and that the package default was not swept. With no such file there is
-// no line and the package set is swept.
+// no line and the package set is swept. The line prints ONCE per process for one working directory and one port set,
+// not once per host: a /24 would otherwise print it 254 times.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -40,5 +41,18 @@ test('a working-directory override is named on stderr with its counts', async ()
     const hit = lines.map((l) => LINE.exec(l)).filter(Boolean);
     assert.equal(hit.length, 1, lines.join('\n'));
     assert.deepEqual([hit[0][1], hit[0][2]], ['2', '1']);
+  } finally { for (const d of [floor, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('the port-set line prints once for a multi-host run, not once per host', async () => {
+  const floor = dirWithServices(JSON.stringify({ tcp: [9] }));
+  const cwd = dirWithServices(JSON.stringify({ tcp: [7001, 7002, 7003] }));
+  try {
+    const lines = await captured(async () => {
+      for (const host of ['127.0.0.1', '127.0.0.2']) await portScanner.run(host, 0, { _servicesFloorRoot: floor, _servicesCwd: cwd, timeoutMs: 200 });
+    });
+    const hit = lines.map((l) => LINE.exec(l)).filter(Boolean);
+    assert.equal(hit.length, 1, `expected one line for two hosts:\n${lines.join('\n')}`);
+    assert.deepEqual([hit[0][1], hit[0][2]], ['3', '0']);
   } finally { for (const d of [floor, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
 });

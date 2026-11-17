@@ -33,12 +33,15 @@ function layout() {
   const work = path.join(home, 'work');            // the working directory: under HOME, as a clone usually is
   const okDir = path.join(home, 'okplugins');      // a directory the user names by an absolute path
   const marker = path.join(root, 'MARKER');
-  for (const d of [home, work, okDir, path.join(work, 'p')]) fs.mkdirSync(d, { recursive: true });
+  const otherHome = path.join(root, 'otherhome');  // NOT under HOME: a home an --env file could try to name
+  const otherDir = path.join(otherHome, 'p');
+  for (const d of [home, work, okDir, path.join(work, 'p'), otherDir]) fs.mkdirSync(d, { recursive: true });
   const src = `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(marker)}, 'imported');\n`
     + `export default { id: '9991', name: 'Env Source Marker', priority: 999, run: async () => ({ up: false }) };\n`;
   fs.writeFileSync(path.join(okDir, '9991_marker.mjs'), src);
   fs.writeFileSync(path.join(work, 'p', '9991_marker.mjs'), src);
-  return { root, home, work, okDir, marker, done: () => fs.rmSync(root, { recursive: true, force: true }) };
+  fs.writeFileSync(path.join(otherDir, '9991_marker.mjs'), src);
+  return { root, home, work, okDir, otherHome, otherDir, marker, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
 const SUBCOMMANDS = {
@@ -50,9 +53,18 @@ function drive(L, args, extraEnv = {}) {
   const env = { PATH: process.env.PATH, HOME: L.home, AI_ENABLED: 'false', NSAUDITOR_LICENSE_KEY: 'not-a-licence',
     NSAUDITOR_LICENSE_STATE_FILE: path.join(L.root, 'licence-state.json'), NSA_ALLOW_ALL_HOSTS: '1',
     SCAN_OUT_PATH: path.join(L.root, 'out'), ...extraEnv };
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];   // `{ HOME: undefined }` = no HOME at all
   const r = spawnSync(process.execPath, [BIN, ...args], { cwd: L.work, env, encoding: 'utf8', timeout: 60_000 });
   return { ...r, imported: fs.existsSync(L.marker), listed: /^\s+9991\s/m.test(r.stdout ?? '') };
 }
+
+/** A refuse arm proves nothing if the run died before discovery: for `license --plugins`, exit 0 and a built-in listed. */
+function reachedDiscovery(name, r) {
+  if (!name.startsWith('license')) return;
+  assert.equal(r.status, 0, `exit ${r.status}; stderr: ${r.stderr}`);
+  assert.match(r.stdout, /^\s+003 Port Scanner\s/m, 'discovery did not run: no built-in plugin is listed');
+}
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
   // ── ACCEPT (fourth quadrant first) ──────────────────────────────────────────────────────────────────────────────────
@@ -79,6 +91,23 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
     } finally { L.done(); }
   });
 
+  test(`${name}: an --env file that also sets HOME does not move the plugin base — a directory under that HOME is refused`, { timeout: 90_000 }, () => {
+    // The base is the HOME the process STARTED with. Positive arm first: the same directory loads when that home really
+    // is the exported HOME, so the refusal below is about the base and not about the directory.
+    const L = layout();
+    try {
+      const pos = drive(L, argv, { HOME: L.otherHome, NSAUDITOR_PLUGIN_PATH: L.otherDir });
+      assert.ok(pos.imported, `positive arm: the directory did not load under its own exported HOME; stderr: ${pos.stderr}`);
+      fs.rmSync(L.marker);
+      const envFile = path.join(L.root, 'sets-home.env');
+      fs.writeFileSync(envFile, `HOME=${L.otherHome}\nNSAUDITOR_PLUGIN_PATH=${L.otherDir}\n`);
+      const r = drive(L, [...argv, '--env', envFile]);
+      assert.equal(r.imported, false, 'an --env file moved the plugin base by setting HOME');
+      assert.match(r.stderr, new RegExp(`^nsauditor-ai: custom plugin directory refused \\(outside home\\): ${esc(JSON.stringify(L.otherDir))}`, 'm'));
+      reachedDiscovery(name, r);
+    } finally { L.done(); }
+  });
+
   test(`${name}: --env ./.env whose plugin path is absolute loads it, and prints no hint — the hint's own instruction works`, { timeout: 90_000 }, () => {
     const L = layout();
     try {
@@ -97,6 +126,7 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
       fs.writeFileSync(path.join(L.work, '.env'), 'NSAUDITOR_PLUGIN_PATH=./p\n');
       const r = drive(L, argv);
       assert.equal(r.imported, false, 'plugin code from a directory named only by a working-directory .env was imported');
+      reachedDiscovery(name, r);
       assert.equal(r.listed, false);
       assert.match(r.stderr, HINT);
       assert.equal((r.stderr.match(new RegExp(HINT.source, 'gm')) ?? []).length, 1, 'the hint prints once');
@@ -112,6 +142,7 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
       fs.writeFileSync(path.join(L.work, '.env'), `NSAUDITOR_PLUGIN_PATH=${L.okDir}\n`);
       const r = drive(L, argv);
       assert.equal(r.imported, false, 'a plugin directory named only by a working-directory .env was imported');
+      reachedDiscovery(name, r);
       assert.match(r.stderr, HINT);
     } finally { L.done(); }
   });
@@ -124,6 +155,7 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
       fs.writeFileSync(other, 'NSA_UNRELATED_KEY=1\n');
       const r = drive(L, [...argv, '--env', other]);                                                       // (i)
       assert.equal(r.imported, false);
+      reachedDiscovery(name, r);
       assert.match(r.stderr, HINT);
     } finally { L.done(); }
   });
@@ -134,11 +166,23 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
       fs.writeFileSync(path.join(L.work, '.env'), 'NSAUDITOR_PLUGIN_PATH=./p\n');
       const r = drive(L, [...argv, '--env', './.env']);                                                     // (iii)
       assert.equal(r.imported, false, 'a relative plugin directory was imported');
+      reachedDiscovery(name, r);
       assert.match(r.stderr, /^nsauditor-ai: custom plugin directory refused \(relative\): "\.\/p"/m);
       assert.doesNotMatch(r.stdout, ANNOUNCE_OR_HINT);
     } finally { L.done(); }
   });
 }
+
+// With NO HOME at all every custom directory is refused and named — an absent home is never "accept everything".
+test('license --plugins with no HOME in the environment refuses an exported plugin directory, and says so', { timeout: 90_000 }, () => {
+  const L = layout();
+  try {
+    const r = drive(L, SUBCOMMANDS['license --plugins'], { HOME: undefined, NSAUDITOR_PLUGIN_PATH: L.okDir });
+    assert.equal(r.imported, false, 'a custom directory loaded with HOME unset');
+    assert.match(r.stderr, /^nsauditor-ai: custom plugin directory refused \(outside home\)/m);
+    reachedDiscovery('license', r);
+  } finally { L.done(); }
+});
 
 // PINNED UNCHANGED: ~/.nsauditor/.env is read for single keys (the licence key, the MCP auth key), never loaded whole.
 test('~/.nsauditor/.env is not loaded as an environment: a plugin directory set there is not used', { timeout: 90_000 }, () => {
