@@ -303,7 +303,7 @@ export async function persistLicenseKey(key, opts = {}) {
 }
 
 /**
- * Merge a license key into the existing dotenv-format file content,
+ * Merge a license key into the existing KEY=value file content,
  * preserving every OTHER line. If a NSAUDITOR_LICENSE_KEY line already
  * exists, replace it; otherwise append. If the file was empty/new,
  * write a header comment.
@@ -311,13 +311,13 @@ export async function persistLicenseKey(key, opts = {}) {
  * Reviewer M2 / M2b folds:
  *  - **Multi-occurrence safety**: a corrupted file with TWO+ existing
  *    `NSAUDITOR_LICENSE_KEY=` lines previously had only the first
- *    replaced. dotenv parses last-wins, so `--status` would show the
+ *    replaced. The parser reads last-wins, so `--status` would show the
  *    OLD value while install reported success. Now we replace the first
  *    occurrence and remove the rest, collapsing blank lines.
  *  - **CRLF preservation**: the regex anchors on `[ \t]*` (not `\s*`,
  *    which matches `\r`) and the value-tail uses `[^\r\n]*` so Windows-
  *    style line endings are not mangled. The replacement line itself
- *    uses `\n` regardless — Notepad and dotenv both accept mixed
+ *    uses `\n` regardless — Notepad and the parser both accept mixed
  *    endings, but this avoids producing them from `\r`-stripped tails.
  *
  * Exported for test coverage of the merge semantics specifically.

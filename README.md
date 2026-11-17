@@ -129,8 +129,9 @@ npm install -g nsauditor-ai
 # See all flags, subcommands, and worked examples
 nsauditor-ai --help
 
-# Configure (optional — scans work fully offline without AI)
-cat > .env << 'EOF'
+# Configure (optional — scans work fully offline without AI). The CLI reads an env file
+# only when you name it with --env; a .env in the working directory is not read.
+mkdir -p ~/envs && cat > ~/envs/nsauditor.env << 'EOF'
 AI_ENABLED=true
 AI_PROVIDER=ollama              # openai | claude | ollama
 OLLAMA_MODEL=llama3             # For local AI (no API key needed)
@@ -139,7 +140,7 @@ OLLAMA_MODEL=llama3             # For local AI (no API key needed)
 OPENAI_REDACT=true
 EOF
 
-# Scan a host with all plugins
+# Scan a host with all plugins (add --env ~/envs/nsauditor.env to use the AI settings above)
 nsauditor-ai scan --host 192.168.1.1 --plugins all
 
 # Scan a subnet in parallel
@@ -423,7 +424,7 @@ If license is in `~/.nsauditor/.env` but not in Keychain on macOS, re-run `nsaud
 
 ## Secure Credential Storage
 
-Store API keys in the macOS Keychain instead of plaintext `.env` files:
+Store API keys in the macOS Keychain instead of plaintext env files (`--env`):
 
 ```bash
 # Store keys
@@ -437,7 +438,7 @@ nsauditor-ai security list
 nsauditor-ai security delete OPENAI_API_KEY
 ```
 
-Then reference them with the `keychain:` prefix in `.env` or Claude Desktop config:
+Then reference them with the `keychain:` prefix in a file passed with `--env`, or in Claude Desktop config:
 
 ```env
 ANTHROPIC_API_KEY=keychain:ANTHROPIC_API_KEY
@@ -779,7 +780,7 @@ NSAuditor AI supports three AI providers for vulnerability analysis. **All provi
 **Redaction:** On by default (`OPENAI_REDACT=false` turns it off). Before the scan payload reaches an AI API it masks the scanned host, IPv4 addresses (private ones in service and evidence text), colon-separated MAC addresses, full-form IPv6 addresses, serial numbers, a scanned service's Set-Cookie values, and any field named in `CONFIDENTIAL_KEYWORDS`. From Community 1.0.0 it also masks AWS account IDs found in ARNs and AWS URLs, everywhere they occur and inside resource names (the names are kept), and any other 12-digit number under a neutral label (0.2.57 and earlier send both). **It does not mask** cloud resource names, AWS access-key IDs, hostnames, e-mail addresses and certificate subjects in service text, compressed IPv6 addresses, or dash- and dot-form MAC addresses (measured 2026-10-11) — inspect `scan_response_ai_payload.json` before using the AI step on production data. On Pro and Enterprise the intelligence block travels in the system prompt, which the redactor does not see and the payload file does not record; [docs/openai.md](./docs/openai.md) has the details. Admin RAW reports retain full detail for internal review.
 
 ```ini
-# .env
+# ~/envs/nsauditor.env — pass it with --env
 AI_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...        # Your key — never sent to Nsasoft
 ANTHROPIC_MODEL=claude-sonnet-4-6
@@ -818,7 +819,7 @@ nsauditor-ai scan --host 192.168.1.0/24 --plugins all \
 
 ## Configuration
 
-Configuration is entirely environment-based — a `.env` file, `--env <file>`, or the shell. No config is required for a default scan.
+Configuration is entirely environment-based — the variables your shell exports, or a file you pass with `--env <file>`. A `.env` in the working directory is not read (Community 1.1.2); when one exists the CLI says so on stderr. An env file passed with `--env` is trusted like code: it can set the custom plugin path and the cloud-SDK variables that run commands, so pass only a file you wrote or trust. No config is required for a default scan.
 
 **→ [Configuration reference](./docs/configuration.md)** — every environment variable, its default and its effect.
 

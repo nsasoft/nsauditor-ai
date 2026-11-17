@@ -40,7 +40,7 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 
 // ── Configuration ────────────────────────────────────────────────────────────
 //
-//  Optional .env:
+//  Optional environment (exported, or in a file passed with --env):
 //    TLS_AUDIT_TIMEOUT_MS=8000
 //    TLS_AUDIT_EXPIRY_WARN_DAYS=30
 //    TLS_AUDIT_EXPIRY_CRITICAL_DAYS=7

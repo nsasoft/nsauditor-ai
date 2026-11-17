@@ -88,7 +88,7 @@ export function resolveScanEnv({ envPath, awsProfile, host, hosts, env = {}, fil
   const set = {};
   const unset = [];
 
-  // 1. --env dotenv file (override-on applied by caller via Object.assign).
+  // 1. --env KEY=value file (override-on applied by caller via Object.assign).
   if (typeof envPath === 'string' && envPath.length) {
     const resolved = path.resolve(expandTilde(envPath));
     if (!fileExists(resolved)) {
@@ -98,7 +98,7 @@ export function resolveScanEnv({ envPath, awsProfile, host, hosts, env = {}, fil
     if (looksLikeIni(content)) {
       throw new Error(
         `${resolved} looks like an AWS credentials / INI file (has [section] headers / no KEY=value lines), ` +
-        `not a dotenv file. Use --aws-profile <name> instead (with AWS_SHARED_CREDENTIALS_FILE in an --env file ` +
+        `not a KEY=value env file. Use --aws-profile <name> instead (with AWS_SHARED_CREDENTIALS_FILE in an --env file ` +
         `if the path is non-default).`,
       );
     }

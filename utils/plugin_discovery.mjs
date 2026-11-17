@@ -2,21 +2,53 @@
 // Multi-path plugin loader: CE built-in, EE package (optional), custom (env var)
 
 import { readdir } from 'node:fs/promises';
-import { existsSync, realpathSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { join, dirname, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 
 const _require = createRequire(import.meta.url);
 
-const SAFE_PREFIXES = Object.freeze(
-  [process.cwd(), process.env.HOME].filter(Boolean).map(p => p.endsWith('/') ? p : `${p}/`)
-);
+// ── Custom plugin directories (NSAUDITOR_PLUGIN_PATH) ──────────────────────────────────────────────────────────────
+// Every .mjs in an accepted directory is import()ed, and importing a module runs its code — so an entry loads ONLY when
+// it is: non-empty · absolute AS WRITTEN (no `~/` expansion: `~/x` is refused as relative) · a real directory ·
+// strictly under $HOME by realpath ($HOME itself is refused; an unset HOME refuses every entry). The working directory
+// is never a base: a relative or empty entry used to resolve against it. The rule reads HOME at CALL time.
+// Stated limits: the list is split on ':' on every platform, so a Windows drive path cannot be named; a HOME that is
+// itself behind a symlink refuses a correct directory (compare the realpath); an env file passed with --env is
+// trusted like code — it can set this variable.
+export const CUSTOM_PLUGIN_DIR_REFUSALS = Object.freeze(['empty', 'relative', 'missing', 'not a directory', 'outside home']);
+const REFUSAL_ADVICE = Object.freeze({
+  empty: 'remove the empty entry (a leading, trailing or doubled ":")',
+  relative: 'use an absolute path under your home directory',
+  missing: 'the directory does not exist',
+  'not a directory': 'name a directory, not a file',
+  'outside home': 'custom plugin directories must be under your home directory',
+});
 
-function isSafePath(absPath) {
-  // Allow exact match (e.g. NSAUDITOR_PLUGIN_PATH=./plugins resolves to cwd itself)
-  // or any subtree under cwd or HOME.
-  // Symlinks are dereferenced via realpathSync before this check is called.
-  return SAFE_PREFIXES.some(prefix => absPath === prefix.slice(0, -1) || absPath.startsWith(prefix));
+/**
+ * @param {string} entry  one NSAUDITOR_PLUGIN_PATH entry, as written
+ * @param {{ home?: string }} [opts]  defaults to process.env.HOME, read now
+ * @returns {{ ok: true, real: string } | { ok: false, reason: string }}
+ */
+export function customPluginDirDecision(entry, { home = process.env.HOME } = {}) {
+  if (!entry) return { ok: false, reason: 'empty' };
+  if (!isAbsolute(entry)) return { ok: false, reason: 'relative' };
+  let real;
+  try { real = realpathSync(entry); } catch { return { ok: false, reason: 'missing' }; }
+  try { if (!statSync(real).isDirectory()) return { ok: false, reason: 'not a directory' }; } catch { return { ok: false, reason: 'missing' }; }
+  const h = home ? home.replace(/\/+$/, '') : '';
+  if (!h || !real.startsWith(`${h}/`)) return { ok: false, reason: 'outside home' };
+  return { ok: true, real };
+}
+
+// One line per directory loaded and per entry refused, on stderr (stdout carries --json and reports). Deduped per
+// process for the same HOME, cwd and line, because discovery can run more than once in a run.
+const _announced = new Set();
+function announce(line) {
+  const key = `${process.env.HOME}\0${process.cwd()}\0${line}`;
+  if (_announced.has(key)) return;
+  _announced.add(key);
+  console.error(line);
 }
 
 async function loadPluginsFromDir(dir, source) {
@@ -73,21 +105,15 @@ export async function discoverPlugins(baseDir) {
   const customPaths = process.env.NSAUDITOR_PLUGIN_PATH;
 
   if (customPaths) {
-    for (const dir of customPaths.split(':')) {
-      const abs = resolve(dir);
-      let real;
-      try {
-        real = realpathSync(abs);
-      } catch {
-        // Path doesn't exist or is inaccessible — skip silently unless verbose
-        if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Cannot resolve real path for: ${abs}`);
+    for (const entry of customPaths.split(':')) {
+      const d = customPluginDirDecision(entry);
+      if (!d.ok) {
+        announce(`nsauditor-ai: custom plugin directory refused (${d.reason}): ${JSON.stringify(entry)} — ${REFUSAL_ADVICE[d.reason]}`);
         continue;
       }
-      if (!isSafePath(real)) {
-        if (process.env.NSA_VERBOSE) console.warn(`[plugin_discovery] Skipping unsafe NSAUDITOR_PLUGIN_PATH entry: ${real}`);
-        continue;
-      }
-      plugins.push(...await loadPluginsFromDir(real, 'custom'));
+      const loaded = await loadPluginsFromDir(d.real, 'custom');
+      announce(`nsauditor-ai: custom plugins: ${loaded.length} loaded from ${d.real}`);
+      plugins.push(...loaded);
     }
   }
 

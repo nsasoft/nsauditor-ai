@@ -40,7 +40,7 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 
 // ── Configuration ────────────────────────────────────────────────────────────
 //
-//  Optional .env:
+//  Optional environment (exported, or in a file passed with --env):
 //    DNS_AUDIT_TIMEOUT_MS=5000
 //    DNS_AUDIT_DKIM_SELECTORS=google,default,mail,selector1,selector2,s1,s2,k1,k2,k3,dkim,mandrill,mailjet,ses
 //    DNS_AUDIT_AXFR_CHECK=true   (opt-in, off by default — see checkAxfr below)

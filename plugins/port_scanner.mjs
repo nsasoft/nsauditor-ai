@@ -259,6 +259,11 @@ export default {
           + `the surface cannot be measured, not that nothing is listening. Check that the file is `
           + `readable (it ships mode 0644), or pass the ports explicitly.`);
       }
+      // A working-directory override REPLACES the package set; say so every run (stderr), relative path only.
+      if (cfg.source === "override") {
+        console.warn(`nsauditor-ai: port set taken from ${path.join("config", "services.json")} in the working directory: `
+          + `${tcpPorts.length} tcp, ${udpPorts.length} udp (the package default was not swept)`);
+      }
       if (cfg.overrideIgnored) {
         console.warn(`[port_scanner] WARNING: ${cfg.overrideIgnored} in the working directory yields no ports — it lists none in `
           + `the forms read here (a "services" array, or "tcp" / "udp" arrays) — so the package's default port set is scanned instead.`);

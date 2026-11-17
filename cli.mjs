@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-import 'dotenv/config';
 import PluginManager from './plugin_manager.mjs';
 import { buildHtmlReport } from './utils/report_html.mjs';
 import fsp from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { realpathSync } from 'node:fs';
+import { realpathSync, lstatSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const _require = createRequire(import.meta.url);
 import path from 'node:path';
-import { platform } from 'node:os';
+import { platform, homedir } from 'node:os';
 import { openaiSimplePrompt, openaiPrompt as openaiProPrompt, openaiPromptOptimized } from './utils/prompts.mjs';
 import { parseHostArg, parseHostFile } from './utils/host_iterator.mjs';
 import { buildSarifLog } from './utils/sarif.mjs';
@@ -876,7 +875,7 @@ export async function parseArgs(argv) {
   const complianceScopeVal = get('compliance-scope') || get('compliance_scope');
   args.complianceScope = (complianceScopeVal && complianceScopeVal !== true) ? complianceScopeVal : null;
 
-  // Per-scan account selection (EE 0.16.x). `--env <path>` loads a dotenv
+  // Per-scan account selection (EE 0.16.x). `--env <path>` loads a KEY=value env file
   // (override-on) for this scan; `--aws-profile <name>` selects a named profile
   // from ~/.aws/credentials. Both are wired into main() via resolveScanEnv().
   // get() returns undefined (absent), true (value-less flag), or the string value.
@@ -1830,6 +1829,24 @@ export async function runReport(args, caps) {
   return finish(0);
 }
 
+/**
+ * The one stderr line for a working-directory `.env` (never read; only --env names a file), or null. Community 1.1.2.
+ * Existence by lstat ONLY: the file is never opened or parsed and no key name is printed. No line when the user passed
+ * that same file with --env (realpath compare), because then the hint's own instruction has been followed.
+ * @param {string|undefined} envPath  the --env value, as typed
+ * @param {string} [cwd]
+ */
+export function workingDirEnvHint(envPath, cwd = process.cwd()) {
+  const candidate = path.join(cwd, '.env');
+  try { lstatSync(candidate); } catch { return null; }
+  if (envPath) {
+    const named = envPath === '~' ? homedir() : envPath.startsWith('~/') ? path.join(homedir(), envPath.slice(2)) : path.resolve(cwd, envPath);
+    try { if (realpathSync(named) === realpathSync(candidate)) return null; } catch { /* the --env error path reports a missing file */ }
+  }
+  // one source line on purpose: tests/env_file_sources_census.test.mjs reads lines, and this one names --env
+  return 'nsauditor-ai: ./.env was not loaded: a working-directory file is no longer read automatically. To use it pass --env ./.env, only for a file you wrote or trust.';
+}
+
 export async function main(testHooks = {}) {
   const args = await parseArgs(process.argv);
   const { cmd, host, plugins, insecureHttps, hostFile, parallel, failOn, outputFormat, watch, intervalMinutes, webhookUrl, alertSeverity, alertEveryCycle, alertPayload, notifyWebhook, notifyFormat, notifySeverity, notifyPayload, ports, compliance, complianceScope, complianceHistory, slaPolicy, attestWindow, framework, awsRegion, approvalArgs, feedArgs } = args;
@@ -1862,8 +1879,10 @@ Scan options:
   --host, --ip, --target <h>   Target host, IP, or CIDR
   --host-file <path>           File with one host per line (cloud sentinels in the
                                file reconcile CLOUD_PROVIDER the same as --host)
-  --env <path>                 Load a dotenv (KEY=value) file for this scan (per-account
-                               credentials). Override-on; missing file = hard error.
+  --env <path>                 Load a KEY=value env file before any subcommand runs (per-account
+                               credentials). Override-on; missing file = hard error. The CLI
+                               reads no other env file (a working-directory .env needs --env ./.env).
+                               A file passed here is trusted like code.
   --aws-profile <name>         Use a named profile from the OS-default ~/.aws/credentials.
                                Implies CLOUD_PROVIDER=aws; overrides explicit AWS_* keys.
   --aws-region <r>             AWS region scope: one (us-east-1), CSV (us-east-1,eu-west-1),
@@ -2109,10 +2128,12 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
   }
 
   // Per-scan environment selection (--env / --aws-profile) + sentinel-host
-  // implied CLOUD_PROVIDER. The eager `import 'dotenv/config'` at the top of
-  // this file already loaded the default cwd `.env` (override-off) for
-  // import-time consumers; this layers the explicitly-selected env ON TOP
-  // (override-on) before license + dispatch.
+  // implied CLOUD_PROVIDER. The env a run sees comes from two places only: the
+  // exported environment, and the file the user names with --env, applied here
+  // ON TOP (override-on) before license + dispatch. A working-directory `.env` is never read unless passed with --env
+  // (Community 1.1.2); when one exists the user is told, once, on stderr.
+  const cwdEnvHint = workingDirEnvHint(typeof args.env === 'string' ? args.env : undefined);
+  if (cwdEnvHint) console.error(cwdEnvHint);
   if (args.env === true) {
     console.error('Error: --env requires a file path (e.g. --env ~/envs/prod.env)');
     process.exit(2);
@@ -2175,7 +2196,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
     process.exit(1);
   }
 
-  // Build the AWS region intent AFTER env load so AWS_REGION (.env/shell) is visible.
+  // Build the AWS region intent AFTER env load so AWS_REGION (--env file / shell) is visible.
   // Explicit --aws-region fail-fasts on an unknown region.
   let awsRegionIntent = null;
   try {
@@ -2415,7 +2436,7 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
       // to a platform-appropriate location (macOS Keychain / file).
       // Closes the customer-onboarding gap where new customers had no
       // friendly way to register a license without manually editing
-      // shell-rc / .env files.
+      // shell-rc / env files.
       const installIdx = rawArgs.indexOf('install');
       const rawKey = rawArgs[installIdx + 1];
       const installKey = typeof rawKey === 'string' ? rawKey.trim() : '';

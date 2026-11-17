@@ -30,7 +30,7 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 
 // ── Configuration ────────────────────────────────────────────────────────────
 //
-//  Optional .env:
+//  Optional environment (exported, or in a file passed with --env):
 //    TRIBE_API_HOST=127.0.0.1
 //    TRIBE_API_PORT=8080
 //    TRIBE_API_SCHEME=http
@@ -477,7 +477,7 @@ export default {
   description:
     "Probes the TRIBE v2 API for debug leaks, stack traces in errors, " +
     "header security, CORS misconfiguration, unauthenticated routes, and " +
-    "exposed internal endpoints. Host/port from .env or scan context.",
+    "exposed internal endpoints. Host/port from the environment (exported or --env) or scan context.",
   priority: 300,
   tier: "community",  // Internal infra check — available to all tiers
   protocols: ["tcp", "http"],
@@ -503,7 +503,7 @@ export default {
         ready: false,
         reason:
           `TRIBE probe target is ${host} (non-local). ` +
-          "Set TRIBE_API_ALLOW_REMOTE=true in .env to probe remote hosts.",
+          "Set TRIBE_API_ALLOW_REMOTE=true (export it, or put it in a file passed with --env) to probe remote hosts.",
       };
     }
     return { ready: true };

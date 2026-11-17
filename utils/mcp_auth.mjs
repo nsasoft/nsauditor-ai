@@ -395,7 +395,7 @@ function defaultMcpAuthFilePath() {
  * Persist an MCP auth key to platform-appropriate storage. Mirrors
  * persistLicenseKey in license.mjs — same Keychain-first-on-darwin
  * routing with file fallback, same mode-0600 file write, same merge
- * semantics that preserve other env vars in the dotenv file.
+ * semantics that preserve other env vars in the KEY=value file.
  *
  * @param {string} key — full prefixed key (`nsa_mcp_...`).
  * @param {object} [opts]
@@ -507,7 +507,7 @@ export async function persistMcpAuthKey(key, opts = {}) {
 }
 
 /**
- * Merge an MCP auth key into a dotenv-format file content, preserving
+ * Merge an MCP auth key into a KEY=value file content, preserving
  * every OTHER line. Mirrors mergeLicenseIntoEnvFile (license.mjs:242)
  * — same multi-occurrence safety and CRLF preservation.
  *
@@ -546,7 +546,7 @@ export function mergeMcpAuthCreatedIntoEnvFile(existingContent, createdAt) {
 }
 
 /**
- * Generic dotenv-format merge: replace `${name}=...` line if present
+ * Generic KEY=value merge: replace `${name}=...` line if present
  * (collapsing duplicates per the corrupted-file defense), append at
  * end if absent, write a header for empty input.
  *
@@ -562,7 +562,7 @@ export function mergeMcpAuthCreatedIntoEnvFile(existingContent, createdAt) {
  * so this is defense-in-depth — but a future rename containing
  * `.+?^${}()|[]\\` would silently break the merge without this guard.
  *
- * @param {string} existingContent — current dotenv file content.
+ * @param {string} existingContent — current KEY=value file content.
  * @param {string} name — env-var name to write/replace.
  * @param {string} value — value to assign.
  * @param {string|null} headerComment — optional header to write when

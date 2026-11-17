@@ -33,13 +33,13 @@ function fixture() {
 }
 
 /** Run discoverPlugins with HOME, the cwd and NSAUDITOR_PLUGIN_PATH set; capture stderr lines written via console.error. */
-async function discover(F, pluginPath, { home = F.home } = {}) {
+async function discover(F, pluginPath, { unsetHome = false } = {}) {
   const saved = { HOME: process.env.HOME, P: process.env.NSAUDITOR_PLUGIN_PATH, cwd: process.cwd() };
   const lines = [];
   const realErr = console.error;
   console.error = (...a) => { lines.push(a.join(' ')); };
   try {
-    if (home === undefined) delete process.env.HOME; else process.env.HOME = home;
+    if (unsetHome) delete process.env.HOME; else process.env.HOME = F.home;   // an explicit flag: `{ home: undefined }` would hit a default
     process.env.NSAUDITOR_PLUGIN_PATH = pluginPath;
     process.chdir(F.work);
     const plugins = await discovery.discoverPlugins(path.join(F.root, 'no-ce-base'));
@@ -104,7 +104,7 @@ test('a TRAILING COLON does not load the working directory: the empty entry is r
     const r = await discover(F, `${F.ok}:`);
     assert.equal(fs.existsSync(F.cwdMarker), false, 'plugin code in the working directory was imported through an empty entry');
     assert.deepEqual(r.custom, ['9981']);
-    assert.ok(r.lines.some((l) => l === 'nsauditor-ai: custom plugin directory refused (empty): ""'), r.lines.join('\n'));
+    assert.ok(r.lines.some((l) => l.startsWith('nsauditor-ai: custom plugin directory refused (empty): ""')), r.lines.join('\n'));
   } finally { F.done(); }
 });
 
@@ -135,7 +135,7 @@ test('every refusal line carries a reason from the closed set (no unannounced re
 test('HOME is read at CALL time: with HOME unset every entry is refused and named', async () => {
   const F = fixture();
   try {
-    const r = await discover(F, F.ok, { home: undefined });
+    const r = await discover(F, F.ok, { unsetHome: true });
     assert.deepEqual(r.custom, []);
     assert.ok(r.lines.some((l) => l.startsWith('nsauditor-ai: custom plugin directory refused (outside home)')), r.lines.join('\n'));
   } finally { F.done(); }

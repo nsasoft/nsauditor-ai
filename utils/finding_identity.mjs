@@ -30,7 +30,7 @@
  *
  * ⚠️ IT IS ONLY EVER USED ANCHORED, and that is the load-bearing part. Applied as a SCAN over a
  * resource string it matches **562 of the 1786** stored violation resources in the 1.1.0
- * evidence tree — `s3:bucket:s3-violator-bucket-522412052794` contains `ator-bucket-52` — and
+ * evidence tree — `s3:bucket:s3-violator-bucket-111122223333` contains `ator-bucket-11` — and
  * every one of those would attribute a fabricated region to a finding.
  *
  * ⚠️ AND ITS FIRST DRAFT WAS DERIVED FROM A SINGLE-REGION CORPUS, so it missed `eusc-de-east-1`
