@@ -33,7 +33,10 @@ const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =
   e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.mjs') ? [path.join(dir, e.name)] : []);
 
 // The instrument itself: its control arm spawns WITHOUT the neutraliser on purpose, into a scratch CWD.
-const EXEMPT = new Map([['tests/no_operator_dotenv_census.test.mjs', 'the liveness control arm spawns un-neutralised by design']]);
+const EXEMPT = new Map([
+  ['tests/no_operator_dotenv_census.test.mjs', 'the liveness control arm spawns un-neutralised by design: it shows what an EXPORTED AI switch does without the helper'],
+  ['tests/working_directory_env_file_not_loaded.test.mjs', 'drives the CLI un-neutralised by design, each child on an env built from nothing: the helper would stop a working-directory .env by itself and hide what the CLI does'],
+]);
 
 const CLI_SPEC = /['"](?:\.\.\/)+(?:cli|bin\/nsauditor-ai)\.mjs['"]/g;
 const HELPER_SPEC = /['"]\.\.?\/(?:\.\.\/)*(?:helpers\/)?no_operator_dotenv\.mjs['"]/g;
@@ -120,10 +123,10 @@ async function loopbackProvider() {
   return { hits, url: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) };
 }
 
-async function driveChild({ withHelper, extraEnv = {} }) {
+async function driveChild({ withHelper, extraEnv = {}, dotenv = true }) {
   const provider = await loopbackProvider();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-dotenv-live-'));
-  fs.writeFileSync(path.join(dir, '.env'), [
+  if (dotenv) fs.writeFileSync(path.join(dir, '.env'), [
     'NSA_DOTENV_SENTINEL=loaded', 'AI_ENABLED=true', 'AI_PROVIDER=claude', 'ANTHROPIC_API_KEY=fake-key-loopback-only',
     `ANTHROPIC_BASE_URL=${provider.url}`, `OPENAI_BASE_URL=${provider.url}/v1`, ''].join('\n'));
   const url = (p) => pathToFileURL(path.join(ROOT, p)).href;
@@ -152,9 +155,12 @@ async function driveChild({ withHelper, extraEnv = {} }) {
   return { out, hits: provider.hits };
 }
 
-test('LIVENESS, control: WITHOUT the neutraliser the scratch .env is read and the AI send path is reached (loopback 404)', { timeout: 90_000 }, async () => {
-  const { out, hits } = await driveChild({ withHelper: false });
-  assert.match(out, /SENTINEL=loaded/, out.slice(-1500));
+// The control is keyed on an EXPORTED AI switch, not on the scratch .env: the CLI no longer reads a working-directory
+// .env at all (tests/working_directory_env_file_not_loaded.test.mjs), so a control that needed the file read could not
+// be reached and would leave the helper with no arm showing what happens without it.
+test('LIVENESS, control: WITHOUT the neutraliser an EXPORTED AI switch reaches the AI send path (loopback 404)', { timeout: 90_000 }, async () => {
+  const { out, hits } = await driveChild({ withHelper: false, dotenv: false,
+    extraEnv: { AI_ENABLED: 'true', AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake-key-loopback-only', ANTHROPIC_BASE_URL: true } });
   assert.match(out, /AI conclusion: FAILED \(127\.0\.0\.1\) — 404/, out.slice(-1500));
   assert.ok(hits.length >= 1 && hits.every((h) => h === 'POST /v1/messages'), `loopback hits: ${hits}`);
 });
