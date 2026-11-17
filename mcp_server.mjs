@@ -1360,7 +1360,7 @@ export async function startStdioServer() {
   _tier = getTierFromEnv();
   _capabilities = resolveCapabilities(_tier);
 
-  // NSA_ENV_FILE: load the per-environment dotenv file AFTER auth + license
+  // NSA_ENV_FILE: load the per-environment env file AFTER auth + license
   // (so it carries scan-target vars only and can alter neither) and BEFORE
   // createServer()/connect. plugin_manager.mjs captures PLUGIN_TIMEOUT_MS in a
   // module-level const at import (first tool call), so the file MUST be applied

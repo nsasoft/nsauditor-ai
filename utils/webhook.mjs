@@ -231,7 +231,7 @@ export const ALERT_PAYLOADS = Object.freeze(['full', 'minimal']);
 /**
  * The drift notification's vocabularies (`--notify-format` / `--notify-payload` / `--notify-severity`, EE 2.0.0). Kept
  * HERE, in a module with no side effects, so Enterprise's suite can hold its own copy equal to these without loading
- * cli.mjs (which loads the operator's .env). Enterprise validates every value again before it sends.
+ * cli.mjs (which applies the operator's --env file). Enterprise validates every value again before it sends.
  */
 export const NOTIFY_FORMATS = Object.freeze(['generic', 'slack', 'teams']);
 export const NOTIFY_PAYLOADS = Object.freeze(['minimal', 'full']);

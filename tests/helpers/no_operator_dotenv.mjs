@@ -8,6 +8,10 @@
 // and a worktree, which carries no `.env`, ran a different suite. Static imports are evaluated in source order, so this
 // module only protects an import that comes AFTER it.
 //
+// SINCE COMMUNITY 1.1.2 the CLI reads no working-directory .env at all (tests/working_directory_env_file_not_loaded.test.mjs),
+// so DOTENV_CONFIG_PATH below is inert for this tree; it stays for any child that loads a file itself. The AI switch is
+// what still matters: it guards an AI_ENABLED EXPORTED in the operator's shell.
+//
 // WHY THREE SETTINGS. DOTENV_CONFIG_PATH pointed at a file that cannot exist stops dotenv loading anything. It is not
 // enough alone: dotenv never overrides a variable that is already set, so an AI switch exported in the operator's SHELL
 // survives it — AI_ENABLED='false' wins over both. The two provider keys are deleted as belt and braces.

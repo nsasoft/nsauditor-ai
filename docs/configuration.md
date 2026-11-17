@@ -2,7 +2,9 @@
 
 Every environment variable NSAuditor AI reads, with its default and its effect. Split out of the top-level [README](../README.md) because npm truncates a rendered README at roughly 64 KiB.
 
-### Environment Variables (.env)
+### Environment Variables
+
+Set them in your shell, or in a file you pass with `--env <file>`. A `.env` in the working directory is not read (Community 1.1.2). An env file passed with `--env` is trusted like code.
 
 **AI configuration:**
 

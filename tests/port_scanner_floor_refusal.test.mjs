@@ -145,13 +145,13 @@ test("(B6-4j, fourth quadrant first) NO cwd file → the package floor, no `over
   } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
 });
 
-test("(B6-4j, fourth quadrant) a VALID cwd override still REPLACES the set, with no warning", async () => {
+test("(B6-4j, fourth quadrant) a VALID cwd override still REPLACES the set, and the scan names it in exactly one line (Community 1.1.2)", async () => {
   const root = ONE_PORT_FLOOR();
   const cwd = cwdWith(JSON.stringify({ tcp: [8080] }));
   try {
     assert.deepEqual(await loadConfigPortsFromServicesJson(cwd, root), { tcp: [8080], udp: [], source: "override" });
     const { lines } = await warned(() => portScanner.run("127.0.0.1", 0, { _servicesFloorRoot: root, _servicesCwd: cwd, timeoutMs: 200 }));
-    assert.deepEqual(lines, []);
+    assert.deepEqual(lines, ["nsauditor-ai: port set taken from config/services.json in the working directory: 1 tcp, 0 udp (the package default was not swept)"]);
   } finally { for (const d of [root, cwd]) fs.rmSync(d, { recursive: true, force: true }); }
 });
 

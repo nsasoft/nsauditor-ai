@@ -1,7 +1,7 @@
 // utils/mcp_env_file.mjs
 //
-// Loads the per-environment dotenv file named by NSA_ENV_FILE into env for the
-// MCP server, reusing the CLI's resolveScanEnv() (same dotenv parse, tilde-
+// Loads the per-environment env file named by NSA_ENV_FILE into env for the
+// MCP server, reusing the CLI's resolveScanEnv() (same KEY=value parse, tilde-
 // expansion, INI-detection, fail-fast). Called from startStdioServer() AFTER
 // auth + license are resolved, so the file carries SCAN-TARGET vars only (cloud
 // creds / CLOUD_PROVIDER / scan tuning) and can neither bypass the auth gate nor
@@ -60,7 +60,7 @@ export function applyScanEnvFile({ env, fileExists, readFile, log = () => {} }) 
   }
 
   // Only envPath is set → resolveScanEnv reduces to: resolve + tilde-expand →
-  // fail-fast if missing → reject INI → dotenv.parse → { set, unset: [] }.
+  // fail-fast if missing → reject INI → parse → { set, unset: [] }.
   const { set } = resolveScanEnv({ envPath, env, fileExists, readFile });
 
   const ignored = Object.keys(set).filter((k) => RESERVED_KEYS.has(k));

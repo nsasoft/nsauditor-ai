@@ -468,7 +468,7 @@ export class PluginManager {
   //   - a directory string (legacy CLI path)
   //   - an options object { plugins: [...] }  ← test injection (Task 2.3)
   //   - an options object { baseDir: '...' }  ← explicit base dir for discovery
-  //   - no args → uses process.cwd() for discovery
+  //   - no args → the package root (never the working directory: discovery imports every plugin it finds)
   static async create(dirOrOpts = {}) {
     // Test injection path: pass plugins array directly, skip discovery
     if (dirOrOpts && typeof dirOrOpts === 'object' && !Array.isArray(dirOrOpts) && dirOrOpts.plugins) {
@@ -484,7 +484,7 @@ export class PluginManager {
     // Resolve baseDir from string arg or options object
     const baseDir = typeof dirOrOpts === 'string'
       ? path.resolve(dirOrOpts, '..')   // legacy: dir was './plugins', baseDir is parent
-      : (dirOrOpts?.baseDir ?? process.cwd());
+      : (dirOrOpts?.baseDir ?? path.dirname(fileURLToPath(import.meta.url)));
 
     vlog(`Initializing PluginManager via discoverPlugins, baseDir: ${baseDir}`);
     const rawPlugins = await discoverPlugins(baseDir);

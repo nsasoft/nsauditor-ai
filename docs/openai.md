@@ -6,7 +6,7 @@ The AI stage is **opt-in** and runs on **your own OpenAI API key**. Data goes st
 
 ## Setup
 
-Add to `.env` (or export in the shell):
+Export in the shell, or add to a file you pass with `--env <file>`:
 
 ```ini
 AI_ENABLED=true                 # the AI stage is off unless this is true

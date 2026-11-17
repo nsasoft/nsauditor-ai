@@ -12,7 +12,10 @@
 // a file that names the CLI, every child process that runs node is handed an env built by withNoDotenv(). A spawn that
 // merely spreads process.env does not count: covered is a property the call states.
 //
-// LIVENESS: two children scan 127.0.0.1 (plugin 003, ports 1-2, the run_record tests' drive) from a scratch CWD whose
+// SINCE COMMUNITY 1.1.2 the CLI no longer reads a working-directory .env; the control below is keyed on an EXPORTED AI
+// switch instead, and the cwd file's own test is tests/working_directory_env_file_not_loaded.test.mjs.
+//
+// LIVENESS (history; the control is re-keyed as said above): two children scan 127.0.0.1 (plugin 003, ports 1-2, the run_record tests' drive) from a scratch CWD whose
 // .env turns AI on with a FAKE key and points the provider at a LOOPBACK listener that answers 404 — nothing leaves the
 // machine. Without the helper the send path is reached (the finding's own symptom, "AI conclusion: FAILED … 404"); with
 // it the .env is never read and AI is off even when the child's own env switched it on.

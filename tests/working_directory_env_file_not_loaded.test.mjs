@@ -104,6 +104,18 @@ for (const [name, argv] of Object.entries(SUBCOMMANDS)) {
     } finally { L.done(); }
   });
 
+  test(`${name}: a working-directory .env naming an ABSOLUTE plugin directory is not loaded either — the file is not read at all`, { timeout: 90_000 }, () => {
+    // The relative-path rule alone would refuse `./p`; this arm names a directory the rule ACCEPTS, so the only thing
+    // standing between the file and the import is that the file is never read.
+    const L = layout();
+    try {
+      fs.writeFileSync(path.join(L.work, '.env'), `NSAUDITOR_PLUGIN_PATH=${L.okDir}\n`);
+      const r = drive(L, argv);
+      assert.equal(r.imported, false, 'a plugin directory named only by a working-directory .env was imported');
+      assert.match(r.stderr, HINT);
+    } finally { L.done(); }
+  });
+
   test(`${name}: a working-directory .env beside --env <another file> is still not loaded, and the hint prints`, { timeout: 90_000 }, () => {
     const L = layout();
     try {
