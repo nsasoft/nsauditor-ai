@@ -30,6 +30,26 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 - **The README's editions sentence states each tier against the feature grid beneath it (marketing task #226).** It now reads: Community is free and open source (MIT) with no licence key, no restrictions and no telemetry; Pro ($470/year) and Enterprise (from $2,000/year, up to 5 seats) unlock with a licence key from one private package; Pro adds CVE matching and exploit-first triage; Enterprise adds cloud auditors, compliance evidence for eight frameworks, and air-gapped delivery as a dependency-complete offline installation tarball, distributed restricted. The draft this replaced said Enterprise adds air-gapped operation; the grid says air-gapped operation once installed is every tier (offline licence validation, with offline CVE matching at Pro) and that the restricted offline installation tarball is the Enterprise-only row, so the sentence says delivery. The prices were read on the live pages (`/ai/pro/` and `/ai/pricing/`: "Billed as $470/yr · saves $118 vs monthly", the annual plan; `/ai/enterprise/`: "Base at $2,000/yr (up to 5 seats)"). Pro is stated at its annual price, as Enterprise is, so the two paid tiers compare directly — the sentence and the feature grid's Pro column header both read per year (the operator's word, 2026-11-03); Pro is also sold monthly at $49. Documentation only; it reaches the npm page with the next Community publish.
 - **Product name WITHDRAWN:** "Enterprise Edition 2.0.0" and the like in earlier entries name the paired release by a name the product no longer uses. The product is NSAuditor AI Enterprise; an entry names it with its version, without "Edition".
 
+## 1.1.2 (2026-11-17) — security fix: env files come only from the environment or `--env`; custom plugin directories must be absolute and under your home directory; paired with Enterprise 2.1.1
+
+**Security fix. Upgrade effect — read this first.**
+- **A `.env` in the working directory is no longer read.** The CLI takes its configuration from the variables your shell exports and from a file you pass with `--env <file>`, applied on top. If you kept settings in `./.env`, pass it explicitly — `nsauditor-ai scan … --env ./.env` — only for a file you wrote or trust. When a `./.env` exists and is not the file passed with `--env`, the CLI prints one line on stderr saying it was not loaded; the file is never opened to print it.
+- **`NSAUDITOR_PLUGIN_PATH` entries must be absolute directories under your home directory.** An entry loads only when it is non-empty, absolute as written (`~/x` is not expanded and is refused as relative), an existing directory, and strictly under `$HOME` by real path. The home directory is the one the process started with: an `--env` file that sets `HOME` does not move it. Every directory loaded is named on stderr with its count, and every entry refused is named with its reason and what to do. The working directory is never a base for custom plugins.
+- **`~/.nsauditor/.env` is unchanged:** the licence key and the MCP auth key are still read from it, one key each.
+- **A working-directory `config/services.json` that replaces the port set is now named on stderr**, with its tcp and udp counts.
+
+**What else changed**
+- `PluginManager.create()` with no `baseDir` discovers from the package root.
+- Shipped messages that told you to set a variable "in `.env`" now say to export it or put it in a file passed with `--env`.
+- A comment example uses a documentation account id.
+
+**Stated limits**
+- `NSAUDITOR_PLUGIN_PATH` is split on `:` on every platform, so a Windows drive path cannot be named.
+- A `HOME` that is itself behind a symbolic link refuses a correct directory (the comparison is by real path); the refusal is named.
+- An env file passed with `--env` is trusted like code: it can set the plugin path and the variables the cloud SDKs read.
+- The two entry points differ on which home is the base: the CLI uses the home it started with, before `--env` is applied; the MCP server uses the home in effect at its first tool call, which is after `NSA_ENV_FILE` is applied. Both match 1.1.1.
+- The custom-plugin lines and the port-set line print once per process. Under the MCP server that is the first tool call, and the first scan, of a session.
+
 ## 1.1.1 (2026-11-01) — the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand; paired with Enterprise 2.1.1
 
 - **The OpenAI client moves from `openai` 4 to `openai` 7.45.1 (board B87).** `openai` 7 accepts `zod` 3.25 or 4 as an optional peer and no longer depends on `formdata-node`, so the tree no longer holds the `node-domexception` polyfill. Nothing about how a scan talks to OpenAI or Ollama changed; the change is pinned by `tests/ai_stage_openai_responses_wire.test.mjs`, which drives the real SDK against a local server that stands in for the OpenAI API and holds the following on 4 and on 7:
