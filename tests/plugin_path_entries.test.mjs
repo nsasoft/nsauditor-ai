@@ -157,3 +157,14 @@ test('with no HOME (home: "") every entry is refused and named', async () => {
     assert.ok(r.lines.some((l) => l.startsWith('nsauditor-ai: custom plugin directory refused (outside home)')), r.lines.join('\n'));
   } finally { F.done(); }
 });
+
+test('the announce de-dupe is keyed on the base home: within one home a repeated line prints once, under a second home it prints again', async () => {
+  const F = fixture();
+  try {
+    const empties = (r) => r.lines.filter((l) => l.startsWith('nsauditor-ai: custom plugin directory refused (empty): ""')).length;
+    const a = await discover(F, ':', { home: F.home });      // two empty entries, one home → one line
+    const b = await discover(F, ':', { home: F.outside });   // the same line under another base home → announced again
+    assert.equal(empties(a), 1, a.lines.join('\n'));
+    assert.equal(empties(b), 1, `the second home's refusal was swallowed by the first home's de-dupe key:\n${b.lines.join('\n')}`);
+  } finally { F.done(); }
+});
