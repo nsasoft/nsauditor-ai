@@ -12,21 +12,23 @@
 //     (the MCP server's) or `~/.nsauditor/`. A shipped instruction that names a file the tool no longer reads is an
 //     instruction that does not work.
 //
-// (3) EVERY QUOTED `.env` PATH IN SHIPPED CODE IS DECLARED. Census (2) blanks quoted paths before it reads a line, and
-//     census (1) has no token for a hand-rolled loader (read '.env', assign each key into process.env), so neither can
-//     see one. Each quoted literal is therefore declared, file → count, with its reason: an equality ratchet.
+// (3) EVERY QUOTED `.env`-FAMILY PATH IN SHIPPED CODE IS DECLARED. Census (2) blanks quoted paths before it reads a
+//     line, and census (1) has no token for a hand-rolled loader (read '.env', assign each key into process.env), so
+//     neither can see one. Each literal is declared by the line that carries it, with its reason: an identity ratchet.
 //
 // (4) THE MCP SERVER'S CUSTOM-PLUGIN BASE IS DECIDED BY IMPORT ORDER, so the order is pinned: plugin_discovery.mjs
 //     captures HOME when it is first imported. The CLI imports it statically (before main() applies --env); the MCP
 //     server imports it at its first tool call, AFTER NSA_ENV_FILE is applied — as at 1.1.1, whose prefixes were taken
-//     at that same moment. A static import added to mcp_server.mjs would move the MCP base silently, with every
-//     behavioural test still green.
+//     at that same moment. An import added to mcp_server.mjs — static, or a dynamic one at module scope — would move
+//     the MCP base silently; a behavioural row and a static walk from every bin entry pin it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -139,77 +141,143 @@ test('(2) no shipped line (and no README line) tells a user to rely on a bare .e
   assert.deepEqual(hits, []);
 });
 
-// ── (3) quoted .env path literals: a DECLARED equality ratchet ────────────────────────────────────────────────────────
-// Quotes are ', " and ` (a template path such as `${dir}/.env` is the obvious variant of '.env'), so a comment code span
-// counts too. Stated limit: a path built by concatenation ('.e' + 'nv') or held in a variable is invisible here; the
-// behavioural guard for that is the real-binary file (working_directory_env_file_not_loaded), and it covers the CLI only.
-const ENV_PATH_LITERAL = /([`'"])[^`'"\s]*\.env\1/g;
+// ── (3) quoted .env-family path literals: a DECLARED identity ratchet ─────────────────────────────────────────────────
+// A literal is a quoted (' " `) token ending in `.env` plus any name suffix (`.env.local`, `.ENV`), case-insensitive; a
+// template path such as `${dir}/.env` is the obvious variant of '.env', so backtick is a quote here and a comment code
+// span counts too. `process.env.X` is the environment object, not a file, and is not a literal. IDENTITY, not a count:
+// each literal is declared by the trimmed line that carries it, compared as a multiset, so rewording a declared line
+// and adding a loader elsewhere in the same file is a difference. Stated limit: a path built by concatenation
+// ('.e' + 'nv') or held in a variable is invisible here; the behavioural guard for that is the real-binary file
+// (working_directory_env_file_not_loaded), and it covers the CLI only.
+const ENV_PATH_LITERAL = /([`'"])[^`'"\s]*(?<!process)\.env[\w.-]*\1/gi;
+const HOME_FILE = 'the home file ($XDG_CONFIG_HOME/nsauditor/.env or ~/.nsauditor/.env)';
 export const ENV_PATH_LITERALS = new Map([
-  ['cli.mjs', [3, "the working-directory hint lstat()s path.join(cwd, '.env') and never opens it; two comment code spans name that file"]],
-  ['plugins/050_tribe_health.mjs', [1, 'a URL path the plugin requests on a TARGET ("/.env" exposed over HTTP), not a local file']],
-  ['utils/license.mjs', [2, 'the home file ($XDG_CONFIG_HOME/nsauditor/.env or ~/.nsauditor/.env): the licence key is read from it and written to it']],
-  ['utils/mcp_auth.mjs', [2, 'the home file ($XDG_CONFIG_HOME/nsauditor/.env or ~/.nsauditor/.env): the MCP auth key is read from it']],
+  ['cli.mjs', { reason: "the working-directory hint lstat()s path.join(cwd, '.env') and never opens it; two comment code spans name that file", lines: [
+    '* The one stderr line for a working-directory `.env` (never read; only --env names a file), or null. Community 1.1.2.',
+    "const candidate = path.join(cwd, '.env');",
+    '// ON TOP (override-on) before license + dispatch. A working-directory `.env` is never read unless passed with --env',
+  ] }],
+  ['plugins/050_tribe_health.mjs', { reason: 'a URL path the plugin requests on a TARGET ("/.env" exposed over HTTP), not a local file', lines: [
+    '{ path: "/.env",                 severity: SEVERITY.CRITICAL, desc: "Environment file" },',
+  ] }],
+  ['utils/license.mjs', { reason: `${HOME_FILE}: the licence key is read from it and written to it`, lines: [
+    "return join(process.env.XDG_CONFIG_HOME, 'nsauditor', '.env');",
+    "return join(homedir(), '.nsauditor', '.env');",
+  ] }],
+  ['utils/mcp_auth.mjs', { reason: `${HOME_FILE}: the MCP auth key is read from it`, lines: [
+    "return join(process.env.XDG_CONFIG_HOME, 'nsauditor', '.env');",
+    "return join(homedir(), '.nsauditor', '.env');",
+  ] }],
 ]);
 
-/** [file, text][] → Map(file → count of quoted .env path literals), files with none omitted. */
-export function envPathLiteralCounts(entries) {
+/** [file, text][] → Map(file → sorted trimmed lines, one per literal), files with none omitted. */
+export function envPathLiteralLines(entries) {
   const m = new Map();
-  for (const [f, text] of entries) { const n = [...text.matchAll(ENV_PATH_LITERAL)].length; if (n) m.set(f, n); }
+  for (const [f, text] of entries) {
+    const lines = text.split('\n');
+    const hits = [...text.matchAll(ENV_PATH_LITERAL)].map((x) => lines[text.slice(0, x.index).split('\n').length - 1].replace(/\r$/, '').trim());
+    if (hits.length) m.set(f, hits.sort());
+  }
   return m;
 }
-/** Differences between measured and declared, as readable lines; [] when equal. */
+/** Multiset differences between measured and declared, as readable lines; [] when equal. */
 export function envPathLiteralDiff(measured, declared = ENV_PATH_LITERALS) {
   const out = [];
-  for (const [f, n] of measured) {
-    const d = declared.get(f)?.[0];
-    if (d === undefined) out.push(`${f}: ${n} quoted .env path literal(s), none declared`);
-    else if (d !== n) out.push(`${f}: ${n} quoted .env path literal(s), ${d} declared`);
+  for (const f of [...new Set([...measured.keys(), ...declared.keys()])].sort()) {
+    const have = [...(measured.get(f) ?? [])];
+    const want = [...(declared.get(f)?.lines ?? [])];
+    for (const l of [...have]) { const i = want.indexOf(l); if (i >= 0) { want.splice(i, 1); have.splice(have.indexOf(l), 1); } }
+    for (const l of have) out.push(`${f}: undeclared literal on: ${l}`);
+    for (const l of want) out.push(`${f}: declared literal not found: ${l}`);
   }
-  for (const [f, [d]] of declared) if (!measured.has(f)) out.push(`${f}: 0 quoted .env path literals, ${d} declared`);
   return out;
 }
+const declaredAsEntries = () => [...ENV_PATH_LITERALS].map(([f, { lines }]) => [f, lines.join('\n')]);
 
-test('(3) ACCEPT first: the declared literals measured from their own lines read equal', () => {
-  const lines = [['cli.mjs', "lstatSync(path.join(cwd, '.env')); /* `.env` */ // `.env`"], ['plugins/050_tribe_health.mjs', '{ path: "/.env" }'],
-    ['utils/license.mjs', "join(a, '.env'); join(b, '.env');"], ['utils/mcp_auth.mjs', "join(a, '.env'); join(b, '.env');"]];
-  assert.deepEqual(envPathLiteralDiff(envPathLiteralCounts(lines)), []);
+test('(3) ACCEPT first: the declared lines, measured as files, read equal', () => {
+  assert.deepEqual(envPathLiteralDiff(envPathLiteralLines(declaredAsEntries())), []);
+});
+
+test('(3) not literals: process.env.X in a code span or a string, and a .env word inside a sentence', () => {
+  assert.deepEqual([...envPathLiteralLines([['x.mjs', "// reads `process.env.SCAN_OUT_PATH`\nconst k = 'process.env.HOME';\nconst s = \"put it in .env please\";\n"]])], []);
 });
 
 for (const [label, rel, src] of [
   ['hand-rolled loader in mcp_server.mjs', 'mcp_server.mjs',
-    "for (const l of fs.readFileSync('.env', 'utf8').split('\\n')) { const [k, v] = l.split('='); process.env[k] = v; }\n"],
-  ['template-literal path', 'utils/x.mjs', 'const t = fs.readFileSync(`${process.cwd()}/.env`, "utf8");\n'],
+    "for (const l of fs.readFileSync('.env', 'utf8').split('\\n')) { const [k, v] = l.split('='); process.env[k] = v; }"],
+  ['template-literal path', 'utils/x.mjs', 'const t = fs.readFileSync(`${process.cwd()}/.env`, "utf8");'],
+  ["'.env.local' loader", 'mcp_server.mjs', "const t = fs.readFileSync('.env.local', 'utf8');"],
+  ["upper-case '.ENV'", 'utils/x.mjs', "const t = fs.readFileSync('./.ENV', 'utf8');"],
 ]) {
   test(`(3) a planted ${label} is an undeclared literal`, () => {
-    assert.deepEqual(envPathLiteralDiff(new Map([...envPathLiteralCounts([[rel, src]])]), new Map()), [`${rel}: 1 quoted .env path literal(s), none declared`]);
-    // and against the real table it is still a difference (it adds to a file, or names an undeclared one)
-    assert.ok(envPathLiteralDiff(new Map([...ENV_PATH_LITERALS].map(([f, [n]]) => [f, n]).concat([[rel, 1]]))).length >= 1);
+    assert.deepEqual(envPathLiteralDiff(envPathLiteralLines([...declaredAsEntries(), [rel, src]])), [`${rel}: undeclared literal on: ${src.trim()}`]);
   });
 }
 
-test('(3) a declared literal that is gone, or a count that moved, is a difference too', () => {
-  const m = new Map([...ENV_PATH_LITERALS].map(([f, [n]]) => [f, n]));
-  m.delete('utils/mcp_auth.mjs');
-  m.set('utils/license.mjs', 3);
-  assert.deepEqual(envPathLiteralDiff(m), ['utils/license.mjs: 3 quoted .env path literal(s), 2 declared', 'utils/mcp_auth.mjs: 0 quoted .env path literals, 2 declared']);
+test('(3) a SWAP inside one file is a difference: a declared comment line reworded and a loader added keeps the count, not the identity', () => {
+  const cli = ENV_PATH_LITERALS.get('cli.mjs').lines;
+  const swapped = [cli[0].replace('`.env`', 'env file'), cli[1], cli[2], "process.loadEnvVars?.(fs.readFileSync('.env', 'utf8'));"];
+  const entries = declaredAsEntries().map(([f, t]) => (f === 'cli.mjs' ? [f, swapped.join('\n')] : [f, t]));
+  assert.deepEqual(envPathLiteralDiff(envPathLiteralLines(entries)), [
+    "cli.mjs: undeclared literal on: process.loadEnvVars?.(fs.readFileSync('.env', 'utf8'));",
+    `cli.mjs: declared literal not found: ${cli[0]}`,
+  ]);
 });
 
 test('(3) the declared table is visible and live: each entry exists, ships and states a reason', () => {
-  for (const [f, [n, why]] of ENV_PATH_LITERALS) {
+  for (const [f, { lines, reason }] of ENV_PATH_LITERALS) {
     assert.ok(fs.existsSync(path.join(ROOT, f)) && shipped().includes(f), `stale entry ${f}`);
-    assert.ok(Number.isInteger(n) && n > 0 && why.length > 20, `${f}: a count and a reason`);
+    assert.ok(lines.length > 0 && reason.length > 20, `${f}: lines and a reason`);
   }
 });
 
-test('(3) every quoted .env path literal in shipped code is declared, with its count', () => {
+test('(3) every quoted .env-family literal in shipped code is declared, by the line that carries it', () => {
   const files = shipped().filter((f) => CODE.test(f));
-  assert.deepEqual(envPathLiteralDiff(envPathLiteralCounts(files.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]))), []);
+  assert.deepEqual(envPathLiteralDiff(envPathLiteralLines(files.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]))), []);
 });
 
-// ── (4) the static import closure decides when plugin_discovery.mjs captures HOME ─────────────────────────────────────
-// Static forms only (`import … from '…'`, `import '…'`, `export … from '…'`), relative specifiers only; `import(` is
-// dynamic and is not followed — that is the point.
-const STATIC_IMPORT = /^\s*(?:import|export)\s+(?:[^'"`;]*?\s+from\s+)?(['"])(\.{1,2}\/[^'"]+)\1/gm;
+// ── (4) when plugin_discovery.mjs captures HOME: the MCP path behaviourally, every bin statically ──────────────────────
+// The behavioural row is the guard: a child sets HOME=A, imports the module, sets HOME=B, imports plugin_discovery.mjs
+// and asks for a directory under B with the DEFAULT base. Stated limit: it covers MODULE EVALUATION only, not the
+// stretch inside startStdioServer() before NSA_ENV_FILE is applied (that needs an authorised server process).
+// The static walk, from every `bin` entry in package.json, is the row that NAMES which import did it. It follows
+// `… from '…'` and `import '…'` with relative specifiers anywhere in the text (a comment saying `from './x'` is
+// followed too — noise, never a miss); `import(` is dynamic and is not followed, which is the point.
+function baseAfterImporting(first) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-importorder-')));
+  try {
+    const A = path.join(dir, 'A');
+    const B = path.join(dir, 'B');
+    for (const d of [A, path.join(B, 'p')]) fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'child.mjs'), [
+      'const [first, disc, A, B, bp] = process.argv.slice(2);',
+      'process.env.HOME = A;',
+      "if (first !== 'none') await import(first);",
+      'process.env.HOME = B;',
+      'const d = await import(disc);',
+      "process.stdout.write('DECISION=' + JSON.stringify(d.customPluginDirDecision(bp)) + '\\n');",
+      'process.exit(0);',
+    ].join('\n'));
+    const url = (p) => pathToFileURL(path.join(ROOT, p)).href;
+    const r = spawnSync(process.execPath, [path.join(dir, 'child.mjs'), first === 'none' ? 'none' : url(first), url('utils/plugin_discovery.mjs'), A, B, path.join(B, 'p')],
+      { cwd: dir, env: withNoDotenv({ PATH: process.env.PATH, HOME: A, NSAUDITOR_LICENSE_STATE_FILE: path.join(dir, 'ls.json') }), encoding: 'utf8', timeout: 60_000 });
+    const m = /^DECISION=(.*)$/m.exec(r.stdout ?? '');
+    assert.ok(m, `the child did not report a decision (exit ${r.status}): ${(r.stderr ?? '').slice(-600)}`);
+    return JSON.parse(m[1]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('(4) ACCEPT first: importing the MCP server module leaves the base unset, so a HOME set after it is the base (as at 1.1.1)', { timeout: 90_000 }, () => {
+  assert.equal(baseAfterImporting('mcp_server.mjs').ok, true,
+    'importing mcp_server.mjs captured HOME: the MCP custom-plugin base moved to the HOME before NSA_ENV_FILE (stricter than 1.1.1, '
+    + 'unannounced). If intended, it is a decision with its own CHANGELOG line; update this row with it.');
+});
+
+test('(4) positive control: importing cli.mjs first captures HOME, so the later HOME is NOT the base', { timeout: 90_000 }, () => {
+  assert.deepEqual(baseAfterImporting('cli.mjs'), { ok: false, reason: 'outside home' });
+});
+
+const STATIC_SPECIFIER = /\b(?:from|import)\s*(['"])(\.{1,2}\/[^'"\n]+)\1/g;
 export function staticClosure(entry, read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8')) {
   const seen = new Set();
   const stack = [entry];
@@ -219,28 +287,28 @@ export function staticClosure(entry, read = (f) => fs.readFileSync(path.join(ROO
     seen.add(f);
     let text;
     try { text = read(f); } catch { continue; }
-    for (const m of text.matchAll(STATIC_IMPORT)) stack.push(path.posix.normalize(path.posix.join(path.posix.dirname(f), m[2])));
+    for (const m of text.matchAll(STATIC_SPECIFIER)) stack.push(path.posix.normalize(path.posix.join(path.posix.dirname(f), m[2])));
   }
   return seen;
 }
 
-test('(4) ACCEPT first (positive control): the CLI reaches plugin_discovery.mjs by static imports, so it captures HOME before --env', () => {
-  const c = staticClosure('cli.mjs');
-  assert.ok(c.size > 10, `the walker saw ${c.size} files from cli.mjs; it is not reading imports`);
-  assert.ok(c.has('utils/plugin_discovery.mjs'), 'cli.mjs no longer imports plugin discovery statically: its HOME capture would move after --env');
-});
-
-test('(4) the walker follows bare, named and re-export forms and ignores import()', () => {
-  const files = { 'a.mjs': "import './b.mjs';\nimport { x } from \"./c.mjs\";\nexport { y } from './d/e.mjs';\nconst m = await import('./f.mjs');\n",
-    'b.mjs': '', 'c.mjs': '', 'd/e.mjs': "import z from '../g.mjs';\n", 'g.mjs': '', 'f.mjs': '' };
+test('(4) the walker follows bare, named, multi-line (with an apostrophe in a comment) and re-export forms, and ignores import()', () => {
+  const files = { 'a.mjs': "import './b.mjs';\nimport { x } from \"./c.mjs\";\nexport { y } from './d/e.mjs';\nconst m = await import('./f.mjs');\n"
+      + "import {\n  // don't drop\n  w,\n} from './h.mjs';\n",
+    'b.mjs': '', 'c.mjs': '', 'd/e.mjs': "import z from '../g.mjs';\n", 'g.mjs': '', 'f.mjs': '', 'h.mjs': '' };
   assert.deepEqual([...staticClosure('a.mjs', (f) => { if (!(f in files)) throw new Error(f); return files[f]; })].sort(),
-    ['a.mjs', 'b.mjs', 'c.mjs', 'd/e.mjs', 'g.mjs']);
+    ['a.mjs', 'b.mjs', 'c.mjs', 'd/e.mjs', 'g.mjs', 'h.mjs']);
 });
 
-test('(4) the MCP server does NOT reach plugin_discovery.mjs by static imports: its base stays the post-NSA_ENV_FILE HOME, as at 1.1.1', () => {
-  const c = staticClosure('mcp_server.mjs');
-  assert.ok(c.size > 5, `the walker saw ${c.size} files from mcp_server.mjs`);
-  assert.equal(c.has('utils/plugin_discovery.mjs'), false,
-    'mcp_server.mjs now imports plugin discovery statically, so the MCP custom-plugin base moved to the HOME before NSA_ENV_FILE '
-    + '(stricter than 1.1.1, unannounced). If that is intended, it is a decision with its own CHANGELOG line; update this row with it.');
+// DECLARED per bin: does its static closure reach plugin_discovery.mjs? A new bin fails until it is declared here.
+const BIN_REACHES_DISCOVERY = { 'nsauditor-ai': true, 'nsauditor-ai-mcp': false };
+test('(4) each bin\'s static closure reaches plugin_discovery.mjs exactly as declared (the CLI yes, the MCP server no)', () => {
+  const bins = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).bin;
+  assert.deepEqual(Object.keys(bins).sort(), Object.keys(BIN_REACHES_DISCOVERY).sort(), 'a bin was added or removed: declare it');
+  for (const [name, file] of Object.entries(bins)) {
+    const c = staticClosure(path.posix.normalize(file));
+    assert.ok(c.size > 3, `the walker saw ${c.size} files from ${file}`);
+    assert.equal(c.has('utils/plugin_discovery.mjs'), BIN_REACHES_DISCOVERY[name],
+      `${name} (${file}): static closure ${c.has('utils/plugin_discovery.mjs') ? 'reaches' : 'does not reach'} utils/plugin_discovery.mjs`);
+  }
 });
