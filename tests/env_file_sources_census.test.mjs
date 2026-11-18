@@ -312,3 +312,27 @@ test('(4) each bin\'s static closure reaches plugin_discovery.mjs exactly as dec
       `${name} (${file}): static closure ${c.has('utils/plugin_discovery.mjs') ? 'reaches' : 'does not reach'} utils/plugin_discovery.mjs`);
   }
 });
+
+// The MCP bin is a shim the behavioural row cannot import (importing it starts the stdio server), and the static walk
+// does not follow `import(`. So every specifier in it — static OR dynamic — is pinned as an equality list, and a dynamic
+// import whose argument is not a literal is refused outright (nothing could say what it loads).
+const MCP_BIN = 'bin/nsauditor-ai-mcp.mjs';
+const MCP_BIN_SPECIFIERS = ['../mcp_server.mjs'];
+const ANY_SPECIFIER = /\b(?:from|import)\s*\(?\s*([`'"])([^`'"\n]+)\1/g;
+export function allSpecifiers(text) {
+  const literal = [...text.matchAll(ANY_SPECIFIER)].map((m) => m[2]);
+  const dynamic = (text.match(/\bimport\s*\(/g) ?? []).length;
+  const dynamicLiteral = (text.match(/\bimport\s*\(\s*[`'"][^`'"\n]+[`'"]\s*\)/g) ?? []).length;
+  return { literal, nonLiteralDynamic: dynamic - dynamicLiteral };
+}
+
+test('(4) ACCEPT first: the specifier reader sees static, bare and dynamic forms, and counts a non-literal import(', () => {
+  const r = allSpecifiers("import { a } from '../x.mjs';\nimport './y.mjs';\nawait import('../plugin_manager.mjs');\nawait import(p);\n");
+  assert.deepEqual(r, { literal: ['../x.mjs', './y.mjs', '../plugin_manager.mjs'], nonLiteralDynamic: 1 });
+});
+
+test('(4) the MCP bin imports exactly mcp_server.mjs — statically or dynamically — and nothing it cannot name', () => {
+  const r = allSpecifiers(fs.readFileSync(path.join(ROOT, MCP_BIN), 'utf8'));
+  assert.deepEqual(r, { literal: MCP_BIN_SPECIFIERS, nonLiteralDynamic: 0 },
+    `${MCP_BIN} gained an import: anything it loads before startStdioServer() can capture HOME before NSA_ENV_FILE`);
+});
