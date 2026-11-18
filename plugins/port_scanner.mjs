@@ -261,8 +261,8 @@ export default {
           + `the surface cannot be measured, not that nothing is listening. Check that the file is `
           + `readable (it ships mode 0644), or pass the ports explicitly.`);
       }
-      // A working-directory override REPLACES the package set; say so every run (stderr), relative path only — once per
-      // process for one directory and one set, not once per host.
+      // A working-directory override REPLACES the package set; say so on stderr, relative path only, once per process for
+      // one directory and one set (not once per host). Under the MCP server that is the first scan of the session only.
       if (cfg.source === "override") {
         const line = `nsauditor-ai: port set taken from ${path.join("config", "services.json")} in the working directory: `
           + `${tcpPorts.length} tcp, ${udpPorts.length} udp (the package default was not swept)`;

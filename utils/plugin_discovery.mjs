@@ -48,7 +48,8 @@ export function customPluginDirDecision(entry, { home = HOME_AT_START } = {}) {
 }
 
 // One line per directory loaded and per entry refused, on stderr (stdout carries --json and reports). Deduped per
-// process for the same base home, cwd and line, because discovery can run more than once in a run.
+// process for the same base home, cwd and line, because discovery can run more than once in a run. Under the MCP
+// server discovery runs at the first tool call, so the lines print then, once per session.
 const _announced = new Set();
 function announce(line, home) {
   const key = `${home}\0${process.cwd()}\0${line}`;
