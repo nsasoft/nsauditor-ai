@@ -17,7 +17,21 @@ NSAuditor AI is the open-source core of a privacy-first security intelligence pl
 
 ## What's New
 
-**Latest: CE 1.1.1 + Enterprise 2.1.1 — *the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand*.**
+**Latest: CE 1.1.2 + Enterprise 2.1.1 — *security fix: env files come only from the environment or `--env`; custom plugin directories must be absolute and under your home directory*.**
+A `.env` in the working directory is no longer read; to use one, pass `--env ./.env`, only for a file you wrote or trust.
+The CLI takes the variables your shell exports and the file you pass with `--env <file>`; when a working-directory file
+exists and is not the `--env` file, the CLI says so on stderr. `NSAUDITOR_PLUGIN_PATH` entries load only when they
+are absolute directories under the home directory the process started with, and every directory loaded or entry refused
+is named on stderr. The upgrade effect and the stated limits are in the [CHANGELOG](./CHANGELOG.md). Plugin count
+UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.1 pairs with this release,
+and its peer floor stays at `nsauditor-ai >= 1.0.0`.
+Two limits from Enterprise 1.3.0 still hold in the Pro delta and Enterprise MTTR: a scan made before Enterprise 1.3.0
+could not record a plugin left out of it, so in a comparison with one an agent's row that scan lacks is not refused;
+and a scan that discovered ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the
+CVE mapper's row on a port it did not measure can read RESOLVED and count as closed in MTTR, and the control it failed
+can read PASS — include the port scanner (003).
+
+**Prior: CE 1.1.1 + Enterprise 2.1.1 — *the OpenAI client on openai 7 and one zod; an AI assessment of part of the scan says so; a tier denial names the tools you can use; `license` exits 2 on an unknown subcommand*.**
 The OpenAI client moves from `openai` 4 to `openai` 7, so a project that depends on this package holds one `zod` at
 4.6.6 or later (GHSA-mrhx-c7xc-m3w5), with no `overrides`, and no `node-domexception`. After every AI response the CLI
 compares the input tokens the provider reports with its own estimate of the input (characters ÷ 4); when the provider
@@ -29,11 +43,6 @@ names the tools the caller can use now, and `compliance_matrix` without the Ente
 needs instead of an install command that fails. `nsauditor-ai license` with an unknown subcommand, or none, exits 2. The
 supported runtime is Node.js 24.22.1 or newer (`engines.node >=24.22.1`, since 1.1.0); npm only warns on an older
 runtime, so check `node --version`.
-Two limits from Enterprise 1.3.0 still hold in the Pro delta and Enterprise MTTR: a scan made before Enterprise 1.3.0
-could not record a plugin left out of it, so in a comparison with one an agent's row that scan lacks is not refused;
-and a scan that discovered ports with the Nmap plugin (024) alone records no port oracle, so an analysis agent's or the
-CVE mapper's row on a port it did not measure can read RESOLVED and count as closed in MTTR, and the control it failed
-can read PASS — include the port scanner (003).
 Plugin count UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.1 pairs with this
 release, and its peer floor stays at `nsauditor-ai >= 1.0.0`. The free last-vs-current webhook alerting delta is
 untouched and stays free (see Continuous Monitoring below).
@@ -102,7 +111,7 @@ NSAuditor AI is available in three editions: Community (free, MIT-licensed, no r
 | GRC connectors — Vanta + Drata + Secureframe push (scan-time, opt-in) | — | — | ✅ |
 | Tabletop simulation + SIEM correlation — built, **not reachable** (no caller) | — | — | 🚧 |
 | Air-gapped **operation** once installed — offline licence validation (local ES256, no callback, every tier) and offline CVE matching under `NSAUDITOR_OFFLINE_ONLY=1`, which is the **Pro** intelligence engine. The `feed bundle` / `feed import` hand-carry pipeline (EE 0.37.0) moves the NVD feeds **you downloaded**; it needs the Enterprise **package** installed but is not licence-gated, so a Pro licensee can run it. | — | ✅ | ✅ |
-| Air-gapped **DELIVERY** — the dependency-complete offline installation tarball, install script and checksums (EE 0.37.0), distributed **restricted**, amd64 only. No container image bundle ships and arm64 images remain WITHDRAWN. | — | — | ✅ |
+| Restricted air-gapped **DELIVERY** — the dependency-complete offline installation tarball, install script and checksums (EE 0.37.0), distributed **restricted**, amd64 only. No container image bundle ships and arm64 images remain WITHDRAWN. | — | — | ✅ |
 
 **This repository is the Community Edition** — fully functional, MIT-licensed, no restrictions, no telemetry. Pro and Enterprise features ship via the [`@nsasoft/nsauditor-ai-ee`](https://www.nsauditor.com/ai/pricing) package and install alongside the CE binary once licensed.
 
