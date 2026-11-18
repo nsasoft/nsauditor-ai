@@ -12,12 +12,18 @@ const _require = createRequire(import.meta.url);
 // Every .mjs in an accepted directory is import()ed, and importing a module runs its code — so an entry loads ONLY when
 // it is: non-empty · absolute AS WRITTEN (no `~/` expansion: `~/x` is refused as relative) · a real directory ·
 // strictly under $HOME by realpath ($HOME itself is refused; an unset HOME refuses every entry). The working directory
-// is never a base: a relative or empty entry used to resolve against it. The rule reads HOME at CALL time.
+// is never a base.
+// The base is the HOME this process started with, CAPTURED WHEN THIS MODULE IS FIRST IMPORTED — not one an env file
+// sets later. The CLI imports it statically (cli.mjs → plugin_manager.mjs), before main() applies --env, so an --env file
+// that sets HOME does not move the base. The MCP server imports it at its first tool call, which is AFTER NSA_ENV_FILE
+// is applied, so there a HOME set in that file does move the base — as at 1.1.1, whose prefixes were captured at the
+// same moment. The import order is pinned by env_file_sources_census (4).
 // Stated limits: the list is split on ':' on every platform, so a Windows drive path cannot be named; a HOME that is
 // itself behind a symlink refuses a correct directory (compare the realpath); an env file passed with --env is
-// trusted like code — it can set this variable.
+// trusted like code — it can set this variable; the two entry points differ as above.
+const HOME_AT_START = process.env.HOME;
 export const CUSTOM_PLUGIN_DIR_REFUSALS = Object.freeze(['empty', 'relative', 'missing', 'not a directory', 'outside home']);
-const REFUSAL_ADVICE = Object.freeze({
+export const CUSTOM_PLUGIN_DIR_ADVICE = Object.freeze({
   empty: 'remove the empty entry (a leading, trailing or doubled ":")',
   relative: 'use an absolute path under your home directory',
   missing: 'the directory does not exist',
@@ -27,10 +33,10 @@ const REFUSAL_ADVICE = Object.freeze({
 
 /**
  * @param {string} entry  one NSAUDITOR_PLUGIN_PATH entry, as written
- * @param {{ home?: string }} [opts]  defaults to process.env.HOME, read now
+ * @param {{ home?: string }} [opts]  defaults to the HOME captured when this module was imported
  * @returns {{ ok: true, real: string } | { ok: false, reason: string }}
  */
-export function customPluginDirDecision(entry, { home = process.env.HOME } = {}) {
+export function customPluginDirDecision(entry, { home = HOME_AT_START } = {}) {
   if (!entry) return { ok: false, reason: 'empty' };
   if (!isAbsolute(entry)) return { ok: false, reason: 'relative' };
   let real;
@@ -42,10 +48,10 @@ export function customPluginDirDecision(entry, { home = process.env.HOME } = {})
 }
 
 // One line per directory loaded and per entry refused, on stderr (stdout carries --json and reports). Deduped per
-// process for the same HOME, cwd and line, because discovery can run more than once in a run.
+// process for the same base home, cwd and line, because discovery can run more than once in a run.
 const _announced = new Set();
-function announce(line) {
-  const key = `${process.env.HOME}\0${process.cwd()}\0${line}`;
+function announce(line, home) {
+  const key = `${home}\0${process.cwd()}\0${line}`;
   if (_announced.has(key)) return;
   _announced.add(key);
   console.error(line);
@@ -84,7 +90,11 @@ async function loadPluginsFromDir(dir, source) {
   return plugins;
 }
 
-export async function discoverPlugins(baseDir) {
+/**
+ * @param {string} baseDir  the package root whose plugins/ are the built-ins
+ * @param {{ home?: string }} [opts]  the custom-plugin base; defaults to the HOME captured at import (tests pass it)
+ */
+export async function discoverPlugins(baseDir, { home = HOME_AT_START } = {}) {
   const plugins = [];
 
   // Source 1: CE built-in plugins
@@ -106,13 +116,13 @@ export async function discoverPlugins(baseDir) {
 
   if (customPaths) {
     for (const entry of customPaths.split(':')) {
-      const d = customPluginDirDecision(entry);
+      const d = customPluginDirDecision(entry, { home });
       if (!d.ok) {
-        announce(`nsauditor-ai: custom plugin directory refused (${d.reason}): ${JSON.stringify(entry)} — ${REFUSAL_ADVICE[d.reason]}`);
+        announce(`nsauditor-ai: custom plugin directory refused (${d.reason}): ${JSON.stringify(entry)} — ${CUSTOM_PLUGIN_DIR_ADVICE[d.reason]}`, home);
         continue;
       }
       const loaded = await loadPluginsFromDir(d.real, 'custom');
-      announce(`nsauditor-ai: custom plugins: ${loaded.length} loaded from ${d.real}`);
+      announce(`nsauditor-ai: custom plugins: ${loaded.length} loaded from ${d.real}`, home);
       plugins.push(...loaded);
     }
   }

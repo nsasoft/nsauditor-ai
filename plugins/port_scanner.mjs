@@ -44,6 +44,8 @@ export { parsePortsSpec };
  * throws, the plugin manager records status `error`, and every consumer reads that as "not measured".
  */
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// The working-directory port-set line, printed once per process per directory and set (see run()).
+const _portSetAnnounced = new Set();
 
 /** Parse ONE services.json into a port set. Never throws; an unusable file yields nothing. */
 async function readPortSet(fp) {
@@ -259,10 +261,13 @@ export default {
           + `the surface cannot be measured, not that nothing is listening. Check that the file is `
           + `readable (it ships mode 0644), or pass the ports explicitly.`);
       }
-      // A working-directory override REPLACES the package set; say so every run (stderr), relative path only.
+      // A working-directory override REPLACES the package set; say so every run (stderr), relative path only — once per
+      // process for one directory and one set, not once per host.
       if (cfg.source === "override") {
-        console.warn(`nsauditor-ai: port set taken from ${path.join("config", "services.json")} in the working directory: `
-          + `${tcpPorts.length} tcp, ${udpPorts.length} udp (the package default was not swept)`);
+        const line = `nsauditor-ai: port set taken from ${path.join("config", "services.json")} in the working directory: `
+          + `${tcpPorts.length} tcp, ${udpPorts.length} udp (the package default was not swept)`;
+        const key = `${cwd}\0${line}`;
+        if (!_portSetAnnounced.has(key)) { _portSetAnnounced.add(key); console.warn(line); }
       }
       if (cfg.overrideIgnored) {
         console.warn(`[port_scanner] WARNING: ${cfg.overrideIgnored} in the working directory yields no ports — it lists none in `
