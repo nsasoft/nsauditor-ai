@@ -6,7 +6,7 @@ For Enterprise Edition release notes, see [`@nsasoft/nsauditor-ai-ee`](https://w
 
 ---
 
-## 1.1.2 (⏳ PRE-PUBLISH — opened 2026-11-17, NOT YET ON npm) — security fix: env files come only from the environment or `--env`; custom plugin directories must be absolute and under your home directory; paired with Enterprise 2.1.1
+## 1.1.2 (2026-11-17) — security fix: env files come only from the environment or `--env`; custom plugin directories must be absolute and under your home directory; paired with Enterprise 2.1.1
 
 **Security fix. Upgrade effect — read this first.**
 - **A `.env` in the working directory is no longer read.** The CLI takes its configuration from the variables your shell exports and from a file you pass with `--env <file>`, applied on top. If you kept settings in `./.env`, pass it explicitly — `nsauditor-ai scan … --env ./.env` — only for a file you wrote or trust. When a `./.env` exists and is not the file passed with `--env`, the CLI prints one line on stderr saying it was not loaded; the file is never opened to print it.
