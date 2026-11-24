@@ -42,8 +42,8 @@ exists and is not the `--env` file, the CLI says so on stderr. `NSAUDITOR_PLUGIN
 are absolute directories under the home directory (for the CLI the home it started with; for the MCP server the
 home in effect at its first tool call, after `NSA_ENV_FILE` is applied), and every directory loaded or entry refused
 is named on stderr. The upgrade effect and the stated limits are in the [CHANGELOG](./CHANGELOG.md). Plugin count
-UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.1 pairs with this release,
-and its peer floor stays at `nsauditor-ai >= 1.0.0`.
+UNCHANGED at 27 Community + 29 Enterprise; every coverage matrix UNCHANGED; Enterprise 2.1.1 paired with that release
+and did not raise its Community peer floor; Enterprise 2.2.0 raises it (see Latest above).
 
 For the full per-release history — every prior cycle, in detail — see [CHANGELOG.md](./CHANGELOG.md). This README keeps only the current release headline.
 
