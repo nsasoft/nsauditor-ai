@@ -134,7 +134,9 @@ test('every fetch in the shipped tree carries `redirect: \'manual\'` — deny-by
   }
   assert.deepEqual(unbound, [], 'a reference to fetch the census cannot follow');
   assert.deepEqual(unpinned, [], 'a shipped fetch follows redirects — pin `redirect: \'manual\'` with a named refusal, or declare why not');
-  for (const site of ['utils/nvd_client.mjs · fetch', 'plugins/webapp_detector.mjs · fetch', 'plugins/upnp_scanner.mjs · fetch', 'plugins/050_tribe_health.mjs · fetch', 'plugins/opensearch_scanner.mjs · doFetch']) {
+  for (const site of ['utils/nvd_client.mjs · fetch', 'plugins/webapp_detector.mjs · fetch', 'plugins/upnp_scanner.mjs · fetch', 'plugins/opensearch_scanner.mjs · doFetch']) {
     assert.ok(population.includes(site), `the census no longer sees ${site}: ${JSON.stringify(population)}`);
   }
+  // EE Z-1 C-4: 050 sends through utils/target_http.mjs (tests/tribe_health_waist.test.mjs); a fetch there is a regression.
+  assert.deepEqual(population.filter((x) => x.startsWith('plugins/050_tribe_health.mjs ')), []);
 });

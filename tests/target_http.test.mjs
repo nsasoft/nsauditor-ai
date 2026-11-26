@@ -563,8 +563,9 @@ test('accept (R-2): the timeout ceiling itself is accepted, and it is below the 
 });
 
 // LIMIT, stated (architect v382 iii): this derives the method names that appear as STRING LITERALS in the four site files,
-// which is wider than the methods they send (050 compares `method === "TRACE"` too). Equality in both directions keeps
-// drift loud. At the site commit it re-points to the method values passed at the requestTarget call sites.
+// which is wider than the methods they send. Equality in both directions keeps drift loud. 050 is on the waist since C-4:
+// its sent set is held by equality, in its source and on the wire, in tests/tribe_health_waist.test.mjs (t-9, t-9b), and
+// it no longer names TRACE, so NO site literal names a forbidden method — asserted below, where a subtraction stood.
 test('deny: the method set is DERIVED from what the four sites send, less CONNECT/TRACE/TRACK', () => {
   const SITES = ['plugins/050_tribe_health.mjs', 'plugins/webapp_detector.mjs', 'plugins/upnp_scanner.mjs', 'plugins/opensearch_scanner.mjs'];
   const REGISTRY = /['"](GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|TRACK|PATCH)['"]/g;
@@ -576,7 +577,10 @@ test('deny: the method set is DERIVED from what the four sites send, less CONNEC
     for (const m of found) derived.add(m);
   }
   assert.ok(derived.has('GET') && derived.has('PATCH'), `positive control: the derivation read the sites (${[...derived]})`);
-  for (const m of FORBIDDEN_METHODS) { derived.delete(m); assert.ok(!ALLOWED_METHODS.includes(m), `${m} is not allowed`); }
+  for (const m of FORBIDDEN_METHODS) {
+    assert.ok(!derived.has(m), `${m} is named as a literal in a site file`);
+    assert.ok(!ALLOWED_METHODS.includes(m), `${m} is not allowed`);
+  }
   assert.deepEqual([...ALLOWED_METHODS].sort(), [...derived].sort());
 });
 

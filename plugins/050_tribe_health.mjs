@@ -15,7 +15,14 @@
 //   - Missing security headers (CSP, HSTS, X-Content-Type-Options, etc.)
 //   - Open /health or /version exposing build metadata
 //
+//
+// Every request goes through utils/target_http.mjs (EE Z-1 C-4): node:http, one connection per request, no redirect
+// followed, nothing decoded. A reply whose body the waist did not read (a coded reply, one over the 1 MiB cap, one whose
+// body timed out or failed) is LISTED when a check would have decided from that body — the record says so and the
+// history comparison holds this plugin's vanished findings instead of reading them as resolved.
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { requestTarget, MAX_TIMEOUT_MS } from "../utils/target_http.mjs";
 
 const SEVERITY = Object.freeze({
   CRITICAL: "critical",
@@ -38,31 +45,46 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 //    TRIBE_API_AUTH_TOKEN=<token>    (to test authenticated vs unauthenticated)
 //
 
+// A bad value is a TypeError naming what the operator set — never a host-down or "timeout" reading (S-4, v388 7).
 function loadConfig(host, port, opts = {}) {
-  return {
+  const config = {
     host:      opts.host      || process.env.TRIBE_API_HOST      || host || "127.0.0.1",
     port:      opts.port      || process.env.TRIBE_API_PORT      || port || 8080,
     scheme:    opts.scheme    || process.env.TRIBE_API_SCHEME    || "http",
     timeoutMs: parseInt(opts.timeoutMs || process.env.TRIBE_API_TIMEOUT_MS || "5000", 10),
     authToken: opts.authToken || process.env.TRIBE_API_AUTH_TOKEN || null,
   };
+  if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 1 || config.timeoutMs > MAX_TIMEOUT_MS) {
+    throw new TypeError(`TRIBE_API_TIMEOUT_MS must be an integer number of milliseconds from 1 to ${MAX_TIMEOUT_MS}`);
+  }
+  const p = Number(config.port);
+  if (!Number.isInteger(p) || p < 1 || p > 65535) {
+    throw new TypeError("TRIBE_API_PORT (or the scan's port) must be an integer from 1 to 65535");
+  }
+  if (config.scheme !== "http" && config.scheme !== "https") {
+    throw new TypeError('TRIBE_API_SCHEME must be "http" or "https"');
+  }
+  return config;
 }
 
 function baseUrl(config) {
   return `${config.scheme}://${config.host}:${config.port}`;
 }
 
-// ── HTTP Fetch Wrapper (with timeout + error capture) ────────────────────────
+// ── HTTP Wrapper (the target HTTP waist; timeout + error capture) ─────────────
+//
+// `body` is the whole body (the waist caps it at 1 MiB and hands back no partial body), or null with `notRead` set to
+// the waist's { reason[, encoding] } when the body was not read. `headers` are the target's own text, keys lowercased.
+// A TypeError (a bad argument, an unbracketed IPv6 literal) propagates: it is not a reading of the host.
 
 async function probe(url, config, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
-
   const result = {
     url,
+    method: options.method || "GET",
     status: null,
     headers: {},
     body: null,
+    notRead: null,
     error: null,
     responded: false,
     latencyMs: 0,
@@ -71,41 +93,55 @@ async function probe(url, config, options = {}) {
   const start = Date.now();
 
   try {
-    const fetchOpts = {
+    const resp = await requestTarget(url, {
       method: options.method || "GET",
-      signal: controller.signal,
       headers: {
         "User-Agent": "NSAuditor-AI/TribeProbe",
         ...(options.headers || {}),
       },
-      redirect: "manual", // Don't follow — we want to see what the server sends
-    };
-
-    const resp = await fetch(url, fetchOpts);
+      timeoutMs: config.timeoutMs,
+    });
     result.latencyMs = Date.now() - start;
     result.status = resp.status;
     result.responded = true;
-
-    // Capture all response headers
-    for (const [key, value] of resp.headers.entries()) {
-      result.headers[key.toLowerCase()] = value;
-    }
-
-    // Read body (cap at 8KB to avoid memory issues)
-    try {
-      const text = await resp.text();
-      result.body = text.length > 8192 ? text.slice(0, 8192) + "...[truncated]" : text;
-    } catch {
-      result.body = null;
-    }
+    result.headers = resp.headers;
+    if (resp.notRead) result.notRead = resp.notRead;
+    else result.body = resp.text;
   } catch (err) {
+    if (err instanceof TypeError) throw err;
     result.latencyMs = Date.now() - start;
     result.error = err.name === "AbortError" ? "timeout" : err.message;
-  } finally {
-    clearTimeout(timer);
   }
 
   return result;
+}
+
+// One not-read entry: the plugin's own path constant, the method, the waist's reason and its mapped coding tokens.
+// Nothing of the target's — no host, no status text, no header value.
+function notReadEntry(path, res) {
+  return {
+    path,
+    method: res.method,
+    reason: res.notRead.reason,
+    ...(Array.isArray(res.notRead.encoding) ? { encoding: res.notRead.encoding } : {}),
+  };
+}
+
+// The coverage gap for the replies listed above (the 040 tlsCoverageGap shape): INFO, `details.evidenceGap`, shown as a
+// gap and never counted. Its port is the port PROBED; the record key stays 8080 (G-67).
+function tribeCoverageGap(notRead, port) {
+  const n = notRead.length;
+  return {
+    severity: SEVERITY.INFO,
+    check: "tribe_probe_not_read",
+    title: `[COVERAGE GAP] TRIBE API probe: the body of ${n} ${n === 1 ? "reply" : "replies"} on port ${port} was not read`,
+    detail:
+      "A response began and its body was not read (a coded reply, a body over the 1 MiB cap, or a body that timed out " +
+      "or failed): the checks that decide from that body did not run on those paths. This is not a pass. This list " +
+      "names the replies whose body was not read; a probe that got no reply is not listed.",
+    port: Number(port),
+    details: { evidenceGap: true, notRead },
+  };
 }
 
 // ── Probe Modules ────────────────────────────────────────────────────────────
@@ -115,11 +151,13 @@ async function probeHealth(config) {
   const issues = [];
   const endpoints = ["/health", "/healthz", "/status", "/ping", "/ready"];
   const found = [];
+  const notRead = [];
 
   for (const ep of endpoints) {
     const res = await probe(`${baseUrl(config)}${ep}`, config);
     if (res.responded && res.status >= 200 && res.status < 400) {
       found.push({ endpoint: ep, status: res.status });
+      if (res.notRead) notRead.push(notReadEntry(ep, res));
 
       // Check if health endpoint leaks build info
       if (res.body) {
@@ -143,12 +181,13 @@ async function probeHealth(config) {
     }
   }
 
-  return { endpoints: found, issues };
+  return { endpoints: found, issues, notRead };
 }
 
 // 2. Debug Endpoint Discovery
 async function probeDebugEndpoints(config) {
   const issues = [];
+  const notRead = [];
 
   const dangerousEndpoints = [
     { path: "/debug",                severity: SEVERITY.CRITICAL, desc: "Debug root" },
@@ -194,7 +233,9 @@ async function probeDebugEndpoints(config) {
         httpStatus: res.status,
       };
 
-      // Upgrade severity if endpoint returns actual content (not just auth wall)
+      // Upgrade severity if endpoint returns actual content (not just auth wall). A 200 whose body was not read is
+      // listed; the finding keeps its own severity and nothing guesses the upgrade.
+      if (res.status === 200 && res.notRead) notRead.push(notReadEntry(ep.path, res));
       if (res.status === 200 && res.body && res.body.length > 10) {
         issue.detail += " — returns content without authentication";
         if (SEVERITY_RANK[ep.severity] < SEVERITY_RANK[SEVERITY.CRITICAL]) {
@@ -212,12 +253,13 @@ async function probeDebugEndpoints(config) {
     }
   }
 
-  return { issues };
+  return { issues, notRead };
 }
 
 // 3. Error Verbosity Check – do error responses leak stack traces?
 async function probeErrorVerbosity(config) {
   const issues = [];
+  const notRead = [];
 
   // Hit a definitely-nonexistent path and examine the error body
   const errorPaths = [
@@ -229,7 +271,9 @@ async function probeErrorVerbosity(config) {
 
   for (const path of errorPaths) {
     const res = await probe(`${baseUrl(config)}${path}`, config);
-    if (!res.responded || !res.body) continue;
+    if (!res.responded) continue;
+    if (res.notRead) { notRead.push(notReadEntry(path, res)); continue; }
+    if (!res.body) continue;
 
     const body = res.body;
 
@@ -281,7 +325,7 @@ async function probeErrorVerbosity(config) {
     }
   }
 
-  return { issues };
+  return { issues, notRead };
 }
 
 // 4. Response Header Security Audit
@@ -428,9 +472,11 @@ async function probeAuthEnforcement(config) {
 }
 
 // 6. HTTP Method Fuzzing – are unexpected methods allowed?
+// TRACE is not sent (the waist refuses it; the former client threw on it, so the TRACE check never ran). DELETE, PUT and PATCH are
+// sent and their replies are not examined (operator decision O-3: keep the behaviour).
 async function probeMethodFuzzing(config) {
   const issues = [];
-  const dangerousMethods = ["TRACE", "OPTIONS", "DELETE", "PUT", "PATCH"];
+  const dangerousMethods = ["OPTIONS", "DELETE", "PUT", "PATCH"];
 
   // Test against root and a common API route
   const targets = ["/", "/api/v1/health"];
@@ -440,16 +486,6 @@ async function probeMethodFuzzing(config) {
       const res = await probe(`${baseUrl(config)}${target}`, config, { method });
 
       if (!res.responded) continue;
-
-      // TRACE should NEVER be enabled (XST attack)
-      if (method === "TRACE" && res.status === 200) {
-        issues.push({
-          severity: SEVERITY.HIGH,
-          check: "trace_enabled",
-          detail: `TRACE method enabled on ${target} — Cross-Site Tracing (XST) possible`,
-          endpoint: target,
-        });
-      }
 
       // OPTIONS is fine (CORS preflight) but check what it reveals
       if (method === "OPTIONS" && res.status === 200) {
@@ -535,6 +571,10 @@ export default {
       probeMethodFuzzing(config),
     ]);
 
+    // The replies whose body was not read, where a check would have decided from it. Not counted, never moves severity.
+    const notRead = [...health.notRead, ...debug.notRead, ...errors.notRead];
+    const coverageGap = notRead.length > 0 ? tribeCoverageGap(notRead, config.port) : null;
+
     // Aggregate all issues
     const allIssues = [
       ...health.issues,
@@ -584,8 +624,10 @@ export default {
         headers: headers.issues,
         auth:    auth.issues,
         methods: methods.issues,
+        ...(coverageGap ? { coverage: [coverageGap] } : {}),
       },
       healthEndpoints: health.endpoints,
+      details: { notRead },
     };
   },
 
@@ -605,20 +647,32 @@ export default {
       }];
     }
 
-    // Individual findings grouped by category; only actionable ones (skip PASS and INFO in conclude).
-    // ZDE: no response bodies or header values in conclude output — classifications and issue descriptions only.
+    // Individual findings grouped by category; only actionable ones (skip PASS and INFO in conclude). A coverage gap
+    // (`details.evidenceGap`) is kept WHOLE although it is INFO: it is what says a check did not run.
+    // What this output carries of the target: no response body, but the target's header text as received —
+    // serverInfo.server and serverInfo.poweredBy, and the details of the leaky_header, cors_credentials and options_allow
+    // findings (G-68). A not-read list carries only the plugin's own path, the method, the reason and coding tokens.
+    const notRead = Array.isArray(result.details?.notRead) ? result.details.notRead : [];
     const findings = Object.entries(result.findings)
       .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
-      .filter((f) => f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO)
-      .map((f) => ({ severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
+      .filter((f) => f.details?.evidenceGap === true || (f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO))
+      .map((f) => (f.details?.evidenceGap === true ? f
+        : { severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
+    const counts = `${result.summary.critical} critical, ${result.summary.high} high, ${result.summary.medium} medium findings`;
+    const n = notRead.length;
 
     return [{
       port: 8080,
       protocol: "tcp",
       service: "tribe-v2",
       status: "open",
-      info: `API probe complete: ${result.summary.critical} critical, ${result.summary.high} high, ${result.summary.medium} medium findings`,
-      tribeHealth: { state: "up", severity: result.overallSeverity, summary: result.summary, serverInfo: result.serverInfo, findings },
+      info: n === 0
+        ? `API probe complete: ${counts}`
+        : `API probe incomplete: the body of ${n} ${n === 1 ? "reply" : "replies"} was not read; from the replies read, ${counts}`,
+      tribeHealth: {
+        state: "up", severity: result.overallSeverity, summary: result.summary, serverInfo: result.serverInfo, findings,
+        ...(n > 0 ? { notRead } : {}),
+      },
       source: "tribe-health",
       authoritative: true,
     }];

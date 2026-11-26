@@ -161,6 +161,14 @@ function dnsChecksMeasured(s) {
 const tlsMeasured = (s) => (s.tls === true ? true : 'no-handshake');
 const TLS_011 = { id: '011', source: 'tls-scanner', marker: 'tls' };
 const CERT_CID = { cert_expired: 'certificate:expired', self_signed: 'certificate:self_signed' };
+// 050 (EE Z-1 C-4, v388 3): an up probe that left a reply's body unread — `tribeHealth.notRead`, listed where a check would
+// have decided from that body — measured its payload only in part. It compares exactly as 'payload-down' (no vanished
+// finding is cleared; new ones still appear) and differs only in its sentence.
+const tribeMeasured = (s) => {
+  if (s.tribeHealth?.state !== 'up') return 'payload-down';
+  return Array.isArray(s.tribeHealth.notRead) && s.tribeHealth.notRead.length > 0 ? 'payload-partial' : true;
+};
+
 const COMPARISON = {
   anonymousLogin: { producer: { id: '004', source: 'ftp', marker: 'anonymousLogin' }, cid: () => 'anonymousLogin',
     owns: sameAs('anonymousLogin'), measured: optInMeasured('anonymousLogin', 'anonymousLoginTested') },
@@ -187,7 +195,7 @@ const COMPARISON = {
   certAudit: { producer: { id: '040', source: 'tls-cert-auditor', marker: 'certAudit' }, cid: (i) => CERT_CID[i] ?? `certificate:${i}`,
     owns: prefixed('certificate'), measured: (s) => (s.certAudit != null ? true : 'producer-not-run') },
   tribeHealth: { producer: { id: '050', source: 'tribe-health', marker: 'tribeHealth' }, cid: (i) => `tribeHealth:${i}`,
-    owns: prefixed('tribeHealth'), measured: (s) => (s.tribeHealth?.state === 'up' ? true : 'payload-down') },
+    owns: prefixed('tribeHealth'), measured: tribeMeasured },
   // PER CHECK: a finding is compared only when the check that produces it was measured this run. A check whose DNS lookup
   // failed (060's `notMeasured`), or the zone-transfer check when it did not run (`axfrTested` not true), measured nothing,
   // so its previous findings are not compared — never cleared — while every other check's still are.
@@ -224,6 +232,7 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'negotiated-only': () => 'the cipher each TLS version negotiated — an empty list is not proof that no weak cipher is accepted',
   'not-tried': (item) => `${item} was not tried this run`,
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
+  'payload-partial': () => 'the API probe did not read the body of every reply this run',
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
   // One code for one cause, the code Enterprise's comparison uses as well; the sentence names DNS because 060 is the one
