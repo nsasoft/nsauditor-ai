@@ -1,0 +1,61 @@
+{
+ "_note": "G-72 VERDICT-v398 R1 / RULINGS-v399 C2(c): the text coverageGapText listed for each fixture gap row at CE 93866c7, BEFORE the R1 change. Captured by EE Z/g72-r1r4-v344/capture-listed.mjs (the producer runs of tests/report_coverage_gaps.test.mjs, listener ports pinned 50001+ as C5 pins them). Read, never recomputed.",
+ "rows": {
+  "1020": [
+   {
+    "severity": "CRITICAL",
+    "declared": false,
+    "listed": "public-assets-example — Bucket ACL grants public access (AllUsers) – bucket is publicly accessible"
+   }
+  ],
+  "1022": [
+   {
+    "severity": "MEDIUM",
+    "declared": false,
+    "listed": "kv-net-example — Key Vault 'kv-net-example' networkAcls block absent from API response. Azure documented default when unset is defaultAction='Allow' — equivalent CC6.1 public-network-exposure risk. Configure networkAcls.defaultAction=Deny explicitly + auditor walkthrough for cross-account-aware retrieval."
+   }
+  ],
+  "1120": [
+   {
+    "severity": "MEDIUM",
+    "declared": false,
+    "listed": "s3:bucket:repl-src-example — S3 bucket 'repl-src-example' replication rule 'r1' is Enabled → destination arn:aws:s3:::repl-dst-example; destination region UNDETERMINED (NoSuchBucket). Conservative classification: unverified IS NOT verified-OK."
+   }
+  ],
+  "1222": [
+   {
+    "severity": "HIGH",
+    "declared": false,
+    "listed": "kv-example — Key Vault 'kv-example' grants the highly-privileged role 'Owner' to 1 principal(s) (at vault scope) — over-privileged key/secret access…"
+   }
+  ],
+  "040": [
+   {
+    "severity": "INFO",
+    "declared": true,
+    "listed": "[COVERAGE GAP] TLS certificate audit could not complete on 50001 (ECONNRESET), 50002 (ECONNRESET)"
+   }
+  ],
+  "050": [
+   {
+    "severity": "INFO",
+    "declared": true,
+    "listed": "[COVERAGE GAP] TRIBE API probe: the body of 37 replies on port 50001 was not read"
+   }
+  ],
+  "060": [
+   {
+    "severity": "INFO",
+    "declared": true,
+    "listed": "Evidence gap: the DMARC check was not measured — the TXT lookup for _dmarc.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.example.test failed (ETIMEOUT)"
+   }
+  ],
+  "queue": [
+   {
+    "severity": "INFO",
+    "declared": false,
+    "listed": "[COVERAGE GAP] INPUT GAP — a plugin that feeds the service set did not complete, so transport-encryption checks (TLS versions, cipher suites, certificates, cleartext protocols) were NOT assessed for the services it would have contributed"
+   }
+  ]
+ }
+}

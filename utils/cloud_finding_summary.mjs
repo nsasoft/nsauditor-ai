@@ -118,6 +118,10 @@ export function cutAtWord(s, max = 160) {
  * closing note on v394 Q1).
  * Stated limit: a title describeFinding took from a LEAD clause that is not the first of several issues, or from a
  * resource it read under a key other than the row's `resource`, is not recognised; the caller then shows the title as is.
+ * Since VERDICT-v398 R1 the report caller (report_inputs.mjs coverageGapText) applies this to a DECLARED gap-only row only,
+ * and no shipped declaring producer reaches either limit: 040's and 050's titles are written whole by the producer, and the
+ * loader's 060 row is recovered (tests/report_coverage_gaps.test.mjs (t-0) drives all three; (t-1) and (t-2) pin each limit
+ * on a SYNTHETIC declared row).
  */
 export function textBeforeCut(title, text, resource = null, max = 160) {
   if (typeof title !== 'string' || !title.endsWith('…') || text == null) return null;

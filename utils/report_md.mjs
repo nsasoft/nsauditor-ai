@@ -277,7 +277,9 @@ export function buildMarkdownReport(scanData) {
   // ---- Coverage gaps (G-72) ----
   // One line per gap row, after the findings, marked by its producer's declaration (m-7). Each intro sentence speaks only of
   // the rows its mark names. Every value goes through escapeCell: a gap's text can carry a name or a code a host chose
-  // (v394 Q2 d). A null port prints no ":null"; a cut title shows the whole text it was cut from where it can (Q1).
+  // (v394 Q2 d). A null port prints no ":null"; a cut title shows the whole text it was cut from where it can (Q1). Each
+  // line gives the producer's severity, as the html table does (VERDICT-v398 R2): a row this report says may state a finding
+  // is otherwise printed with no grade, a CRITICAL bucket in the same shape as an INFO DNS gap.
   if (gaps?.length) {
     const DECLARED = '**gap only:**';
     const UNDECLARED = '**may also state a finding (not declared gap-only by its producer):**';
@@ -296,7 +298,7 @@ export function buildMarkdownReport(scanData) {
     lines.push(`${intro} Enterprise analysis-agent gaps are not listed in this report.`);
     lines.push('');
     for (const f of gaps) {
-      lines.push(`- ${escapeCell(f.host)}${f.port != null ? `:${escapeCell(f.port)}` : ''} — `
+      lines.push(`- ${escapeCell(f.host)}${f.port != null ? `:${escapeCell(f.port)}` : ''} — ${escapeCell(f.severity)} — `
         + `${isGapOnly(f) ? DECLARED : UNDECLARED} ${escapeCell(coverageGapText(f))}`);
     }
     lines.push('');

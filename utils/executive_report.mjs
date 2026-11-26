@@ -400,7 +400,8 @@ function renderCoverageSummary(model, findings, listed) {
   // G-72 (v394 Q6, VERDICT-v395 §4 (4)): the coverage-gap rows are COUNTED here and LISTED per host in the appendix. No rows
   // on the cover: a real cloud run carries ten, and a network sweep one per host. Each number is a count of ROWS taken by a
   // filter (one 040 row can name two ports), and each sentence speaks only of the rows it counts: "could not read" and "not
-  // counted" of the declared rows, "also counted" of the undeclared ones. Nothing is printed when no row is listed.
+  // counted" of the declared rows, "also counted" of the undeclared ones, and WHERE (VERDICT-v398 R4): "counted as a finding"
+  // contradicted Top Risks' "No findings were recorded" on a page whose one row is PASS. Nothing is printed when no row is listed.
   if (listed.length) {
     const declared = listed.filter(isGapOnly);
     const undeclared = listed.filter((f) => !isGapOnly(f));
@@ -413,8 +414,8 @@ function renderCoverageSummary(model, findings, listed) {
     }
     if (undeclared.length) {
       p += ` ${undeclared.length} ${plural(undeclared.length, 'row carries', 'rows carry')} the gap marker without that `
-        + `declaration and ${plural(undeclared.length, 'is', 'are')} also counted as `
-        + `${plural(undeclared.length, 'a finding', 'findings')} at ${plural(undeclared.length, 'its', 'their')} producer's severity.`;
+        + `declaration and ${plural(undeclared.length, 'is', 'are')} also counted in the severity chart and the findings `
+        + `table at ${plural(undeclared.length, 'its', 'their')} producer's severity.`;
     }
     lines.push(`${p}</p>`);
   }
@@ -551,7 +552,7 @@ ${rows}
 
 // G-72 (v394 Q6, VERDICT-v395 §4 (3)-(4)): a host's coverage-gap rows, in their own table. Each row is countable by its own
 // attribute and carries NO data-row-severity and no sev- class: the chart/table invariant counts data-row-severity rows, and
-// an undeclared row is already counted once, in the findings table above. "Counted as a finding" says which. The producer's
+// an undeclared row is already counted once, in the findings table above. "Counted in the chart" says which. The producer's
 // severity is plain text (a cloud gap can be MEDIUM). '' when the host has none, so a host without one renders byte-identical
 // to the page before G-72.
 function renderCoverageGaps(gaps) {
@@ -575,14 +576,14 @@ function renderCoverageGaps(gaps) {
   }
   if (undeclared) {
     intro += ` ${undeclared} ${plural(undeclared, 'row carries', 'rows carry')} the marker without that declaration: `
-      + `${plural(undeclared, 'it is', 'they are')} also counted as ${plural(undeclared, 'a finding', 'findings')} in the table `
-      + `above and may state a defect as well as a gap.`;
+      + `${plural(undeclared, 'it is', 'they are')} also counted in the findings table above and may state a defect as well `
+      + 'as a gap.';
   }
   return `
 <h4>Coverage gaps</h4>
 <p>${intro}</p>
 <table class="coverage-gaps">
-<thead><tr><th>Host</th><th>Port</th><th>Severity</th><th>Counted as a finding</th><th>Text</th></tr></thead>
+<thead><tr><th>Host</th><th>Port</th><th>Severity</th><th>Counted in the chart</th><th>Text</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>

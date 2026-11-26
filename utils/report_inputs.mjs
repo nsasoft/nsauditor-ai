@@ -425,14 +425,41 @@ export function isNotCounted(f) {
   return isCoverageGap(f) || f?.deferredScope === true;
 }
 
-// G-72 (v394 Q1): the text a report shows for a coverage-gap row — its title, or, when describeFinding CUT that title from
-// the row's own text, the whole text it was cut from (cloud_finding_summary.mjs textBeforeCut: equality with the cut rule,
-// never a prefix match). Measured: a 060 gap on a 120-char zone is titled in 68 chars and loses the zone and the failure
-// code; a 1120 gap is cut after its resource and loses why the destination region could not be read. TITLE ONLY: no field
-// is added to the shaped row, which the delta's identity, the Jira export and EE all read.
+// G-72 (v394 Q1): the text a report shows for a coverage-gap row. TITLE ONLY: no field is added to the shaped row, which
+// the delta's identity, the Jira export and EE all read.
+//  - A DECLARED row (isGapOnly): its title, or, when describeFinding CUT that title from the row's own text, the whole text
+//    it was cut from (cloud_finding_summary.mjs textBeforeCut: equality with the cut rule, never a prefix match). Measured:
+//    a 060 gap on a 120-char zone is titled in 68 chars and loses the zone and the failure code.
+//  - An UNDECLARED gap row with a detail (VERDICT-v398 R1 as amended by RULINGS-v399 Q1): the title's words AND the whole
+//    detail. Nobody declared which clause of such a row is the gap, so its title can be the defect clause alone (a public
+//    bucket titled by its ACL clause, its truncated sample in the second; a vault titled by its grant, cut, its unreadable
+//    keys in the first), and the md prints the row nowhere else. `[resource — ]detail`, whitespace flattened, when the
+//    detail already holds the title's words; `[resource — ]title — detail` when it does not (an EE queue row titled by its
+//    gap and described by its cause).
+//    The needle is the flattened title less a leading `resource — ` and less ONE trailing '…'; an EMPTY needle (no title, or
+//    a title that is only '…') counts as contained (RULINGS-v399 C1). A containment test is sound HERE, unlike in the cut
+//    rule, because the property is "the listing carries the title's words", which containment proves, and a wrong strip
+//    (a title leading with a resource the row does not carry) fails containment and costs a repeated clause, never a lost one.
+//    Nothing is stripped from the detail (Q2): EE's gap prefixes (evidence_gap_contract.mjs, "Evidence gap (multi-region
+//    enumeration incomplete): " and "Evidence gap (scan time budget exceeded): ") are the words that say it is a gap. Stated
+//    limit: ROUTING_PREFIX_RE's other alternative, `EE-RT.<id> <slug>: `, is written by no current Enterprise code (the
+//    contract records it as the previous spelling); a row from an older Enterprise build lists it, as the executive
+//    findings table's Detail cell already does.
 export function coverageGapText(f) {
+  if (isCoverageGap(f) && !isGapOnly(f)) {
+    const detail = flatText(f?.detail);
+    if (detail) {
+      const resource = flatText(f?.resource);
+      const title = flatText(f?.title);
+      const lead = resource && title.startsWith(`${resource} — `) ? title.slice(resource.length + 3) : title;
+      const needle = lead.replace(/…$/, '');
+      const body = detail.includes(needle) ? detail : `${lead} — ${detail}`;
+      return resource ? `${resource} — ${body}` : body;
+    }
+  }
   return textBeforeCut(f?.title, f?.detail, f?.resource) ?? f?.title ?? f?.detail ?? '(untitled coverage gap)';
 }
+const flatText = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 // ⚠️ THE VALUE CHANGED UNDER AN UNCHANGED KEY, which contract-v1 §5.3 records as the shape that
 // once reported a mass remediation that never happened. A history line written before this fix

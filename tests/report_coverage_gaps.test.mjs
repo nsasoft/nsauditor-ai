@@ -105,10 +105,13 @@ const r1120 = () => ({ up: true, findings: [
   { resource: 's3:bucket:logs-example', severity: 'medium', region: 'us-east-1',
     issues: ["S3 bucket 'logs-example' has no lifecycle rule for noncurrent versions."], details: { category: 's3-lifecycle', bucketName: 'logs-example' } },
 ] });
-// v394 M4: an EE queue entry, the shape of agentInputGapRecord (EE utils/service_set_input_gap.mjs:103-127).
+// v394 M4: an EE queue entry, the shape of agentInputGapRecord (EE utils/service_set_input_gap.mjs:103-127). Title and
+// description are that function's output for ('crypto_agent', host, [{ id: '003', status: 'timeout' }]), compared string
+// for string (RULINGS-v399; EE Z/g72-r1r4-v344/queue-vs-agentInputGapRecord.txt). Its title is the gap statement and its
+// description does not repeat it: the row R1's title-and-detail branch exists for.
 const QUEUE_GAP = { id: 'F-g72-input-gap', category: 'CRYPTO', status: 'UNVERIFIED', severity: 'INFO', cvss: null,
   title: '[COVERAGE GAP] INPUT GAP — a plugin that feeds the service set did not complete, so transport-encryption checks (TLS versions, cipher suites, certificates, cleartext protocols) were NOT assessed for the services it would have contributed',
-  description: 'This analysis ran over a service set that was INCOMPLETE: one or more plugins that feed it were requested and NOT measured on this host.',
+  description: 'This analysis ran over a service set that was INCOMPLETE: one or more plugins that feed it were requested and NOT measured on this host. Its findings are a FLOOR, not the surface — the services those plugins would have contributed were never offered to it, so no conclusion can be drawn about them, and the absence of a finding here is not evidence that none exists.',
   target: { host: HOST, port: 0, protocol: 'tcp', service: 'service-set', program: 'upstream-plugins', version: 'unknown' },
   evidence: { source: 'crypto_agent', cve: [], mitre: [], raw: { evidenceGap: true, gapClass: 'input_gap', notMeasured: [{ id: '003', status: 'timeout' }] } } };
 
@@ -171,7 +174,7 @@ const severityRows = (h) => [...h.matchAll(/<tr data-row-severity="[^"]*">[\s\S]
 const gapRows = (h) => [...h.matchAll(/<tr data-coverage-gap="true">[\s\S]*?<\/tr>/g)].map((m) => m[0]);
 const section = (h, id) => h.match(new RegExp(`<section id="${id}">[\\s\\S]*?</section>`))?.[0] ?? '';
 const coverNumber = (h) => { const m = section(h, 'cover').match(/(\d+) coverage-gap rows? recorded/); return m ? +m[1] : 0; };
-/** The cells of a data-coverage-gap row: host, port, severity, counted as a finding, text. */
+/** The cells of a data-coverage-gap row: host, port, severity, counted in the chart, text. */
 const cells = (row) => [...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
 // The two sentences a reader can take as "this row is not a defect". VERDICT-v395 G2: neither may govern an undeclared row.
 const FALSE_OVER_UNDECLARED = /could not (?:be )?read|not (?:a )?findings?\b|not counted/;
@@ -182,8 +185,22 @@ const FALSE_OVER_UNDECLARED = /could not (?:be )?read|not (?:a )?findings?\b|not
  * 120-char zone takes the whole zone and leaves 68 chars), and the 1120 title is cut after a resource prefix, where a
  * prefix match on `detail` never holds. Derived here independently of the writers' helper (coverageGapText).
  */
-const shown = (f) => [f.resource ? `${f.resource} — ${f.detail}` : null, f.detail]
+const shownDeclared = (f) => [f.resource ? `${f.resource} — ${f.detail}` : null, f.detail]
   .find((s) => s && f.title && s !== f.title && describeFinding({ issues: [s] }) === f.title) ?? f.title ?? f.detail;
+/**
+ * VERDICT-v398 R1 as amended by RULINGS-v399 Q1: an UNDECLARED gap row with a detail shows the title's words AND the whole
+ * detail — `[resource — ]detail` when the detail holds the title (less a leading `resource — ` and one trailing '…'), else
+ * `[resource — ]title — detail`. The rule restated for the legs that locate a row by its text; the r1 legs pin its VALUES by
+ * literal strings and by the CE 93866c7 capture, never by this helper.
+ */
+const shown = (f) => {
+  if (!isGap(f) || isDeclared(f) || f.detail == null) return shownDeclared(f);
+  const flat = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const [res, ttl, det] = [flat(f.resource), flat(f.title), flat(f.detail)];
+  const lead = res && ttl.startsWith(`${res} — `) ? ttl.slice(res.length + 3) : ttl;
+  const body = det.includes(lead.replace(/…$/, '')) ? det : `${lead} — ${det}`;
+  return res ? `${res} — ${body}` : body;
+};
 const dump = (name, body) => { if (process.env.G72_DUMP) fs.writeFileSync(path.join(process.env.G72_DUMP, name), body, 'utf8'); };
 const md = async (id, result, extra = {}) => buildMarkdownReport({ host: HOST, scanTime: SCAN_TIME, toolVersion: 'm', manifest: [],
   conclusion: { id: 'concluder', name: 'concluder', result: await concluder.run([{ id, name: PLUGIN[id].name, result }]) },
@@ -398,16 +415,20 @@ test('(g-7) a declared row beside an undeclared one: the cover lists both, and e
   assert.equal(coverNumber(g.html), 2, 'the cover number is the listed count, never listed less counted');
   assert.match(cover, /2 coverage-gap rows recorded, listed per host under Coverage gaps in the appendix\./);
   assert.match(cover, / 1 row is declared by its producer to record only a surface the scanner could not read, and is not counted in the severity chart or in Top Risks\./);
-  assert.match(cover, / 1 row carries the gap marker without that declaration and is also counted as a finding at its producer's severity\./);
+  // R4 (VERDICT-v398 G4): the cover says WHERE an undeclared row is counted, not that it is a finding.
+  assert.match(cover, / 1 row carries the gap marker without that declaration and is also counted in the severity chart and the findings table at its producer's severity\./);
+  assert.doesNotMatch(cover, /counted as (?:a )?findings?/);
   assert.doesNotMatch(g.html, /this is not a clean result/, 'a counted row is present: the page states no gap-only result');
   const block = gapBlock(g.html);
   assert.match(block, /<p>2 rows on this host carry a coverage-gap marker\. 1 row is declared by its producer/);
-  assert.match(block, /1 row carries the marker without that declaration: it is also counted as a finding in the table above/);
-  assert.match(block, /<th>Counted as a finding<\/th>/); assert.doesNotMatch(block, /Not read/, 'the header is not "Not read"');
+  assert.match(block, /1 row carries the marker without that declaration: it is also counted in the findings table above and may state a defect as well as a gap\./);
+  assert.match(block, /<th>Counted in the chart<\/th>/); assert.doesNotMatch(block, /Not read|Counted as a finding|counted as (?:a )?findings?/, 'the header and intro are R4\'s');
   assert.deepEqual(gapRows(g.html).map((r) => cells(r)[3]).sort(), ['No', 'Yes']);
 });
 
-test('(g-8) Top Risks empty beside an UNDECLARED gap row (a PASS-severity row is counted, not ranked): no could-not-read clause', async () => {
+// g-8 (VERDICT-v398 Q3): no shipped producer writes this row. Any contract-v1 plugin can: a PASS-severity row with the gap marker
+// and no declaration. It is the only leg that kills M3e.
+test('(g-8) SYNTHETIC: Top Risks empty beside an UNDECLARED gap row (a PASS-severity row is counted, not ranked): no could-not-read clause, and the cover calls it no finding', async () => {
   const pass = structuredClone(r1120With({ category: 'x', evidenceGap: true })); pass.findings[0].severity = 'pass';
   const p = await executive('1120', pass);
   assert.equal(p.gaps.length, 1); assert.equal(p.gaps.filter(isDeclared).length, 0, 'the premise: one undeclared gap row');
@@ -415,6 +436,9 @@ test('(g-8) Top Risks empty beside an UNDECLARED gap row (a PASS-severity row is
   const top = section(p.html, 'top-risks');
   assert.match(top, /No findings were recorded in this run, and 1 coverage-gap row is listed in the appendix: this is not a clean result\./);
   assert.doesNotMatch(top, FALSE_OVER_UNDECLARED, 'the clause names no unread surface over a row nobody declared');
+  // R4 (VERDICT-v398 G4): Top Risks says "No findings were recorded", so the cover may not call this row a finding.
+  assert.doesNotMatch(section(p.html, 'cover'), /counted as a finding/, 'one page, one answer about one row');
+  assert.match(section(p.html, 'cover'), /is also counted in the severity chart and the findings table at its producer's severity\./);
 });
 
 // ── F-A / F-B / F-C: Enterprise rows on which the marker is additive (VERDICT-v395 G1, G2) ────────────────────────────
@@ -434,30 +458,13 @@ for (const id of Object.keys(MIXED_RESULTS)) {
   });
 }
 
-// ── textBeforeCut's two stated limits, each with a live occupant (VERDICT-v395 (b)) ──────────────────────────────────
-test('(t-1) limit 1: a title cut from a lead clause that is not the first issue is not recognised — F-A lists its cut title', async () => {
-  const { coverageGapText } = await import('../utils/report_inputs.mjs');
-  const [f] = shapeHostFindings(HOST, { results: [{ id: '1222', name: 'x', result: MIXED_RESULTS[1222]() }] });
-  assert.ok(f.title.endsWith('…') && f.title.includes('grants the highly-privileged role'), 'the premise: the title is the SECOND clause, cut');
-  assert.ok(f.detail.includes('(least-privilege erosion)'), 'the premise: the detail holds the whole clause');
-  // If this goes RED because the listing now shows the whole clause, the limit closed: rewrite it in textBeforeCut.
-  assert.equal(coverageGapText(f), f.title, 'the listing shows the cut title and loses the tail');
-});
-
-test('(t-2) limit 2: a resource read under another key (bucket:) is not recognised — the listing keeps the cut title', async () => {
-  const { coverageGapText } = await import('../utils/report_inputs.mjs');
-  const long = 'could not read the destination region: UNDETERMINED (NoSuchBucket) ' + 'padding-word '.repeat(14) + 'TAILCODE-E42';
-  const [f] = shapeHostFindings(HOST, { results: [{ id: '1120', name: 'x', result: { findings: [{ bucket: 'bucket-a', severity: 'MEDIUM', issues: [long], details: { evidenceGap: true } }] } }] });
-  assert.ok(f.title.endsWith('…') && f.detail.includes('TAILCODE-E42'), 'the premise: the title was cut, the detail is whole');
-  // If this goes RED because the listing now shows TAILCODE-E42, the limit closed: rewrite it in textBeforeCut.
-  assert.equal(coverageGapText(f), f.title); assert.ok(!coverageGapText(f).includes('TAILCODE-E42'));
-});
-
 // ── THE MD REPORT ─────────────────────────────────────────────────────────────────────────────────────────────────────
 const gapSection = (m) => m.split('\n## ').find((s) => s.startsWith('Coverage gaps\n')) ?? null;
 const DECLARED_MARK = '**gap only:**';
 const UNDECLARED_MARK = '**may also state a finding (not declared gap-only by its producer):**';
 const headline = (m) => m.split('\n').find((l) => l.startsWith('- **Security findings:**'));
+// The severity each mixed row's producer wrote, declared here rather than read off the shaped row (R2's legs).
+const MIXED_SEVERITY = { 1222: 'HIGH', 1020: 'CRITICAL', 1022: 'MEDIUM' };
 
 test('(m-1) ABSENT is not EMPTY: an md built without plugin results says coverage gaps were not evaluated, and lists none', async () => {
   const m = await md('050', R['050'], { results: undefined });
@@ -478,6 +485,9 @@ for (const id of ['040', '050', '060']) {
     assert.equal(lines.length, gaps.length, 'one line per loader gap row');
     assert.ok(lines.every((l) => l.startsWith(`- ${HOST}`) && !/null/.test(l)), 'each line names the host and prints no null');
     assert.ok(lines.every((l) => l.includes(` — ${DECLARED_MARK} `)), 'each declared row is marked gap only');
+    // R2 (VERDICT-v398 G2): every line prints its producer's severity, as the html table does. These three are INFO.
+    gaps.forEach((g, i) => assert.ok(lines[i].includes(` — ${g.severity} — ${DECLARED_MARK} `), `the severity is printed: ${lines[i]}`));
+    assert.ok(gaps.every((g) => g.severity === 'INFO'), 'the premise: the three declared rows are INFO');
     assert.match(sec, /A row marked \*\*gap only\*\* is declared by its producer to record only a surface the scanner could not read/);
     assert.ok(!sec.includes('may also state a finding'), 'no undeclared row, so no sentence about one');
     if (id === '050') assert.match(lines[0], /the body of 37 replies on port \d+ was not read/);
@@ -504,6 +514,8 @@ for (const id of Object.keys(MIXED_RESULTS)) {
     const lines = sec.split('\n').filter((l) => l.startsWith('- '));
     assert.equal(lines.length, 1);
     assert.ok(lines[0].includes(` — ${UNDECLARED_MARK} `), `marked undeclared: ${lines[0]}`);
+    // R2 (VERDICT-v398 G2): the line gives the producer's severity, so a CRITICAL bucket does not print like an INFO DNS gap.
+    assert.ok(lines[0].includes(` — ${MIXED_SEVERITY[id]} — ${UNDECLARED_MARK} `), `the severity ${MIXED_SEVERITY[id]} is printed: ${lines[0]}`);
     assert.doesNotMatch(sec.replace(lines[0], ''), FALSE_OVER_UNDECLARED, 'no sentence of the section calls the row unread or not a finding');
     assert.match(sec, /A row marked \*\*may also state a finding \(not declared gap-only by its producer\)\*\* carries the marker without that declaration/);
   });
@@ -546,4 +558,150 @@ test('(m-6) the real scan_host handler\'s markdown lists the 050 gap (mcp_server
     const sec = gapSection(out.markdown);
     assert.ok(sec && /the body of 37 replies on port \d+ was not read/.test(sec), out.markdown.slice(0, 1200));
   } finally { _setValidateHost(null); _setPluginManager(null); }
+});
+
+// ── R1 (VERDICT-v398 G1, amended by RULINGS-v399 Q1): an UNDECLARED row lists the title's words AND its whole detail ────
+// Nobody declared which clause of an undeclared row is the gap, so its title can be the defect clause alone (F-B: the first
+// clause, uncut; F-A: the second, cut). The listing then stated no gap, and in the md the row is printed nowhere else. A
+// DECLARED row keeps the cut rule.
+const mdUnescape = (l) => l.replace(/\\(.)/g, '$1');
+const mdGapLines = (m) => (gapSection(m) ?? '').split('\n').filter((l) => l.startsWith('- '));
+const GOLD_LISTED = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'gap-listed-93866c7.json'), 'utf8')).rows;
+const gapRowsOf = (id, result) => shapeHostFindings(HOST, { results: [{ id, name: PLUGIN[id]?.name ?? 'x', result }] }).filter(isGap);
+const listedText = async (f) => (await import('../utils/report_inputs.mjs')).coverageGapText(f);
+
+test('(r1-i) FOURTH QUADRANT: the declared 040, 050 and 060 rows list the text CE 93866c7 listed (its capture); an undeclared row with no detail lists its title', async () => {
+  const pinned = { '040': await run040({ pin: true }), '050': await run050({ pin: true }), '060': R['060'] };
+  for (const id of ['040', '050', '060']) {
+    const rows = gapRowsOf(id, pinned[id]);
+    assert.equal(rows.length, 1); assert.ok(isDeclared(rows[0]) && GOLD_LISTED[id][0].declared, `the premise: the ${id} row is declared`);
+    assert.equal(await listedText(rows[0]), GOLD_LISTED[id][0].listed, `${id}: byte-equal to 93866c7`);
+  }
+  const [bare] = gapRowsOf('1120', { findings: [{ title: 'A gap title with no detail', severity: 'medium', details: { evidenceGap: true } }] });
+  assert.ok(!isDeclared(bare) && bare.detail == null, 'the premise: undeclared, no detail');
+  assert.equal(await listedText(bare), 'A gap title with no detail');
+});
+
+test('(r1-c) FOURTH QUADRANT (RULINGS-v399 C2 c): 1022 and 1120, whose detail holds the title, list the text CE 93866c7 listed (its capture)', async () => {
+  for (const [id, result] of [['1022', MIXED_RESULTS[1022]()], ['1120', R[1120]]]) {
+    const [f] = gapRowsOf(id, result);
+    assert.ok(!isDeclared(f) && !GOLD_LISTED[id][0].declared, `the premise: the ${id} row is undeclared`);
+    assert.equal(await listedText(f), GOLD_LISTED[id][0].listed, `${id}: byte-equal to 93866c7`);
+  }
+});
+
+for (const [id, clause] of [['1222', 'key enumeration could not complete'], ['1020', 'Sample truncated: 1000 of >1000']]) {
+  test(`(r1-${id === '1222' ? 'ii' : 'iii'}) ${MIXED_LABELS[id]}: the html listing row and the md line both carry "${clause}"`, async () => {
+    const g = await executive(id, MIXED_RESULTS[id]());
+    assert.ok(!g.gaps[0].title.includes(clause), 'the premise: the title does not carry the gap clause');
+    const [row] = gapRows(g.html);
+    assert.ok(cells(row)[4].includes(escapeHtml(clause)), `the html listing cell carries it: ${cells(row)[4]}`);
+    const [line] = mdGapLines(await md(id, MIXED_RESULTS[id]()));
+    assert.ok(mdUnescape(line).includes(clause), `the md line carries it: ${line}`);
+  });
+}
+
+test('(r1-b) RULINGS-v399 C2 b: F-B\'s detail holds its title, so the defect clause is listed exactly ONCE', async () => {
+  const clause = 'Bucket ACL grants public access';
+  const [f] = gapRowsOf('1020', MIXED_RESULTS[1020]());
+  assert.equal((await listedText(f)).split(clause).length - 1, 1, 'once in the listed text');
+  const [row] = gapRows((await executive('1020', MIXED_RESULTS[1020]())).html);
+  assert.equal(cells(row)[4].split(clause).length - 1, 1, 'once in the html listing cell');
+});
+
+// The md lists no Enterprise analysis-agent gap (its section says so), so the md half drives the same title and detail
+// written by a plugin: the same branch, on the path the md reads.
+test('(r1-a) RULINGS-v399 C2 a: a row whose detail does not repeat its title (the EE queue row) lists both — html cell and md line', async () => {
+  const g = await executive('040', strip('040', R['040']), { queue: [QUEUE_GAP] });
+  const row = gapRows(g.html).find((r) => r.includes('INPUT GAP'));
+  assert.ok(row, 'the queue row is listed');
+  for (const w of ['were NOT assessed', 'INCOMPLETE']) assert.ok(cells(row)[4].includes(w), `html: "${w}" in ${cells(row)[4]}`);
+  const plugin = { up: true, findings: [{ title: QUEUE_GAP.title, detail: QUEUE_GAP.description, severity: 'info', details: { evidenceGap: true } }] };
+  const [line] = mdGapLines(await md('1120', plugin));
+  for (const w of ['were NOT assessed', 'INCOMPLETE']) assert.ok(mdUnescape(line).includes(w), `md: "${w}" in ${line}`);
+});
+
+test('(r1-d) RULINGS-v399 C2 d: a title leading with a resource the row does not carry fails containment and lists title AND detail', async () => {
+  const long = 'could not read the destination region: UNDETERMINED (NoSuchBucket) ' + 'padding-word '.repeat(14) + 'TAILCODE-E42';
+  const [f] = gapRowsOf('1120', { findings: [{ bucket: 'bucket-a', severity: 'MEDIUM', issues: [long], details: { evidenceGap: true } }] });
+  assert.ok(!isDeclared(f) && f.title.startsWith('bucket-a — ') && f.title.endsWith('…'), 'the premise: undeclared, titled under a resource key the row does not carry, cut');
+  assert.ok(f.resource == null || !f.title.startsWith(`${f.resource} — `), 'the premise: the row\'s resource is not the title\'s');
+  assert.equal(await listedText(f), `${f.title} — ${f.detail}`, 'title and detail: a repeated clause, nothing lost');
+});
+
+for (const [branch, findings, tokens] of [
+  ['the detail holds the title', [{ resource: 's3:bucket:esc-example', severity: 'medium', region: 'us-east-1',
+    issues: ["S3 bucket 'esc-example' replication destination is cross-account.", 'region [x](y) | <script>alert(1)</script> UNDETERMINED'],
+    details: { evidenceGap: true } }], ['[x](y) | <script>alert(1)</script>']],
+  ['title and detail', [{ title: 'gap [t](u) | <script>t()</script> title', detail: 'cause [x](y) | <script>d()</script> text',
+    severity: 'medium', details: { evidenceGap: true } }], ['[t](u) | <script>t()</script>', '[x](y) | <script>d()</script>']],
+]) {
+  test(`(r1-iv) m-4 on the undeclared path, branch "${branch}" (RULINGS-v399 C2 e): [x](y), a pipe and a <script> token are escaped in both reports`, async () => {
+    const r = { up: true, findings };
+    const [f] = gapRowsOf('1120', r);
+    assert.ok(!isDeclared(f), 'the premise: undeclared');
+    const both = branch === 'title and detail';
+    assert.equal((await listedText(f)) === `${f.title} — ${f.detail}`, both, `the premise: the ${branch} branch`);
+    if (!both) assert.ok(!f.title.includes('[x](y)'), 'the premise: the token is in the detail only');
+    const g = await executive('1120', r);
+    const cell = cells(gapRows(g.html)[0])[4];
+    for (const t of tokens) assert.ok(cell.includes(escapeHtml(t)), `html: escaped in the listing cell: ${cell}`);
+    assert.doesNotMatch(gapBlock(g.html), /<script>/);
+    const [line] = mdGapLines(await md('1120', r));
+    for (const t of tokens) assert.ok(line.includes(t.replace(/[[\]|<>]/g, (c) => `\\${c}`)), `md: escaped: ${line}`);
+  });
+}
+
+test('(r1-p) RULINGS-v399 Q2: an undeclared row\'s EE gap prefix is listed in both reports; a declared prefixed row is listed as today', async () => {
+  const pre = 'Evidence gap (scan time budget exceeded): ';
+  const und = { up: true, findings: [{ resource: 'acct-example', severity: 'info',
+    issues: [`${pre}region us-west-2 was not scanned before the scan time budget ran out.`], details: { evidenceGap: true } }] };
+  const [f] = gapRowsOf('1120', und);
+  assert.ok(!f.title.includes('Evidence gap ('), 'the premise: describeFinding stripped the prefix from the title');
+  assert.equal(await listedText(f), `acct-example — ${pre}region us-west-2 was not scanned before the scan time budget ran out.`);
+  assert.ok(cells(gapRows((await executive('1120', und)).html)[0])[4].includes(escapeHtml(pre)), 'html');
+  assert.ok(mdUnescape(mdGapLines(await md('1120', und))[0]).includes(pre), 'md');
+  const why = 'region eu-west-1 could not be enumerated ' + 'pad '.repeat(30) + 'TAIL-Z9';
+  const [d] = gapRowsOf('1120', { findings: [{ resource: 'acct-example', severity: 'info',
+    issues: [`Evidence gap (multi-region enumeration incomplete): ${why}`], details: { evidenceGap: true, gapOnly: true } }] });
+  assert.ok(isDeclared(d) && d.title.endsWith('…'), 'the premise: declared, title cut');
+  assert.equal(await listedText(d), `acct-example — ${why}`, 'as today: the cut title recovered, the prefix stripped by textBeforeCut');
+});
+
+// ── textBeforeCut's two stated limits, now reachable only by a DECLARED row (VERDICT-v398 R1, RULINGS-v399 C4 C5) ──────
+test('(t-0) RULINGS-v399 C4: the REAL declaring producers reach neither limit — 040 titled whole past 160 characters, 050 titled whole, the loader\'s 060 row listed as its whole detail', async () => {
+  const { tlsCoverageGap } = await import('../plugins/040_tls_cert_auditor.mjs');
+  const ports = Array.from({ length: 12 }, (_, i) => 44301 + i);
+  const row = tlsCoverageGap(ports.map((port) => ({ port, error: 'ECONNRESET' })), { tcpOpen: new Set(ports), pluginRunStatus: new Map([['003', 'ran']]) });
+  assert.ok(row.title.length > 160, `the premise: the producer's title passes 160 characters (${row.title.length})`);
+  const [f40] = gapRowsOf('040', { findings: [row] });
+  assert.ok(isDeclared(f40) && f40.title === row.title && !f40.title.endsWith('…'), '040: the title is taken whole, never cut');
+  assert.equal(await listedText(f40), row.title);
+  // 050's title is "[COVERAGE GAP] TRIBE API probe: the body of N replies on port P was not read": under 160 characters for
+  // any N below a billion and any port, so it cannot be cut.
+  const [f50] = gapRowsOf('050', R['050']);
+  assert.ok(isDeclared(f50) && !f50.title.endsWith('…') && f50.title.length < 160);
+  assert.equal(await listedText(f50), f50.title);
+  const [f60] = gapRowsOf('060', R['060']);
+  assert.ok(isDeclared(f60) && f60.title.endsWith('…'), 'the premise: the loader cut the 060 title');
+  assert.equal(await listedText(f60), f60.detail, '060: the whole detail');
+});
+
+test('(t-1) limit 1, on a SYNTHETIC declared row (t-0: no declaring producer reaches it): a title cut from a lead clause that is not the first issue is not recognised', async () => {
+  const r = MIXED_RESULTS[1222](); r.findings[0].details.gapOnly = true;
+  const [f] = gapRowsOf('1222', r);
+  assert.ok(isDeclared(f), 'the premise: declared');
+  assert.ok(f.title.endsWith('…') && f.title.includes('grants the highly-privileged role'), 'the premise: the title is the SECOND clause, cut');
+  assert.ok(f.detail.includes('(least-privilege erosion)'), 'the premise: the detail holds the whole clause');
+  // If this goes RED because the listing now shows the whole clause, the limit closed: rewrite it in textBeforeCut.
+  assert.equal(await listedText(f), f.title, 'the listing shows the cut title and loses the tail');
+});
+
+test('(t-2) limit 2, on a SYNTHETIC declared row (t-0): a resource read under another key (bucket:) is not recognised — the listing keeps the cut title', async () => {
+  const long = 'could not read the destination region: UNDETERMINED (NoSuchBucket) ' + 'padding-word '.repeat(14) + 'TAILCODE-E42';
+  const [f] = gapRowsOf('1120', { findings: [{ bucket: 'bucket-a', severity: 'MEDIUM', issues: [long], details: { evidenceGap: true, gapOnly: true } }] });
+  assert.ok(isDeclared(f), 'the premise: declared');
+  assert.ok(f.title.endsWith('…') && f.detail.includes('TAILCODE-E42'), 'the premise: the title was cut, the detail is whole');
+  // If this goes RED because the listing now shows TAILCODE-E42, the limit closed: rewrite it in textBeforeCut.
+  assert.equal(await listedText(f), f.title); assert.ok(!(await listedText(f)).includes('TAILCODE-E42'));
 });
