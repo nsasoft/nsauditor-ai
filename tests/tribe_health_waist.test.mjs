@@ -3,15 +3,19 @@
 // C-4 (EE Z-1, architect v388 RULINGS items 1–14): 050_tribe_health sends every request through utils/target_http.mjs.
 // Every leg drives the REAL plugin against a REAL node:http server on 127.0.0.1 — no fetch stub, no hand-built result.
 //
-// The gap criterion is DERIVED from what the code decided before the move (v388 item 2): a reply is listed iff today's
-// code would have read its body to decide — probeHealth when 200 <= status < 400, probeDebugEndpoints when status === 200,
-// probeErrorVerbosity on any reply. The ping, headers, CORS, auth and method probes never read a body and list nothing.
-// The list's scope is stated in the record: a probe that got no reply is not listed (G-64 boards that false clean).
+// The gap criterion: a reply is listed iff a check could not decide (v388 item 2, as changed by v391 C4-R1). It is DERIVED
+// from what the code read before the move — probeHealth when 200 <= status < 400, probeDebugEndpoints when status === 200,
+// probeErrorVerbosity on any reply — less one case: a debug 200 over the 1 MiB cap has proved more than the 10 bytes the
+// upgrade asks for, so it decides, takes the upgrade and is not listed. The ping, headers, CORS, auth and method probes
+// never read a body and list nothing. The list's scope is stated in the record: a probe that got no reply is not listed
+// (G-64 boards that false clean).
 // ─────────────────────────────────────────────────────────────────────────────
+import './helpers/no_operator_dotenv.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import plugin from '../plugins/050_tribe_health.mjs';
@@ -128,6 +132,70 @@ test('(t-4) the 8 KiB cut is gone: a marker at byte 10 000 of a 20 KiB health bo
   } finally { await s.close(); }
 });
 
+// ── (t-4b) v391 C4-R1: a debug 200 over the cap DECIDES (it proved more than 10 bytes) — the upgrade holds, not listed ──
+const BIG_BODY = Buffer.alloc(2 * 1024 * 1024, 0x78);
+for (const [framing, headers] of [['Content-Length', { 'content-type': 'text/plain', 'content-length': String(BIG_BODY.length) }],
+  ['chunked', { 'content-type': 'text/plain' }]]) {
+  test(`(t-4b) /metrics answering 200 with a 2 MiB uncoded body (${framing}) is CRITICAL with the content suffix and is not listed; a health and an error path over the cap stay listed`, async () => {
+    const s = await serve((req) => (req.url === '/metrics' ? { status: 200, headers, body: BIG_BODY }
+      : req.url === '/healthz' || req.url === '/api/v99/nonexistent' ? { status: req.url === '/healthz' ? 200 : 500, headers, body: BIG_BODY }
+        : null));
+    try {
+      const r = await run(s.port, { timeoutMs: 5000 });
+      const metrics = r.findings.debug.filter((f) => f.endpoint === '/metrics');
+      assert.equal(metrics.length, 1);
+      assert.equal(metrics[0].severity, 'critical', 'D-A: the upgrade a 2 KiB body takes, a 2 MiB body takes too');
+      assert.match(metrics[0].detail, / — returns content without authentication$/);
+      assert.equal(r.overallSeverity, 'critical');
+      // Only the checks that read CONTENT could not decide: health and error paths over the cap are listed, /metrics is not.
+      assert.deepEqual(r.details.notRead, [{ path: '/healthz', method: 'GET', reason: 'body-cap' },
+        { path: '/api/v99/nonexistent', method: 'GET', reason: 'body-cap' }]);
+    } finally { await s.close(); }
+  });
+}
+
+test('(t-4c) contrast: a CODED /metrics 200 cannot decide — high, no suffix, listed encoded-body', async () => {
+  const s = await serve((req) => (req.url === '/metrics' ? CODED_200() : null));
+  try {
+    const r = await run(s.port);
+    const [metrics] = r.findings.debug.filter((f) => f.endpoint === '/metrics');
+    assert.equal(metrics.severity, 'high');
+    assert.doesNotMatch(metrics.detail, /returns content/);
+    assert.deepEqual(r.details.notRead, [coded('/metrics')]);
+  } finally { await s.close(); }
+});
+
+// v392 R1(a): the branch's premise is "over the cap ⇒ more than 10 bytes", true only at the waist's DEFAULT cap (1 MiB).
+test('(t-4d) the premise: 050 passes no maxBodyBytes, so an 8-byte /metrics body is READ — high, no suffix, not listed', async () => {
+  assert.equal((SRC.match(/maxBodyBytes/g) ?? []).length, 0, 'no maxBodyBytes anywhere in 050: the cap is the waist default');
+  const s = await serve((req) => (req.url === '/metrics' ? { status: 200, headers: { 'content-type': 'text/plain' }, body: '12345678' } : null));
+  try {
+    const r = await run(s.port);
+    const [metrics] = r.findings.debug.filter((f) => f.endpoint === '/metrics');
+    assert.equal(metrics.severity, 'high', 'an 8-byte body is not over 10 bytes, and no cap below it turned it into a body-cap');
+    assert.doesNotMatch(metrics.detail, /returns content/);
+    assert.deepEqual(r.details.notRead, []);
+  } finally { await s.close(); }
+});
+
+// v392 R1(b), the veto's accept (fourth quadrant): a DECLARED length proves nothing; only received bytes do.
+test('(t-4e) a 200 that DECLARES Content-Length 2 MiB, sends 5 bytes and closes does not take the upgrade: it reads body-error and is listed', async () => {
+  const server = http.createServer((req, res) => {
+    req.resume();
+    if (req.url !== '/metrics') { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('not found'); }
+    res.writeHead(200, { 'content-type': 'text/plain', 'content-length': String(2 * 1024 * 1024) });
+    res.write('12345', () => res.socket.destroy());
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  try {
+    const r = await run(server.address().port);
+    const [metrics] = r.findings.debug.filter((f) => f.endpoint === '/metrics');
+    assert.equal(metrics.severity, 'high');
+    assert.doesNotMatch(metrics.detail, /returns content/);
+    assert.deepEqual(r.details.notRead, [{ path: '/metrics', method: 'GET', reason: 'body-error' }]);
+  } finally { await new Promise((ok) => server.close(ok)); }
+});
+
 // ── (t-5) the target's text: never in a gap; in run()'s result ONLY where 050 reports header text (v388 1b, 5, 14) ────
 const CANARY = 'zqcanary7731';
 function canaryPaths(value, at = '$', out = new Set()) {
@@ -165,6 +233,28 @@ test('(t-5) a coded server with a canary in every header and the body: the canar
   try {
     assert.ok((await run(u.port)).serverInfo.server.includes(CANARY));
   } finally { await u.close(); }
+});
+
+// ── (t-5b) v391 C4-R4: the BODY half — an UNCODED server with the canary in every body and in no header ─────────────────
+test('(t-5b) an uncoded server with a canary in every BODY: body-derived findings fire, and the canary is in 0 places of run()\'s result and of conclude\'s record', async () => {
+  const C = CANARY;
+  const BODY = `{"version":"${C}","hostname":"${C}","uptime":"${C}","database":"${C}","env":"dev","password":"${C}"}\n` +
+    `Traceback (most recent call last)\n  at ${C} (/srv/${C}.js:1:1)\n  at x.${C}.java:12\nSELECT * FROM ${C} WHERE k='${C}'\n` +
+    `/home/${C}/app goroutine 7 Exception ${'e'.repeat(200)}\n`;
+  const isErrorPath = (url) => ERRORS.some((p) => url === p);
+  const s = await serve((req) => ({ status: isErrorPath(req.url) ? 500 : 200, headers: { 'content-type': 'application/json' }, body: BODY }));
+  try {
+    const r = await run(s.port);
+    assert.deepEqual(r.details.notRead, [], 'every body was read');
+    // Positive control: the body WAS read, and every body-reading check decided from it.
+    assert.ok(r.findings.health.filter((f) => f.check === 'health_info_leak').length > 0, 'health leaks fired');
+    assert.ok(r.findings.errors.length > 0, 'error-body findings fired');
+    assert.ok(r.findings.debug.filter((f) => / — returns content without authentication$/.test(f.detail)).length > 0, 'debug upgrades fired');
+    assert.deepEqual([...canaryPaths({ body: BODY.slice(0, 40) })], ['$.body'], 'positive control: the walker sees a body excerpt');
+    assert.deepEqual([...canaryPaths(r)], [], 'no body text in run()\'s result');
+    const [rec] = plugin.conclude({ result: r });
+    assert.deepEqual([...canaryPaths(rec)], [], 'no body text in conclude\'s record');
+  } finally { await s.close(); }
 });
 
 // ── (t-6) a refused port and a silent one (v388 6) ──────────────────────────────────────────────────────────────────
@@ -210,6 +300,50 @@ test('(t-7) a bad TRIBE_API_* value throws a TypeError naming the variable and i
   await assert.rejects(plugin.run('::1', 8080, { timeoutMs: 1000 }), TypeError);
 });
 
+// ── (t-7c) v391 C4-R2: the timeout and the port are read STRICTLY — digits only after trim, else the TypeError ─────────
+const NOT_DIGITS = ['1e3', '30s', '5000ms', '0x10', '+80', '-1', '8080.0', '1_000', '８０８０', '   '];
+test('(t-7c) TRIBE_API_TIMEOUT_MS / TRIBE_API_PORT that are not digits after trim ("1e3", "30s", "+80", "8080.0", fullwidth, blank …) throw the TypeError; an explicit 0 in opts throws; env "" is unset', async () => {
+  for (const k of ['TRIBE_API_TIMEOUT_MS', 'TRIBE_API_PORT']) {
+    for (const v of NOT_DIGITS) {
+      process.env[k] = v;
+      try {
+        await assert.rejects(plugin.run('127.0.0.1', 8080), (e) => e instanceof TypeError && e.message.startsWith(k),
+          `${k}=${JSON.stringify(v)} must be the TypeError, never a down or "timeout" reading`);
+      } finally { delete process.env[k]; }
+    }
+  }
+  // v392 6(i): an explicit falsy opts value is a value, read strictly — it does not fall through to the next source.
+  await assert.rejects(plugin.run('127.0.0.1', 8080, { timeoutMs: 0 }), (e) => e instanceof TypeError && e.message.startsWith('TRIBE_API_TIMEOUT_MS'));
+  await assert.rejects(plugin.run('127.0.0.1', 8080, { timeoutMs: 1000, port: 0 }), (e) => e instanceof TypeError && e.message.startsWith('TRIBE_API_PORT'));
+  // Accept arm, against real servers that answer at once.
+  const s = await serve(() => ({ status: 200, body: 'ok' }));
+  const c = await serve(CODED_200);
+  try {
+    process.env.TRIBE_API_TIMEOUT_MS = ' 250 ';
+    try {
+      assert.equal((await plugin.run('127.0.0.1', s.port)).up, true, '" 250 " is 250 ms, and the server answers inside it');
+    } finally { delete process.env.TRIBE_API_TIMEOUT_MS; }
+    assert.equal((await plugin.run('127.0.0.1', s.port, { timeoutMs: 250 })).up, true);
+    // Env "" is UNSET (beside "   ", which is a value and throws above): the default timeout, the scan's port.
+    process.env.TRIBE_API_TIMEOUT_MS = ''; process.env.TRIBE_API_PORT = '';
+    try {
+      const r = await plugin.run('127.0.0.1', s.port);
+      assert.equal(r.up, true);
+      assert.equal(r.target, `http://127.0.0.1:${s.port}`);
+    } finally { delete process.env.TRIBE_API_TIMEOUT_MS; delete process.env.TRIBE_API_PORT; }
+    // The padded port is the port probed, and it is the NUMBER (v392 6(iii)): in the target and in the gap row.
+    process.env.TRIBE_API_PORT = ` ${c.port} `;
+    try {
+      const r = await plugin.run('127.0.0.1', 9, { timeoutMs: 3000 });
+      assert.equal(r.up, true, 'the padded TRIBE_API_PORT is the port probed');
+      assert.equal(r.target, `http://127.0.0.1:${c.port}`, 'and it is the number, not the padded text');
+      assert.equal(typeof r.findings.coverage[0].port, 'number');
+      assert.equal(r.findings.coverage[0].port, c.port);
+    } finally { delete process.env.TRIBE_API_PORT; }
+    assert.equal((await plugin.run('127.0.0.1', 9, { timeoutMs: 3000, port: s.port })).target, `http://127.0.0.1:${s.port}`);
+  } finally { await s.close(); await c.close(); }
+});
+
 test('(t-7b) through the REAL plugin manager, a thrown run() is recorded as status "error" with its message — not ran-and-clean', async () => {
   const { default: PluginManager } = await import('../plugin_manager.mjs');
   const mgr = new PluginManager('/nonexistent');
@@ -252,11 +386,15 @@ test('(t-9) every method 050 can send — the array literal, every `method:` val
   const array = SRC.match(/const dangerousMethods = \[([^\]]*)\]/);
   assert.ok(array, 'the dangerousMethods array literal is where the leg reads it');
   const methods = new Set([...array[1].matchAll(/["']([A-Z]+)["']/g)].map((m) => m[1]));
-  // One declared non-send occurrence: notReadEntry's output field copies the method probe() SENT (`res.method`).
+  // One declared non-send occurrence: notReadEntry's output field copies the method probe() SENT (`res.method`). Only
+  // that one LINE leaves the scan (v391 nit): a second `method:` written anywhere in notReadEntry is still read.
   const entryFn = SRC.match(/function notReadEntry\([^)]*\) \{[\s\S]*?\n\}/)?.[0] ?? '';
-  assert.match(entryFn, /\bmethod: res\.method,/, 'notReadEntry is where the leg reads its one copied field');
+  const copiedLine = /\n[ \t]*method: res\.method,[ \t]*(?=\n)/;
+  assert.match(entryFn, copiedLine, 'notReadEntry is where the leg reads its one copied field');
+  const scanned = SRC.replace(entryFn, entryFn.replace(copiedLine, ''));
+  assert.equal(scanned.length, SRC.length - entryFn.match(copiedLine)[0].length, 'exactly the one line left the scan');
   let sites = 0;
-  for (const m of SRC.replace(entryFn, '').matchAll(/\bmethod:\s*([^,}\n]+?)\s*[,}\n]/g)) {
+  for (const m of scanned.matchAll(/\bmethod:\s*([^,}\n]+?)\s*[,}\n]/g)) {
     sites++;
     const v = m[1];
     const lit = v.match(/^["']([A-Z]+)["']$/);
@@ -345,6 +483,127 @@ test('(t-13) the report loader shapes the gap as a gap, uncounted; conclude keep
     assert.deepEqual(rec.tribeHealth.findings.find((f) => f.details?.evidenceGap === true), { ...r.findings.coverage[0], category: 'coverage' });
     const c = await concluder.run(raw.results);
     assert.deepEqual(c.services.find((x) => x.source === 'tribe-health').tribeHealth.notRead, r.details.notRead);
+  } finally { await s.close(); }
+});
+
+// ── (t-13b) v391 C4-R3: the SCAN CONCLUSION FILE, written by the REAL scanSingleHost, carries the gap whole ─────────────
+test('(t-13b) scan_conclusion_raw.json written by scanSingleHost carries the gap: in results[050] and in the tribe-health record, whole', async () => {
+  const s = await serve(CODED_200);
+  let r;
+  try { r = await run(s.port); } finally { await s.close(); }
+  const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY, ai: process.env.OPENAI_OUT_PATH };
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tribe-conclusion-'));
+  process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence'; delete process.env.OPENAI_OUT_PATH;
+  try {
+    const { scanSingleHost } = await import('../cli.mjs');
+    const { default: PluginManager } = await import('../plugin_manager.mjs');
+    // The REAL plugin object (its conclude included); run() hands back the real result driven above, so the scan does
+    // not depend on the scan target serving the API.
+    const pm = await PluginManager.create({ plugins: [{ ...plugin, requirements: {}, runStrategy: 'single', run: async () => r }, concluder] });
+    const absent = () => { throw Object.assign(new Error('not installed'), { code: 'MODULE_NOT_FOUND' }); };
+    await scanSingleHost(pm, '192.0.2.10', 'all', { resolveEE: absent }, 'basic');
+    const files = fs.readdirSync(outRoot, { recursive: true }).filter((f) => String(f).endsWith('scan_conclusion_raw.json'));
+    assert.equal(files.length, 1, `one conclusion file: ${files}`);
+    // Read back from DISK (v392 4(d)): the four facts by name.
+    const j = JSON.parse(fs.readFileSync(path.join(outRoot, files[0]), 'utf8'));
+    const ALL = HEALTH.length + DEBUG.length + ERRORS.length;
+    const res = j.results.find((x) => x.id === '050').result;
+    assert.equal(res.findings.coverage.length, 1, 'fact 1: results[050] carries one coverage row');
+    assert.deepEqual(res.findings.coverage, r.findings.coverage, 'the raw result keeps the gap row');
+    assert.equal(res.details.notRead.length, ALL, `fact 2: results[050].details.notRead has ${ALL} entries`);
+    assert.deepEqual(res.details.notRead, r.details.notRead);
+    const svc = (j.conclusion?.result?.services ?? []).find((x) => x.source === 'tribe-health');
+    assert.ok(svc, 'the tribe-health record is in the written conclusion');
+    assert.equal(svc.tribeHealth.notRead.length, ALL, `fact 3: the tribe-health record's notRead has ${ALL} entries`);
+    assert.deepEqual(svc.tribeHealth.notRead, r.details.notRead);
+    // fact 4: the gap whole in tribeHealth.findings.
+    assert.deepEqual(svc.tribeHealth.findings.filter((f) => f.details?.evidenceGap === true), [{ ...r.findings.coverage[0], category: 'coverage' }]);
+    assert.match(svc.info, /^API probe incomplete: the body of \d+ replies was not read/);
+  } finally {
+    for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic], ['OPENAI_OUT_PATH', keep.ai]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+// ── (t-13c) v391 C4-R3: `report --since` through the REAL runReport, over runs written by the REAL record writers ─────
+async function sinceReport(before, after) {
+  const { runReport } = await import('../cli.mjs');
+  const { resolveCapabilities } = await import('../utils/capabilities.mjs');
+  const { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord } = await import('../utils/run_record.mjs');
+  const { sealRunRecord } = await import('../utils/run_chain.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tribe-since-'));
+  const mk = async (startedAt, result) => {
+    const runId = newRunId();
+    await writeRunStart(outRoot, { runId, startedAt, hostsRequested: ['10.0.0.7'], pluginsRequested: ['050'], portsRequested: '8080',
+      tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
+    const dir = `d-${runId}`; fs.mkdirSync(path.join(outRoot, dir), { recursive: true });
+    fs.writeFileSync(path.join(outRoot, dir, 'scan_conclusion_raw.json'), JSON.stringify({ runId,
+      pluginStatus: [{ id: '050', name: plugin.name, status: 'ran', reason: null }], results: [{ id: '050', name: plugin.name, result }] }), 'utf8');
+    await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir });
+    await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
+    await sealRunRecord(outRoot, runId);
+    return runId;
+  };
+  const a = await mk('2026-09-01T10:00:00.000Z', before); const b = await mk('2026-09-08T10:00:00.000Z', after);
+  const rep = await runReport({ from: outRoot, format: 'executive', run: b, since: a, out: path.join(outRoot, 'exec.html') }, resolveCapabilities('pro'));
+  assert.equal(rep.code, 0, rep.stderr);
+  const m = rep.stdout.match(/(\d+) new · (\d+) resolved · (\d+) changed · (\d+) not-comparable · (\d+) unchanged/);
+  assert.ok(m, `the delta line: ${rep.stdout.slice(0, 300)}`);
+  return { stdout: rep.stdout, n: { new: +m[1], resolved: +m[2], notComparable: +m[4], unchanged: +m[5] } };
+}
+// The baseline's two body-derived rows: the health leak, and /metrics upgraded on its 64-byte body.
+const LEAKY_TWO = (req) => (req.url === '/health' ? { status: 200, headers: { 'content-type': 'application/json' }, body: '{"version":"1.0"}' }
+  : req.url === '/metrics' ? { status: 200, headers: { 'content-type': 'text/plain' }, body: 'm'.repeat(64) } : null);
+async function runOn(reply) { const s = await serve(reply); try { return await run(s.port); } finally { await s.close(); } }
+const LEAK_TITLES = ['/health exposes: version/build info',
+  '/metrics is accessible (HTTP 200) – Prometheus metrics — returns content without authentication'];
+test('(t-13c) report --since, both arms (v392 4(e)): every reply read and the two rows absent → 2 resolved; replies not read → 0 resolved, both rows NOT COMPARABLE by title for the evidence gap', async () => {
+  const baseline = await runOn(LEAKY_TWO);
+  // Arm 1, FOURTH QUADRANT FIRST — the accept: the rows are gone and every reply was read.
+  const read = await sinceReport(baseline, await runOn(() => null));
+  assert.equal(read.n.resolved, 2, read.stdout);
+  assert.equal(read.n.notComparable, 0, read.stdout);
+  // Arm 2 — the replies were not read: nothing is resolved, and each baseline row is held, by its title.
+  const held = await sinceReport(baseline, await runOn(CODED_200));
+  assert.equal(held.n.resolved, 0, 'a body that was not read fixed nothing');
+  assert.equal(held.n.notComparable, 2, held.stdout);
+  const rows = held.stdout.split('\n').filter((l) => /NOT COMPARABLE/.test(l));
+  for (const title of LEAK_TITLES) {
+    const row = rows.find((l) => l.includes(`NOT COMPARABLE (disappeared)  ${title} — evidence-gap: `));
+    assert.ok(row, `the baseline row "${title}" is held with the reason evidence-gap:\n${rows.join('\n')}`);
+    assert.match(row, /recorded an evidence gap on 10\.0\.0\.7\/.*\(050\): \[COVERAGE GAP\] TRIBE API probe/);
+  }
+  assert.doesNotMatch(held.stdout, /NOT COMPARABLE \([a-z]+\)\s+\[COVERAGE GAP\]/, 'the gap is the REASON, never the subject of a row');
+});
+
+// v392 4(e3): R1 in the delta — an UNCODED /metrics over the cap keeps the row's text, so the row is UNCHANGED.
+test('(t-13c3) report --since: the same /metrics now answering 2 MiB uncoded reads UNCHANGED — not held, not new (R1 in the delta)', async () => {
+  const baseline = await runOn(LEAKY_TWO);
+  const big = await runOn((req) => (req.url === '/metrics' ? { status: 200, headers: { 'content-type': 'text/plain' }, body: BIG_BODY }
+    : LEAKY_TWO(req)));
+  const d = await sinceReport(baseline, big);
+  assert.deepEqual({ new: d.n.new, resolved: d.n.resolved, notComparable: d.n.notComparable }, { new: 0, resolved: 0, notComparable: 0 }, d.stdout);
+  assert.equal(d.n.unchanged, actionable(baseline).length, `every baseline row, /metrics included, is unchanged: ${d.stdout}`);
+});
+
+// ── (t-13d) v392 3: the RAW html shows the not-read state in the tribe-health row; it prints no gap ROW (stated limit) ─
+test('(t-13d) the raw html: the tribe-health row carries "API probe incomplete" and the count; no total on the page counts the gap', async () => {
+  const { buildAdminRawHtmlReport } = await import('../utils/raw_report_html.mjs');
+  const s = await serve(CODED_200);
+  try {
+    const r = await run(s.port);
+    const c = await concluder.run([{ id: '050', name: plugin.name, result: r }]);
+    const html = await buildAdminRawHtmlReport({ host: '127.0.0.1', whenIso: '2026-11-25T00:00:00Z', summary: c.summary, services: c.services, evidence: c.evidence });
+    const ALL = HEALTH.length + DEBUG.length + ERRORS.length;
+    const row = html.match(/<tr data-key="tcp-8080">[\s\S]*?<\/tr>/)?.[0];
+    assert.ok(row, 'the tribe-health row, under its record key 8080 (G-67)');
+    assert.match(row, new RegExp(`API probe incomplete: the body of ${ALL} replies was not read`));
+    // The page's only total-like text is the Summary line; it does not count findings, and so cannot count the gap.
+    const summary = html.match(/<div class="meta">Summary: ([^<]*)<\/div>/)?.[1] ?? '';
+    assert.doesNotMatch(summary, /finding|gap/i, `Summary: ${summary}`);
+    // Stated limit (v392 3), deliberately NOT asserted: the raw html prints no [COVERAGE GAP] row. A leg pinning that
+    // absence would go red on the day a gap row is added.
   } finally { await s.close(); }
 });
 

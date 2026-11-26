@@ -18,8 +18,9 @@
 //
 // Every request goes through utils/target_http.mjs (EE Z-1 C-4): node:http, one connection per request, no redirect
 // followed, nothing decoded. A reply whose body the waist did not read (a coded reply, one over the 1 MiB cap, one whose
-// body timed out or failed) is LISTED when a check would have decided from that body — the record says so and the
-// history comparison holds this plugin's vanished findings instead of reading them as resolved.
+// body timed out or failed) is LISTED iff a check could not decide without that body — the record says so and the
+// history comparison holds this plugin's vanished findings instead of reading them as resolved. (A debug 200 over the
+// cap decides: its check asks only for more than 10 bytes.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { requestTarget, MAX_TIMEOUT_MS } from "../utils/target_http.mjs";
@@ -45,20 +46,37 @@ const SEVERITY_RANK = { pass: 0, info: 1, low: 2, medium: 3, high: 4, critical: 
 //    TRIBE_API_AUTH_TOKEN=<token>    (to test authenticated vs unauthenticated)
 //
 
+// An integer setting, read STRICTLY (v391 C4-R2): a number must be an integer, a string must be digits only after trim.
+// parseInt and Number read "1e3", "30s", "5000ms" and "0x10" as OTHER numbers (1, 30, 5000, 16); here each one is NaN.
+function strictInt(value) {
+  if (typeof value === "number") return Number.isInteger(value) ? value : NaN;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return NaN;
+}
+
+// The first SET source (v392 6(i)). An opts value is unset only when undefined or null — an explicit 0 is a value and is
+// read strictly, never passed over. An environment value is unset when absent or "" ("   " is a value, and not digits).
+// The scan's `port` argument is not read this way: the engine passes 0 under runStrategy "single"
+// (plugin_manager.mjs:289-292), so there 0 means "no port" and `port || 8080` keeps that term's fallback.
+function firstSet(optValue, envValue, fallback) {
+  if (optValue !== undefined && optValue !== null) return optValue;
+  if (envValue !== undefined && envValue !== "") return envValue;
+  return fallback;
+}
+
 // A bad value is a TypeError naming what the operator set — never a host-down or "timeout" reading (S-4, v388 7).
 function loadConfig(host, port, opts = {}) {
   const config = {
     host:      opts.host      || process.env.TRIBE_API_HOST      || host || "127.0.0.1",
-    port:      opts.port      || process.env.TRIBE_API_PORT      || port || 8080,
+    port:      strictInt(firstSet(opts.port, process.env.TRIBE_API_PORT, port || 8080)),
     scheme:    opts.scheme    || process.env.TRIBE_API_SCHEME    || "http",
-    timeoutMs: parseInt(opts.timeoutMs || process.env.TRIBE_API_TIMEOUT_MS || "5000", 10),
+    timeoutMs: strictInt(firstSet(opts.timeoutMs, process.env.TRIBE_API_TIMEOUT_MS, 5000)),
     authToken: opts.authToken || process.env.TRIBE_API_AUTH_TOKEN || null,
   };
   if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 1 || config.timeoutMs > MAX_TIMEOUT_MS) {
     throw new TypeError(`TRIBE_API_TIMEOUT_MS must be an integer number of milliseconds from 1 to ${MAX_TIMEOUT_MS}`);
   }
-  const p = Number(config.port);
-  if (!Number.isInteger(p) || p < 1 || p > 65535) {
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new TypeError("TRIBE_API_PORT (or the scan's port) must be an integer from 1 to 65535");
   }
   if (config.scheme !== "http" && config.scheme !== "https") {
@@ -128,7 +146,7 @@ function notReadEntry(path, res) {
 }
 
 // The coverage gap for the replies listed above (the 040 tlsCoverageGap shape): INFO, `details.evidenceGap`, shown as a
-// gap and never counted. Its port is the port PROBED; the record key stays 8080 (G-67).
+// gap and never counted. Its port is the port PROBED, the integer loadConfig read; the record key stays 8080 (G-67).
 function tribeCoverageGap(notRead, port) {
   const n = notRead.length;
   return {
@@ -138,8 +156,9 @@ function tribeCoverageGap(notRead, port) {
     detail:
       "A response began and its body was not read (a coded reply, a body over the 1 MiB cap, or a body that timed out " +
       "or failed): the checks that decide from that body did not run on those paths. This is not a pass. This list " +
-      "names the replies whose body was not read; a probe that got no reply is not listed.",
-    port: Number(port),
+      "names the replies whose body was not read where a check could not decide without it; a probe that got no " +
+      "reply is not listed.",
+    port,
     details: { evidenceGap: true, notRead },
   };
 }
@@ -233,10 +252,13 @@ async function probeDebugEndpoints(config) {
         httpStatus: res.status,
       };
 
-      // Upgrade severity if endpoint returns actual content (not just auth wall). A 200 whose body was not read is
-      // listed; the finding keeps its own severity and nothing guesses the upgrade.
-      if (res.status === 200 && res.notRead) notRead.push(notReadEntry(ep.path, res));
-      if (res.status === 200 && res.body && res.body.length > 10) {
+      // Upgrade severity if endpoint returns actual content (not just auth wall) — decided by LENGTH alone (> 10). A 200
+      // over the 1 MiB cap has proved that length, so it decides and takes the upgrade (v391 C4-R1). A 200 not read for
+      // any other reason (coded, body timed out, body failed) could not decide: it is listed, and the finding keeps its
+      // own severity.
+      const overCap = res.notRead?.reason === "body-cap";
+      if (res.status === 200 && res.notRead && !overCap) notRead.push(notReadEntry(ep.path, res));
+      if (res.status === 200 && (overCap || (res.body && res.body.length > 10))) {
         issue.detail += " — returns content without authentication";
         if (SEVERITY_RANK[ep.severity] < SEVERITY_RANK[SEVERITY.CRITICAL]) {
           issue.severity = SEVERITY.CRITICAL;
@@ -571,7 +593,7 @@ export default {
       probeMethodFuzzing(config),
     ]);
 
-    // The replies whose body was not read, where a check would have decided from it. Not counted, never moves severity.
+    // The replies whose body was not read where a check could not decide without it. Not counted, never moves severity.
     const notRead = [...health.notRead, ...debug.notRead, ...errors.notRead];
     const coverageGap = notRead.length > 0 ? tribeCoverageGap(notRead, config.port) : null;
 
