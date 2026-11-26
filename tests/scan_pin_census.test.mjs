@@ -55,7 +55,8 @@ const THIRD_PARTY = {
   mdns: 'multicast service discovery through the system daemon — no target name',
   'multicast-dns': 'multicast service discovery on the local link — no target name',
   'node-upnp-utils': {
-    why: 'SSDP multicast; a description URL is fetched only on the answering device\'s own address (upnp_scanner)',
+    why: 'SSDP multicast; a description URL is fetched only on the answering device\'s own address (upnp_scanner). The version and witnesses below are read off the INSTALLED tree (1.0.3 in this checkout); package.json declares ^1.0.3, so a customer install may resolve a later 1.x whose request sites nobody read (G-20)',
+    declared: '^1.0.3',
     agent: 'absent = global pool — its description fetch, mHttp.request(url, { method: \'GET\' }) in lib/upnp-utils-dd.js, passes no agent: http.globalAgent, keep-alive on. discover() reaches it for an M-SEARCH answer whose LOCATION host equals the sender; the body is appended with no cap inside a 1000 ms timer (G-20). Its second request site, invokeAction\'s SOAP POST (lib/upnp-utils.js), has no caller in the library and the plugin never calls it',
     version: '1.0.3',
     witness: [['lib/upnp-utils-dd.js', /req = mHttp\.request\(url, \{ method: 'GET' \}, \(res\) => \{/g, 1], ['lib/upnp-utils.js', /mHttp\.request\(/g, 1]],
@@ -68,9 +69,11 @@ const THIRD_PARTY = {
 
 // ONE left-to-right pass over comments AND strings, so each consumes its own extent: a `/*` inside a string ('*/*') or
 // inside a line comment (`data/compliance/*.json`) opens nothing. The two-regex form this replaces stripped block comments
-// first and ate live code in 9 of the 94 shipped files — 180 lines of http_probe, 517 of mcp_server — so every leg here
-// was blind there (measured by the W-1 fold, architect v385). A block comment keeps its newlines. Regular-expression
-// literals are not parsed (the stated limit in W-1's header).
+// first and ate live code in 13 of the 94 shipped files — non-whitespace characters missing against the comment ranges of
+// Node's bundled acorn; 180 lines of http_probe, 517 of mcp_server — so every leg here was blind there. 12 of the 13 then
+// failed node --check; the 13th, utils/raw_report_html.mjs, lost 23 characters and still parsed (the W-1 fold, architect
+// v385; re-derived under v386). A block comment keeps its newlines. Regular-expression literals are not parsed: the stated
+// limit in W-1's header, whose live occupants (w1-k) holds by equality in STRIPPED_OPENERS.
 const COMMENT_OR_STRING = /(?<!\\)\/\*[\s\S]*?\*\/|(?<![:\\])\/\/[^\n]*|'(?:\\[\s\S]|[^'\\\n])*'|"(?:\\[\s\S]|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`/g;
 const stripComments = (src) => src.replace(COMMENT_OR_STRING, (m) => (m.startsWith('/*') ? m.replace(/[^\n]/g, '') : m.startsWith('//') ? '' : m));
 const importOf = (mod) => new RegExp(String.raw`(?:from|import\(|require\()\s*['"\`](?:node:)?${mod}['"\`]`);
@@ -304,8 +307,9 @@ test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — ev
 // reason. The import is derived from the LOADER IDENTIFIER, never one call shape (netModulesIn says which). Per file the
 // COUNTS of `lookup`, `agent`, `createConnection`, `Agent`, `globalAgent` and `keepAlive` are pinned by equality, COMMENTS
 // INCLUDED, and for an http, https or http2 importer its request calls (`.request(`, `.get(`, a named request/get under any
-// alias): a new option, a new request site, a globalAgent mutation, or a comment gaining or losing one of those words fails
-// here by file and token until the row is re-read. A row with an HTTP agent also pins a WITNESS of its option site by match
+// alias) plus the whole-word counts of `request`, `get` and `ClientRequest`: a new option, a new request site, a
+// globalAgent mutation, or a comment gaining or losing one of those words fails here by file and token until the row is
+// re-read. A row with an HTTP agent also pins a WITNESS of its option site by match
 // count over its CODE (comments removed), so a value flip that keeps every token, or the option commented out, is red.
 //
 // What this census does NOT hold, by design: a request through global fetch (C-8's census,
@@ -314,23 +318,35 @@ test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — ev
 // witness over its INSTALLED request line, (w1-f)).
 // Stated limits: tokens are case-sensitive and whole-word (a hyphen is a boundary, so a `user-agent` header IS counted); a
 // request call through a name the count cannot bind (a method held in a variable, Reflect.apply, a request function
-// passed in) moves no count; imports it cannot see: a computed or concatenated specifier (`import(name)`,
-// `require('node:' + m)`), a loader passed through a parameter or an object property (`deps.load('net')`),
-// `module.constructor._load`, `process.binding`; the shipped set is read from package.json `files` without .npmignore,
-// which can only REMOVE a file (an over-declared row: noise, not silence). stripComments does not parse regular-expression
-// literals: a quote or a `/*` inside one can mis-scope what follows. Measured with a parse oracle (each shipped file,
-// stripped, through node --check): 94 of 94 parse; the replaced two-regex form left 12 of 94 unparseable.
+// passed in) moves no count — for an http, https or http2 importer the whole-word counts of `request`, `get` and
+// `ClientRequest` (comments and strings included) then catch a site written with one of those words, and one written
+// with none moves nothing; imports it cannot see: a computed or concatenated specifier (`import(name)`,
+// `require('node:' + m)`), a loader passed through a parameter or an object property (`deps.load('net')`), a loader
+// invoked through `.call`, `.apply` or Reflect.apply, a specifier pre-bound by `.bind(thisArg, 'net')` (the bound name
+// IS a loader; its call carries no specifier), `module.constructor._load`, `process.binding`; the shipped set is read from
+// package.json `files` without .npmignore, which can only REMOVE a file (an over-declared row: noise, not silence).
+// stripComments does not parse regular-expression literals: a quote or a backtick inside one flips its string parity.
+// Today that KEEPS comments as code in three shipped files — utils/executive_report.mjs, utils/jira_export.mjs and
+// utils/report_md.mjs (against Node's bundled acorn at CE ec17d92: 145, 42 and 27 lines kept, 0 lines of code eaten) —
+// the noise direction. The silence direction is one edit away: after a parity flip a real template's text is read as
+// code, and a `/*` inside it eats to the next `*/`. (w1-k) holds by equality the set of shipped files whose stripped text
+// still has a line beginning with a comment opener. A parse oracle (each shipped file, stripped, through node --check:
+// 94 of 94 parse; the replaced two-regex form left 12 unparseable) sees code EATEN, never a comment KEPT — a kept comment
+// parses.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const NET_SPEC = String.raw`(?<q>['"\`])(?:node:)?(?<mod>http2|https|http|net|tls|dgram)\k<q>`;
 const GAP = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*`;   // whitespace and comments between a loader and its specifier
+const CALL = String.raw`${GAP}(?:\?\.${GAP})?\(`;   // a call's open paren, optionally `?.(`, comments allowed
 const ID = String.raw`[\w$]+`;
 const anyOf = (names) => [...names].map((n) => n.replace(/\$/g, '\\$')).join('|');
 /**
  * The socket modules a source imports, read over the RAW text and keyed on the IDENTIFIER, never on one call shape (v385:
  * `_require('net')` and process.getBuiltinModule were invisible to the first cut). A LOADER is: import / import(), any
  * call ending `require(` (`_require`, `module.require`), getBuiltinModule, a name assigned from createRequire or from any
- * alias of it, a name holding `require` or getBuiltinModule, and an immediate `createRequire(…)(`.
+ * alias of it, a name holding a loader or a loader's `.bind(…)` (to a fixpoint, so an alias of an alias counts), and an
+ * immediate `createRequire(…)(`. Every loader call may be optional, `?.(` (v386: the feature-detect spelling of
+ * getBuiltinModule and a bound loader were invisible).
  */
 export function netModulesIn(raw) {
   const creators = new Set(['createRequire']);
@@ -338,15 +354,21 @@ export function netModulesIn(raw) {
   for (const m of raw.matchAll(/\bcreateRequire\s*:\s*([\w$]+)/g)) creators.add(m[1]);
   for (const m of raw.matchAll(/([\w$]+)\s*=\s*(?:[\w$]+\.)*createRequire\b(?!\s*\()/g)) creators.add(m[1]);
   const loaders = new Set();
-  for (const m of raw.matchAll(new RegExp(String.raw`(${ID})\s*=\s*(?:${ID}\.)*(?:${anyOf(creators)})\s*\(`, 'g'))) loaders.add(m[1]);
+  for (const m of raw.matchAll(new RegExp(String.raw`(${ID})\s*=\s*(?:${ID}\.)*(?:${anyOf(creators)})${CALL}`, 'g'))) loaders.add(m[1]);
   for (const m of raw.matchAll(/\bgetBuiltinModule\s*:\s*([\w$]+)/g)) loaders.add(m[1]);
-  for (const m of raw.matchAll(/([\w$]+)\s*=\s*(?:[\w$]+\.)*(?:getBuiltinModule|require)\b(?!\s*[(.\w$])/g)) loaders.add(m[1]);
+  // A name HOLDING a loader (not calling it, not a member of it, not one arm of a ternary), or holding its `.bind(…)`.
+  for (let size = -1; size !== loaders.size;) {
+    size = loaders.size;
+    const held = String.raw`(?:getBuiltinModule|[\w$]*require${loaders.size ? `|${anyOf(loaders)}` : ''})(?![\w$])`;
+    const re = new RegExp(String.raw`(${ID})\s*=\s*(?:${ID}\.)*${held}(?:${GAP}\??\.${GAP}bind${CALL}|(?!${GAP}[(.?]))`, 'g');
+    for (const m of raw.matchAll(re)) loaders.add(m[1]);
+  }
   const shapes = [
-    String.raw`(?:\bfrom|\bimport${GAP}\(|require${GAP}\(|getBuiltinModule${GAP}\()${GAP}${NET_SPEC}`,
+    String.raw`(?:\bfrom|\bimport${GAP}\(|require${CALL}|getBuiltinModule${CALL})${GAP}${NET_SPEC}`,
     String.raw`\bimport${GAP}${NET_SPEC}`,
-    String.raw`(?:${anyOf(creators)})${GAP}\([^()]*(?:\([^()]*\)[^()]*)*\)${GAP}\(${GAP}${NET_SPEC}`,
+    String.raw`(?:${anyOf(creators)})${CALL}[^()]*(?:\([^()]*\)[^()]*)*\)${CALL}${GAP}${NET_SPEC}`,
   ];
-  if (loaders.size > 0) shapes.push(String.raw`(?<![\w$.])(?:${anyOf(loaders)})${GAP}\(${GAP}${NET_SPEC}`);
+  if (loaders.size > 0) shapes.push(String.raw`(?<![\w$.])(?:${anyOf(loaders)})${CALL}${GAP}${NET_SPEC}`);
   const out = new Set();
   for (const shape of shapes) for (const m of raw.matchAll(new RegExp(shape, 'g'))) out.add(m.groups.mod);
   return [...out].sort();
@@ -371,6 +393,16 @@ export function httpCallsIn(raw) {
   const calls = (key) => count(new RegExp(String.raw`\.${key}\s*\(`, 'g'))
     + [...names[key]].reduce((n, id) => n + count(new RegExp(String.raw`(?<![\w$.])${id.replace(/\$/g, '\\$')}\s*\(`, 'g')), 0);
   return { request: calls('request'), get: calls('get') };
+}
+const HTTP_WORDS = ['request', 'get', 'ClientRequest'];
+/**
+ * The request WORDS of an http, https or http2 importer, over the RAW text: whole-word `request`, `get` and `ClientRequest`,
+ * comments and strings included (v386: a request site the call count cannot bind — `const { request: s } = https`,
+ * `new http.ClientRequest`, `http['request']` held in a const — moved no count).
+ */
+export function httpWordsIn(raw) {
+  const count = (t) => (raw.match(new RegExp(String.raw`(?<![\w$])${t}(?![\w$])`, 'g')) ?? []).length;
+  return Object.fromEntries(HTTP_WORDS.map((t) => [t, count(t)]));
 }
 
 test('(w1, first) the importer derivation reads every import shape, comments included, and no look-alike; the token count is whole-word with comments', () => {
@@ -438,6 +470,37 @@ test('(w1-t, first) the request-call count reads member calls and named imports 
   assert.deepEqual(httpCallsIn('x.requestFoo(); requestTarget(u); getThing(); a.getter(); // .request( in a comment'), { request: 1, get: 0 }, 'longer names are not calls; a comment IS counted');
 });
 
+test('(w1-o, first) a loader called optionally (`?.(`) or bound (`.bind(`) is a loader — architect v386 F and J', () => {
+  // FOURTH QUADRANT FIRST — the shapes v386 found invisible, then their neighbours.
+  assert.deepEqual(netModulesIn("process.getBuiltinModule?.('node:http')?.request({ host })"), ['http'], 'F: the feature-detect spelling of getBuiltinModule');
+  assert.deepEqual(netModulesIn("require?.('net')"), ['net'], 'an optional require');
+  assert.deepEqual(netModulesIn("_require?.( /* why */ 'dgram')"), ['dgram'], 'an optional …require( with a comment before the specifier');
+  assert.deepEqual(netModulesIn("const r = createRequire(import.meta.url); r?.('tls')"), ['tls'], 'an optional call of a createRequire alias');
+  assert.deepEqual(netModulesIn("createRequire?.(import.meta.url)?.('https')"), ['https'], 'an immediate createRequire, both calls optional');
+  assert.deepEqual(netModulesIn("const g = process.getBuiltinModule.bind(process); g('node:net')"), ['net'], 'J: getBuiltinModule bound');
+  assert.deepEqual(netModulesIn("const r = require.bind(null); r('tls')"), ['tls'], 'require bound');
+  assert.deepEqual(netModulesIn("const q = _require.bind(null); q?.('dgram')"), ['dgram'], 'a …require bound, then called optionally');
+  assert.deepEqual(netModulesIn("const g3 = process.getBuiltinModule?.bind(process); g3('https')"), ['https'], 'an optional .bind');
+  assert.deepEqual(netModulesIn("const { getBuiltinModule: gbm } = process; const g2 = gbm.bind(process); g2('http2')"), ['http2'], 'an alias of a loader, bound');
+  assert.deepEqual(netModulesIn("const r = createRequire(u); const r2 = r; r2('net')"), ['net'], 'an alias of a loader alias');
+  assert.deepEqual(netModulesIn("const g = process.getBuiltinModule; const h = g.bind(process); h('node:tls')"), ['tls'], 'a chain of two: the bind of a name that holds a loader — the fixpoint');
+  // The veto.
+  assert.deepEqual(netModulesIn("const v = require.resolve.bind(null); v('net'); const n = x.getBuiltinModuleNames.bind(o); n('tls'); maybe?.('dgram')"), [],
+    'a bound require.resolve, a bound longer method name, an optional call of a non-loader');
+  assert.deepEqual(netModulesIn("const pick = flag ? require : other; pick('net')"), [], 'a ternary on a loader is not an assignment of it');
+});
+
+test('(w1-w, first) the request WORDS of an http importer — whole-word `request`, `get` and `ClientRequest`, comments and strings included — architect v386 G, H, I', () => {
+  // FOURTH QUADRANT FIRST — the request sites the call count cannot bind.
+  const Z = { request: 0, get: 0, ClientRequest: 0 };
+  assert.deepEqual(httpWordsIn('const { request: __send } = https; __send({ host });'), { ...Z, request: 1 }, 'G: request destructured from a namespace');
+  assert.deepEqual(httpWordsIn('new http.ClientRequest({ host });'), { ...Z, ClientRequest: 1 }, 'H: ClientRequest constructed');
+  assert.deepEqual(httpWordsIn("const __r = http['request']; __r({ host });"), { ...Z, request: 1 }, 'I: a computed member held in a const');
+  assert.deepEqual(httpWordsIn("http.get(u); // a get\nconst s = 'x-request-id';"), { ...Z, request: 1, get: 2 }, 'a comment and a hyphenated string count: noise, never silence');
+  // The veto: longer identifiers, and `$` or `_` joined.
+  assert.deepEqual(httpWordsIn('requestTarget requests getter getThing ClientRequestX myClientRequest $request get$ _get request_'), Z);
+});
+
 /** Every shipped JavaScript source under `root`, read from its package.json `files` (directories walked recursively), RAW. */
 function shippedSources(root = ROOT) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -457,7 +520,7 @@ function netCensus() {
     const modules = netModulesIn(raw);
     if (modules.length === 0) continue;
     found[rel] = { modules, tokens: connectionTokensIn(raw), raw };
-    if (modules.some((m) => m.startsWith('http'))) found[rel].calls = httpCallsIn(raw);
+    if (modules.some((m) => m.startsWith('http'))) Object.assign(found[rel], { calls: httpCallsIn(raw), words: httpWordsIn(raw) });
   }
   return found;
 }
@@ -486,7 +549,7 @@ const NET_IMPORTERS = {
   'plugins/http_probe.mjs': { modules: ['http', 'https', 'net'],
     agent: { http: `${GLOBAL_HTTP}; G-18, unchanged here`, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose); its curl leg is pinned through --resolve',
-    createConnection: 'absent', tokens: { lookup: 1, agent: 5, createConnection: 0, Agent: 4, globalAgent: 0, keepAlive: 0 }, calls: { request: 2, get: 0 },
+    createConnection: 'absent', tokens: { lookup: 1, agent: 5, createConnection: 0, Agent: 4, globalAgent: 0, keepAlive: 0 }, calls: { request: 2, get: 0 }, words: { request: 2, get: 1, ClientRequest: 0 },
     witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 2]],
     why: 'the target\'s HTTP banner and headers over node:http(s), decoding nothing (G-18); net only for isIP' },
   'plugins/llmnr_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
@@ -494,7 +557,7 @@ const NET_IMPORTERS = {
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'LLMNR multicast discovery on the local link' },
   'plugins/mcp_scanner.mjs': { modules: ['http', 'https'], agent: { http: GLOBAL_HTTP, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose)', createConnection: 'absent',
-    tokens: { lookup: 1, agent: 3, createConnection: 0, Agent: 2, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 },
+    tokens: { lookup: 1, agent: 3, createConnection: 0, Agent: 2, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 }, words: { request: 3, get: 0, ClientRequest: 0 },
     witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 1],
       [/mod\.request\(\{ host, port, method, path, headers: reqHeaders, agent \}/g, 1]],
     why: 'MCP endpoints on the target over node:http(s), decoding nothing — the same shape as http_probe (G-19)' },
@@ -505,7 +568,7 @@ const NET_IMPORTERS = {
   'plugins/opensearch_scanner.mjs': { modules: ['https'],
     agent: 'absent = global pool — undici\'s global dispatcher, keep-alive on: global fetch IGNORES the https.Agent (rejectUnauthorized: false) the file builds under OPENSEARCH_SCANNER_INSECURE_TLS and hands it (Q3, a no-op), until C-7 moves the site onto the waist',
     lookup: 'absent — undici resolves through node:dns lookup, which the pin patches', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 3, createConnection: 0, Agent: 3, globalAgent: 0, keepAlive: 0 }, calls: { request: 0, get: 0 },
+    tokens: { lookup: 0, agent: 3, createConnection: 0, Agent: 3, globalAgent: 0, keepAlive: 0 }, calls: { request: 0, get: 0 }, words: { request: 1, get: 0, ClientRequest: 0 },
     witness: [[/return new https\.Agent\(\{ rejectUnauthorized: false \}\);/g, 1], [/signal: ctrl\.signal,\n\s+agent\n/g, 1]],
     why: 'the OpenSearch banner at / through global fetch; node:https is imported (dynamically) only to build that agent' },
   'plugins/ping_checker.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
@@ -529,13 +592,13 @@ const NET_IMPORTERS = {
     tokens: { lookup: 20, agent: 1, createConnection: 0, Agent: 1, globalAgent: 0, keepAlive: 0 }, why: 'net only for isIP; it opens no socket (its one `agent` token is prose)' },
   'utils/target_http.mjs': { modules: ['http', 'https'], agent: 'false — one connection per request, never pooled',
     lookup: 'absent — node:dns lookup, which the pin patches inside a scan (its two `lookup` tokens are prose)', createConnection: 'absent',
-    tokens: { lookup: 2, agent: 6, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 },
+    tokens: { lookup: 2, agent: 6, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 }, words: { request: 10, get: 0, ClientRequest: 0 },
     witness: [[/transport\.request\(u, \{ method, headers, agent: false \}/g, 1]],
     why: 'the target HTTP waist (EE Z-1); no site uses it yet' },
   'utils/webhook.mjs': { modules: ['http', 'https', 'net'],
     agent: 'custom, keep-alive off — its own transport.Agent with the default agent\'s options and keepAlive: false, so no idle socket another caller opened carries a delivery',
     lookup: 'custom — pinnedLookup(target) answers the address its own SSRF check resolved (not the scan pin); in production a null target is refused before any request, so the lookup is absent only under the _setWebhookSafeChecker test seam',
-    createConnection: 'absent', tokens: { lookup: 3, agent: 4, createConnection: 0, Agent: 1, globalAgent: 1, keepAlive: 1 }, calls: { request: 1, get: 0 },
+    createConnection: 'absent', tokens: { lookup: 3, agent: 4, createConnection: 0, Agent: 1, globalAgent: 1, keepAlive: 1 }, calls: { request: 1, get: 0 }, words: { request: 8, get: 0, ClientRequest: 0 },
     witness: [[/\.\.\.\(target \? \{ lookup: pinnedLookup\(target\) \} : \{\}\)/g, 1],
       [/agent: new transport\.Agent\(\{ \.\.\.transport\.globalAgent\.options, keepAlive: false \}\)/g, 1]],
     why: 'the operator\'s webhook delivery — never a scanned host; net only for isIP' },
@@ -563,6 +626,11 @@ test('(w1-b) each row pins the COUNT of its six tokens and, for an http/https/ht
     for (const call of Object.keys(f.calls ?? {})) {
       assert.equal(f.calls[call], NET_IMPORTERS[rel].calls[call],
         `${rel}: ${f.calls[call]} \`${call}\` calls, declared ${NET_IMPORTERS[rel].calls[call]} — a request site moved; re-read its agent row`);
+    }
+    assert.equal(Boolean(f.words), Boolean(NET_IMPORTERS[rel].words), `${rel}: an http, https or http2 importer declares its request words; no other row does`);
+    for (const word of HTTP_WORDS.filter(() => f.words)) {
+      assert.equal(f.words[word], NET_IMPORTERS[rel].words[word],
+        `${rel}: the word \`${word}\` occurs ${f.words[word]} times, declared ${NET_IMPORTERS[rel].words[word]} — a request site the call count cannot bind may have moved; re-read its agent row`);
     }
   }
 });
@@ -613,9 +681,43 @@ test('(w1-e) the shipped walk reads package.json `files` RECURSIVELY, files and 
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
+/**
+ * The stripper's blind spot, declared: every shipped file in which a line of stripComments' output still BEGINS with a
+ * comment opener. Two kinds today. KEPT: a regular-expression literal holding a quote or a backtick flips the stripper's
+ * string parity, so the comments after it are read as code (measured against Node's bundled acorn at CE ec17d92: 0 lines of
+ * code eaten, 145 + 42 + 27 lines of comment kept). IN A STRING: a `//` line of browser script inside a template literal,
+ * which the stripper keeps correctly.
+ */
+const KEPT = 'comment KEPT as code — a regular-expression literal holding a quote or a backtick flips the stripper\'s string parity';
+const IN_A_STRING = 'a STRING, correctly kept — a `//` line of browser script inside a template literal';
+const STRIPPED_OPENERS = {
+  'utils/executive_report.mjs': `${KEPT}: the backtick in ATTR_RE`,
+  'utils/jira_export.mjs': `${KEPT}: the double quote in the CSV-escape test /[",\\n\\r]/`,
+  'utils/report_md.mjs': `${KEPT}: the backtick in MD_ACTIVE`,
+  'utils/raw_report_html.mjs': IN_A_STRING,
+  'utils/report_html.mjs': IN_A_STRING,
+};
+const OPENER_LINE = /^[ \t]*(?:\/\/|\/\*|\*(?:[ \t/]|$))/m;
+
+test('(w1-k) the stripper\'s blind spot by equality: the shipped files in which a stripped line still begins with a comment opener', () => {
+  // FOURTH QUADRANT FIRST — the limit is real and the line test reads what it names.
+  assert.match(stripComments('const re = /[`]/;\n// kept\nconst t = `x`;'), /\/\/ kept/, 'the stated limit, pinned: a backtick in a regex literal keeps the comment after it — if this goes red the limit closed; update the header and STRIPPED_OPENERS');
+  for (const line of ['  // a', '\t/* b', ' * c', ' */', ' *']) assert.match(line, OPENER_LINE, `an opener line: ${JSON.stringify(line)}`);
+  for (const line of ['a * b', '  *ptr', 'x(); // y', "s = '// z'"]) assert.doesNotMatch(line, OPENER_LINE, `not an opener line: ${JSON.stringify(line)}`);
+  // The corpus, by equality: a new file fails (read it against a real parser, then declare it), and so does a fixed one.
+  const found = shippedSources().filter(({ raw }) => OPENER_LINE.test(stripComments(raw))).map(({ rel }) => rel).sort();
+  assert.deepEqual(found, Object.keys(STRIPPED_OPENERS).sort(),
+    'the set of shipped files whose stripped text still has a line beginning with a comment opener moved — read each against a real parser, then re-declare STRIPPED_OPENERS');
+  for (const [rel, why] of Object.entries(STRIPPED_OPENERS)) assert.ok(why === IN_A_STRING || why.startsWith(KEPT), `${rel}: the declaration states neither kind`);
+});
+
 test('(w1-f) node-upnp-utils pools in http.globalAgent itself — its row states it, and the INSTALLED version and request lines are pinned', () => {
   const row = THIRD_PARTY['node-upnp-utils'];
   assert.ok(row && typeof row === 'object' && AGENT_GRAMMAR.test(row.agent), 'node-upnp-utils has no pooling statement in the row grammar');
+  // The pin below reads the INSTALLED tree; a customer install resolves the DECLARED range, which may admit a later 1.x.
+  const declared = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).dependencies?.['node-upnp-utils'];
+  assert.equal(declared, row.declared, `package.json declares node-upnp-utils ${declared}, the row says ${row.declared} — re-read what a customer install may resolve`);
+  assert.match(row.why, new RegExp(`installed.*${String(row.declared).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), 'the row\'s why states that the pin is on the installed tree and names the declared range');
   const dir = path.join(ROOT, 'node_modules', 'node-upnp-utils');
   assert.ok(fs.existsSync(path.join(dir, 'package.json')), 'node-upnp-utils is not installed — this leg cannot measure');
   const installed = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
