@@ -416,19 +416,21 @@ test('(g-7) a declared row beside an undeclared one: the cover lists both, and e
   assert.match(cover, /2 coverage-gap rows recorded, listed per host under Coverage gaps in the appendix\./);
   assert.match(cover, / 1 row is declared by its producer to record only a surface the scanner could not read, and is not counted in the severity chart or in Top Risks\./);
   // R4 (VERDICT-v398 G4): the cover says WHERE an undeclared row is counted, not that it is a finding.
-  assert.match(cover, / 1 row carries the gap marker without that declaration and is also counted in the severity chart and the findings table at its producer's severity\./);
+  // R5 (VERDICT-v400 G5): one spelling whether or not a declared row is beside it; the declared sentence is unchanged.
+  assert.match(cover, / 1 row carries the gap marker with no gap-only declaration and is also counted in the severity chart and the findings table at its producer's severity\./);
   assert.doesNotMatch(cover, /counted as (?:a )?findings?/);
   assert.doesNotMatch(g.html, /this is not a clean result/, 'a counted row is present: the page states no gap-only result');
   const block = gapBlock(g.html);
   assert.match(block, /<p>2 rows on this host carry a coverage-gap marker\. 1 row is declared by its producer/);
-  assert.match(block, /1 row carries the marker without that declaration: it is also counted in the findings table above and may state a defect as well as a gap\./);
+  assert.match(block, /1 row carries the marker with no gap-only declaration: it is also counted in the findings table above and may state a defect as well as a gap\./);
+  assert.doesNotMatch(g.html, /that declaration/, 'R5: no sentence points at a declaration it has not named');
   assert.match(block, /<th>Counted in the chart<\/th>/); assert.doesNotMatch(block, /Not read|Counted as a finding|counted as (?:a )?findings?/, 'the header and intro are R4\'s');
   assert.deepEqual(gapRows(g.html).map((r) => cells(r)[3]).sort(), ['No', 'Yes']);
 });
 
 // g-8 (VERDICT-v398 Q3): no shipped producer writes this row. Any contract-v1 plugin can: a PASS-severity row with the gap marker
 // and no declaration. It is the only leg that kills M3e.
-test('(g-8) SYNTHETIC: Top Risks empty beside an UNDECLARED gap row (a PASS-severity row is counted, not ranked): no could-not-read clause, and the cover calls it no finding', async () => {
+test('(g-8) SYNTHETIC: Top Risks empty beside an UNDECLARED gap row (a PASS-severity row is counted, not ranked): no could-not-read clause, and the cover says where it is counted', async () => {
   const pass = structuredClone(r1120With({ category: 'x', evidenceGap: true })); pass.findings[0].severity = 'pass';
   const p = await executive('1120', pass);
   assert.equal(p.gaps.length, 1); assert.equal(p.gaps.filter(isDeclared).length, 0, 'the premise: one undeclared gap row');
@@ -704,4 +706,52 @@ test('(t-2) limit 2, on a SYNTHETIC declared row (t-0): a resource read under an
   assert.ok(f.title.endsWith('…') && f.detail.includes('TAILCODE-E42'), 'the premise: the title was cut, the detail is whole');
   // If this goes RED because the listing now shows TAILCODE-E42, the limit closed: rewrite it in textBeforeCut.
   assert.equal(await listedText(f), f.title); assert.ok(!(await listedText(f)).includes('TAILCODE-E42'));
+});
+
+// ── R5 (VERDICT-v400 G5): "without that declaration" named no declaration on a page with no declared row — every
+// Enterprise cloud page, since no Enterprise producer declares. One spelling now, whatever stands beside it.
+test('(r5-i) FOURTH QUADRANT: a page whose gap rows are all declared prints neither undeclared sentence', async () => {
+  const g = await executive('040', R['040']);
+  assert.equal(g.gaps.length, 1); assert.ok(isDeclared(g.gaps[0]), 'the premise: declared only');
+  assert.doesNotMatch(g.html, /no gap-only declaration|that declaration/);
+});
+
+test('(r5-ii) an undeclared-only page (F-B): the cover and the listing say "with no gap-only declaration"; nothing says "that declaration"', async () => {
+  const g = await executive('1020', MIXED_RESULTS[1020]());
+  assert.equal(g.gaps.filter(isDeclared).length, 0, 'the premise: no declared row on the page');
+  assert.match(section(g.html, 'cover'), / 1 row carries the gap marker with no gap-only declaration and is also counted in the severity chart and the findings table at its producer's severity\./);
+  assert.match(gapBlock(g.html), /1 row carries the marker with no gap-only declaration: it is also counted in the findings table above/);
+  assert.doesNotMatch(g.html, /that declaration/);
+});
+
+// ── R6 (VERDICT-v400 G6, G7): the escaping of the producer-chosen severity, and the flattening of the undeclared text ──
+test('(r6-i) md: a severity carrying a pipe, [x](y) and a newline + heading prints ONE escaped gap line and no heading', async () => {
+  const r = { up: true, findings: [{ resource: 's3:bucket:sev-example', severity: 'high | [x](y)\n## H', issues: ['replication destination region UNDETERMINED'], details: { evidenceGap: true } }] };
+  const sec = gapSection(await md('1120', r));
+  const lines = sec.split('\n').filter((l) => l.startsWith('- '));
+  assert.equal(lines.length, 1, `one gap line: ${sec}`);
+  assert.ok(lines[0].includes('\\|'), `the pipe is escaped: ${lines[0]}`);
+  assert.ok(!sec.split('\n').some((l) => l.startsWith('## H')), 'no line of the section starts a heading');
+});
+
+test('(r6-ii) html: a <script> severity is escaped in the coverage-gap table', async () => {
+  const r = { up: true, findings: [{ resource: 's3:bucket:sev-example', severity: '<script>x()</script>', issues: ['replication destination region UNDETERMINED'], details: { evidenceGap: true } }] };
+  const g = await executive('1120', r);
+  assert.equal(gapRows(g.html).length, 1, 'the premise: the row is listed');
+  assert.doesNotMatch(gapBlock(g.html), /<SCRIPT/i, 'no raw script tag in the gap block');
+});
+
+test('(r6-iii) an undeclared row whose cut clause holds a newline lists that clause once (the detail is flattened before the containment test)', async () => {
+  const issue = "S3 bucket 'nl-example' replication destination\nregion UNDETERMINED (NoSuchBucket) " + 'padding-word '.repeat(12) + 'TAIL-N1';
+  const [f] = gapRowsOf('1120', { findings: [{ resource: 's3:bucket:nl-example', severity: 'medium', issues: [issue], details: { evidenceGap: true } }] });
+  assert.ok(!isDeclared(f) && f.detail.includes('\n') && f.title.endsWith('…'), 'the premise: undeclared, a newline in the detail, the title cut');
+  const listed = await listedText(f);
+  assert.equal(listed.split("S3 bucket 'nl-example' replication destination").length - 1, 1, `listed once: ${listed}`);
+});
+
+test('(r6-iv) an undeclared row whose explicit title holds a newline, flattened into the detail, lists it once (the title is flattened before the containment test)', async () => {
+  const [f] = gapRowsOf('1120', { findings: [{ title: "Vault 'kv-t'\ngrants Owner", detail: "Vault 'kv-t' grants Owner to 1 principal; key enumeration could not complete", severity: 'high', details: { evidenceGap: true } }] });
+  assert.ok(!isDeclared(f) && f.title.includes('\n'), 'the premise: undeclared, the explicit title kept verbatim with its newline');
+  const listed = await listedText(f);
+  assert.equal(listed.split("Vault 'kv-t'").length - 1, 1, `listed once: ${listed}`);
 });

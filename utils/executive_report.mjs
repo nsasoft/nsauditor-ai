@@ -413,7 +413,9 @@ function renderCoverageSummary(model, findings, listed) {
         + `${plural(declared.length, 'is', 'are')} not counted in the severity chart or in Top Risks.`;
     }
     if (undeclared.length) {
-      p += ` ${undeclared.length} ${plural(undeclared.length, 'row carries', 'rows carry')} the gap marker without that `
+      // VERDICT-v400 R5: "with no gap-only declaration", never "without that declaration" — on a page with no declared row
+      // (every Enterprise cloud page today) nothing before this sentence names a declaration.
+      p += ` ${undeclared.length} ${plural(undeclared.length, 'row carries', 'rows carry')} the gap marker with no gap-only `
         + `declaration and ${plural(undeclared.length, 'is', 'are')} also counted in the severity chart and the findings `
         + `table at ${plural(undeclared.length, 'its', 'their')} producer's severity.`;
     }
@@ -575,7 +577,7 @@ function renderCoverageGaps(gaps) {
       + 'in Top Risks, and a check that could not read a surface did not pass there.';
   }
   if (undeclared) {
-    intro += ` ${undeclared} ${plural(undeclared, 'row carries', 'rows carry')} the marker without that declaration: `
+    intro += ` ${undeclared} ${plural(undeclared, 'row carries', 'rows carry')} the marker with no gap-only declaration: `
       + `${plural(undeclared, 'it is', 'they are')} also counted in the findings table above and may state a defect as well `
       + 'as a gap.';
   }
