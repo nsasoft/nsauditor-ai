@@ -23,8 +23,12 @@
 // not-measured leg below could be satisfied by refusing to grade anything.
 // ─────────────────────────────────────────────────────────────────────────────
 import './helpers/no_operator_home.mjs';
+import './helpers/no_operator_dotenv.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -118,8 +122,12 @@ test('every lookup times out: nothing is graded missing, every check is recorded
   const dead = new Proxy({}, { has: () => true, get: () => 'ETIMEOUT' });
   const { result, record, graded, notMeasured } = await run(dead);
   assert.deepEqual(graded.filter((g) => !g.endsWith(':pass') && !g.endsWith(':info')), [], 'no finding from a timeout');
-  assert.deepEqual(notMeasured.map((e) => e.check),
-    ['cname', 'spf', 'dmarc', 'dkim', 'ns', 'dnssec', 'mx', 'caa', 'wildcard'], 'one entry per check, in the result\'s order');
+  // One entry per check, in the result's order — except DKIM, which records EVERY failed selector lookup (G-71 F-060):
+  // here both configured selectors, google then default.
+  assert.deepEqual([...new Set(notMeasured.map((e) => e.check))],
+    ['cname', 'spf', 'dmarc', 'dkim', 'ns', 'dnssec', 'mx', 'caa', 'wildcard'], 'every check, in the result\'s order');
+  assert.deepEqual(notMeasured.filter((e) => e.check === 'dkim').map((e) => e.name), [`google._domainkey.${ZONE}`, `default._domainkey.${ZONE}`]);
+  assert.equal(notMeasured.filter((e) => e.check !== 'dkim').length, 8, 'one entry for each other check');
   assert.ok(notMeasured.every((e) => e.code === 'ETIMEOUT' && typeof e.rrtype === 'string' && typeof e.name === 'string'));
   assert.equal(result.up, false);
   assert.equal(result.skipped, undefined, 'skipped is the declined-address case, never this one');
@@ -201,9 +209,9 @@ for (const code of ['ENODATA', 'ENOTFOUND']) {
 }
 
 // ── THE CHECKS THAT ASK MORE THAN ONE QUESTION ─────────────────────────────────────────────────────────────────────────
-test('DKIM: a found selector beside a timed-out one is measured — present, nothing recorded', async () => {
+test('DKIM: a found selector beside a timed-out one — the found selector is measured, and the timed-out lookup is recorded (G-71 F-060)', async () => {
   const { graded, notMeasured } = await run({ ...PRESENT, [`TXT default._domainkey.${ZONE}`]: 'ETIMEOUT' });
-  assert.deepEqual(notMeasured, []);
+  assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.name}:${e.code}:${e.partial}`), [`dkim:default._domainkey.${ZONE}:ETIMEOUT:true`]);
   assert.ok(!graded.some((g) => g.startsWith('dkim:dkim_none_found')));
 });
 test('DKIM: no selector found and every lookup an absence is the measured dkim_none_found', async () => {
@@ -415,4 +423,144 @@ test('a timed-out SOA is not "no SOA": hasSOA is null, not false', async () => {
   assert.equal(measured.result.records.hasSOA, true);
   const { result } = await run({ ...PRESENT, [`SOA ${ZONE}`]: 'ETIMEOUT' });
   assert.equal(result.records.hasSOA, null);
+});
+
+// ── G-71 F-060 (EE Z-1, architect RULINGS-v402 §4): EVERY DKIM selector lookup that failed to measure is recorded, a
+// selector found or not. Until now only the FIRST failure was kept, and only when no selector was found, so a weak-key row
+// on a selector that now SERVFAILs read RESOLVED beside a selector that still resolves (driven on the real CLI:
+// Z/g71-drive-v345, arm 060-dkim). A failed lookup beside a found selector is marked `partial`: the check measured the
+// selectors that answered. An entry carries the lookup only (check, rrtype, the name built from the configured selector,
+// an error CODE, partial) — no text from the reply, and never an error message: under G-72 R1 the gap row reaches the md
+// that MCP scan_host returns. FOURTH QUADRANT FIRST: a lookup ANSWERED negatively is a measured removal, never an entry.
+const dkimEntries = (nm) => nm.filter((e) => e.check === 'dkim');
+const WEAK_DKIM = [[`v=DKIM1; k=rsa; p=${'A'.repeat(86)}`]];   // ~520 bits: dkim_weak_key
+const SHORT_DKIM = [[`v=DKIM1; k=rsa; p=${'B'.repeat(172)}`]]; // ~1032 bits: dkim_short_key
+test('F-060 (accept, first): a found selector beside one ANSWERED negatively is measured — no entry, no dkim_none_found, up', async () => {
+  for (const code of ['ENOTFOUND', 'ENODATA']) {
+    const { result, graded, notMeasured } = await run({ ...PRESENT, [`TXT default._domainkey.${ZONE}`]: code });
+    assert.deepEqual(notMeasured, [], code);
+    assert.equal(result.up, true, code);
+    assert.ok(!graded.some((g) => g.startsWith('dkim:dkim_none_found')), code);
+  }
+});
+test('F-060: a found selector beside a timed-out one — that lookup is recorded, partial; the found selector keeps its row; not up; the reason says partly', async () => {
+  const { result, graded, notMeasured } = await run({ ...PRESENT, [`TXT google._domainkey.${ZONE}`]: WEAK_DKIM,
+    [`TXT default._domainkey.${ZONE}`]: 'ETIMEOUT' });
+  assert.deepEqual(notMeasured, [{ check: 'dkim', rrtype: 'TXT', name: `default._domainkey.${ZONE}`, code: 'ETIMEOUT', partial: true }]);
+  assert.ok(graded.includes('dkim:dkim_weak_key:high'));
+  assert.deepEqual(result.details.dkimSelectors.map((x) => x.selector), ['google']);
+  assert.equal(result.up, false);
+  assert.equal(result.reason,
+    'resolver failure on DKIM (ETIMEOUT): DKIM is partly measured — a selector lookup that failed measured nothing, and the '
+    + 'selectors that answered are in the result; CNAME, SPF, DMARC, NS, DNSSEC, MX, CAA and wildcard were measured and their '
+    + 'findings are in the result');
+});
+test('F-060: no selector found and BOTH lookups failed — both recorded, in selector order, neither partial; no dkim_none_found', async () => {
+  const { graded, notMeasured } = await run({ ...PRESENT, [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL',
+    [`TXT default._domainkey.${ZONE}`]: 'ETIMEOUT' });
+  assert.deepEqual(dkimEntries(notMeasured), [
+    { check: 'dkim', rrtype: 'TXT', name: `google._domainkey.${ZONE}`, code: 'ESERVFAIL' },
+    { check: 'dkim', rrtype: 'TXT', name: `default._domainkey.${ZONE}`, code: 'ETIMEOUT' }]);
+  assert.ok(!graded.some((g) => g.startsWith('dkim:dkim_none_found')));
+});
+test('F-060: a DKIM entry never carries an error message — a failure with no code is recorded as ENOCODE', async () => {
+  const { notMeasured } = await run({ ...PRESENT, [`TXT default._domainkey.${ZONE}`]: { message: 'zqremote reply text' } });
+  assert.deepEqual(dkimEntries(notMeasured), [
+    { check: 'dkim', rrtype: 'TXT', name: `default._domainkey.${ZONE}`, code: 'ENOCODE', partial: true }]);
+  assert.ok(!JSON.stringify(notMeasured).includes('zqremote'));
+});
+
+// F-060 through the REAL `report --since`: the conclusion file is written by the REAL scanSingleHost (the real 060 object,
+// its run() handing back the result driven above), the run record by the real record writers; nothing here is written by
+// the test. The delta's reading is taken by row title from the stdout (held rows) and from the written page (every row).
+const SINCE_HOST_060 = '192.0.2.10';
+const conclusionFiles060 = (root) => fs.readdirSync(root, { recursive: true }).map(String).filter((f) => f.endsWith('scan_conclusion_raw.json'));
+async function scanWritten060(outRoot, result, runId) {
+  const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY, ai: process.env.OPENAI_OUT_PATH };
+  process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence'; delete process.env.OPENAI_OUT_PATH;
+  try {
+    const { scanSingleHost } = await import('../cli.mjs');
+    const { default: PluginManager } = await import('../plugin_manager.mjs');
+    const { default: concluder } = await import('../plugins/result_concluder.mjs');
+    const pm = await PluginManager.create({ plugins: [{ ...dnsSec, requirements: {}, runStrategy: 'single', run: async () => result }, concluder] });
+    const absent = () => { throw Object.assign(new Error('not installed'), { code: 'MODULE_NOT_FOUND' }); };
+    const before = new Set(conclusionFiles060(outRoot));
+    await scanSingleHost(pm, SINCE_HOST_060, 'all', { resolveEE: absent, runId }, 'basic');
+    const made = conclusionFiles060(outRoot).filter((f) => !before.has(f));
+    assert.equal(made.length, 1, `scanSingleHost wrote one conclusion file: ${made}`);
+    const j = JSON.parse(fs.readFileSync(path.join(outRoot, made[0]), 'utf8'));
+    // The premise every arm depends on: the manifest records 060 as RAN — a held row is then the gap's doing, not the status's.
+    assert.equal(j.pluginStatus?.find((p) => String(p?.id) === '060')?.status, 'ran', 'the conclusion file records 060 as ran');
+  } finally {
+    for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic], ['OPENAI_OUT_PATH', keep.ai]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+const pageRows060 = (page) => {
+  const at = page.indexOf('Since Last Scan');
+  const sect = at < 0 ? '' : page.slice(at, page.indexOf('</table>', at));
+  const strip = (x) => x.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  return (sect.match(/<tr[\s\S]*?<\/tr>/g) ?? []).slice(1).map((tr) => (tr.match(/<td[\s\S]*?<\/td>/g) ?? []).map(strip));
+};
+async function since060(beforeTable, afterTable) {
+  const { runReport } = await import('../cli.mjs');
+  const { resolveCapabilities } = await import('../utils/capabilities.mjs');
+  const { newRunId, writeRunStart, finalizeRunRecord } = await import('../utils/run_record.mjs');
+  const { sealRunRecord } = await import('../utils/run_chain.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-dkim-since-'));
+  const mk = async (startedAt, table) => {
+    const { result } = await run(table);
+    const runId = newRunId();
+    await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [SINCE_HOST_060], pluginsRequested: ['060'], portsRequested: '',
+      tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
+    await scanWritten060(outRoot, result, runId);
+    await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
+    await sealRunRecord(outRoot, runId);
+    return runId;
+  };
+  const a = await mk('2026-09-01T10:00:00.000Z', beforeTable); const b = await mk('2026-09-08T10:00:00.000Z', afterTable);
+  const rep = await runReport({ from: outRoot, format: 'executive', run: b, since: a, out: path.join(outRoot, 'exec.html') }, resolveCapabilities('pro'));
+  assert.equal(rep.code, 0, rep.stderr);
+  const m = rep.stdout.match(/(\d+) new · (\d+) resolved · (\d+) changed · (\d+) not-comparable · (\d+) unchanged/);
+  assert.ok(m, `the delta line: ${rep.stdout.slice(0, 300)}`);
+  const rows = pageRows060(fs.readFileSync(path.join(outRoot, 'exec.html'), 'utf8'));
+  return { stdout: rep.stdout, n: { new: +m[1], resolved: +m[2], notComparable: +m[4], unchanged: +m[5] },
+    change: (title) => rows.filter((r) => r[1] === title).map((r) => r[0]) };
+}
+const DKIM_BASE = { ...PRESENT, [`TXT google._domainkey.${ZONE}`]: WEAK_DKIM, [`TXT default._domainkey.${ZONE}`]: SHORT_DKIM };
+const WEAK_TITLE = 'DKIM selector "google" has a weak key (~520 bits) — minimum 1024, recommended 2048';
+const SHORT_TITLE = 'DKIM selector "default" uses ~1032-bit key — 2048+ recommended';
+test('F-060 report --since (accept, first): google now ANSWERED negatively beside default resolving — its row reads RESOLVED', async () => {
+  const d = await since060(DKIM_BASE, { ...DKIM_BASE, [`TXT google._domainkey.${ZONE}`]: 'ENOTFOUND' });
+  assert.deepEqual(d.change(WEAK_TITLE), ['resolved'], d.stdout);
+  assert.equal(d.n.resolved, 1, d.stdout);
+  assert.equal(d.n.notComparable, 0, d.stdout);
+});
+test('F-060 report --since: nothing changed — 0 resolved, both DKIM rows unchanged', async () => {
+  const d = await since060(DKIM_BASE, DKIM_BASE);
+  assert.equal(d.n.resolved, 0, d.stdout);
+  assert.equal(d.n.notComparable, 0, d.stdout);
+});
+test('F-060 report --since (the red arm, 060-dkim): google now SERVFAILs beside default resolving — its row reads NOT COMPARABLE, held by the partial gap', async () => {
+  const d = await since060(DKIM_BASE, { ...DKIM_BASE, [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL' });
+  assert.equal(d.n.resolved, 0, d.stdout);
+  assert.deepEqual(d.change(WEAK_TITLE), ['not-comparable'], d.stdout);
+  const held = d.stdout.split('\n').find((l) => l.includes(`NOT COMPARABLE (disappeared)  ${WEAK_TITLE} — evidence-gap: `));
+  assert.ok(held, d.stdout);
+  assert.match(held, /Evidence gap: the DKIM check was not fully measured — the TXT lookup for google\._domainkey\.example\.test failed \(ESERVFAIL\)/);
+});
+test('F-060 report --since (control, 060-n): both selectors SERVFAIL — both DKIM rows NOT COMPARABLE, and the gap text says not measured', async () => {
+  const d = await since060(DKIM_BASE, { ...DKIM_BASE, [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL', [`TXT default._domainkey.${ZONE}`]: 'ESERVFAIL' });
+  assert.equal(d.n.resolved, 0, d.stdout);
+  for (const t of [WEAK_TITLE, SHORT_TITLE]) assert.deepEqual(d.change(t), ['not-comparable'], `${t}\n${d.stdout}`);
+  // Neither entry is partial (no selector answered), so the text the hold cites says NOT measured, for either lookup.
+  assert.match(d.stdout, /Evidence gap: the DKIM check was not measured — the TXT lookup for (google|default)\._domainkey\.example\.test failed \(ESERVFAIL\)/);
+  assert.doesNotMatch(d.stdout, /not fully measured/);
+});
+test('F-060 STATED LIMIT: the hold is the 060 gap\'s, host-wide — an SPF fix in the same run as a DKIM selector failure reads NOT COMPARABLE, never resolved', async () => {
+  const d = await since060({ ...DKIM_BASE, [`TXT ${ZONE}`]: [['v=spf1 +all']] },
+    { ...DKIM_BASE, [`TXT ${ZONE}`]: [['v=spf1 -all']], [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL' });
+  assert.equal(d.n.resolved, 0, d.stdout);
+  assert.ok(d.n.notComparable >= 2, d.stdout);
 });

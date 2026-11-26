@@ -139,10 +139,20 @@ function notMeasuredReason(notMeasured, ran) {
   const failed = andList([...byCode].map(([code, labels]) => `${labels.join(", ")} (${code})`));
   // Only checks that RAN are named as measured: the opt-in zone transfer, when off, is neither.
   const measured = CHECK_LABELS.filter(([check]) => ran.has(check) && !codeOf.has(check)).map(([, label]) => label);
-  const notCount = codeOf.size === 1 ? "that check is" : `those ${codeOf.size} checks are`;
   const tail = measured.length === 0 ? "no check was measured"
     : `${andList(measured)} ${measured.length === 1 ? "was measured and its findings are" : "were measured and their findings are"} in the result`;
-  return `resolver failure on ${failed}: ${notCount} not measured; ${tail}`;
+  // A check every entry of which is `partial` (DKIM beside a found selector, G-71 F-060) measured part of what it asks.
+  const partial = new Set([...codeOf.keys()].filter((check) => notMeasured.filter((e) => e.check === check).every((e) => e.partial === true)));
+  if (partial.size === 0) {
+    const notCount = codeOf.size === 1 ? "that check is" : `those ${codeOf.size} checks are`;
+    return `resolver failure on ${failed}: ${notCount} not measured; ${tail}`;
+  }
+  const labelsOf = (pred) => CHECK_LABELS.filter(([check]) => codeOf.has(check) && pred(check)).map(([, label]) => label);
+  const full = labelsOf((check) => !partial.has(check));
+  const part = labelsOf((check) => partial.has(check));
+  const notPart = full.length === 0 ? "" : `${andList(full)} ${full.length === 1 ? "is" : "are"} not measured; `;
+  return `resolver failure on ${failed}: ${notPart}${andList(part)} ${part.length === 1 ? "is" : "are"} partly measured — a `
+    + `selector lookup that failed measured nothing, and the selectors that answered are in the result; ${tail}`;
 }
 
 // ── Module 1: Core Record Collection ─────────────────────────────────────────
@@ -494,15 +504,20 @@ async function analyzeDMARC(host, notMeasured) {
 
 // ── Module 5: DKIM Discovery ─────────────────────────────────────────────────
 
+// G-71 F-060 (EE Z-1, architect RULINGS-v402): a DKIM not-measured entry carries an error CODE only. `safeResolve` falls
+// back to the error's MESSAGE when it has no code, and the entry reaches a gap row that the md report (and MCP scan_host)
+// prints, so anything not code-shaped is recorded as ENOCODE.
+const codeOnly = (error) => (typeof error === "string" && /^E[A-Z0-9_]+$/.test(error) ? error : "ENOCODE");
+
 async function discoverDKIM(host, selectors, notMeasured) {
   const issues = [];
   const found = [];
-  let firstFailure = null;   // the first selector lookup that failed to measure, if no selector is found
+  const failures = [];   // EVERY selector query that failed to measure, in selector order
 
   for (const selector of selectors) {
     const name = `${selector}._domainkey.${host}`;
     const { records, error } = await resolveTxtFlat(name);
-    if (failedToMeasure(error) && !firstFailure) firstFailure = { name, code: error };
+    if (failedToMeasure(error)) failures.push({ name, code: codeOnly(error) });
     if (records.length === 0) continue;
 
     const record = records.join("");
@@ -546,10 +561,14 @@ async function discoverDKIM(host, selectors, notMeasured) {
     found.push(entry);
   }
 
-  // "None found" is a measurement only when every selector lookup answered; one that failed might have been the one.
-  if (found.length === 0 && firstFailure) {
-    notMeasured.push({ check: "dkim", rrtype: "TXT", name: firstFailure.name, code: firstFailure.code });
-  } else if (found.length === 0) {
+  // Every failed query is recorded, a selector found or not (G-71 F-060): a row on a selector whose query fails now is
+  // then held by the gap instead of reading resolved beside a selector that still answers. Beside a found selector the
+  // entry is `partial` — the selectors that answered were measured. "None found" is a measurement only when every
+  // selector lookup answered; one that failed might have been the one.
+  for (const f of failures) {
+    notMeasured.push({ check: "dkim", rrtype: "TXT", name: f.name, code: f.code, ...(found.length > 0 ? { partial: true } : {}) });
+  }
+  if (found.length === 0 && failures.length === 0) {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "dkim_none_found",

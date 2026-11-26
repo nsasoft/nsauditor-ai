@@ -549,10 +549,11 @@ export function shapeHostFindings(host, raw, queue = []) {
     // 060 records the checks a failed DNS lookup left unmeasured in `details.notMeasured` rather than grading them. Each
     // is an EVIDENCE GAP on this host, never a finding, so the cross-run delta reads a baseline row that is absent here as
     // not comparable instead of resolved. The row states only the lookup that failed, so it is DECLARED gap-only (G-72 C1):
-    // the reports list it and leave it out of their counts.
+    // the reports list it and leave it out of their counts. A `partial` entry (a DKIM selector lookup that failed beside a
+    // selector that answered, G-71 F-060) says the check was not FULLY measured.
     for (const g of (Array.isArray(res.details?.notMeasured) ? res.details.notMeasured : [])) {
       push(shapeFinding(host, { severity: 'info', check: 'not_measured', details: { evidenceGap: true, gapOnly: true },
-        detail: `Evidence gap: the ${String(g?.check ?? '').toUpperCase()} check was not measured — the ${g?.rrtype} lookup for `
+        detail: `Evidence gap: the ${String(g?.check ?? '').toUpperCase()} check was ${g?.partial === true ? 'not fully' : 'not'} measured — the ${g?.rrtype} lookup for `
           + `${g?.name} failed (${g?.code})` }, envId(e), e?.name ?? null));
     }
     if (res.zeroTrust && typeof res.zeroTrust === 'object') {
