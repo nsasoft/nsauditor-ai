@@ -78,6 +78,18 @@ test('(c) a completed handshake gives the normal findings and no gap', async (t)
   assert.equal(r.findings, undefined);
 });
 
+test('(c′) G-72 C3(c): every row the report loader shapes from a completed handshake is undeclared — gapOnly false', async (t) => {
+  const port = await tlsPort(t);
+  if (port === null) { t.skip('openssl unavailable (would hard-fail in CI)'); return; }
+  const result = await runOn([port], { context: scanned([port]) });
+  const shaped = shapeHostFindings('192.0.2.10', { results: [{ id: '040', name: tlsCert.name, result }] }, []);
+  assert.ok(shaped.length >= 1, 'the premise: the loader shapes the audit\'s rows (self-signed, expiry, no subjectAltName)');
+  for (const f of shaped) {
+    assert.equal(f.evidenceGap, false, `not a gap: ${f.title}`);
+    assert.equal(f.gapOnly, false, `a non-gap 040 row is not declared gap-only: ${f.title}`);
+  }
+});
+
 // ── THE GAP ───────────────────────────────────────────────────────────────────────────────────────
 test('(d) a port the port scanner saw OPEN whose handshake is RESET is ONE gap, naming the port and ECONNRESET', async (t) => {
   const reset = await resetPort(t);
@@ -87,7 +99,10 @@ test('(d) a port the port scanner saw OPEN whose handshake is RESET is ONE gap, 
   assert.equal(g.title, `[COVERAGE GAP] TLS certificate audit could not complete on ${reset} (ECONNRESET)`);
   assert.equal(g.severity, 'info');
   assert.equal(g.port, reset);
-  assert.deepEqual(g.details, { evidenceGap: true, openness: 'open-per-port-scanner', failedPorts: [{ port: reset, error: 'ECONNRESET' }] });
+  // G-72 (RULINGS-v396 C1, C4): 040's gap row records nothing but the surface the audit could not read, and DECLARES it
+  // (`gapOnly`), so the two reports list it and leave it out of their counts. The whole object is pinned: removing the
+  // declaration turns this leg RED by name.
+  assert.deepEqual(g.details, { evidenceGap: true, gapOnly: true, openness: 'open-per-port-scanner', failedPorts: [{ port: reset, error: 'ECONNRESET' }] });
 });
 
 test('(a) a port the port scanner saw OPEN that now REFUSES is a gap too — it answered the scanner, not the audit', async () => {
@@ -145,6 +160,7 @@ test('the report loader shapes the gap AS a gap: visible in the finding list, ex
   const gaps = shaped.filter((f) => /^\[COVERAGE GAP\] TLS certificate audit/.test(f.title ?? ''));
   assert.equal(gaps.length, 1, `shaped: ${JSON.stringify(shaped.map((f) => f.title))}`);
   assert.equal(gaps[0].evidenceGap, true);
+  assert.equal(gaps[0].gapOnly, true, 'G-72 C4: the shaped row carries the producer\'s declaration');
   assert.equal(countHostFindings('192.0.2.10', raw, []), shaped.filter((f) => !f.evidenceGap && !f.deferredScope).length);
   assert.equal(countHostFindings('192.0.2.10', raw, []), 0, 'a gap is scope, not a finding');
 });

@@ -159,7 +159,9 @@ function tribeCoverageGap(notRead, port) {
       "names the replies whose body was not read where a check could not decide without it; a probe that got no " +
       "reply is not listed.",
     port,
-    details: { evidenceGap: true, notRead },
+    // G-72 (RULINGS-v396 C1): DECLARED gap-only — the row names replies whose body was not read and states no posture, so
+    // the reports list it and leave it out of their counts.
+    details: { evidenceGap: true, gapOnly: true, notRead },
   };
 }
 

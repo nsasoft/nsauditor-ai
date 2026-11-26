@@ -27,7 +27,7 @@
 // vocabulary, even where the producer (report_inputs.mjs) is expected to constrain it.
 
 import { escapeHtml } from './brand.mjs';
-import { isCoverageGap, coverageGapText } from './report_inputs.mjs';
+import { isCoverageGap, isGapOnly, coverageGapText } from './report_inputs.mjs';
 // The two evaluability SENTINELS, imported so the per-row basis is keyed on identity rather
 // than on prose. `scan_delta.mjs` imports nothing from here, so there is no cycle.
 import { SCOPE_NOT_EVALUATED, FRAMEWORK_MOVEMENT_NOT_EVALUATED, RUN_NAMES, NOT_REQUESTED_RECORD_SINCE_EE, cmpVersion } from './scan_delta.mjs';
@@ -320,7 +320,26 @@ function renderBrandBlock(brand) {
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
-function renderCoverageSummary(model, findings, gapCount) {
+// G-72 (VERDICT-v395 §4 (3), RULINGS-v396 C1): the ONE partition, used by renderExecutiveReport (the flattened list: cover,
+// Top Risks, chart) and by renderAppendix (each host's list). Every gap-flagged row is LISTED; a row leaves the COUNT only
+// when its producer declared it gap-only. An undeclared gap row (an Enterprise cloud row whose marker is additive) is
+// counted and listed. The two lists are each taken by a filter, so no number on the page is a subtraction.
+function partitionRows(rows) {
+  return { counted: rows.filter((f) => !isGapOnly(f)), listed: rows.filter(isCoverageGap) };
+}
+
+// "N coverage-gap row(s) … listed <where>: this is not a clean result." Printed only when nothing was counted, and then every
+// listed row is declared (an undeclared one would have been counted). The could-not-read clause is printed only over
+// declared rows, so it is kept conditional rather than assumed. Every number counts ROWS.
+function gapOnlyClause(listed, where) {
+  const n = listed.length;
+  const scoped = listed.filter(isGapOnly).length === n
+    ? `, ${plural(n, '', 'each ')}declared by ${plural(n, 'its', 'their')} producer to record a surface the scanner could not read`
+    : '';
+  return `${n} coverage-gap ${plural(n, 'row is', 'rows are')} listed ${where}${scoped}: this is not a clean result.`;
+}
+
+function renderCoverageSummary(model, findings, listed) {
   const c = model.coverage;
   // CC-3: derived from WRITTEN, never REQUESTED. "Not reachable" is an AFFIRMATIVE negative
   // result — it tells the client a probe actually ran against that host and failed. A host that
@@ -378,27 +397,37 @@ function renderCoverageSummary(model, findings, gapCount) {
         + 'Treat this report as incomplete for those surfaces.</p>');
     }
   }
-  // G-72 (v394 Q6): the coverage gaps are COUNTED here and LISTED per host in the appendix. No rows on the cover: a real
-  // cloud run carries ten, and a network sweep one per host, which would bury the host arithmetic and the KEV/EPSS lines.
-  // gapCount is a computed integer, like the host counts above. Nothing is printed when there is no gap.
-  if (gapCount) {
-    lines.push(`<p>${gapCount} coverage ${plural(gapCount, 'gap', 'gaps')} recorded: `
-      + `${plural(gapCount, 'a surface', 'surfaces')} the scanner could not read. `
-      + `${plural(gapCount, 'It is', 'They are')} not counted in the severity chart or in Top Risks, and `
-      + `${plural(gapCount, 'is', 'are')} listed per host under Coverage gaps in the appendix.</p>`);
+  // G-72 (v394 Q6, VERDICT-v395 §4 (4)): the coverage-gap rows are COUNTED here and LISTED per host in the appendix. No rows
+  // on the cover: a real cloud run carries ten, and a network sweep one per host. Each number is a count of ROWS taken by a
+  // filter (one 040 row can name two ports), and each sentence speaks only of the rows it counts: "could not read" and "not
+  // counted" of the declared rows, "also counted" of the undeclared ones. Nothing is printed when no row is listed.
+  if (listed.length) {
+    const declared = listed.filter(isGapOnly);
+    const undeclared = listed.filter((f) => !isGapOnly(f));
+    let p = `<p>${listed.length} coverage-gap ${plural(listed.length, 'row', 'rows')} recorded, listed per host under `
+      + 'Coverage gaps in the appendix.';
+    if (declared.length) {
+      p += ` ${declared.length} ${plural(declared.length, 'row is', 'rows are')} declared by `
+        + `${plural(declared.length, 'its', 'their')} producer to record only a surface the scanner could not read, and `
+        + `${plural(declared.length, 'is', 'are')} not counted in the severity chart or in Top Risks.`;
+    }
+    if (undeclared.length) {
+      p += ` ${undeclared.length} ${plural(undeclared.length, 'row carries', 'rows carry')} the gap marker without that `
+        + `declaration and ${plural(undeclared.length, 'is', 'are')} also counted as `
+        + `${plural(undeclared.length, 'a finding', 'findings')} at ${plural(undeclared.length, 'its', 'their')} producer's severity.`;
+    }
+    lines.push(`${p}</p>`);
   }
   // v394 Q5: beside a gap, "no findings" is never the bare sentence — it would read as a clean result.
   if (!findings.length) {
-    lines.push(gapCount
-      ? `<p>No findings were recorded for the ${c.written} hosts scanned in this run, and ${gapCount} `
-        + `${plural(gapCount, 'surface', 'surfaces')} could not be read (coverage gaps, listed in the appendix): `
-        + 'this is not a clean result.</p>'
+    lines.push(listed.length
+      ? `<p>No findings were recorded for the ${c.written} hosts scanned in this run, and ${gapOnlyClause(listed, 'in the appendix')}</p>`
       : `<p>No findings were recorded for the ${c.written} hosts scanned in this run.</p>`);
   }
   return lines.join('\n');
 }
 
-function renderCover(model, brand, renderedAt, findings, gapCount) {
+function renderCover(model, brand, renderedAt, findings, listed) {
   const preparedClause = brand.preparedBy ? `Prepared by ${escapeHtml(brand.preparedBy)} · ` : '';
   const intro = 'This report lists the findings recorded by NSAuditor AI for the hosts and '
     + 'plugins named below. It is a print-ready HTML report.';
@@ -408,12 +437,12 @@ ${renderBrandBlock(brand)}
 <p class="run-dates">${preparedClause}Scan of ${model.coverage.requested} hosts started `
     + `${fmtDate(model.startedAt)} · Report rendered ${fmtDate(renderedAt)}.</p>
 <p>${intro}</p>
-${renderCoverageSummary(model, findings, gapCount)}
+${renderCoverageSummary(model, findings, listed)}
 ${renderKevEpss(model)}
 </section>`;
 }
 
-function renderTopRisks(findings, gapCount) {
+function renderTopRisks(findings, listed) {
   // A passing check is not a risk. PASS only stayed out of this section by ranking below
   // 105 real findings; on a CLEAN scan the section titled "Top Risks" would have listed
   // the passing checks themselves.
@@ -425,10 +454,8 @@ function renderTopRisks(findings, gapCount) {
     return `<section id="top-risks">
 <h2>Top Risks</h2>
 <p>${rule}</p>
-<p>${gapCount
-    ? `No findings were recorded in this run, and ${gapCount} coverage ${plural(gapCount, 'gap', 'gaps')} — `
-      + `${plural(gapCount, 'a surface', 'surfaces')} the scanner could not read — ${plural(gapCount, 'is', 'are')} `
-      + 'listed in the appendix: this is not a clean result.'
+<p>${listed.length
+    ? `No findings were recorded in this run, and ${gapOnlyClause(listed, 'in the appendix')}`
     : 'No findings were recorded in this run.'}</p>
 </section>`;
   }
@@ -497,11 +524,10 @@ ${rows}
 </table>`;
 }
 
-function renderFindingsTable(findings, gapCount = 0) {
+function renderFindingsTable(findings, listed = []) {
   if (!findings.length) {
-    return gapCount
-      ? `<p>No findings were recorded for this host, and ${gapCount} ${plural(gapCount, 'surface', 'surfaces')} could not `
-        + 'be read (listed below): this is not a clean result.</p>'
+    return listed.length
+      ? `<p>No findings were recorded for this host, and ${gapOnlyClause(listed, 'below')}</p>`
       : '<p>No findings recorded for this host.</p>';
   }
   const rows = findings.slice().sort(comparePresentation).map((f) => `<tr data-row-severity="${chartSev(f.severity)}">
@@ -523,24 +549,40 @@ ${rows}
 </table>`;
 }
 
-// G-72 (v394 Q6): a host's coverage gaps, in their own table. Each row is countable by its own attribute and carries NO
-// data-row-severity and no sev- class: the chart/table invariant counts data-row-severity rows, and a gap is not a finding.
-// The producer's severity is shown as plain text (a cloud gap can be MEDIUM). '' when the host has none, so a host without a
-// gap renders byte-identical to the page before G-72.
+// G-72 (v394 Q6, VERDICT-v395 §4 (3)-(4)): a host's coverage-gap rows, in their own table. Each row is countable by its own
+// attribute and carries NO data-row-severity and no sev- class: the chart/table invariant counts data-row-severity rows, and
+// an undeclared row is already counted once, in the findings table above. "Counted as a finding" says which. The producer's
+// severity is plain text (a cloud gap can be MEDIUM). '' when the host has none, so a host without one renders byte-identical
+// to the page before G-72.
 function renderCoverageGaps(gaps) {
   if (!gaps.length) return '';
+  const declared = gaps.filter(isGapOnly).length;
+  const undeclared = gaps.filter((f) => !isGapOnly(f)).length;
   const rows = gaps.map((f) => `<tr data-coverage-gap="true">
 <td>${escapeHtml(f.host)}</td>
 <td>${f.port != null ? escapeHtml(String(f.port)) : ''}</td>
 <td>${escapeHtml(f.severity)}</td>
+<td>${isGapOnly(f) ? 'No' : 'Yes'}</td>
 <td>${escapeHtml(coverageGapText(f))}</td>
 </tr>`).join('\n');
+  let intro = `${gaps.length} ${plural(gaps.length, 'row', 'rows')} on this host ${plural(gaps.length, 'carries', 'carry')} a `
+    + 'coverage-gap marker.';
+  if (declared) {
+    intro += ` ${declared} ${plural(declared, 'row is', 'rows are')} declared by ${plural(declared, 'its', 'their')} producer `
+      + `to record only a surface the scanner could not read: ${plural(declared, 'it is', 'they are')} not `
+      + `${plural(declared, 'a finding', 'findings')}, ${plural(declared, 'is', 'are')} not counted in the severity chart or `
+      + 'in Top Risks, and a check that could not read a surface did not pass there.';
+  }
+  if (undeclared) {
+    intro += ` ${undeclared} ${plural(undeclared, 'row carries', 'rows carry')} the marker without that declaration: `
+      + `${plural(undeclared, 'it is', 'they are')} also counted as ${plural(undeclared, 'a finding', 'findings')} in the table `
+      + `above and may state a defect as well as a gap.`;
+  }
   return `
 <h4>Coverage gaps</h4>
-<p>Surfaces the scanner could not read on this host. They are not findings: they are not counted in the severity chart or `
-    + `in Top Risks, and a check that could not read a surface did not pass there.</p>
+<p>${intro}</p>
 <table class="coverage-gaps">
-<thead><tr><th>Host</th><th>Port</th><th>Severity</th><th>Not read</th></tr></thead>
+<thead><tr><th>Host</th><th>Port</th><th>Severity</th><th>Counted as a finding</th><th>Text</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -562,16 +604,14 @@ function renderAppendix(model) {
 
   const sections = (model.hosts ?? []).map((h) => {
     // G-72 (v394 Q4 b): the SECOND array. The cover, Top Risks and the chart read the flattened model.findings; this section
-    // reads each host's own list, so it is partitioned here as well, or the appendix would count every gap as a finding.
-    const rows = h.findings ?? [];
-    const findings = rows.filter((f) => !isCoverageGap(f));
-    const gaps = rows.filter(isCoverageGap);
+    // reads each host's own list, so it goes through the same partitionRows.
+    const { counted: findings, listed: gaps } = partitionRows(h.findings ?? []);
     const reach = h.up ? 'reachable' : 'not reachable';
     return `<section class="host">
 <h3>${escapeHtml(h.host)} — ${reach}</h3>
 <p class="dir">Evidence directory: ${escapeHtml(h.dir ?? '')}</p>
 ${renderPluginStatus(pluginByDir.get(h.dir))}
-${renderFindingsTable(findings, gaps.length)}${renderCoverageGaps(gaps)}
+${renderFindingsTable(findings, gaps)}${renderCoverageGaps(gaps)}
 </section>`;
   }).join('\n');
 
@@ -808,12 +848,11 @@ export function renderExecutiveReport(model, brand, { renderedAt = new Date(), d
       + 'the branding silently missing.');
   }
   const title = escapeHtml(brand.title || 'Network Scan Report');
-  // G-72 (v394 Q4): a coverage gap is SHOWN, never COUNTED. model.findings keeps every row — the delta view
-  // (scan_delta_view.mjs) needs the gap rows and the Jira export keeps them on purpose — so the partition is here, in the one
-  // renderer, over BOTH arrays: the flattened list below (cover, Top Risks, chart) and each host's list (renderAppendix).
-  const all = model.findings ?? [];
-  const findings = all.filter((f) => !isCoverageGap(f));
-  const gapCount = all.length - findings.length;
+  // G-72 (VERDICT-v395 §4): every gap row is SHOWN; only a declared gap-only row is left out of the COUNT. model.findings
+  // keeps every row — the delta view (scan_delta_view.mjs) needs the gap rows and the Jira export keeps them on purpose — so
+  // the partition is here, in the one renderer, over BOTH arrays: the flattened list below (cover, Top Risks, chart) and each
+  // host's list (renderAppendix).
+  const { counted: findings, listed } = partitionRows(model.findings ?? []);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -824,8 +863,8 @@ export function renderExecutiveReport(model, brand, { renderedAt = new Date(), d
 <style>${CSS}</style>
 </head>
 <body>
-${renderCover(model, brand, renderedAt, findings, gapCount)}
-${renderTopRisks(findings, gapCount)}
+${renderCover(model, brand, renderedAt, findings, listed)}
+${renderTopRisks(findings, listed)}
 ${renderDelta(delta)}
 <section id="chart">
 <h2>Severity Distribution</h2>

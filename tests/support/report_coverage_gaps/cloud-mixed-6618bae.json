@@ -1,0 +1,51 @@
+{
+  "capturedAt": "CE 6618bae (git archive)",
+  "node": "v24.22.3",
+  "pages": {
+    "1020": {
+      "bars": {
+        "CRITICAL": 1,
+        "HIGH": 0,
+        "MEDIUM": 0,
+        "LOW": 0,
+        "INFO": 0,
+        "PASS": 0,
+        "OTHER": 0
+      },
+      "severityRows": [
+        "<tr data-row-severity=\"CRITICAL\">\n<td class=\"sev-critical\">CRITICAL</td>\n<td>—</td>\n<td>public-assets-example — Bucket ACL grants public access (AllUsers) – bucket is publicly accessible</td>\n<td>—</td>\n<td>No</td>\n<td>—</td>\n<td>Bucket ACL grants public access (AllUsers) – bucket is publicly accessible · Sample truncated: 1000 of &gt;1000 objects scanned; remaining UNVERIFIED — public-exposure count may be higher</td>\n<td></td>\n</tr>"
+      ],
+      "topRisks": "<section id=\"top-risks\">\n<h2>Top Risks</h2>\n<p>Findings below are ordered by known-exploited first, then EPSS probability, then severity.</p>\n<table>\n<thead><tr><th>Severity</th><th>Host</th><th>Finding</th><th>Known-exploited</th><th>EPSS</th></tr></thead>\n<tbody>\n<tr>\n<td class=\"sev-critical\">CRITICAL</td>\n<td>192.0.2.10</td>\n<td>public-assets-example — Bucket ACL grants public access (AllUsers) – bucket is publicly accessible</td>\n<td>No</td>\n<td>—</td>\n</tr>\n</tbody>\n</table>\n</section>"
+    },
+    "1022": {
+      "bars": {
+        "CRITICAL": 0,
+        "HIGH": 0,
+        "MEDIUM": 1,
+        "LOW": 0,
+        "INFO": 0,
+        "PASS": 0,
+        "OTHER": 0
+      },
+      "severityRows": [
+        "<tr data-row-severity=\"MEDIUM\">\n<td class=\"sev-medium\">MEDIUM</td>\n<td>—</td>\n<td>kv-net-example — Key Vault &#39;kv-net-example&#39; networkAcls block absent from API response. Azure documented default when unset is defaultAction=&#39;Allow&#39; —…</td>\n<td>—</td>\n<td>No</td>\n<td>—</td>\n<td>Key Vault &#39;kv-net-example&#39; networkAcls block absent from API response. Azure documented default when unset is defaultAction=&#39;Allow&#39; — equivalent CC6.1 public-network-exposure risk. Configure networkAcls.defaultAction=Deny explicitly + auditor walkthrough for cross-account-aware retrieval.</td>\n<td></td>\n</tr>"
+      ],
+      "topRisks": "<section id=\"top-risks\">\n<h2>Top Risks</h2>\n<p>Findings below are ordered by known-exploited first, then EPSS probability, then severity.</p>\n<table>\n<thead><tr><th>Severity</th><th>Host</th><th>Finding</th><th>Known-exploited</th><th>EPSS</th></tr></thead>\n<tbody>\n<tr>\n<td class=\"sev-medium\">MEDIUM</td>\n<td>192.0.2.10</td>\n<td>kv-net-example — Key Vault &#39;kv-net-example&#39; networkAcls block absent from API response. Azure documented default when unset is defaultAction=&#39;Allow&#39; —…</td>\n<td>No</td>\n<td>—</td>\n</tr>\n</tbody>\n</table>\n</section>"
+    },
+    "1222": {
+      "bars": {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "MEDIUM": 0,
+        "LOW": 0,
+        "INFO": 0,
+        "PASS": 0,
+        "OTHER": 0
+      },
+      "severityRows": [
+        "<tr data-row-severity=\"HIGH\">\n<td class=\"sev-high\">HIGH</td>\n<td>—</td>\n<td>kv-example — Key Vault &#39;kv-example&#39; grants the highly-privileged role &#39;Owner&#39; to 1 principal(s) (at vault scope) — over-privileged key/secret access…</td>\n<td>—</td>\n<td>No</td>\n<td>—</td>\n<td>Key Vault &#39;kv-example&#39; key enumeration could not complete — key rotation/expiry posture unverified, evidence gap · Key Vault &#39;kv-example&#39; grants the highly-privileged role &#39;Owner&#39; to 1 principal(s) (at vault scope) — over-privileged key/secret access (least-privilege erosion)</td>\n<td></td>\n</tr>"
+      ],
+      "topRisks": "<section id=\"top-risks\">\n<h2>Top Risks</h2>\n<p>Findings below are ordered by known-exploited first, then EPSS probability, then severity.</p>\n<table>\n<thead><tr><th>Severity</th><th>Host</th><th>Finding</th><th>Known-exploited</th><th>EPSS</th></tr></thead>\n<tbody>\n<tr>\n<td class=\"sev-high\">HIGH</td>\n<td>192.0.2.10</td>\n<td>kv-example — Key Vault &#39;kv-example&#39; grants the highly-privileged role &#39;Owner&#39; to 1 principal(s) (at vault scope) — over-privileged key/secret access…</td>\n<td>No</td>\n<td>—</td>\n</tr>\n</tbody>\n</table>\n</section>"
+    }
+  }
+}

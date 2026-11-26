@@ -10,7 +10,7 @@
 // don't need to guard before invocation.
 
 import { conclusionFindings, conclusionNotTested, manifestNotTested, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
-import { shapeHostFindings, isCoverageGap, coverageGapText } from './report_inputs.mjs';
+import { shapeHostFindings, isCoverageGap, isGapOnly, coverageGapText } from './report_inputs.mjs';
 
 const SEVERITIES = SEVERITY_ORDER;
 
@@ -171,10 +171,11 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
-  // G-72 (v394 Q2): the COVERAGE GAPS — surfaces the scanner could not read — shaped by the report loader's own
+  // G-72 (v394 Q2, VERDICT-v395 §4): the rows that carry the COVERAGE-GAP marker, shaped by the report loader's own
   // shapeHostFindings over the plugin results and picked by its own isCoverageGap, so this report and the executive html
-  // read one set with one shaping code. They are not findings and the headline above does not count them; the count sits
-  // beside it. ABSENT IS NOT EMPTY: a caller that hands no results gets a line saying the gaps were not evaluated, never a
+  // read one set with one shaping code. The headline above counts the concluder's SERVICE checks and never a loader row, so
+  // this report can call no gap row "counted"; it marks each row by its producer's declaration instead (isGapOnly). Only a
+  // declared row is called a surface the scanner could not read. ABSENT IS NOT EMPTY: a caller that hands no results gets a line saying the gaps were not evaluated, never a
   // silence that reads as "no gaps". Results with no gap row print nothing, so that report is byte-identical to before.
   // Stated limit: this report reads no EE finding queue, so a run whose only gaps are Enterprise analysis-agent (queue)
   // gaps prints no Coverage gaps section; the section says in itself that those are not listed.
@@ -185,8 +186,8 @@ export function buildMarkdownReport(scanData) {
     lines.push('- **Coverage gaps:** not evaluated — this report was built without the plugin results, so a surface the '
       + 'scanner could not read is not listed here.');
   } else if (gaps.length) {
-    lines.push(`- **Coverage gaps:** ${gaps.length} (not counted in Security findings — `
-      + `${gaps.length === 1 ? 'a surface' : 'surfaces'} the scanner could not read, listed under Coverage gaps below)`);
+    lines.push(`- **Coverage gaps:** ${gaps.length} ${gaps.length === 1 ? 'row' : 'rows'}, listed under Coverage gaps below `
+      + '(Security findings counts service checks only, so no coverage-gap row is part of it)');
   }
   // 1.3.0 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
   // never "none" and never "refused". One line per check and reason, from the shared table, with every target it covers.
@@ -241,10 +242,11 @@ export function buildMarkdownReport(scanData) {
   lines.push('');
   if (findings.length === 0) {
     // v394 Q2 c: on a gap-only run this sentence names the gap count, or "found anything" beside a gap reads as clean.
+    // "Not a clean result" holds for ANY gap row, declared or not; what the row records is said in its own section.
     lines.push(gaps?.length
-      ? `_None of the counted service checks found anything, and ${gaps.length} coverage `
-        + `${gaps.length === 1 ? 'gap was' : 'gaps were'} recorded — ${gaps.length === 1 ? 'a surface' : 'surfaces'} the `
-        + 'scanner could not read, listed under Coverage gaps below. This is not a clean result. Nor is it a statement '
+      ? `_None of the counted service checks found anything, and ${gaps.length} coverage-gap `
+        + `${gaps.length === 1 ? 'row was' : 'rows were'} recorded, listed under Coverage gaps below. This is not a clean `
+        + 'result. Nor is it a statement '
         + 'that the host has no known vulnerabilities — CVE lookups and analysis-agent findings are not part of this '
         + 'count (see Scope above), and anonymous FTP login, zone transfer and the SMB null session are tested only '
         + 'when enabled._'
@@ -273,17 +275,29 @@ export function buildMarkdownReport(scanData) {
   }
 
   // ---- Coverage gaps (G-72) ----
-  // One line per gap row, after the findings. Every value goes through escapeCell: a gap's text can carry a name or a code
-  // a host chose (v394 Q2 d). A null port prints no ":null"; a cut title shows the whole text it was cut from (Q1).
+  // One line per gap row, after the findings, marked by its producer's declaration (m-7). Each intro sentence speaks only of
+  // the rows its mark names. Every value goes through escapeCell: a gap's text can carry a name or a code a host chose
+  // (v394 Q2 d). A null port prints no ":null"; a cut title shows the whole text it was cut from where it can (Q1).
   if (gaps?.length) {
-    lines.push('## Coverage gaps (not counted)');
+    const DECLARED = '**gap only:**';
+    const UNDECLARED = '**may also state a finding (not declared gap-only by its producer):**';
+    let intro = 'Rows that carry a coverage-gap marker on this host. Security findings above counts service checks only, so '
+      + 'none of these rows is part of it.';
+    if (gaps.some(isGapOnly)) {
+      intro += ' A row marked **gap only** is declared by its producer to record only a surface the scanner could not read; a '
+        + 'check that could not read a surface did not pass there.';
+    }
+    if (gaps.some((f) => !isGapOnly(f))) {
+      intro += ' A row marked **may also state a finding (not declared gap-only by its producer)** carries the marker without '
+        + 'that declaration: read its text as a possible finding as well as a gap.';
+    }
+    lines.push('## Coverage gaps');
     lines.push('');
-    lines.push('Surfaces the scanner could not read on this host. They are not findings and are not counted in Security '
-      + 'findings above; a check that could not read a surface did not pass there. Enterprise analysis-agent gaps are not '
-      + 'listed in this report.');
+    lines.push(`${intro} Enterprise analysis-agent gaps are not listed in this report.`);
     lines.push('');
     for (const f of gaps) {
-      lines.push(`- ${escapeCell(f.host)}${f.port != null ? `:${escapeCell(f.port)}` : ''} — ${escapeCell(coverageGapText(f))}`);
+      lines.push(`- ${escapeCell(f.host)}${f.port != null ? `:${escapeCell(f.port)}` : ''} — `
+        + `${isGapOnly(f) ? DECLARED : UNDECLARED} ${escapeCell(coverageGapText(f))}`);
     }
     lines.push('');
   }

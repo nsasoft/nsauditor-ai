@@ -1,0 +1,27 @@
+{
+  "capturedAt": "CE 6618bae (git archive)",
+  "node": "v24.22.3",
+  "rows": {
+    "040": [
+      {
+        "id": "40944285f4e79a26",
+        "contentDigest": "875f353283aa8d24",
+        "title": "[COVERAGE GAP] TLS certificate audit could not complete on 50001 (ECONNRESET), 50002 (ECONNRESET)"
+      }
+    ],
+    "050": [
+      {
+        "id": "4f6c8920e7a5c18e",
+        "contentDigest": "c3a58ef012782e3c",
+        "title": "[COVERAGE GAP] TRIBE API probe: the body of 37 replies on port 50001 was not read"
+      }
+    ],
+    "060": [
+      {
+        "id": "46fd7ff73404cec9",
+        "contentDigest": "5b170cad5dd952fd",
+        "title": "Evidence gap: the DMARC check was not measured — the TXT lookup for…"
+      }
+    ]
+  }
+}

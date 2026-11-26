@@ -746,6 +746,10 @@ export function tlsCoverageGap(failedPorts, context, namedPort) {
     port: gaps.length === 1 ? Number(gaps[0].port) : null,
     details: {
       evidenceGap: true,
+      // G-72 (RULINGS-v396 C1): DECLARED gap-only. This row states the ports whose handshake failed and the error each
+      // gave, so the reports list it and leave it out of their counts; a gap marker alone would leave it counted. Stated
+      // limit (v396 §3): an error code a reader takes as posture (a protocol refusal) is listed here, not counted.
+      gapOnly: true,
       openness: evidence ? "open-per-port-scanner" : "unknown",
       failedPorts: gaps,
     },

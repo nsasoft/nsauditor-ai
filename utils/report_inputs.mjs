@@ -227,6 +227,11 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // on 7 AWS and 3 Azure findings of the real 1.1.0 run), which means the READ side needs no
     // writer change to see it.
     evidenceGap: f?.details?.evidenceGap === true,
+    // G-72 (RULINGS-v396 C1): the producer's DECLARATION that this gap row records nothing but a surface it could not read.
+    // On Enterprise cloud rows `evidenceGap` is ADDITIVE — a public bucket whose object sample was truncated is one row — so
+    // the marker alone cannot take a row out of a report's count; only this can, and only beside the marker (isGapOnly).
+    // Exactly `true`. It is outside the delta's identity (id, contentDigest) and the delta does not read it.
+    gapOnly: f?.details?.gapOnly === true,
     // WHICH gap, when the producer names one (EE 1.1.0 build 9). The delta scopes an `input_gap` that
     // carries a PORT to that port alone (`probe-not-measured`); every other gap stays producer-wide.
     gapClass: typeof f?.details?.gapClass === 'string' ? f.details.gapClass : null,
@@ -339,6 +344,9 @@ function shapeQueueEntry(host, q) {
     // Exactly `true`, never merely truthy: a producer writing something else has a bug, and
     // reading it as a declaration would make that producer's whole output un-differenceable.
     evidenceGap: q?.evidence?.raw?.evidenceGap === true,
+    // G-72 (RULINGS-v396 C1): the declaration on the queue's vocabulary, as for `evidenceGap`. No queue producer writes it
+    // today, so every EE queue gap row is counted and listed.
+    gapOnly: q?.evidence?.raw?.gapOnly === true,
     // WHICH gap (EE 1.1.0 build 9). EE's service-set input gap names the port a probe could not
     // measure: a probe that RAN on a port the port scanner saw open and did not complete its connection
     // there. The delta reads `input_gap` + a port as "that port was not measured in this run", so a
@@ -394,15 +402,25 @@ export function countHostFindings(host, raw, queue = []) {
   return shapeHostFindings(host, raw, queue).filter((f) => !isNotCounted(f)).length;
 }
 
-// G-72 (v394 Q4 a): the ONE spelling of "this shaped row records a surface the scanner could not read". countHostFindings,
-// the md report and the executive html all ask it, so the three cannot disagree about what a gap is.
+// G-72 (v394 Q4 a, RULINGS-v396 Q3): the ONE spelling of "this shaped row carries the coverage-gap marker". The readers
+// agree on which rows are GAPS (this predicate); they differ on which rows are COUNTED. The md report and the executive html
+// leave out of their counts only a DECLARED gap-only row (isGapOnly). The history count (countHostFindings) and the cross-run
+// delta leave out every gap-flagged row. So the rows they disagree on are the gap-flagged rows with no declaration: the two
+// reports count them, the history and the delta do not.
 export function isCoverageGap(f) {
   return f?.evidenceGap === true;
 }
 
-// Every row a finding COUNT leaves out: the coverage gaps, and the declared scope statements. ⚠️ G-73: the executive html
-// partitions on isCoverageGap alone and still counts the scope statements in its bars; making it partition on this
-// predicate instead is the one edit that closes G-73 (the rows then need a listing of their own, not "Coverage gaps").
+// G-72 (RULINGS-v396 C1): a gap row its producer DECLARED to record nothing but a surface it could not read. The reports
+// list every gap row and leave only these out of their counts, so a row that states a defect beside its gap marker stays
+// counted. Row-local (C2): a declaration takes its own row out and nothing else.
+export function isGapOnly(f) {
+  return isCoverageGap(f) && f?.gapOnly === true;
+}
+
+// Every row the history count leaves out: the coverage gaps, and the declared scope statements. ⚠️ G-73: the executive html
+// counts the scope statements in its bars; partitionRows in utils/executive_report.mjs is the one place to change that (the
+// rows then need a listing of their own, not "Coverage gaps").
 export function isNotCounted(f) {
   return isCoverageGap(f) || f?.deferredScope === true;
 }
@@ -503,9 +521,10 @@ export function shapeHostFindings(host, raw, queue = []) {
     }
     // 060 records the checks a failed DNS lookup left unmeasured in `details.notMeasured` rather than grading them. Each
     // is an EVIDENCE GAP on this host, never a finding, so the cross-run delta reads a baseline row that is absent here as
-    // not comparable instead of resolved.
+    // not comparable instead of resolved. The row states only the lookup that failed, so it is DECLARED gap-only (G-72 C1):
+    // the reports list it and leave it out of their counts.
     for (const g of (Array.isArray(res.details?.notMeasured) ? res.details.notMeasured : [])) {
-      push(shapeFinding(host, { severity: 'info', check: 'not_measured', details: { evidenceGap: true },
+      push(shapeFinding(host, { severity: 'info', check: 'not_measured', details: { evidenceGap: true, gapOnly: true },
         detail: `Evidence gap: the ${String(g?.check ?? '').toUpperCase()} check was not measured — the ${g?.rrtype} lookup for `
           + `${g?.name} failed (${g?.code})` }, envId(e), e?.name ?? null));
     }
