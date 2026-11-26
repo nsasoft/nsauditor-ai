@@ -54,13 +54,25 @@ const THIRD_PARTY = {
   dnssd: 'multicast service discovery on the local link — sends to the mDNS group, never to a resolved name',
   mdns: 'multicast service discovery through the system daemon — no target name',
   'multicast-dns': 'multicast service discovery on the local link — no target name',
-  'node-upnp-utils': 'SSDP multicast; a description URL is fetched only on the answering device\'s own address (upnp_scanner)',
+  'node-upnp-utils': {
+    why: 'SSDP multicast; a description URL is fetched only on the answering device\'s own address (upnp_scanner)',
+    agent: 'absent = global pool — its description fetch, mHttp.request(url, { method: \'GET\' }) in lib/upnp-utils-dd.js, passes no agent: http.globalAgent, keep-alive on. discover() reaches it for an M-SEARCH answer whose LOCATION host equals the sender; the body is appended with no cap inside a 1000 ms timer (G-20). Its second request site, invokeAction\'s SOAP POST (lib/upnp-utils.js), has no caller in the library and the plugin never calls it',
+    version: '1.0.3',
+    witness: [['lib/upnp-utils-dd.js', /req = mHttp\.request\(url, \{ method: 'GET' \}, \(res\) => \{/g, 1], ['lib/upnp-utils.js', /mHttp\.request\(/g, 1]],
+    pluginMembers: ['_parseSdpResponseHeader', '_receivePacket', 'discover'],   // the plugin's own Symbol.for('nsauditor.upnp.…') keys are not members
+  },
   'node-fetch': 'built on node:http(s) — its connect resolves through the pinned lookup',
   'snmp-native': 'built on node:dgram (socket.send to the host) — resolves through the pinned lookup',
   xml2js: 'an XML parser — no network',
 };
 
-const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+// ONE left-to-right pass over comments AND strings, so each consumes its own extent: a `/*` inside a string ('*/*') or
+// inside a line comment (`data/compliance/*.json`) opens nothing. The two-regex form this replaces stripped block comments
+// first and ate live code in 9 of the 94 shipped files — 180 lines of http_probe, 517 of mcp_server — so every leg here
+// was blind there (measured by the W-1 fold, architect v385). A block comment keeps its newlines. Regular-expression
+// literals are not parsed (the stated limit in W-1's header).
+const COMMENT_OR_STRING = /(?<!\\)\/\*[\s\S]*?\*\/|(?<![:\\])\/\/[^\n]*|'(?:\\[\s\S]|[^'\\\n])*'|"(?:\\[\s\S]|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`/g;
+const stripComments = (src) => src.replace(COMMENT_OR_STRING, (m) => (m.startsWith('/*') ? m.replace(/[^\n]/g, '') : m.startsWith('//') ? '' : m));
 const importOf = (mod) => new RegExp(String.raw`(?:from|import\(|require\()\s*['"\`](?:node:)?${mod}['"\`]`);
 const CHILD_PROCESS = importOf('child_process');
 const DNS_IMPORT = importOf(String.raw`dns(?:\/promises)?`);
@@ -281,39 +293,84 @@ test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — ev
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// W-1 (EE Z-1, architect v383): WHO OPENS A CONNECTION, AND HOW IT POOLS — keyed on the IMPORTERS of node:http, https,
-// http2, net, tls and dgram.
+// W-1 (EE Z-1, architect v383; folded under v385): THE SHIPPED IMPORTERS OF node:http, https, http2, net, tls AND dgram —
+// what each one pools, how it resolves, and its request sites.
 //
 // The pin above answers a RESOLUTION. A connection that is REUSED never resolves, so what pools — and where — decides how
 // far utils/scan_pin.mjs's stated keep-alive limit reaches. Measured on Node 24.22.3: http.globalAgent and
 // https.globalAgent keep connections alive by default, and a `new https.Agent()` does not. So every SHIPPED file importing
-// one of those modules (statically, through require, through a dynamic import(), or as a side-effect import) is DERIVED
-// from package.json `files` and held EQUAL to a DECLARED row stating its `agent` (false | absent = global pool | custom,
-// keep-alive on/off | n/a for a raw socket), its `lookup`, its `createConnection`, and a reason. Per file the COUNT of the
-// tokens `lookup`, `agent` and `createConnection` is pinned by equality, COMMENTS INCLUDED, so a new option, a removed one
-// or a comment that gains or loses one of those words fails here by file and token until its row is re-read. A row whose agent is not n/a also pins a
-// WITNESS: the text of the option site itself, by match count, so a VALUE flip that keeps every token (`keepAlive: false`
-// → `true`, `: undefined` → `: false`) is red too.
+// one of those modules is DERIVED from package.json `files` and held EQUAL to a DECLARED row stating its `agent` (false |
+// absent = global pool | custom, keep-alive on/off | n/a for a raw socket), its `lookup`, its `createConnection`, and a
+// reason. The import is derived from the LOADER IDENTIFIER, never one call shape (netModulesIn says which). Per file the
+// COUNTS of `lookup`, `agent`, `createConnection`, `Agent`, `globalAgent` and `keepAlive` are pinned by equality, COMMENTS
+// INCLUDED, and for an http, https or http2 importer its request calls (`.request(`, `.get(`, a named request/get under any
+// alias): a new option, a new request site, a globalAgent mutation, or a comment gaining or losing one of those words fails
+// here by file and token until the row is re-read. A row with an HTTP agent also pins a WITNESS of its option site by match
+// count over its CODE (comments removed), so a value flip that keeps every token, or the option commented out, is red.
 //
-// Stated limits: the counted tokens are case-sensitive and whole-word — `Agent`, `globalAgent`, `userAgent` and
-// `keepAlive` are not counted (a hyphen is a boundary, so a `user-agent` header IS); a new request call that names none of
-// the three tokens moves no count (its FILE is still held by the importer set); the shipped set is read from package.json
-// `files` without applying .npmignore, which can only REMOVE a file — an over-declared row, noise not silence; a computed
-// specifier (`import(name)`) is not a token this walk can see.
+// What this census does NOT hold, by design: a request through global fetch (C-8's census,
+// tests/fetch_redirect_policy_census.test.mjs); a subprocess (the commands table above); a third-party package's own
+// sockets (THIRD_PARTY's rows — node-upnp-utils pools in http.globalAgent itself and carries a pooling statement and a
+// witness over its INSTALLED request line, (w1-f)).
+// Stated limits: tokens are case-sensitive and whole-word (a hyphen is a boundary, so a `user-agent` header IS counted); a
+// request call through a name the count cannot bind (a method held in a variable, Reflect.apply, a request function
+// passed in) moves no count; imports it cannot see: a computed or concatenated specifier (`import(name)`,
+// `require('node:' + m)`), a loader passed through a parameter or an object property (`deps.load('net')`),
+// `module.constructor._load`, `process.binding`; the shipped set is read from package.json `files` without .npmignore,
+// which can only REMOVE a file (an over-declared row: noise, not silence). stripComments does not parse regular-expression
+// literals: a quote or a `/*` inside one can mis-scope what follows. Measured with a parse oracle (each shipped file,
+// stripped, through node --check): 94 of 94 parse; the replaced two-regex form left 12 of 94 unparseable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const NET_SPEC = String.raw`(['"\`])(?:node:)?(http2|https|http|net|tls|dgram)\1`;
-/** The socket modules a source imports — static, require, dynamic, side-effect, re-export — read over the RAW text. */
+const NET_SPEC = String.raw`(?<q>['"\`])(?:node:)?(?<mod>http2|https|http|net|tls|dgram)\k<q>`;
+const GAP = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*`;   // whitespace and comments between a loader and its specifier
+const ID = String.raw`[\w$]+`;
+const anyOf = (names) => [...names].map((n) => n.replace(/\$/g, '\\$')).join('|');
+/**
+ * The socket modules a source imports, read over the RAW text and keyed on the IDENTIFIER, never on one call shape (v385:
+ * `_require('net')` and process.getBuiltinModule were invisible to the first cut). A LOADER is: import / import(), any
+ * call ending `require(` (`_require`, `module.require`), getBuiltinModule, a name assigned from createRequire or from any
+ * alias of it, a name holding `require` or getBuiltinModule, and an immediate `createRequire(…)(`.
+ */
 export function netModulesIn(raw) {
+  const creators = new Set(['createRequire']);
+  for (const m of raw.matchAll(/\bcreateRequire\s+as\s+([\w$]+)/g)) creators.add(m[1]);
+  for (const m of raw.matchAll(/\bcreateRequire\s*:\s*([\w$]+)/g)) creators.add(m[1]);
+  for (const m of raw.matchAll(/([\w$]+)\s*=\s*(?:[\w$]+\.)*createRequire\b(?!\s*\()/g)) creators.add(m[1]);
+  const loaders = new Set();
+  for (const m of raw.matchAll(new RegExp(String.raw`(${ID})\s*=\s*(?:${ID}\.)*(?:${anyOf(creators)})\s*\(`, 'g'))) loaders.add(m[1]);
+  for (const m of raw.matchAll(/\bgetBuiltinModule\s*:\s*([\w$]+)/g)) loaders.add(m[1]);
+  for (const m of raw.matchAll(/([\w$]+)\s*=\s*(?:[\w$]+\.)*(?:getBuiltinModule|require)\b(?!\s*[(.\w$])/g)) loaders.add(m[1]);
+  const shapes = [
+    String.raw`(?:\bfrom|\bimport${GAP}\(|require${GAP}\(|getBuiltinModule${GAP}\()${GAP}${NET_SPEC}`,
+    String.raw`\bimport${GAP}${NET_SPEC}`,
+    String.raw`(?:${anyOf(creators)})${GAP}\([^()]*(?:\([^()]*\)[^()]*)*\)${GAP}\(${GAP}${NET_SPEC}`,
+  ];
+  if (loaders.size > 0) shapes.push(String.raw`(?<![\w$.])(?:${anyOf(loaders)})${GAP}\(${GAP}${NET_SPEC}`);
   const out = new Set();
-  const shapes = [String.raw`(?:\bfrom|\bimport\s*\(|\brequire\s*\()\s*${NET_SPEC}`, String.raw`\bimport\s*${NET_SPEC}`];
-  for (const shape of shapes) for (const m of raw.matchAll(new RegExp(shape, 'g'))) out.add(m[2]);
+  for (const shape of shapes) for (const m of raw.matchAll(new RegExp(shape, 'g'))) out.add(m.groups.mod);
   return [...out].sort();
 }
+const COUNTED_TOKENS = ['lookup', 'agent', 'createConnection', 'Agent', 'globalAgent', 'keepAlive'];
 /** The count of each counted token in the RAW text (comments included): whole-word, `$` and `_` joining. */
 export function connectionTokensIn(raw) {
   const count = (t) => (raw.match(new RegExp(String.raw`(?<![\w$])${t}(?![\w$])`, 'g')) ?? []).length;
-  return { lookup: count('lookup'), agent: count('agent'), createConnection: count('createConnection') };
+  return Object.fromEntries(COUNTED_TOKENS.map((t) => [t, count(t)]));
+}
+/**
+ * The request calls of an http, https or http2 importer, over the RAW text: every `.request(` and `.get(`, plus a call of
+ * a name bound to request or get by a named import or a destructured require/import/getBuiltinModule, under any alias.
+ */
+export function httpCallsIn(raw) {
+  const HTTP_SPEC = String.raw`['"\`](?:node:)?(?:http2|https|http)['"\`]`;
+  const names = { request: new Set(), get: new Set() };
+  const named = (list) => { for (const part of list.split(',')) { const m = /^\s*(request|get)(?:\s*(?:as|:)\s*([\w$]+))?\s*$/.exec(part); if (m) names[m[1]].add(m[2] ?? m[1]); } };
+  for (const m of raw.matchAll(new RegExp(String.raw`\bimport\s*\{([^}]*)\}\s*from\s*${HTTP_SPEC}`, 'g'))) named(m[1]);
+  for (const m of raw.matchAll(new RegExp(String.raw`\{([^}]*)\}\s*=\s*(?:await\s+import|[\w$.]*require|[\w$.]*getBuiltinModule)\s*\(\s*${HTTP_SPEC}\s*\)`, 'g'))) named(m[1]);
+  const count = (re) => (raw.match(re) ?? []).length;
+  const calls = (key) => count(new RegExp(String.raw`\.${key}\s*\(`, 'g'))
+    + [...names[key]].reduce((n, id) => n + count(new RegExp(String.raw`(?<![\w$.])${id.replace(/\$/g, '\\$')}\s*\(`, 'g')), 0);
+  return { request: calls('request'), get: calls('get') };
 }
 
 test('(w1, first) the importer derivation reads every import shape, comments included, and no look-alike; the token count is whole-word with comments', () => {
@@ -334,9 +391,51 @@ test('(w1, first) the importer derivation reads every import shape, comments inc
   assert.deepEqual(netModulesIn("import d from './http.mjs'; import e from 'node:dns'; import f from 'node:http/x';"), [], 'a relative path, another builtin, a subpath');
   assert.deepEqual(netModulesIn("const s = 'node:http'; fetch('https://x'); const t = require.resolve('net');"), [], 'a string, a URL, require.resolve');
   // The token count: whole-word, case-sensitive, comments included.
-  assert.deepEqual(connectionTokensIn('req({ agent: false }); // agent off, one lookup'), { lookup: 1, agent: 2, createConnection: 0 }, 'a comment counts');
-  assert.deepEqual(connectionTokensIn('opts.lookup; { lookup }; net.createConnection(p, h); headers["user-agent"]'), { lookup: 2, agent: 1, createConnection: 1 }, 'a member, a shorthand, a call, a hyphenated header');
-  assert.deepEqual(connectionTokensIn('userAgent agentName lookupAll createConnectionFor $agent agent$ _lookup new https.Agent() globalAgent keepAlive'), { lookup: 0, agent: 0, createConnection: 0 }, 'a longer identifier, $ and _ joined, and the uncounted case forms');
+  const Z = { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 };
+  assert.deepEqual(connectionTokensIn('req({ agent: false }); // agent off, one lookup'), { ...Z, lookup: 1, agent: 2 }, 'a comment counts');
+  assert.deepEqual(connectionTokensIn('opts.lookup; { lookup }; net.createConnection(p, h); headers["user-agent"]'), { ...Z, lookup: 2, agent: 1, createConnection: 1 }, 'a member, a shorthand, a call, a hyphenated header');
+  assert.deepEqual(connectionTokensIn('new https.Agent({ keepAlive: true }); http.globalAgent.destroy(); // a globalAgent'), { ...Z, Agent: 1, globalAgent: 2, keepAlive: 1 }, 'the agent forms, comments included');
+  assert.deepEqual(connectionTokensIn('userAgent agentName lookupAll createConnectionFor $agent agent$ _lookup AgentX myglobalAgent keepAliveMsecs'), Z, 'a longer identifier, and $ and _ joined, are not the tokens');
+});
+
+test('(w1-s, first) stripComments removes comments and nothing else — a `/*` or `//` inside a string, or a `/*` inside a line comment, opens nothing', () => {
+  // FOURTH QUADRANT FIRST — code the stripper must KEEP. The two-regex form it replaces ate 180 lines of http_probe after
+  // the string '*/*', 62 of target_http after another, and 517 of mcp_server after `data/compliance/*.json` in a // comment.
+  assert.match(stripComments("h = { accept: '*/*' };\nspawn('nc', [x]);\n/* real */"), /spawn\('nc'/, 'code after a string holding */* survives');
+  assert.match(stripComments('// reads data/compliance/*.json\nexec(\'dig\');\n// end */'), /exec\('dig'\)/, 'a /* inside a LINE comment opens no block');
+  assert.match(stripComments('u = "http://x//y"; run("ping");'), /"http:\/\/x\/\/y"; run\("ping"\)/, 'a // inside a string is not a comment');
+  assert.match(stripComments('t = `a // b /* c`; go();'), /`a \/\/ b \/\* c`; go\(\)/, 'a template literal');
+  assert.match(stripComments('const re = /a\\/*b/; keep();'), /keep\(\)/, 'an escaped slash before * opens no block');
+  // The veto: real comments go, and a block comment keeps its newlines so line structure survives.
+  assert.equal(stripComments('a(); // agent: false\nb(); /* lookup:\n x */ c();'), 'a(); \nb(); \n c();');
+  assert.equal(stripComments('x(); // see https://example.test/a\ny();'), 'x(); \ny();', 'a URL inside a line comment goes with it');
+});
+
+test('(w1-i, first) the import derivation is keyed on the IDENTIFIER — every loader shape the repo uses or could, and no look-alike', () => {
+  // FOURTH QUADRANT FIRST — the architect's v385 probes (B and C survived the first cut), then the aliases behind them.
+  assert.deepEqual(netModulesIn("_require('net')"), ['net'], 'any …require( call — the repo\'s own _require convention');
+  assert.deepEqual(netModulesIn("process.getBuiltinModule('node:http').request({ host })"), ['http'], 'getBuiltinModule');
+  assert.deepEqual(netModulesIn("createRequire(import.meta.url)('https')"), ['https'], 'an immediate createRequire call');
+  assert.deepEqual(netModulesIn("const load = createRequire(import.meta.url); load('dgram')"), ['dgram'], 'a name assigned from createRequire');
+  assert.deepEqual(netModulesIn("import(/* x */ 'node:http')"), ['http'], 'a block comment before the specifier');
+  assert.deepEqual(netModulesIn("require(\n  // the socket module\n  'net')"), ['net'], 'a line comment before the specifier');
+  assert.deepEqual(netModulesIn("import { createRequire as cr } from 'node:module'; const r = cr(import.meta.url); r('tls')"), ['tls'], 'an aliased createRequire');
+  assert.deepEqual(netModulesIn("const { createRequire: mk } = await import('node:module'); const q = mk(u); q('net')"), ['net'], 'a destructured createRequire');
+  assert.deepEqual(netModulesIn("const cr2 = module.createRequire; const r2 = cr2(u); r2('dgram')"), ['dgram'], 'createRequire held in a const');
+  assert.deepEqual(netModulesIn("const { getBuiltinModule: gbm } = process; gbm('node:net')"), ['net'], 'a destructured getBuiltinModule');
+  assert.deepEqual(netModulesIn("const g = process.getBuiltinModule; g('http2')"), ['http2'], 'getBuiltinModule held in a const');
+  assert.deepEqual(netModulesIn("const req = require; req('dgram')"), ['dgram'], 'require held in a const');
+  assert.deepEqual(netModulesIn("module.require('net')"), ['net'], 'module.require');
+  // The veto.
+  assert.deepEqual(netModulesIn("require.resolve('net'); const load = createRequire(u); load('./net.mjs'); load.resolve('http'); getBuiltinModule; x.getBuiltinModuleNames('net')"), [],
+    'require.resolve, a relative path through an alias, an alias\'s .resolve, a bare name, a longer method name');
+});
+
+test('(w1-t, first) the request-call count reads member calls and named imports under any alias, and nothing longer', () => {
+  assert.deepEqual(httpCallsIn('https.request(o); mod.request({ host }); http.get(u); m.get(k);'), { request: 2, get: 2 }, 'member calls');
+  assert.deepEqual(httpCallsIn("import { request as r, get } from 'node:https'; r(o); get(u);"), { request: 1, get: 1 }, 'a named import, aliased');
+  assert.deepEqual(httpCallsIn("const { request: send } = _require('http'); send(o);"), { request: 1, get: 0 }, 'a destructured require, aliased');
+  assert.deepEqual(httpCallsIn('x.requestFoo(); requestTarget(u); getThing(); a.getter(); // .request( in a comment'), { request: 1, get: 0 }, 'longer names are not calls; a comment IS counted');
 });
 
 /** Every shipped JavaScript source under `root`, read from its package.json `files` (directories walked recursively), RAW. */
@@ -356,7 +455,9 @@ function netCensus() {
   const found = {};
   for (const { rel, raw } of shippedSources()) {
     const modules = netModulesIn(raw);
-    if (modules.length > 0) found[rel] = { modules, tokens: connectionTokensIn(raw), raw };
+    if (modules.length === 0) continue;
+    found[rel] = { modules, tokens: connectionTokensIn(raw), raw };
+    if (modules.some((m) => m.startsWith('http'))) found[rel].calls = httpCallsIn(raw);
   }
   return found;
 }
@@ -369,72 +470,72 @@ const GLOBAL_HTTP = 'absent = global pool — `agent: undefined` reaches http.gl
 const PER_REQUEST_HTTPS = 'custom, keep-alive off — a new https.Agent per request (rejectUnauthorized: !allowInsecure), whose default keepAlive is false';
 const NET_IMPORTERS = {
   'plugins/040_tls_cert_auditor.mjs': { modules: ['net', 'tls'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'tls.connect to the target for its certificate chain; net only for isIP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'tls.connect to the target for its certificate chain; net only for isIP' },
   'plugins/060_dns_sec_auditor.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET,
     lookup: 'absent — every `lookup` token is prose; it speaks the DNS protocol (resolve*), and its zone transfer connects to an ADDRESS from resolve4, outside the pin (declared in DECLARED above)',
     createConnection: `${NET_CC} — the opt-in zone transfer to a nameserver address`,
-    tokens: { lookup: 14, agent: 0, createConnection: 1 }, why: 'DNS posture of the domain; dgram is imported and never used' },
+    tokens: { lookup: 14, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'DNS posture of the domain; dgram is imported and never used' },
   'plugins/db_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'a net.Socket connect to the target\'s database ports' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'a net.Socket connect to the target\'s database ports' },
   'plugins/dns_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — DNS over TCP to the target`,
-    tokens: { lookup: 0, agent: 0, createConnection: 2 }, why: 'DNS queries to the target over UDP and TCP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'DNS queries to the target over UDP and TCP' },
   'plugins/ftp_banner_check.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'reads the target\'s FTP banner over a net.Socket' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'reads the target\'s FTP banner over a net.Socket' },
   'plugins/host_up_check.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'TCP and UDP reachability probes to the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'TCP and UDP reachability probes to the target' },
   'plugins/http_probe.mjs': { modules: ['http', 'https', 'net'],
     agent: { http: `${GLOBAL_HTTP}; G-18, unchanged here`, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose); its curl leg is pinned through --resolve',
-    createConnection: 'absent', tokens: { lookup: 1, agent: 5, createConnection: 0 },
+    createConnection: 'absent', tokens: { lookup: 1, agent: 5, createConnection: 0, Agent: 4, globalAgent: 0, keepAlive: 0 }, calls: { request: 2, get: 0 },
     witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 2]],
     why: 'the target\'s HTTP banner and headers over node:http(s), decoding nothing (G-18); net only for isIP' },
   'plugins/llmnr_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
     lookup: 'absent — it sends to the LLMNR multicast group 224.0.0.252, an address: nothing resolves', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'LLMNR multicast discovery on the local link' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'LLMNR multicast discovery on the local link' },
   'plugins/mcp_scanner.mjs': { modules: ['http', 'https'], agent: { http: GLOBAL_HTTP, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose)', createConnection: 'absent',
-    tokens: { lookup: 1, agent: 3, createConnection: 0 },
+    tokens: { lookup: 1, agent: 3, createConnection: 0, Agent: 2, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 },
     witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 1],
       [/mod\.request\(\{ host, port, method, path, headers: reqHeaders, agent \}/g, 1]],
     why: 'MCP endpoints on the target over node:http(s), decoding nothing — the same shape as http_probe (G-19)' },
   'plugins/mdns_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — one probe of port 7547 on the answering device`,
-    tokens: { lookup: 0, agent: 0, createConnection: 1 }, why: 'mDNS discovery through its third-party packages, plus one TCP probe' },
+    tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'mDNS discovery through its third-party packages, plus one TCP probe' },
   'plugins/netbios_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — SMB on 445 and one more TCP probe`,
-    tokens: { lookup: 0, agent: 0, createConnection: 2 }, why: 'NetBIOS name queries over UDP, an mDNS query to 224.0.0.251, and TCP probes of the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'NetBIOS name queries over UDP, an mDNS query to 224.0.0.251, and TCP probes of the target' },
   'plugins/opensearch_scanner.mjs': { modules: ['https'],
     agent: 'absent = global pool — undici\'s global dispatcher, keep-alive on: global fetch IGNORES the https.Agent (rejectUnauthorized: false) the file builds under OPENSEARCH_SCANNER_INSECURE_TLS and hands it (Q3, a no-op), until C-7 moves the site onto the waist',
     lookup: 'absent — undici resolves through node:dns lookup, which the pin patches', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 3, createConnection: 0 },
+    tokens: { lookup: 0, agent: 3, createConnection: 0, Agent: 3, globalAgent: 0, keepAlive: 0 }, calls: { request: 0, get: 0 },
     witness: [[/return new https\.Agent\(\{ rejectUnauthorized: false \}\);/g, 1], [/signal: ctrl\.signal,\n\s+agent\n/g, 1]],
     why: 'the OpenSearch banner at / through global fetch; node:https is imported (dynamically) only to build that agent' },
   'plugins/ping_checker.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'a TCP connect beside its pinned ping, nping, hping3 and arp subprocesses' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'a TCP connect beside its pinned ping, nping, hping3 and arp subprocesses' },
   'plugins/port_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'TCP connect and UDP probes of the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'TCP connect and UDP probes of the target' },
   'plugins/ssh_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — the SSH banner`,
-    tokens: { lookup: 0, agent: 0, createConnection: 1 }, why: 'reads the target\'s SSH banner' },
+    tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'reads the target\'s SSH banner' },
   'plugins/sunrpc_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'portmapper queries to the target over UDP and TCP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'portmapper queries to the target over UDP and TCP' },
   'plugins/tls_scanner.mjs': { modules: ['tls'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 1, createConnection: 0 }, why: 'tls.connect (or its test seam\'s connect) for protocol and cipher probes; its one `agent` token is prose' },
+    tokens: { lookup: 0, agent: 1, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'tls.connect (or its test seam\'s connect) for protocol and cipher probes; its one `agent` token is prose' },
   'plugins/wsd_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
     lookup: 'absent — it sends to the WS-Discovery multicast group 239.255.255.250, an address: nothing resolves', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0 }, why: 'WS-Discovery multicast on the local link' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'WS-Discovery multicast on the local link' },
   'utils/net_validation.mjs': { modules: ['net'], agent: RAW_SOCKET,
     lookup: 'its own dns.lookup(all, verbatim) — the CHECK whose answers the scan is pinned to', createConnection: 'absent',
-    tokens: { lookup: 10, agent: 0, createConnection: 0 }, why: 'net only for isIP and BlockList; it opens no socket' },
+    tokens: { lookup: 10, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'net only for isIP and BlockList; it opens no socket' },
   'utils/scan_pin.mjs': { modules: ['net'], agent: RAW_SOCKET,
     lookup: 'it IS the pin: it replaces node:dns lookup and dns/promises lookup inside a scan', createConnection: 'absent',
-    tokens: { lookup: 20, agent: 1, createConnection: 0 }, why: 'net only for isIP; it opens no socket (its one `agent` token is prose)' },
+    tokens: { lookup: 20, agent: 1, createConnection: 0, Agent: 1, globalAgent: 0, keepAlive: 0 }, why: 'net only for isIP; it opens no socket (its one `agent` token is prose)' },
   'utils/target_http.mjs': { modules: ['http', 'https'], agent: 'false — one connection per request, never pooled',
     lookup: 'absent — node:dns lookup, which the pin patches inside a scan (its two `lookup` tokens are prose)', createConnection: 'absent',
-    tokens: { lookup: 2, agent: 6, createConnection: 0 },
+    tokens: { lookup: 2, agent: 6, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 },
     witness: [[/transport\.request\(u, \{ method, headers, agent: false \}/g, 1]],
     why: 'the target HTTP waist (EE Z-1); no site uses it yet' },
   'utils/webhook.mjs': { modules: ['http', 'https', 'net'],
     agent: 'custom, keep-alive off — its own transport.Agent with the default agent\'s options and keepAlive: false, so no idle socket another caller opened carries a delivery',
-    lookup: 'custom — pinnedLookup(target) answers the address its own SSRF check resolved (not the scan pin); absent when the check returned no target',
-    createConnection: 'absent', tokens: { lookup: 3, agent: 4, createConnection: 0 },
+    lookup: 'custom — pinnedLookup(target) answers the address its own SSRF check resolved (not the scan pin); in production a null target is refused before any request, so the lookup is absent only under the _setWebhookSafeChecker test seam',
+    createConnection: 'absent', tokens: { lookup: 3, agent: 4, createConnection: 0, Agent: 1, globalAgent: 1, keepAlive: 1 }, calls: { request: 1, get: 0 },
     witness: [[/\.\.\.\(target \? \{ lookup: pinnedLookup\(target\) \} : \{\}\)/g, 1],
       [/agent: new transport\.Agent\(\{ \.\.\.transport\.globalAgent\.options, keepAlive: false \}\)/g, 1]],
     why: 'the operator\'s webhook delivery — never a scanned host; net only for isIP' },
@@ -452,11 +553,16 @@ test('(w1-a) every SHIPPED file importing node:http, https, http2, net, tls or d
   for (const [rel, f] of Object.entries(found)) assert.deepEqual(f.modules, NET_IMPORTERS[rel].modules, `${rel}: imports ${JSON.stringify(f.modules)}`);
 });
 
-test('(w1-b) each row pins the COUNT of `lookup`, `agent` and `createConnection` in its file, comments included — a moved count names file and token', () => {
+test('(w1-b) each row pins the COUNT of its six tokens and, for an http/https/http2 importer, its request calls — comments included; a moved count names file and token', () => {
   for (const [rel, f] of Object.entries(netCensus())) {
-    for (const token of ['lookup', 'agent', 'createConnection']) {
+    for (const token of ['lookup', 'agent', 'createConnection', 'Agent', 'globalAgent', 'keepAlive']) {
       assert.equal(f.tokens[token], NET_IMPORTERS[rel].tokens[token],
-        `${rel}: the token \`${token}\` occurs ${f.tokens[token]} times, declared ${NET_IMPORTERS[rel].tokens[token]} — re-read its ${token} row`);
+        `${rel}: the token \`${token}\` occurs ${f.tokens[token]} times, declared ${NET_IMPORTERS[rel].tokens[token]} — re-read its row`);
+    }
+    assert.equal(Boolean(f.calls), Boolean(NET_IMPORTERS[rel].calls), `${rel}: an http, https or http2 importer declares its request calls; no other row does`);
+    for (const call of Object.keys(f.calls ?? {})) {
+      assert.equal(f.calls[call], NET_IMPORTERS[rel].calls[call],
+        `${rel}: ${f.calls[call]} \`${call}\` calls, declared ${NET_IMPORTERS[rel].calls[call]} — a request site moved; re-read its agent row`);
     }
   }
 });
@@ -471,8 +577,10 @@ test('(w1-c) every row states agent, lookup, createConnection and a reason; a ro
     for (const k of ['lookup', 'createConnection', 'why']) assert.ok(typeof row[k] === 'string' && row[k].length > 0, `${rel}: the row states no ${k}`);
     const rawSocketOnly = agents.every((a) => a.startsWith('n/a'));
     assert.equal(Array.isArray(row.witness) && row.witness.length > 0, !rawSocketOnly, `${rel}: a row with an HTTP agent carries a witness; a raw-socket row carries none`);
+    const code = stripComments(found[rel]?.raw ?? '');
     for (const [re, n] of row.witness ?? []) {
-      assert.equal((found[rel]?.raw.match(re) ?? []).length, n, `${rel}: the witness ${re} matches ${(found[rel]?.raw.match(re) ?? []).length} times, declared ${n} — its option site moved`);
+      const hits = (code.match(re) ?? []).length;
+      assert.equal(hits, n, `${rel}: the witness ${re} matches ${hits} times in its code, declared ${n} — its option site moved or was commented out`);
     }
   }
 });
@@ -503,4 +611,21 @@ test('(w1-e) the shipped walk reads package.json `files` RECURSIVELY, files and 
     put('other/z.mjs', "import http from 'node:http';\n");
     assert.deepEqual(shippedSources(tmp).map(({ rel }) => rel), ['lib/deep/er/x.mjs', 'lib/y.cjs', 'top.mjs']);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('(w1-f) node-upnp-utils pools in http.globalAgent itself — its row states it, and the INSTALLED version and request lines are pinned', () => {
+  const row = THIRD_PARTY['node-upnp-utils'];
+  assert.ok(row && typeof row === 'object' && AGENT_GRAMMAR.test(row.agent), 'node-upnp-utils has no pooling statement in the row grammar');
+  const dir = path.join(ROOT, 'node_modules', 'node-upnp-utils');
+  assert.ok(fs.existsSync(path.join(dir, 'package.json')), 'node-upnp-utils is not installed — this leg cannot measure');
+  const installed = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
+  assert.equal(installed, row.version, `node-upnp-utils ${installed} is installed, the row was read at ${row.version} — re-read its request sites`);
+  for (const [file, re, n] of row.witness) {
+    const hits = (stripComments(fs.readFileSync(path.join(dir, file), 'utf8')).match(re) ?? []).length;
+    assert.equal(hits, n, `node-upnp-utils ${file}: the witness ${re} matches ${hits} times, declared ${n}`);
+  }
+  // Which of its request sites the plugin can reach: the members it touches, by equality (invokeAction is not among them).
+  const plugin = stripComments(fs.readFileSync(path.join(ROOT, 'plugins', 'upnp_scanner.mjs'), 'utf8'));
+  const members = [...new Set([...plugin.matchAll(/(?<![\w$.])(?:upnp|upnpModule)\.([\w$]+)/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(members, [...row.pluginMembers].sort(), 'upnp_scanner reaches a node-upnp-utils member the row was not read for');
 });
