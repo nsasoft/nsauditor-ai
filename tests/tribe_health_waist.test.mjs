@@ -47,10 +47,14 @@ const SENT_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'PUT'];
 async function serve(reply) {
   const seen = [];
   const server = http.createServer((req, res) => {
-    seen.push({ method: req.method, url: req.url, ua: req.headers['user-agent'], auth: req.headers.authorization ?? null });
+    const entry = { method: req.method, url: req.url, ua: req.headers['user-agent'], auth: req.headers.authorization ?? null };
+    seen.push(entry);
     req.resume();
     const r = reply(req) ?? { status: 404, headers: { 'content-type': 'text/plain' }, body: 'not found' };
     res.writeHead(r.status, r.headers ?? {});
+    // N1 (v393): the framing node chose for THIS reply. writeHead has stored the head, so it is decided here: with no
+    // Content-Length in `headers`, the end(buf) below goes out chunked (trap (4)); with one, it does not.
+    entry.chunked = res.chunkedEncoding;
     res.end(r.body ?? '');
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -150,6 +154,10 @@ for (const [framing, headers] of [['Content-Length', { 'content-type': 'text/pla
       // Only the checks that read CONTENT could not decide: health and error paths over the cap are listed, /metrics is not.
       assert.deepEqual(r.details.notRead, [{ path: '/healthz', method: 'GET', reason: 'body-cap' },
         { path: '/api/v99/nonexistent', method: 'GET', reason: 'body-cap' }]);
+      // N1 (v393 G-C): the arm is the framing its name says, as sent — not only as written in `headers`.
+      const sent = s.seen.filter((q) => q.url === '/metrics' && q.method === 'GET');
+      assert.ok(sent.length >= 1, 'the /metrics GET reached the server');
+      assert.deepEqual(sent.map((q) => q.chunked), sent.map(() => framing === 'chunked'), `/metrics went out ${framing}`);
     } finally { await s.close(); }
   });
 }
@@ -486,26 +494,47 @@ test('(t-13) the report loader shapes the gap as a gap, uncounted; conclude keep
   } finally { await s.close(); }
 });
 
+// ── C4-R6 (v393 G-B): ONE helper writes the scan conclusion file through the REAL scanSingleHost — t-13b reads it back,
+// and t-13c's `report --since` runs over it. So the file the loader reads in t-13c is the file t-13b holds, not a copy the
+// test writes. With a runId, scanSingleHost also appends the host to that run's record, as the scan command does.
+const conclusionFiles = (root) => fs.readdirSync(root, { recursive: true }).map(String).filter((f) => f.endsWith('scan_conclusion_raw.json'));
+async function scanWritten(outRoot, result, { host = '192.0.2.10', runId = null } = {}) {
+  const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY, ai: process.env.OPENAI_OUT_PATH };
+  process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence'; delete process.env.OPENAI_OUT_PATH;
+  try {
+    const { scanSingleHost } = await import('../cli.mjs');
+    const { default: PluginManager } = await import('../plugin_manager.mjs');
+    // The REAL plugin object (its conclude included); run() hands back the real result driven by the caller, so the scan
+    // does not depend on the scan target serving the API.
+    const pm = await PluginManager.create({ plugins: [{ ...plugin, requirements: {}, runStrategy: 'single', run: async () => result }, concluder] });
+    const absent = () => { throw Object.assign(new Error('not installed'), { code: 'MODULE_NOT_FOUND' }); };
+    const before = new Set(conclusionFiles(outRoot));
+    await scanSingleHost(pm, host, 'all', { resolveEE: absent, ...(runId ? { runId } : {}) }, 'basic');
+    const made = conclusionFiles(outRoot).filter((f) => !before.has(f));
+    assert.equal(made.length, 1, `scanSingleHost wrote one conclusion file: ${made}`);
+    const j = JSON.parse(fs.readFileSync(path.join(outRoot, made[0]), 'utf8'));
+    // The premise every reader of this file depends on, held where the file is read: its manifest records 050 as RAN.
+    // Without this the since arms are blind to a file that loses the entry — measured (v340 battery R6-M1): the loss hits
+    // the baseline and the current run alike, the delta reads an absent status as measured, and t-13c stays green.
+    assert.equal(j.pluginStatus?.find((p) => String(p?.id) === '050')?.status, 'ran', 'the conclusion file records 050 as ran');
+    return j;
+  } finally {
+    for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic], ['OPENAI_OUT_PATH', keep.ai]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+
 // ── (t-13b) v391 C4-R3: the SCAN CONCLUSION FILE, written by the REAL scanSingleHost, carries the gap whole ─────────────
 test('(t-13b) scan_conclusion_raw.json written by scanSingleHost carries the gap: in results[050] and in the tribe-health record, whole', async () => {
   const s = await serve(CODED_200);
   let r;
   try { r = await run(s.port); } finally { await s.close(); }
-  const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY, ai: process.env.OPENAI_OUT_PATH };
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tribe-conclusion-'));
-  process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence'; delete process.env.OPENAI_OUT_PATH;
-  try {
-    const { scanSingleHost } = await import('../cli.mjs');
-    const { default: PluginManager } = await import('../plugin_manager.mjs');
-    // The REAL plugin object (its conclude included); run() hands back the real result driven above, so the scan does
-    // not depend on the scan target serving the API.
-    const pm = await PluginManager.create({ plugins: [{ ...plugin, requirements: {}, runStrategy: 'single', run: async () => r }, concluder] });
-    const absent = () => { throw Object.assign(new Error('not installed'), { code: 'MODULE_NOT_FOUND' }); };
-    await scanSingleHost(pm, '192.0.2.10', 'all', { resolveEE: absent }, 'basic');
-    const files = fs.readdirSync(outRoot, { recursive: true }).filter((f) => String(f).endsWith('scan_conclusion_raw.json'));
-    assert.equal(files.length, 1, `one conclusion file: ${files}`);
+  {
     // Read back from DISK (v392 4(d)): the four facts by name.
-    const j = JSON.parse(fs.readFileSync(path.join(outRoot, files[0]), 'utf8'));
+    const j = await scanWritten(outRoot, r);
+    assert.equal(conclusionFiles(outRoot).length, 1, 'one conclusion file');
     const ALL = HEALTH.length + DEBUG.length + ERRORS.length;
     const res = j.results.find((x) => x.id === '050').result;
     assert.equal(res.findings.coverage.length, 1, 'fact 1: results[050] carries one coverage row');
@@ -519,28 +548,26 @@ test('(t-13b) scan_conclusion_raw.json written by scanSingleHost carries the gap
     // fact 4: the gap whole in tribeHealth.findings.
     assert.deepEqual(svc.tribeHealth.findings.filter((f) => f.details?.evidenceGap === true), [{ ...r.findings.coverage[0], category: 'coverage' }]);
     assert.match(svc.info, /^API probe incomplete: the body of \d+ replies was not read/);
-  } finally {
-    for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic], ['OPENAI_OUT_PATH', keep.ai]]) {
-      if (v === undefined) delete process.env[k]; else process.env[k] = v;
-    }
   }
 });
 
-// ── (t-13c) v391 C4-R3: `report --since` through the REAL runReport, over runs written by the REAL record writers ─────
+// ── (t-13c) v391 C4-R3 + v393 C4-R6: `report --since` through the REAL runReport. The run record is written by the real
+// record writers (writeRunStart, then scanSingleHost's own appendHostWritten, finalize, seal); the conclusion file by
+// the REAL scanSingleHost, through scanWritten — the helper t-13b reads back. No file here is written by the test. ─────
+// A documentation-range address (RFC 5737): scanSingleHost's target guard refuses a private one such as 10.0.0.7.
+const SINCE_HOST = '192.0.2.10';
 async function sinceReport(before, after) {
   const { runReport } = await import('../cli.mjs');
   const { resolveCapabilities } = await import('../utils/capabilities.mjs');
-  const { newRunId, writeRunStart, appendHostWritten, finalizeRunRecord } = await import('../utils/run_record.mjs');
+  const { newRunId, writeRunStart, finalizeRunRecord } = await import('../utils/run_record.mjs');
   const { sealRunRecord } = await import('../utils/run_chain.mjs');
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tribe-since-'));
   const mk = async (startedAt, result) => {
     const runId = newRunId();
-    await writeRunStart(outRoot, { runId, startedAt, hostsRequested: ['10.0.0.7'], pluginsRequested: ['050'], portsRequested: '8080',
+    await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [SINCE_HOST], pluginsRequested: ['050'], portsRequested: '8080',
       tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
-    const dir = `d-${runId}`; fs.mkdirSync(path.join(outRoot, dir), { recursive: true });
-    fs.writeFileSync(path.join(outRoot, dir, 'scan_conclusion_raw.json'), JSON.stringify({ runId,
-      pluginStatus: [{ id: '050', name: plugin.name, status: 'ran', reason: null }], results: [{ id: '050', name: plugin.name, result }] }), 'utf8');
-    await appendHostWritten(outRoot, runId, { host: '10.0.0.7', dir });
+    const j = await scanWritten(outRoot, result, { host: SINCE_HOST, runId });
+    assert.equal(j.runId, runId, 'the conclusion file names the run it was written for');
     await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
     await sealRunRecord(outRoot, runId);
     return runId;
@@ -572,7 +599,7 @@ test('(t-13c) report --since, both arms (v392 4(e)): every reply read and the tw
   for (const title of LEAK_TITLES) {
     const row = rows.find((l) => l.includes(`NOT COMPARABLE (disappeared)  ${title} — evidence-gap: `));
     assert.ok(row, `the baseline row "${title}" is held with the reason evidence-gap:\n${rows.join('\n')}`);
-    assert.match(row, /recorded an evidence gap on 10\.0\.0\.7\/.*\(050\): \[COVERAGE GAP\] TRIBE API probe/);
+    assert.match(row, /recorded an evidence gap on 192\.0\.2\.10\/.*\(050\): \[COVERAGE GAP\] TRIBE API probe/);
   }
   assert.doesNotMatch(held.stdout, /NOT COMPARABLE \([a-z]+\)\s+\[COVERAGE GAP\]/, 'the gap is the REASON, never the subject of a row');
 });
@@ -584,6 +611,8 @@ test('(t-13c3) report --since: the same /metrics now answering 2 MiB uncoded rea
     : LEAKY_TWO(req)));
   const d = await sinceReport(baseline, big);
   assert.deepEqual({ new: d.n.new, resolved: d.n.resolved, notComparable: d.n.notComparable }, { new: 0, resolved: 0, notComparable: 0 }, d.stdout);
+  // v393 ruling (a): the oracle is DECLARED as well as computed — the health leak, /metrics, and six missing headers.
+  assert.equal(actionable(baseline).length, 8, 'the declared baseline: 2 body-derived rows + 6 missing-header rows');
   assert.equal(d.n.unchanged, actionable(baseline).length, `every baseline row, /metrics included, is unchanged: ${d.stdout}`);
 });
 
@@ -599,9 +628,17 @@ test('(t-13d) the raw html: the tribe-health row carries "API probe incomplete" 
     const row = html.match(/<tr data-key="tcp-8080">[\s\S]*?<\/tr>/)?.[0];
     assert.ok(row, 'the tribe-health row, under its record key 8080 (G-67)');
     assert.match(row, new RegExp(`API probe incomplete: the body of ${ALL} replies was not read`));
-    // The page's only total-like text is the Summary line; it does not count findings, and so cannot count the gap.
-    const summary = html.match(/<div class="meta">Summary: ([^<]*)<\/div>/)?.[1] ?? '';
-    assert.doesNotMatch(summary, /finding|gap/i, `Summary: ${summary}`);
+    // C4-R5 (v393 G-A): "no total counts the gap" is held as a DIFFERENTIAL of two built pages, never by reading one div
+    // for two words (that check passed with a `Findings:` total outside the div, with "42 issues" inside it, and with the
+    // div gone). The same run with its gap stripped builds a page that differs ONLY in the tribe-health row, so no total
+    // anywhere on the page moves with the gap — whatever the total's wording or position.
+    const strip = (x) => { const y = structuredClone(x); delete y.findings.coverage; y.details.notRead = []; return y; };
+    const c0 = await concluder.run([{ id: '050', name: plugin.name, result: strip(r) }]);
+    const html0 = await buildAdminRawHtmlReport({ host: '127.0.0.1', whenIso: '2026-11-25T00:00:00Z', summary: c0.summary, services: c0.services, evidence: c0.evidence });
+    const outside = (h) => h.replace(/<tr data-key="tcp-8080">[\s\S]*?<\/tr>/, '');
+    assert.notEqual(html, html0, 'positive control: the tribe-health row differs');
+    assert.notEqual(outside(html), html, 'the row was cut, so the equality below compares the rest of the page');
+    assert.equal(outside(html), outside(html0), 'nothing outside the tribe-health row moves with the gap');
     // Stated limit (v392 3), deliberately NOT asserted: the raw html prints no [COVERAGE GAP] row. A leg pinning that
     // absence would go red on the day a gap row is added.
   } finally { await s.close(); }

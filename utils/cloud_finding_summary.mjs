@@ -96,9 +96,37 @@ export function describeFinding(x, opts = {}) {
   else for (const k of REASON_KEYS) { if (x[k]) { why = String(x[k]); break; } }
   why = flat(why).replace(ROUTING_PREFIX_RE, '');
   const s = ((res ? flat(res) + ' — ' : '') + why).trim();
-  if (s) return s.length > max ? s.slice(0, max).replace(/\s+\S*$/, '') + '…' : s;
+  if (s) return cutAtWord(s, max);
   const sev = String(x.severity || x.level || '').toUpperCase();
   return sev ? sev + ' finding (no description)' : 'finding (no description)';
+}
+
+/**
+ * The cut a long title takes: its first `max` characters, less the trailing partial word, plus '…'. ONE rule — describeFinding
+ * cuts with it and `textBeforeCut` asks it — so a writer that asks "was this title cut?" asks the rule that cut it.
+ * ⚠️ The partial-word drop can take far more than a word's tail: a 120-char DNS zone is ONE word, so a 060 gap whose zone
+ * straddles character 160 is cut back to 68 characters, losing the zone and the failure code (G-72, v394 Q1).
+ */
+export function cutAtWord(s, max = 160) {
+  return s.length > max ? s.slice(0, max).replace(/\s+\S*$/, '') + '…' : s;
+}
+
+/**
+ * The whole text describeFinding cut to make `title` — `[resource — ]text`, flattened and with the routing prefix stripped
+ * as describeFinding strips them — when `title` IS that cut; otherwise null. EQUALITY with the rule's own output, never a
+ * prefix match: a title that merely begins like the text and ends in '…' is not called a cut of it (G-72, the architect's
+ * closing note on v394 Q1).
+ * Stated limit: a title describeFinding took from a LEAD clause that is not the first of several issues, or from a
+ * resource it read under a key other than the row's `resource`, is not recognised; the caller then shows the title as is.
+ */
+export function textBeforeCut(title, text, resource = null, max = 160) {
+  if (typeof title !== 'string' || !title.endsWith('…') || text == null) return null;
+  const flat = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const why = flat(text).replace(ROUTING_PREFIX_RE, '');
+  for (const s of [resource ? `${flat(resource)} — ${why}`.trim() : null, why]) {
+    if (s && s.length > max && cutAtWord(s, max) === title) return s;
+  }
+  return null;
 }
 
 function findingsOf(r) {

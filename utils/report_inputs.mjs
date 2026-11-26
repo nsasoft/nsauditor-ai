@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { describeFinding } from './cloud_finding_summary.mjs';
+import { describeFinding, textBeforeCut } from './cloud_finding_summary.mjs';
 import { canonicaliseResource } from './finding_identity.mjs';
 import { censusFindingContainers } from './report_finding_census.mjs';
 import {
@@ -391,8 +391,29 @@ function shapeQueueEntry(host, q) {
 // above false the day that landed: the delta and the history would disagree about the 12 scope
 // rows of the test estate's aws run. A row carrying both flags is a gap and is excluded either way.
 export function countHostFindings(host, raw, queue = []) {
-  return shapeHostFindings(host, raw, queue)
-    .filter((f) => f?.evidenceGap !== true && f?.deferredScope !== true).length;
+  return shapeHostFindings(host, raw, queue).filter((f) => !isNotCounted(f)).length;
+}
+
+// G-72 (v394 Q4 a): the ONE spelling of "this shaped row records a surface the scanner could not read". countHostFindings,
+// the md report and the executive html all ask it, so the three cannot disagree about what a gap is.
+export function isCoverageGap(f) {
+  return f?.evidenceGap === true;
+}
+
+// Every row a finding COUNT leaves out: the coverage gaps, and the declared scope statements. ⚠️ G-73: the executive html
+// partitions on isCoverageGap alone and still counts the scope statements in its bars; making it partition on this
+// predicate instead is the one edit that closes G-73 (the rows then need a listing of their own, not "Coverage gaps").
+export function isNotCounted(f) {
+  return isCoverageGap(f) || f?.deferredScope === true;
+}
+
+// G-72 (v394 Q1): the text a report shows for a coverage-gap row — its title, or, when describeFinding CUT that title from
+// the row's own text, the whole text it was cut from (cloud_finding_summary.mjs textBeforeCut: equality with the cut rule,
+// never a prefix match). Measured: a 060 gap on a 120-char zone is titled in 68 chars and loses the zone and the failure
+// code; a 1120 gap is cut after its resource and loses why the destination region could not be read. TITLE ONLY: no field
+// is added to the shaped row, which the delta's identity, the Jira export and EE all read.
+export function coverageGapText(f) {
+  return textBeforeCut(f?.title, f?.detail, f?.resource) ?? f?.title ?? f?.detail ?? '(untitled coverage gap)';
 }
 
 // ⚠️ THE VALUE CHANGED UNDER AN UNCHANGED KEY, which contract-v1 §5.3 records as the shape that

@@ -10,6 +10,7 @@
 // don't need to guard before invocation.
 
 import { conclusionFindings, conclusionNotTested, manifestNotTested, normalizeSeverity, SERVICE_FLAGS, SEVERITY_ORDER } from './service_flags.mjs';
+import { shapeHostFindings, isCoverageGap, coverageGapText } from './report_inputs.mjs';
 
 const SEVERITIES = SEVERITY_ORDER;
 
@@ -93,6 +94,8 @@ function safeFenceFor(content) {
  * @param {string} [scanData.aiAnalysis] - Optional AI-generated analysis text (Markdown or plain)
  * @param {string} [scanData.toolVersion] - Tool version string (e.g. "0.1.15")
  * @param {string|Date} [scanData.scanTime] - Scan timestamp (defaults to now in ISO format)
+ * @param {object[]} [scanData.results] - The plugin results ({id, name, result}); the coverage gaps are read from them.
+ *   ABSENT IS NOT EMPTY: without them the report says the gaps were not evaluated.
  * @returns {string} Markdown report
  */
 /** scan_host stopped at its total time limit: the note the response and the head of the markdown both carry. */
@@ -168,6 +171,23 @@ export function buildMarkdownReport(scanData) {
   } else {
     lines.push(`- **Security findings:** 0`);
   }
+  // G-72 (v394 Q2): the COVERAGE GAPS — surfaces the scanner could not read — shaped by the report loader's own
+  // shapeHostFindings over the plugin results and picked by its own isCoverageGap, so this report and the executive html
+  // read one set with one shaping code. They are not findings and the headline above does not count them; the count sits
+  // beside it. ABSENT IS NOT EMPTY: a caller that hands no results gets a line saying the gaps were not evaluated, never a
+  // silence that reads as "no gaps". Results with no gap row print nothing, so that report is byte-identical to before.
+  // Stated limit: this report reads no EE finding queue, so a run whose only gaps are Enterprise analysis-agent (queue)
+  // gaps prints no Coverage gaps section; the section says in itself that those are not listed.
+  const gaps = Array.isArray(scanData.results)
+    ? shapeHostFindings(host, { results: scanData.results }).filter(isCoverageGap)
+    : null;
+  if (gaps === null) {
+    lines.push('- **Coverage gaps:** not evaluated — this report was built without the plugin results, so a surface the '
+      + 'scanner could not read is not listed here.');
+  } else if (gaps.length) {
+    lines.push(`- **Coverage gaps:** ${gaps.length} (not counted in Security findings — `
+      + `${gaps.length === 1 ? 'a surface' : 'surfaces'} the scanner could not read, listed under Coverage gaps below)`);
+  }
   // 1.3.0 (a4) + (s3): a check that did not run, or ran and could not complete, is said to be NOT TESTED with its reason —
   // never "none" and never "refused". One line per check and reason, from the shared table, with every target it covers.
   // Build 4 (Gate 3-A F-1): a host-level audit that did not run — the DNS-security audit (060) declines an IP-address
@@ -220,9 +240,17 @@ export function buildMarkdownReport(scanData) {
   lines.push(`## Findings`);
   lines.push('');
   if (findings.length === 0) {
-    lines.push('_None of the counted service checks found anything. This is not a statement that the host has no known '
-      + 'vulnerabilities — CVE lookups and analysis-agent findings are not part of this count (see Scope above), and '
-      + 'anonymous FTP login, zone transfer and the SMB null session are tested only when enabled._');
+    // v394 Q2 c: on a gap-only run this sentence names the gap count, or "found anything" beside a gap reads as clean.
+    lines.push(gaps?.length
+      ? `_None of the counted service checks found anything, and ${gaps.length} coverage `
+        + `${gaps.length === 1 ? 'gap was' : 'gaps were'} recorded — ${gaps.length === 1 ? 'a surface' : 'surfaces'} the `
+        + 'scanner could not read, listed under Coverage gaps below. This is not a clean result. Nor is it a statement '
+        + 'that the host has no known vulnerabilities — CVE lookups and analysis-agent findings are not part of this '
+        + 'count (see Scope above), and anonymous FTP login, zone transfer and the SMB null session are tested only '
+        + 'when enabled._'
+      : '_None of the counted service checks found anything. This is not a statement that the host has no known '
+        + 'vulnerabilities — CVE lookups and analysis-agent findings are not part of this count (see Scope above), and '
+        + 'anonymous FTP login, zone transfer and the SMB null session are tested only when enabled._');
     lines.push('');
   } else {
     findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
@@ -242,6 +270,22 @@ export function buildMarkdownReport(scanData) {
       }
       lines.push('');
     }
+  }
+
+  // ---- Coverage gaps (G-72) ----
+  // One line per gap row, after the findings. Every value goes through escapeCell: a gap's text can carry a name or a code
+  // a host chose (v394 Q2 d). A null port prints no ":null"; a cut title shows the whole text it was cut from (Q1).
+  if (gaps?.length) {
+    lines.push('## Coverage gaps (not counted)');
+    lines.push('');
+    lines.push('Surfaces the scanner could not read on this host. They are not findings and are not counted in Security '
+      + 'findings above; a check that could not read a surface did not pass there. Enterprise analysis-agent gaps are not '
+      + 'listed in this report.');
+    lines.push('');
+    for (const f of gaps) {
+      lines.push(`- ${escapeCell(f.host)}${f.port != null ? `:${escapeCell(f.port)}` : ''} — ${escapeCell(coverageGapText(f))}`);
+    }
+    lines.push('');
   }
 
   // ---- AI Analysis (optional) ----

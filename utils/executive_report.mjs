@@ -27,6 +27,7 @@
 // vocabulary, even where the producer (report_inputs.mjs) is expected to constrain it.
 
 import { escapeHtml } from './brand.mjs';
+import { isCoverageGap, coverageGapText } from './report_inputs.mjs';
 // The two evaluability SENTINELS, imported so the per-row basis is keyed on identity rather
 // than on prose. `scan_delta.mjs` imports nothing from here, so there is no cycle.
 import { SCOPE_NOT_EVALUATED, FRAMEWORK_MOVEMENT_NOT_EVALUATED, RUN_NAMES, NOT_REQUESTED_RECORD_SINCE_EE, cmpVersion } from './scan_delta.mjs';
@@ -273,6 +274,8 @@ function epssEvaluatedSomewhere(findings) {
   return findings.some((f) => typeof f.epss === 'number' && Number.isFinite(f.epss));
 }
 
+// ⚠️ THE FULL LIST, coverage gaps included (G-72, v394 Q4 d): a gap row carries neither a KEV mark nor an EPSS score, so it
+// cannot move either line, and handing this the counted list would make "evaluated somewhere" depend on the partition.
 function renderKevEpss(model) {
   const findings = model.findings ?? [];
   const kevSeen = kevEvaluatedSomewhere(findings);
@@ -315,7 +318,9 @@ function renderBrandBlock(brand) {
   return parts.join('\n');
 }
 
-function renderCoverageSummary(model) {
+const plural = (n, one, many) => (n === 1 ? one : many);
+
+function renderCoverageSummary(model, findings, gapCount) {
   const c = model.coverage;
   // CC-3: derived from WRITTEN, never REQUESTED. "Not reachable" is an AFFIRMATIVE negative
   // result — it tells the client a probe actually ran against that host and failed. A host that
@@ -373,13 +378,27 @@ function renderCoverageSummary(model) {
         + 'Treat this report as incomplete for those surfaces.</p>');
     }
   }
-  if (!model.findings.length) {
-    lines.push(`<p>No findings were recorded for the ${c.written} hosts scanned in this run.</p>`);
+  // G-72 (v394 Q6): the coverage gaps are COUNTED here and LISTED per host in the appendix. No rows on the cover: a real
+  // cloud run carries ten, and a network sweep one per host, which would bury the host arithmetic and the KEV/EPSS lines.
+  // gapCount is a computed integer, like the host counts above. Nothing is printed when there is no gap.
+  if (gapCount) {
+    lines.push(`<p>${gapCount} coverage ${plural(gapCount, 'gap', 'gaps')} recorded: `
+      + `${plural(gapCount, 'a surface', 'surfaces')} the scanner could not read. `
+      + `${plural(gapCount, 'It is', 'They are')} not counted in the severity chart or in Top Risks, and `
+      + `${plural(gapCount, 'is', 'are')} listed per host under Coverage gaps in the appendix.</p>`);
+  }
+  // v394 Q5: beside a gap, "no findings" is never the bare sentence — it would read as a clean result.
+  if (!findings.length) {
+    lines.push(gapCount
+      ? `<p>No findings were recorded for the ${c.written} hosts scanned in this run, and ${gapCount} `
+        + `${plural(gapCount, 'surface', 'surfaces')} could not be read (coverage gaps, listed in the appendix): `
+        + 'this is not a clean result.</p>'
+      : `<p>No findings were recorded for the ${c.written} hosts scanned in this run.</p>`);
   }
   return lines.join('\n');
 }
 
-function renderCover(model, brand, renderedAt) {
+function renderCover(model, brand, renderedAt, findings, gapCount) {
   const preparedClause = brand.preparedBy ? `Prepared by ${escapeHtml(brand.preparedBy)} · ` : '';
   const intro = 'This report lists the findings recorded by NSAuditor AI for the hosts and '
     + 'plugins named below. It is a print-ready HTML report.';
@@ -389,12 +408,12 @@ ${renderBrandBlock(brand)}
 <p class="run-dates">${preparedClause}Scan of ${model.coverage.requested} hosts started `
     + `${fmtDate(model.startedAt)} · Report rendered ${fmtDate(renderedAt)}.</p>
 <p>${intro}</p>
-${renderCoverageSummary(model)}
+${renderCoverageSummary(model, findings, gapCount)}
 ${renderKevEpss(model)}
 </section>`;
 }
 
-function renderTopRisks(findings) {
+function renderTopRisks(findings, gapCount) {
   // A passing check is not a risk. PASS only stayed out of this section by ranking below
   // 105 real findings; on a CLEAN scan the section titled "Top Risks" would have listed
   // the passing checks themselves.
@@ -406,7 +425,11 @@ function renderTopRisks(findings) {
     return `<section id="top-risks">
 <h2>Top Risks</h2>
 <p>${rule}</p>
-<p>No findings were recorded in this run.</p>
+<p>${gapCount
+    ? `No findings were recorded in this run, and ${gapCount} coverage ${plural(gapCount, 'gap', 'gaps')} — `
+      + `${plural(gapCount, 'a surface', 'surfaces')} the scanner could not read — ${plural(gapCount, 'is', 'are')} `
+      + 'listed in the appendix: this is not a clean result.'
+    : 'No findings were recorded in this run.'}</p>
 </section>`;
   }
   // ⚠️ Deliberately NO data-row-severity attribute here. The chart/table agreement invariant
@@ -474,8 +497,13 @@ ${rows}
 </table>`;
 }
 
-function renderFindingsTable(findings) {
-  if (!findings.length) return '<p>No findings recorded for this host.</p>';
+function renderFindingsTable(findings, gapCount = 0) {
+  if (!findings.length) {
+    return gapCount
+      ? `<p>No findings were recorded for this host, and ${gapCount} ${plural(gapCount, 'surface', 'surfaces')} could not `
+        + 'be read (listed below): this is not a clean result.</p>'
+      : '<p>No findings recorded for this host.</p>';
+  }
   const rows = findings.slice().sort(comparePresentation).map((f) => `<tr data-row-severity="${chartSev(f.severity)}">
 <td class="${sevClass(f.severity)}">${escapeHtml(f.severity)}</td>
 <td>${f.port != null ? escapeHtml(String(f.port)) : '—'}</td>
@@ -489,6 +517,30 @@ function renderFindingsTable(findings) {
   return `<table class="findings">
 <thead><tr><th>Severity</th><th>Port</th><th>Finding</th><th>CVE</th><th>Known-exploited</th>`
     + `<th>EPSS</th><th>Detail</th><th>Remediation</th></tr></thead>
+<tbody>
+${rows}
+</tbody>
+</table>`;
+}
+
+// G-72 (v394 Q6): a host's coverage gaps, in their own table. Each row is countable by its own attribute and carries NO
+// data-row-severity and no sev- class: the chart/table invariant counts data-row-severity rows, and a gap is not a finding.
+// The producer's severity is shown as plain text (a cloud gap can be MEDIUM). '' when the host has none, so a host without a
+// gap renders byte-identical to the page before G-72.
+function renderCoverageGaps(gaps) {
+  if (!gaps.length) return '';
+  const rows = gaps.map((f) => `<tr data-coverage-gap="true">
+<td>${escapeHtml(f.host)}</td>
+<td>${f.port != null ? escapeHtml(String(f.port)) : ''}</td>
+<td>${escapeHtml(f.severity)}</td>
+<td>${escapeHtml(coverageGapText(f))}</td>
+</tr>`).join('\n');
+  return `
+<h4>Coverage gaps</h4>
+<p>Surfaces the scanner could not read on this host. They are not findings: they are not counted in the severity chart or `
+    + `in Top Risks, and a check that could not read a surface did not pass there.</p>
+<table class="coverage-gaps">
+<thead><tr><th>Host</th><th>Port</th><th>Severity</th><th>Not read</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -509,13 +561,17 @@ function renderAppendix(model) {
   const pluginByDir = new Map((model.plugins?.byHost ?? []).map((h) => [h.dir, h.status]));
 
   const sections = (model.hosts ?? []).map((h) => {
-    const findings = h.findings ?? [];
+    // G-72 (v394 Q4 b): the SECOND array. The cover, Top Risks and the chart read the flattened model.findings; this section
+    // reads each host's own list, so it is partitioned here as well, or the appendix would count every gap as a finding.
+    const rows = h.findings ?? [];
+    const findings = rows.filter((f) => !isCoverageGap(f));
+    const gaps = rows.filter(isCoverageGap);
     const reach = h.up ? 'reachable' : 'not reachable';
     return `<section class="host">
 <h3>${escapeHtml(h.host)} — ${reach}</h3>
 <p class="dir">Evidence directory: ${escapeHtml(h.dir ?? '')}</p>
 ${renderPluginStatus(pluginByDir.get(h.dir))}
-${renderFindingsTable(findings)}
+${renderFindingsTable(findings, gaps.length)}${renderCoverageGaps(gaps)}
 </section>`;
   }).join('\n');
 
@@ -752,6 +808,12 @@ export function renderExecutiveReport(model, brand, { renderedAt = new Date(), d
       + 'the branding silently missing.');
   }
   const title = escapeHtml(brand.title || 'Network Scan Report');
+  // G-72 (v394 Q4): a coverage gap is SHOWN, never COUNTED. model.findings keeps every row — the delta view
+  // (scan_delta_view.mjs) needs the gap rows and the Jira export keeps them on purpose — so the partition is here, in the one
+  // renderer, over BOTH arrays: the flattened list below (cover, Top Risks, chart) and each host's list (renderAppendix).
+  const all = model.findings ?? [];
+  const findings = all.filter((f) => !isCoverageGap(f));
+  const gapCount = all.length - findings.length;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -762,12 +824,12 @@ export function renderExecutiveReport(model, brand, { renderedAt = new Date(), d
 <style>${CSS}</style>
 </head>
 <body>
-${renderCover(model, brand, renderedAt)}
-${renderTopRisks(model.findings)}
+${renderCover(model, brand, renderedAt, findings, gapCount)}
+${renderTopRisks(findings, gapCount)}
 ${renderDelta(delta)}
 <section id="chart">
 <h2>Severity Distribution</h2>
-${renderChart(model.findings)}
+${renderChart(findings)}
 </section>
 ${renderAppendix(model)}
 ${renderFooter(model)}

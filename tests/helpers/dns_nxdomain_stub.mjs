@@ -15,9 +15,12 @@ const dgram = require('node:dgram');
 const net = require('node:net');
 
 let queries = 0;
+// NSA_DNS_STUB_RECORD_CODE (G-72): the error code every RECORD query fails with. Unset is ENOTFOUND, as before; ETIMEOUT
+// makes the DNS-security audit (060) record each check as NOT MEASURED, which is how a spawned CLI writes a coverage gap.
+const CODE = process.env.NSA_DNS_STUB_RECORD_CODE || 'ENOTFOUND';
 const nxdomain = async (name) => {
   queries += 1;
-  throw Object.assign(new Error(`queryX ENOTFOUND ${name}`), { code: 'ENOTFOUND' });
+  throw Object.assign(new Error(`queryX ${CODE} ${name}`), { code: CODE });
 };
 for (const k of ['resolve', 'resolve4', 'resolve6', 'resolveTxt', 'resolveCname', 'resolveMx', 'resolveNs', 'resolveSoa',
   'resolveCaa', 'resolveAny', 'resolveSrv', 'resolvePtr', 'resolveNaptr', 'reverse']) dnsP[k] = nxdomain;

@@ -3791,6 +3791,8 @@ Docs: https://www.nsauditor.com/ai/   |   Pricing: https://www.nsauditor.com/ai/
         conclusion: scanOut.conclusion,
         toolVersion: TOOL_VERSION,
         manifest: scanOut.pluginStatus ?? [],
+        // G-72: the plugin results, so the report lists the coverage gaps (without them it says they were not evaluated).
+        results: scanOut.results,
       });
       const mdFileName = scanOutputs.length > 1
         ? `scan_${safeHost(scanOut.host)}.md`

@@ -682,6 +682,8 @@ export async function handleScanHost(args) {
         // Build 4 (Gate 3-A F-1): the manifest, so an audit that did not run — 060's decline of an IP address — is said.
         manifest: output.manifest ?? [],
         callWall,
+        // G-72: the plugin results, so the markdown lists the coverage gaps (without them it says they were not evaluated).
+        results: output.results,
       });
     }
   } catch { /* swallow — markdown is best-effort */ }
