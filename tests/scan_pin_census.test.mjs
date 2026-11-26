@@ -340,7 +340,8 @@ test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — ev
 // with a comment opener, AND each one's count of such lines (two today, both `//` lines inside template literals — strings,
 // correctly kept). A parse oracle (each shipped file, stripped, through node --check: 94 of 94 parse; the replaced
 // two-regex form left 12 unparseable) sees code EATEN, never a comment KEPT — a kept comment parses. A `net` binding beyond
-// isIP is held by a zero-count witness on each row that says so (v387 R-8; limit: a destructured member). An HTTP/1.x
+// isIP is held by a zero-count witness on each row that says so, one per binding form the file uses — a `net` namespace or
+// a named import (v387 R-8, v389 R-10); any other binding form is red; limit: a destructured member of the namespace. An HTTP/1.x
 // request line written by hand is held by (w1-h) (v387 R-9; limits: a request line assembled from pieces, HTTP/2).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -559,10 +560,19 @@ const PER_REQUEST_HTTPS = 'custom, keep-alive off — a new https.Agent per requ
 // member of a `net` binding is red. Limit, stated: a destructured member (`const { connect } = net`, `import { connect }`).
 const NET_BEYOND_ISIP = /(?<![\w$.])net\s*\.\s*(?!isIP(?:v4|v6)?\b)[\w$]+/g;
 const NET_BEYOND_ISIP_AND_BLOCKLIST = /(?<![\w$.])net\s*\.\s*(?!isIP(?:v4|v6)?\b|BlockList\b)[\w$]+/g;
+// v389 R-10: the witness must see the file's OWN binding form. A namespace bound to the identifier `net` (default import,
+// `* as net`, require or dynamic import) is held by NET_BEYOND_ISIP*; a NAMED import by NET_NAMED_BEYOND_ISIP, which matches
+// any named import of node:net other than exactly `{ isIP }`. Any other binding (another identifier, a destructured require,
+// a re-export) has no witness that can see it, and a row saying "net only for isIP" over it is red.
+const NET_NAMED_BEYOND_ISIP = /import\s*\{(?!\s*isIP\s*\}\s*from)[^}]*\}\s*from\s*['"](?:node:)?net['"]/g;
+const NET_ONLY_SPEC = String.raw`['"](?:node:)?net['"]`;
+const NET_BINDING_ANY = new RegExp(String.raw`from\s*${NET_ONLY_SPEC}|(?:require|import)\s*\(\s*${NET_ONLY_SPEC}\s*\)`, 'g');
+const NET_BINDING_NAMESPACE = new RegExp(String.raw`import\s+(?:\*\s+as\s+)?net\s+from\s*${NET_ONLY_SPEC}|(?:const|let|var)\s+net\s*=\s*(?:await\s+)?(?:require|import)\s*\(\s*${NET_ONLY_SPEC}\s*\)`, 'g');
+const NET_BINDING_NAMED = new RegExp(String.raw`import\s*\{[^}]*\}\s*from\s*${NET_ONLY_SPEC}`, 'g');
 const NET_IMPORTERS = {
   'plugins/040_tls_cert_auditor.mjs': { modules: ['net', 'tls'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_BEYOND_ISIP, 0]],
-    why: 'tls.connect to the target for its certificate chain; net only for isIP (a named import, so its witness holds only a namespace use)' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_NAMED_BEYOND_ISIP, 0]],
+    why: 'tls.connect to the target for its certificate chain; net only for isIP (a named import, held by the named-import witness, v389 R-10)' },
   'plugins/060_dns_sec_auditor.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET,
     lookup: 'absent — every `lookup` token is prose; it speaks the DNS protocol (resolve*), and its zone transfer connects to an ADDRESS from resolve4, outside the pin (declared in DECLARED above)',
     createConnection: `${NET_CC} — the opt-in zone transfer to a nameserver address`,
@@ -679,10 +689,16 @@ test('(w1-c) every row states agent, lookup, createConnection and a reason; a ro
     const rawSocketOnly = agents.every((a) => a.startsWith('n/a'));
     const positive = (row.witness ?? []).filter(([, n]) => n > 0);
     assert.equal(positive.length > 0, !rawSocketOnly, `${rel}: a row with an HTTP agent carries a witness of its option site; a raw-socket row carries only zero-count witnesses`);
-    if (/net only for isIP/.test(row.why)) {
-      assert.ok((row.witness ?? []).some(([re, n]) => n === 0 && (re === NET_BEYOND_ISIP || re === NET_BEYOND_ISIP_AND_BLOCKLIST)), `${rel}: the row says net serves only isIP and carries no zero-count witness holding it`);
-    }
     const code = stripComments(found[rel]?.raw ?? '');
+    if (/net only for isIP/.test(row.why)) {
+      const zero = (row.witness ?? []).filter(([, n]) => n === 0).map(([re]) => re);
+      const count = (re) => (code.match(re) ?? []).length;
+      const all = count(NET_BINDING_ANY), namespace = count(NET_BINDING_NAMESPACE), named = count(NET_BINDING_NAMED);
+      assert.ok(all > 0, `${rel}: the row says net serves only isIP and the file's code binds no node:net`);
+      assert.equal(namespace + named, all, `${rel}: ${all - namespace - named} binding(s) of node:net that no witness can see (another identifier, a destructured require, a re-export) under a row saying net serves only isIP`);
+      if (namespace) assert.ok(zero.some((re) => re === NET_BEYOND_ISIP || re === NET_BEYOND_ISIP_AND_BLOCKLIST), `${rel}: the file binds a \`net\` namespace and the row carries no zero-count namespace witness holding "net only for isIP"`);
+      if (named) assert.ok(zero.includes(NET_NAMED_BEYOND_ISIP), `${rel}: the file imports node:net by name and the row carries no zero-count NAMED-import witness holding "net only for isIP"`);
+    }
     for (const [re, n] of row.witness ?? []) {
       const hits = (code.match(re) ?? []).length;
       assert.equal(hits, n, `${rel}: the witness ${re} matches ${hits} times in its code, declared ${n} — its option site moved or was commented out`);
