@@ -104,6 +104,7 @@ async function probe(url, config, options = {}) {
     body: null,
     notRead: null,
     error: null,
+    code: null,
     responded: false,
     latencyMs: 0,
   };
@@ -129,9 +130,22 @@ async function probe(url, config, options = {}) {
     if (err instanceof TypeError) throw err;
     result.latencyMs = Date.now() - start;
     result.error = err.name === "AbortError" ? "timeout" : err.message;
+    result.code = err.code;
   }
 
   return result;
+}
+
+// One no-reply entry (G-71 F-050): the probe's own name, the method, the plugin's own path constant and the waist's code.
+// The waist rejects with a TargetHttpError whose code it has sanitized (utils/target_http.mjs safeCode: code-shaped or
+// EOTHER) or, at the deadline, an AbortError whose code is ETIMEDOUT; 050 keeps that code and no message.
+function noReplyEntry(probeName, path, res) {
+  return {
+    probe: probeName,
+    method: res.method,
+    path,
+    code: res.code,
+  };
 }
 
 // One not-read entry: the plugin's own path constant, the method, the waist's reason and its mapped coding tokens.
@@ -165,6 +179,24 @@ function tribeCoverageGap(notRead, port) {
   };
 }
 
+// The coverage gap for the probes that got NO REPLY while `/` replied (G-71 F-050): the same declared gap-only shape. A
+// probe is listed iff a check decides from its reply — the not-read list's criterion — so the DELETE, PUT and PATCH
+// probes, whose replies are not examined (O-3), are never listed. Each entry: the probe's name, the method sent, the path and the waist's code.
+function tribeNoReplyGap(noReply, port) {
+  const n = noReply.length;
+  return {
+    severity: SEVERITY.INFO,
+    check: "tribe_probe_no_reply",
+    title: `[COVERAGE GAP] TRIBE API probe: ${n} ${n === 1 ? "probe" : "probes"} on port ${port} got no reply`,
+    detail:
+      "The service answered / and these probes got no reply (no response began): the checks that decide from them did " +
+      "not run on those paths. This is not a pass. Each is named by its probe, the method sent, the path and the error code: " +
+      `${noReply.map((e) => `${e.probe}: ${e.method} ${e.path} (${e.code})`).join(", ")}.`,
+    port,
+    details: { evidenceGap: true, gapOnly: true, noReply },
+  };
+}
+
 // ── Probe Modules ────────────────────────────────────────────────────────────
 
 // 1. Health Endpoint Check
@@ -173,9 +205,11 @@ async function probeHealth(config) {
   const endpoints = ["/health", "/healthz", "/status", "/ping", "/ready"];
   const found = [];
   const notRead = [];
+  const noReply = [];
 
   for (const ep of endpoints) {
     const res = await probe(`${baseUrl(config)}${ep}`, config);
+    if (!res.responded) noReply.push(noReplyEntry("health", ep, res));
     if (res.responded && res.status >= 200 && res.status < 400) {
       found.push({ endpoint: ep, status: res.status });
       if (res.notRead) notRead.push(notReadEntry(ep, res));
@@ -202,13 +236,14 @@ async function probeHealth(config) {
     }
   }
 
-  return { endpoints: found, issues, notRead };
+  return { endpoints: found, issues, notRead, noReply };
 }
 
 // 2. Debug Endpoint Discovery
 async function probeDebugEndpoints(config) {
   const issues = [];
   const notRead = [];
+  const noReply = [];
 
   const dangerousEndpoints = [
     { path: "/debug",                severity: SEVERITY.CRITICAL, desc: "Debug root" },
@@ -243,6 +278,7 @@ async function probeDebugEndpoints(config) {
 
   for (const ep of dangerousEndpoints) {
     const res = await probe(`${baseUrl(config)}${ep.path}`, config);
+    if (!res.responded) noReply.push(noReplyEntry("debug", ep.path, res));
 
     // Accessible = not 404, not 405, not connection refused
     if (res.responded && res.status !== 404 && res.status !== 405 && res.status !== 501) {
@@ -277,13 +313,14 @@ async function probeDebugEndpoints(config) {
     }
   }
 
-  return { issues, notRead };
+  return { issues, notRead, noReply };
 }
 
 // 3. Error Verbosity Check – do error responses leak stack traces?
 async function probeErrorVerbosity(config) {
   const issues = [];
   const notRead = [];
+  const noReply = [];
 
   // Hit a definitely-nonexistent path and examine the error body
   const errorPaths = [
@@ -295,7 +332,7 @@ async function probeErrorVerbosity(config) {
 
   for (const path of errorPaths) {
     const res = await probe(`${baseUrl(config)}${path}`, config);
-    if (!res.responded) continue;
+    if (!res.responded) { noReply.push(noReplyEntry("errors", path, res)); continue; }
     if (res.notRead) { notRead.push(notReadEntry(path, res)); continue; }
     if (!res.body) continue;
 
@@ -349,14 +386,16 @@ async function probeErrorVerbosity(config) {
     }
   }
 
-  return { issues, notRead };
+  return { issues, notRead, noReply };
 }
 
 // 4. Response Header Security Audit
 async function probeHeaders(config) {
   const issues = [];
   const res = await probe(`${baseUrl(config)}/`, config);
-  if (!res.responded) return { issues };
+  // A headers probe that got no reply sends no CORS probe: one entry stands for both checks.
+  if (!res.responded) return { issues, noReply: [noReplyEntry("headers", "/", res)] };
+  const noReply = [];
 
   const h = res.headers;
 
@@ -408,6 +447,7 @@ async function probeHeaders(config) {
     headers: { "Origin": "https://evil-attacker.com" },
   });
 
+  if (!corsRes.responded) noReply.push(noReplyEntry("cors", "/", corsRes));
   if (corsRes.responded) {
     const acao = corsRes.headers["access-control-allow-origin"];
     const acac = corsRes.headers["access-control-allow-credentials"];
@@ -442,12 +482,13 @@ async function probeHeaders(config) {
     }
   }
 
-  return { issues, headers: h };
+  return { issues, headers: h, noReply };
 }
 
 // 5. Authentication Enforcement Check
 async function probeAuthEnforcement(config) {
   const issues = [];
+  const noReply = [];
 
   // Routes that should require auth
   const protectedRoutes = [
@@ -464,6 +505,7 @@ async function probeAuthEnforcement(config) {
   for (const route of protectedRoutes) {
     // First: hit without auth
     const noAuth = await probe(`${baseUrl(config)}${route}`, config);
+    if (!noAuth.responded) noReply.push(noReplyEntry("auth", route, noAuth));
 
     if (noAuth.responded && noAuth.status === 200) {
       issues.push({
@@ -479,6 +521,7 @@ async function probeAuthEnforcement(config) {
       const withAuth = await probe(`${baseUrl(config)}${route}`, config, {
         headers: { "Authorization": `Bearer ${config.authToken}` },
       });
+      if (!withAuth.responded) noReply.push(noReplyEntry("auth-token", route, withAuth));
 
       if (withAuth.responded && withAuth.status === 200) {
         // Good: route exists, requires auth, and auth works
@@ -492,7 +535,7 @@ async function probeAuthEnforcement(config) {
     }
   }
 
-  return { issues };
+  return { issues, noReply };
 }
 
 // 6. HTTP Method Fuzzing – are unexpected methods allowed?
@@ -500,6 +543,7 @@ async function probeAuthEnforcement(config) {
 // sent and their replies are not examined (operator decision O-3: keep the behaviour).
 async function probeMethodFuzzing(config) {
   const issues = [];
+  const noReply = [];
   const dangerousMethods = ["OPTIONS", "DELETE", "PUT", "PATCH"];
 
   // Test against root and a common API route
@@ -509,7 +553,8 @@ async function probeMethodFuzzing(config) {
     for (const method of dangerousMethods) {
       const res = await probe(`${baseUrl(config)}${target}`, config, { method });
 
-      if (!res.responded) continue;
+      // Only the OPTIONS reply is examined, so only an OPTIONS probe with no reply is listed (O-3).
+      if (!res.responded) { if (method === "OPTIONS") noReply.push(noReplyEntry("methods", target, res)); continue; }
 
       // OPTIONS is fine (CORS preflight) but check what it reveals
       if (method === "OPTIONS" && res.status === 200) {
@@ -526,7 +571,7 @@ async function probeMethodFuzzing(config) {
     }
   }
 
-  return { issues };
+  return { issues, noReply };
 }
 
 // ── Plugin Export ─────────────────────────────────────────────────────────────
@@ -598,6 +643,10 @@ export default {
     // The replies whose body was not read where a check could not decide without it. Not counted, never moves severity.
     const notRead = [...health.notRead, ...debug.notRead, ...errors.notRead];
     const coverageGap = notRead.length > 0 ? tribeCoverageGap(notRead, config.port) : null;
+    // The probes that got no reply while `/` replied, where a check decides from the reply (G-71 F-050). Not counted.
+    const noReply = [...health.noReply, ...debug.noReply, ...errors.noReply, ...headers.noReply, ...auth.noReply, ...methods.noReply];
+    const noReplyGap = noReply.length > 0 ? tribeNoReplyGap(noReply, config.port) : null;
+    const coverage = [coverageGap, noReplyGap].filter(Boolean);
 
     // Aggregate all issues
     const allIssues = [
@@ -648,10 +697,10 @@ export default {
         headers: headers.issues,
         auth:    auth.issues,
         methods: methods.issues,
-        ...(coverageGap ? { coverage: [coverageGap] } : {}),
+        ...(coverage.length > 0 ? { coverage } : {}),
       },
       healthEndpoints: health.endpoints,
-      details: { notRead },
+      details: { notRead, noReply },
     };
   },
 
@@ -677,6 +726,7 @@ export default {
     // serverInfo.server and serverInfo.poweredBy, and the details of the leaky_header, cors_credentials and options_allow
     // findings (G-68). A not-read list carries only the plugin's own path, the method, the reason and coding tokens.
     const notRead = Array.isArray(result.details?.notRead) ? result.details.notRead : [];
+    const noReply = Array.isArray(result.details?.noReply) ? result.details.noReply : [];
     const findings = Object.entries(result.findings)
       .flatMap(([category, issues]) => issues.map((i) => ({ ...i, category })))
       .filter((f) => f.details?.evidenceGap === true || (f.severity !== SEVERITY.PASS && f.severity !== SEVERITY.INFO))
@@ -684,18 +734,24 @@ export default {
         : { severity: f.severity, category: f.category, check: f.check, detail: f.detail }));
     const counts = `${result.summary.critical} critical, ${result.summary.high} high, ${result.summary.medium} medium findings`;
     const n = notRead.length;
+    const m = noReply.length;
+    const missing = [
+      ...(m > 0 ? [`${m} ${m === 1 ? "probe" : "probes"} got no reply`] : []),
+      ...(n > 0 ? [`the body of ${n} ${n === 1 ? "reply" : "replies"} was not read`] : []),
+    ];
 
     return [{
       port: 8080,
       protocol: "tcp",
       service: "tribe-v2",
       status: "open",
-      info: n === 0
+      info: missing.length === 0
         ? `API probe complete: ${counts}`
-        : `API probe incomplete: the body of ${n} ${n === 1 ? "reply" : "replies"} was not read; from the replies read, ${counts}`,
+        : `API probe incomplete: ${missing.join("; ")}; from the replies read, ${counts}`,
       tribeHealth: {
         state: "up", severity: result.overallSeverity, summary: result.summary, serverInfo: result.serverInfo, findings,
         ...(n > 0 ? { notRead } : {}),
+        ...(m > 0 ? { noReply } : {}),
       },
       source: "tribe-health",
       authoritative: true,

@@ -162,11 +162,13 @@ const tlsMeasured = (s) => (s.tls === true ? true : 'no-handshake');
 const TLS_011 = { id: '011', source: 'tls-scanner', marker: 'tls' };
 const CERT_CID = { cert_expired: 'certificate:expired', self_signed: 'certificate:self_signed' };
 // 050 (EE Z-1 C-4, v388 3): an up probe that left a reply's body unread — `tribeHealth.notRead`, listed where a check would
-// have decided from that body — measured its payload only in part. It compares exactly as 'payload-down' (no vanished
+// have decided from that body — or got no reply to a probe a check decides from — `tribeHealth.noReply` (G-71 F-050) —
+// measured its payload only in part. It compares exactly as 'payload-down' (no vanished
 // finding is cleared; new ones still appear) and differs only in its sentence.
 const tribeMeasured = (s) => {
   if (s.tribeHealth?.state !== 'up') return 'payload-down';
-  return Array.isArray(s.tribeHealth.notRead) && s.tribeHealth.notRead.length > 0 ? 'payload-partial' : true;
+  const listed = (k) => Array.isArray(s.tribeHealth[k]) && s.tribeHealth[k].length > 0;
+  return listed('notRead') || listed('noReply') ? 'payload-partial' : true;
 };
 
 const COMPARISON = {
@@ -232,7 +234,7 @@ export const NOT_COMPARED_REASONS = Object.freeze({
   'negotiated-only': () => 'the cipher each TLS version negotiated — an empty list is not proof that no weak cipher is accepted',
   'not-tried': (item) => `${item} was not tried this run`,
   'payload-down': () => 'the debug-endpoint probe did not complete this run',
-  'payload-partial': () => 'the API probe did not read the body of every reply this run',
+  'payload-partial': () => 'the API probe did not get, or did not read the body of, every reply this run',
   'lookup-not-recorded': () => 'the scan did not record whether the CVE lookup ran',
   'service-not-in-scan': () => 'the service is not in this scan',
   // One code for one cause, the code Enterprise's comparison uses as well; the sentence names DNS because 060 is the one

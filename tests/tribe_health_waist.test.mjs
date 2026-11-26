@@ -394,13 +394,18 @@ test('(t-9) every method 050 can send — the array literal, every `method:` val
   const array = SRC.match(/const dangerousMethods = \[([^\]]*)\]/);
   assert.ok(array, 'the dangerousMethods array literal is where the leg reads it');
   const methods = new Set([...array[1].matchAll(/["']([A-Z]+)["']/g)].map((m) => m[1]));
-  // One declared non-send occurrence: notReadEntry's output field copies the method probe() SENT (`res.method`). Only
-  // that one LINE leaves the scan (v391 nit): a second `method:` written anywhere in notReadEntry is still read.
-  const entryFn = SRC.match(/function notReadEntry\([^)]*\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  // Two declared non-send occurrences: notReadEntry's and noReplyEntry's output field each copy the method probe() SENT
+  // (`res.method`). Only that one LINE of each leaves the scan (v391 nit): a second `method:` written anywhere in either
+  // function is still read.
   const copiedLine = /\n[ \t]*method: res\.method,[ \t]*(?=\n)/;
-  assert.match(entryFn, copiedLine, 'notReadEntry is where the leg reads its one copied field');
-  const scanned = SRC.replace(entryFn, entryFn.replace(copiedLine, ''));
-  assert.equal(scanned.length, SRC.length - entryFn.match(copiedLine)[0].length, 'exactly the one line left the scan');
+  let scanned = SRC;
+  for (const name of ['notReadEntry', 'noReplyEntry']) {
+    const entryFn = scanned.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
+    assert.match(entryFn, copiedLine, `${name} is where the leg reads its one copied field`);
+    const before = scanned.length;
+    scanned = scanned.replace(entryFn, entryFn.replace(copiedLine, ''));
+    assert.equal(scanned.length, before - entryFn.match(copiedLine)[0].length, `exactly the one line of ${name} left the scan`);
+  }
   let sites = 0;
   for (const m of scanned.matchAll(/\bmethod:\s*([^,}\n]+?)\s*[,}\n]/g)) {
     sites++;
@@ -498,7 +503,7 @@ test('(t-13) the report loader shapes the gap as a gap, uncounted; conclude keep
 // and t-13c's `report --since` runs over it. So the file the loader reads in t-13c is the file t-13b holds, not a copy the
 // test writes. With a runId, scanSingleHost also appends the host to that run's record, as the scan command does.
 const conclusionFiles = (root) => fs.readdirSync(root, { recursive: true }).map(String).filter((f) => f.endsWith('scan_conclusion_raw.json'));
-async function scanWritten(outRoot, result, { host = '192.0.2.10', runId = null } = {}) {
+async function scanWritten(outRoot, result, { host = '192.0.2.10', runId = null, status = 'ran' } = {}) {
   const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY, ai: process.env.OPENAI_OUT_PATH };
   process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence'; delete process.env.OPENAI_OUT_PATH;
   try {
@@ -516,7 +521,7 @@ async function scanWritten(outRoot, result, { host = '192.0.2.10', runId = null 
     // The premise every reader of this file depends on, held where the file is read: its manifest records 050 as RAN.
     // Without this the since arms are blind to a file that loses the entry — measured (v340 battery R6-M1): the loss hits
     // the baseline and the current run alike, the delta reads an absent status as measured, and t-13c stays green.
-    assert.equal(j.pluginStatus?.find((p) => String(p?.id) === '050')?.status, 'ran', 'the conclusion file records 050 as ran');
+    assert.equal(j.pluginStatus?.find((p) => String(p?.id) === '050')?.status, status, `the conclusion file records 050 as ${status}`);
     return j;
   } finally {
     for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic], ['OPENAI_OUT_PATH', keep.ai]]) {
@@ -556,28 +561,29 @@ test('(t-13b) scan_conclusion_raw.json written by scanSingleHost carries the gap
 // the REAL scanSingleHost, through scanWritten — the helper t-13b reads back. No file here is written by the test. ─────
 // A documentation-range address (RFC 5737): scanSingleHost's target guard refuses a private one such as 10.0.0.7.
 const SINCE_HOST = '192.0.2.10';
-async function sinceReport(before, after) {
+async function sinceReport(before, after, { afterStatus = 'ran' } = {}) {
   const { runReport } = await import('../cli.mjs');
   const { resolveCapabilities } = await import('../utils/capabilities.mjs');
   const { newRunId, writeRunStart, finalizeRunRecord } = await import('../utils/run_record.mjs');
   const { sealRunRecord } = await import('../utils/run_chain.mjs');
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-tribe-since-'));
-  const mk = async (startedAt, result) => {
+  const mk = async (startedAt, result, status = 'ran') => {
     const runId = newRunId();
     await writeRunStart(outRoot, { runId, startedAt, hostsRequested: [SINCE_HOST], pluginsRequested: ['050'], portsRequested: '8080',
       tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
-    const j = await scanWritten(outRoot, result, { host: SINCE_HOST, runId });
+    const j = await scanWritten(outRoot, result, { host: SINCE_HOST, runId, status });
     assert.equal(j.runId, runId, 'the conclusion file names the run it was written for');
     await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
     await sealRunRecord(outRoot, runId);
     return runId;
   };
-  const a = await mk('2026-09-01T10:00:00.000Z', before); const b = await mk('2026-09-08T10:00:00.000Z', after);
+  const a = await mk('2026-09-01T10:00:00.000Z', before); const b = await mk('2026-09-08T10:00:00.000Z', after, afterStatus);
   const rep = await runReport({ from: outRoot, format: 'executive', run: b, since: a, out: path.join(outRoot, 'exec.html') }, resolveCapabilities('pro'));
   assert.equal(rep.code, 0, rep.stderr);
   const m = rep.stdout.match(/(\d+) new · (\d+) resolved · (\d+) changed · (\d+) not-comparable · (\d+) unchanged/);
   assert.ok(m, `the delta line: ${rep.stdout.slice(0, 300)}`);
-  return { stdout: rep.stdout, n: { new: +m[1], resolved: +m[2], notComparable: +m[4], unchanged: +m[5] } };
+  return { stdout: rep.stdout, page: fs.readFileSync(path.join(outRoot, 'exec.html'), 'utf8'),
+    n: { new: +m[1], resolved: +m[2], notComparable: +m[4], unchanged: +m[5] } };
 }
 // The baseline's two body-derived rows: the health leak, and /metrics upgraded on its 64-byte body.
 const LEAKY_TWO = (req) => (req.url === '/health' ? { status: 200, headers: { 'content-type': 'application/json' }, body: '{"version":"1.0"}' }
@@ -647,4 +653,171 @@ test('(t-13d) the raw html: the tribe-health row carries "API probe incomplete" 
 test('(t-14) the conclude comment says which fields carry the target\'s header text, and makes no ZDE claim it cannot keep', () => {
   assert.doesNotMatch(SRC, /ZDE: no response bodies or header values in conclude output/);
   assert.match(SRC, /serverInfo\.server/);
+});
+
+// ── G-71 F-050 (EE Z-1, architect RULINGS-v402 §4; board G-64): a probe that got NO REPLY while `/` replied ─────────────
+// The checks that decide from that probe did not run, and their rows vanished under a record that said "API probe
+// complete" — so `report --since` read a vanished /metrics CRITICAL as RESOLVED (drive arm 050-nr). 050 now writes a
+// DECLARED gap row (gapOnly) naming each probe that got no reply by the plugin's own probe name, method and path, and the
+// waist's error CODE — never a message, never anything the target sent. The row holds 050's rows on the host in the delta,
+// as the not-read row does; the history reads the run as payload-partial.
+// The no-reply list, in the order the groups are concatenated (health, debug, errors, headers, auth, methods). A headers
+// probe that gets no reply sends no CORS probe; the auth probe with a token is sent only after a 401/403.
+const AUTH = ['/api/v1/users', '/api/v1/scan', '/api/v1/results', '/api/v2/neural', '/api/v2/agents', '/api/v2/config', '/api/v1/admin', '/api/v1/plugins'];
+// Only the OPTIONS reply is examined (O-3: DELETE, PUT and PATCH are sent and their replies are not), so only OPTIONS is listed.
+const FUZZ = ['/', '/api/v1/health'].map((p) => [p, 'OPTIONS']);
+const NO_REPLY_ALL = (code) => [
+  ...HEALTH.map((p) => ({ probe: 'health', method: 'GET', path: p, code })),
+  ...DEBUG.map((p) => ({ probe: 'debug', method: 'GET', path: p, code })),
+  ...ERRORS.map((p) => ({ probe: 'errors', method: 'GET', path: p, code })),
+  { probe: 'headers', method: 'GET', path: '/', code },
+  ...AUTH.map((p) => ({ probe: 'auth', method: 'GET', path: p, code })),
+  ...FUZZ.map(([p, m]) => ({ probe: 'methods', method: m, path: p, code })),
+];
+const WAIST_CODE = /^[A-Z][A-Z0-9_]{0,47}$/;
+/** A real server: `mode(req, n)` (n = the request's 0-based index) returns 'reset' (destroy the socket), 'hang' (never
+ *  answer) or nothing (answer with `reply(req)`, null → a 404). */
+async function serveModes(reply, mode) {
+  let n = 0;
+  const server = http.createServer((req, res) => {
+    req.resume();
+    const m = mode(req, n++);
+    if (m === 'reset') { req.socket.destroy(); return; }
+    if (m === 'hang') return;
+    const r = reply(req) ?? { status: 404, headers: { 'content-type': 'text/plain' }, body: 'not found' };
+    res.writeHead(r.status, r.headers ?? {});
+    res.end(r.body ?? '');
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  return { port: server.address().port, close: () => { server.closeAllConnections(); return new Promise((ok) => server.close(ok)); } };
+}
+async function runModes(reply, mode, timeoutMs = 400) {
+  const s = await serveModes(reply, mode);
+  try { return await run(s.port, { timeoutMs }); } finally { await s.close(); }
+}
+const noReplyRows = (r) => (r.findings.coverage ?? []).filter((f) => f.check === 'tribe_probe_no_reply');
+const METRICS_TITLE = '/metrics is accessible (HTTP 200) – Prometheus metrics — returns content without authentication';
+const pageRows = (page) => {
+  const at = page.indexOf('Since Last Scan');
+  const sect = at < 0 ? '' : page.slice(at, page.indexOf('</table>', at));
+  const strip = (x) => x.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  return (sect.match(/<tr[\s\S]*?<\/tr>/g) ?? []).slice(1).map((tr) => (tr.match(/<td[\s\S]*?<\/td>/g) ?? []).map(strip));
+};
+const changeOf = (page, title) => pageRows(page).filter((r) => r[1] === title).map((r) => r[0]);
+
+test('F-050 (accept, first): every probe replied — details.noReply is [], no no-reply row, the record says complete', async () => {
+  const r = await runModes(LEAKY_TWO, () => undefined);
+  assert.equal(r.up, true);
+  assert.deepEqual(r.details.noReply, [], 'the stable key is present and empty when every probe replied');
+  assert.deepEqual(noReplyRows(r), []);
+  assert.equal('coverage' in r.findings, false);
+  const [rec] = plugin.conclude({ result: r });
+  assert.match(rec.info, /^API probe complete: /);
+  assert.equal('noReply' in rec.tribeHealth, false);
+  assert.equal(rowOf('tribeHealth').measured(rec), true);
+});
+
+test('F-050 (G-64): a server that answers `/` and resets every later connection — every probe is listed with its code, in ONE declared gap row', async () => {
+  const r = await runModes(() => ({ status: 200, body: 'root' }), (req, n) => (n === 0 ? undefined : 'reset'));
+  assert.equal(r.up, true, 'the ping replied');
+  assert.deepEqual(r.details.noReply, NO_REPLY_ALL('ECONNRESET'));
+  const rows = noReplyRows(r);
+  assert.equal(rows.length, 1, 'one row');
+  const [gap] = rows;
+  assert.equal(gap.severity, 'info');
+  assert.deepEqual(gap.details, { evidenceGap: true, gapOnly: true, noReply: r.details.noReply });
+  assert.equal(gap.title, `[COVERAGE GAP] TRIBE API probe: ${NO_REPLY_ALL('x').length} probes on port ${gap.port} got no reply`);
+  assert.match(gap.detail, /This is not a pass\./);
+  assert.ok(gap.detail.includes('debug: GET /metrics (ECONNRESET)'), gap.detail);
+  assert.ok(gap.detail.includes('methods: OPTIONS /api/v1/health (ECONNRESET)'), gap.detail);
+  assert.ok(!/(DELETE|PUT|PATCH) \//.test(gap.detail), 'a probe whose reply no check examines is not listed');
+  assert.ok(!gap.detail.includes('target request failed'), 'no error message text: the code only');
+  assert.equal(r.findings.coverage.length, 1, 'nothing was replied to, so nothing is listed not-read');
+  // Not counted, and it moves no severity.
+  assert.equal(r.summary.totalChecks, actionable(r).length);
+  // The record (conclude, the concluder), CE's report (the loader shapes it as a gap, uncounted) and the history.
+  const [rec] = plugin.conclude({ result: r });
+  assert.equal(rec.info, `API probe incomplete: ${NO_REPLY_ALL('x').length} probes got no reply; from the replies read, 0 critical, 0 high, 0 medium findings`);
+  assert.deepEqual(rec.tribeHealth.noReply, r.details.noReply);
+  assert.deepEqual(rec.tribeHealth.findings.filter((f) => f.check === 'tribe_probe_no_reply'), [{ ...gap, category: 'coverage' }]);
+  const c = await concluder.run([{ id: '050', name: plugin.name, result: r }]);
+  assert.deepEqual(c.services.find((x) => x.source === 'tribe-health').tribeHealth.noReply, r.details.noReply);
+  const shaped = shapeHostFindings('192.0.2.10', { results: [{ id: '050', name: plugin.name, result: r }] });
+  const gaps = shaped.filter((f) => f.evidenceGap === true);
+  assert.deepEqual(gaps.map((f) => f.title), [gap.title]);
+  assert.equal(countHostFindings(shaped).total ?? countHostFindings(shaped), countHostFindings(shaped.filter((f) => f.evidenceGap !== true)).total ?? countHostFindings(shaped.filter((f) => f.evidenceGap !== true)));
+  assert.equal(rowOf('tribeHealth').measured(rec), 'payload-partial');
+});
+
+test('F-050: the second probe of a check — the CORS probe after `/` answered, the token probe after a 401 — is listed under its own probe name', async () => {
+  const s = await serveModes((req) => (AUTH.includes(req.url) ? { status: 401, body: 'no' } : { status: 200, body: 'ok' }),
+    (req) => (req.headers.origin || req.headers.authorization ? 'reset' : undefined));
+  let r;
+  try { r = await run(s.port, { timeoutMs: 400, authToken: 'tok-zq-canary' }); } finally { await s.close(); }
+  assert.deepEqual(r.details.noReply, [{ probe: 'cors', method: 'GET', path: '/', code: 'ECONNRESET' },
+    ...AUTH.map((p) => ({ probe: 'auth-token', method: 'GET', path: p, code: 'ECONNRESET' }))]);
+  assert.ok(!JSON.stringify(r).includes('tok-zq-canary'), 'the token reaches no entry, row or result');
+});
+
+test('F-050: a probe that times out is listed ETIMEDOUT — the probe name, method, path and code, nothing else', async () => {
+  const r = await runModes(LEAKY_TWO, (req) => (req.url === '/metrics' ? 'hang' : undefined));
+  assert.deepEqual(r.details.noReply, [{ probe: 'debug', method: 'GET', path: '/metrics', code: 'ETIMEDOUT' }]);
+  assert.ok(r.details.noReply.every((e) => WAIST_CODE.test(e.code)));
+  const [gap] = noReplyRows(r);
+  assert.equal(gap.title, `[COVERAGE GAP] TRIBE API probe: 1 probe on port ${gap.port} got no reply`);
+  assert.ok(gap.detail.endsWith('debug: GET /metrics (ETIMEDOUT).'), gap.detail);
+  assert.equal(r.findings.debug.some((f) => f.endpoint === '/metrics'), false, 'the row that probe decided is absent');
+  assert.ok(r.findings.health.some((f) => f.check === 'health_info_leak'), 'every other check still decides');
+});
+
+test('F-050 report --since (control, first): /metrics answers as before — UNCHANGED, nothing held', async () => {
+  const baseline = await runModes(LEAKY_TWO, () => undefined);
+  const d = await sinceReport(baseline, await runModes(LEAKY_TWO, () => undefined));
+  assert.deepEqual({ new: d.n.new, resolved: d.n.resolved, notComparable: d.n.notComparable, unchanged: d.n.unchanged },
+    { new: 0, resolved: 0, notComparable: 0, unchanged: actionable(baseline).length }, d.stdout);
+});
+
+test('F-050 report --since (control): /metrics answers 404 now — its row reads RESOLVED (a measured removal)', async () => {
+  const baseline = await runModes(LEAKY_TWO, () => undefined);
+  const now = await runModes((req) => (req.url === '/metrics' ? null : LEAKY_TWO(req)), () => undefined);
+  assert.deepEqual(now.details.noReply, [], 'premise: a 404 is a reply');
+  const d = await sinceReport(baseline, now);
+  assert.equal(d.n.resolved, 1, d.stdout);
+  assert.equal(d.n.notComparable, 0, d.stdout);
+  assert.deepEqual(changeOf(d.page, METRICS_TITLE), ['resolved']);
+});
+
+test('F-050 report --since (the red arm, 050-nr): /metrics never replies — its row reads NOT COMPARABLE, held by the no-reply gap', async () => {
+  const baseline = await runModes(LEAKY_TWO, () => undefined);
+  const d = await sinceReport(baseline, await runModes(LEAKY_TWO, (req) => (req.url === '/metrics' ? 'hang' : undefined)));
+  assert.equal(d.n.resolved, 0, `a probe that got no reply fixed nothing: ${d.stdout}`);
+  assert.equal(d.n.notComparable, 1, d.stdout);
+  const row = d.stdout.split('\n').find((l) => l.includes(`NOT COMPARABLE (disappeared)  ${METRICS_TITLE} — evidence-gap: `));
+  assert.ok(row, d.stdout);
+  assert.match(row, /recorded an evidence gap on 192\.0\.2\.10\/.*\(050\): \[COVERAGE GAP\] TRIBE API probe: 1 probe on port \d+ got no reply/);
+  assert.equal(d.n.unchanged, actionable(baseline).length - 1, 'every other row compares');
+  assert.deepEqual(changeOf(d.page, METRICS_TITLE), ['not-comparable']);
+});
+
+test('F-050 report --since (control): `/` itself does not reply — today\'s plugin-not-measured reading, unchanged', async () => {
+  const baseline = await runModes(LEAKY_TWO, () => undefined);
+  const down = await runModes(LEAKY_TWO, () => 'reset');
+  assert.equal(down.up, false);
+  assert.equal('details' in down, false, 'a down run carries no no-reply list: the plugin did not measure');
+  const d = await sinceReport(baseline, down, { afterStatus: 'error' });
+  assert.equal(d.n.resolved, 0, d.stdout);
+  assert.equal(d.n.notComparable, actionable(baseline).length, d.stdout);
+  const held = d.stdout.split('\n').filter((l) => /NOT COMPARABLE/.test(l));
+  assert.ok(held.every((l) => / — plugin-not-measured: /.test(l)), held.join('\n'));
+});
+
+test('F-050 history: /metrics never replies — the vanished finding is NOT COMPARED (payload-partial), never cleared', async () => {
+  const prev = await line(await runModes(LEAKY_TWO, () => undefined));
+  const curr = await line(await runModes(LEAKY_TWO, (req) => (req.url === '/metrics' ? 'hang' : undefined)));
+  const metrics = prev.services.flatMap((x) => x.flags).find((cid) => /debug_endpoint_exposed/.test(cid));
+  assert.ok(metrics, `the prior scan carries the /metrics finding: ${JSON.stringify(prev.services.map((x) => x.flags))}`);
+  const d = tribeAt(computeDiff(curr, prev));
+  assert.equal(d.cleared.includes(metrics), false, 'a vanished finding whose probe got no reply must not read as resolved');
+  assert.deepEqual(d.notCompared.find((n) => n.id === metrics), { id: metrics, reason: NOT_COMPARED_REASONS['payload-partial']() });
+  assert.match(NOT_COMPARED_REASONS['payload-partial'](), /did not get, or did not read the body of, every reply/);
 });
