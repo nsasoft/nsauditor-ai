@@ -821,3 +821,39 @@ test('F-050 history: /metrics never replies — the vanished finding is NOT COMP
   assert.deepEqual(d.notCompared.find((n) => n.id === metrics), { id: metrics, reason: NOT_COMPARED_REASONS['payload-partial']() });
   assert.match(NOT_COMPARED_REASONS['payload-partial'](), /did not get, or did not read the body of, every reply/);
 });
+
+// ── VERDICT-v405 R5: a not-read reply AND a no-reply probe in ONE run — both rows, both clauses, both lists ────────────
+test('F-050 R5: /health answers with a body not read and /metrics never replies — two coverage rows, both clauses in order, both lists, payload-partial', async () => {
+  const r = await runModes((req) => (req.url === '/health' ? CODED_200() : LEAKY_TWO(req)), (req) => (req.url === '/metrics' ? 'hang' : undefined));
+  assert.deepEqual(r.details.notRead, [coded('/health')]);
+  assert.deepEqual(r.details.noReply, [{ probe: 'debug', method: 'GET', path: '/metrics', code: 'ETIMEDOUT' }]);
+  assert.deepEqual(r.findings.coverage.map((f) => f.check), ['tribe_probe_not_read', 'tribe_probe_no_reply'], 'both rows, each with its own check id');
+  assert.deepEqual(r.findings.coverage.map((f) => f.details.gapOnly), [true, true]);
+  const [rec] = plugin.conclude({ result: r });
+  assert.equal(rec.info, `API probe incomplete: 1 probe got no reply; the body of 1 reply was not read; from the replies read, ${r.summary.critical} critical, ${r.summary.high} high, ${r.summary.medium} medium findings`);
+  assert.deepEqual(rec.tribeHealth.notRead, r.details.notRead);
+  assert.deepEqual(rec.tribeHealth.noReply, r.details.noReply);
+  assert.deepEqual(rec.tribeHealth.findings.filter((f) => f.details?.evidenceGap === true).map((f) => f.check), ['tribe_probe_not_read', 'tribe_probe_no_reply']);
+  assert.equal(rowOf('tribeHealth').measured(rec), 'payload-partial');
+});
+
+// ── VERDICT-v405 R6: the delta's two other directions for 050, accept first ─────────────────────────────────────────────
+test('F-050 R6 (accept, first): a NEW finding beside an unrelated no-reply probe reads NEW', async () => {
+  const baseline = await runModes(LEAKY_TWO, () => undefined);
+  const now = await runModes((req) => (req.url === '/debug' ? { status: 200, headers: { 'content-type': 'text/plain' }, body: 'debug root' } : LEAKY_TWO(req)),
+    (req) => (req.url === '/ping' ? 'hang' : undefined));
+  assert.deepEqual(now.details.noReply, [{ probe: 'health', method: 'GET', path: '/ping', code: 'ETIMEDOUT' }], 'premise: the no-reply probe is unrelated');
+  const d = await sinceReport(baseline, now);
+  assert.deepEqual({ new: d.n.new, resolved: d.n.resolved, notComparable: d.n.notComparable }, { new: 1, resolved: 0, notComparable: 0 }, d.stdout);
+});
+test('F-050 R6: baseline /metrics got no reply, now it answers 200 — its row reads NOT COMPARABLE (appeared), never new, citing the baseline\'s gap', async () => {
+  const baseline = await runModes(LEAKY_TWO, (req) => (req.url === '/metrics' ? 'hang' : undefined));
+  assert.deepEqual(baseline.details.noReply, [{ probe: 'debug', method: 'GET', path: '/metrics', code: 'ETIMEDOUT' }]);
+  const d = await sinceReport(baseline, await runModes(LEAKY_TWO, () => undefined));
+  assert.equal(d.n.new, 0, `a row the baseline could not measure is not new: ${d.stdout}`);
+  assert.equal(d.n.notComparable, 1, d.stdout);
+  const row = d.stdout.split('\n').find((l) => l.includes(`NOT COMPARABLE (appeared)  ${METRICS_TITLE} — evidence-gap: `));
+  assert.ok(row, d.stdout);
+  assert.match(row, /the baseline run recorded an evidence gap on 192\.0\.2\.10\/.*\(050\): \[COVERAGE GAP\] TRIBE API probe: 1 probe on port \d+ got no reply/);
+  assert.deepEqual(changeOf(d.page, METRICS_TITLE), ['not-comparable']);
+});

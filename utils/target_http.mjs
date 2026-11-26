@@ -75,7 +75,10 @@ export class TargetHttpError extends Error {
   }
 }
 
-const safeCode = (c) => (typeof c === 'string' && /^[A-Z][A-Z0-9_]{0,47}$/.test(c) ? c : 'EOTHER');
+// Exported for its own test only (VERDICT-v405 R7): Node's error codes are its own constants, so no real failure can hand
+// the waist a lowercase, spaced, over-long or non-string code; the rule that keeps any other text out of a code is pinned
+// by calling it. It is the ONLY rule between a rejection and every reader of its code (050's no-reply entries among them).
+export const safeCode = (c) => (typeof c === 'string' && /^[A-Z][A-Z0-9_]{0,47}$/.test(c) ? c : 'EOTHER');
 
 function timeoutError() {
   const e = new Error('target request timed out');

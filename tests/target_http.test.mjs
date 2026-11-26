@@ -27,6 +27,7 @@ import {
   NOT_READ_REASONS,
   DEFAULT_MAX_BODY_BYTES,
   MAX_TIMEOUT_MS,
+  safeCode,
 } from '../utils/target_http.mjs';
 import { runPinned } from '../utils/scan_pin.mjs';
 
@@ -594,4 +595,17 @@ test('C-1: no key, reason or token in any not-read outcome matches the concluder
   const reasonsSeen = new Set(notReadRows.map((o) => o.notRead.reason));
   assert.deepEqual([...reasonsSeen].sort(), [...NOT_READ_REASONS].sort(), 'every reason was produced by a leg above');
   for (const o of notReadRows) assert.ok(!CONCLUDER_RELABEL.test(JSON.stringify(o)), JSON.stringify(o).slice(0, 200));
+});
+
+// VERDICT-v405 R7: the waist's code rule is the only thing between a rejection and every reader of its code (050's no-reply
+// entries keep the code and nothing else). Node's codes are its own constants, so no real failure can carry the refused
+// shapes below; the function is exported for this test. ACCEPTS FIRST: real codes of three families come back unchanged.
+test('safeCode (accept, first): ECONNRESET, HPE_INVALID_CONSTANT and ERR_TLS_CERT_ALTNAME_INVALID come back unchanged', () => {
+  for (const c of ['ECONNRESET', 'HPE_INVALID_CONSTANT', 'ERR_TLS_CERT_ALTNAME_INVALID']) assert.equal(safeCode(c), c);
+  assert.equal(safeCode('E'.repeat(48)), 'E'.repeat(48), 'the 48-character boundary is kept');
+});
+test('safeCode: a lowercase code, a space, 49 characters, a number, undefined and markup each come back EOTHER', () => {
+  for (const c of ['econnreset', 'ECONN RESET', 'E'.repeat(49), 5, undefined, '<img>', '_ECONNRESET', 'ECONNRESET\n']) {
+    assert.equal(safeCode(c), 'EOTHER', JSON.stringify(c));
+  }
 });
