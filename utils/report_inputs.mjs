@@ -549,12 +549,24 @@ export function shapeHostFindings(host, raw, queue = []) {
     // 060 records the checks a failed DNS lookup left unmeasured in `details.notMeasured` rather than grading them. Each
     // is an EVIDENCE GAP on this host, never a finding, so the cross-run delta reads a baseline row that is absent here as
     // not comparable instead of resolved. The row states only the lookup that failed, so it is DECLARED gap-only (G-72 C1):
-    // the reports list it and leave it out of their counts. A `partial` entry (a DKIM selector lookup that failed beside a
-    // selector that answered, G-71 F-060) says the check was not FULLY measured.
+    // the reports list it and leave it out of their counts. A check whose every entry is `partial` (a DKIM selector lookup
+    // that failed beside a selector that answered, G-71 F-060) was not FULLY measured — the rule 060's reason uses.
+    // ONE row PER CHECK naming every failed lookup with its code (VERDICT-v403 R3): with the resolver down, one DKIM line
+    // per configured selector buried the other checks' gaps. A check with one entry keeps the one-lookup sentence.
+    const byCheck = new Map();
     for (const g of (Array.isArray(res.details?.notMeasured) ? res.details.notMeasured : [])) {
+      const check = String(g?.check ?? '');
+      if (!byCheck.has(check)) byCheck.set(check, []);
+      byCheck.get(check).push(g);
+    }
+    for (const [check, gs] of byCheck) {
+      const measured = gs.every((g) => g?.partial === true) ? 'not fully' : 'not';
+      const oneType = gs.every((g) => g?.rrtype === gs[0]?.rrtype);
+      const failed = gs.length === 1 ? `the ${gs[0]?.rrtype} lookup for ${gs[0]?.name} failed (${gs[0]?.code})`
+        : `${gs.length} ${oneType ? `${gs[0]?.rrtype} ` : ''}lookups failed: `
+          + gs.map((g) => `${oneType ? '' : `${g?.rrtype} `}${g?.name} (${g?.code})`).join(', ');
       push(shapeFinding(host, { severity: 'info', check: 'not_measured', details: { evidenceGap: true, gapOnly: true },
-        detail: `Evidence gap: the ${String(g?.check ?? '').toUpperCase()} check was ${g?.partial === true ? 'not fully' : 'not'} measured — the ${g?.rrtype} lookup for `
-          + `${g?.name} failed (${g?.code})` }, envId(e), e?.name ?? null));
+        detail: `Evidence gap: the ${check.toUpperCase()} check was ${measured} measured — ${failed}` }, envId(e), e?.name ?? null));
     }
     if (res.zeroTrust && typeof res.zeroTrust === 'object') {
       for (const dim of Object.values(res.zeroTrust)) {

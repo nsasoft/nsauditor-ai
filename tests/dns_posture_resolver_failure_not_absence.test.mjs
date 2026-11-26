@@ -39,12 +39,15 @@ const ZONE = 'example.test';
 const WILDCARD = `A *.${ZONE}`;
 let TABLE = {};
 const fail = (code, what) => { throw Object.assign(new Error(`query ${code} ${what}`), code ? { code } : {}); };
-/** One lookup: an array/object answers, a string is the error code it fails with, `{ message }` fails with no code. */
+/** One lookup: an array/object answers, a string is the error code it fails with, `{ message }` fails with no code (its
+ *  message prefixed `query null `), `{ raw }` fails with no code and EXACTLY that message (VERDICT-v403 R1: a message that
+ *  begins with a code-shaped token — the prefixed form cannot make one). */
 function answer(type, name) {
   const key = name.startsWith('nsauditor-wildcard-probe-') ? WILDCARD : `${type} ${name}`;
   const v = key in TABLE ? TABLE[key] : 'ENODATA';
   if (typeof v === 'string') return fail(v, key);
   if (v && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, 'message')) return fail(null, v.message);
+  if (v && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, 'raw')) throw new Error(v.raw);
   return v;
 }
 dnsP.resolve4 = async (n) => answer('A', n);
@@ -554,8 +557,9 @@ test('F-060 report --since (control, 060-n): both selectors SERVFAIL — both DK
   const d = await since060(DKIM_BASE, { ...DKIM_BASE, [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL', [`TXT default._domainkey.${ZONE}`]: 'ESERVFAIL' });
   assert.equal(d.n.resolved, 0, d.stdout);
   for (const t of [WEAK_TITLE, SHORT_TITLE]) assert.deepEqual(d.change(t), ['not-comparable'], `${t}\n${d.stdout}`);
-  // Neither entry is partial (no selector answered), so the text the hold cites says NOT measured, for either lookup.
-  assert.match(d.stdout, /Evidence gap: the DKIM check was not measured — the TXT lookup for (google|default)\._domainkey\.example\.test failed \(ESERVFAIL\)/);
+  // Neither entry is partial (no selector answered), so the text the hold cites says NOT measured. Since VERDICT-v403 R3 it
+  // is ONE row for the check, naming both lookups in selector order.
+  assert.match(d.stdout, /Evidence gap: the DKIM check was not measured — 2 TXT lookups failed: google\._domainkey\.example\.test \(ESERVFAIL\), default\._domainkey\.example\.test \(ESERVFAIL\)/);
   assert.doesNotMatch(d.stdout, /not fully measured/);
 });
 test('F-060 STATED LIMIT: the hold is the 060 gap\'s, host-wide — an SPF fix in the same run as a DKIM selector failure reads NOT COMPARABLE, never resolved', async () => {
@@ -563,4 +567,108 @@ test('F-060 STATED LIMIT: the hold is the 060 gap\'s, host-wide — an SPF fix i
     { ...DKIM_BASE, [`TXT ${ZONE}`]: [['v=spf1 -all']], [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL' });
   assert.equal(d.n.resolved, 0, d.stdout);
   assert.ok(d.n.notComparable >= 2, d.stdout);
+});
+
+// ── G-71 F-060 R1–R3 (EE Z-1, architect VERDICT-v403) ─────────────────────────────────────────────────────────────────────
+// R1: an entry's code is code-shaped or ENOCODE for EVERY check, applied where all entries pass (the sort into check
+// order): `safeResolve` falls back to an error's MESSAGE when it has no code, and the message reached the reason and the gap
+// row. The END anchor is load-bearing: a message that only BEGINS with a code-shaped token is still a message.
+// FOURTH QUADRANT FIRST: a code-shaped code — Node's own ERR_INVALID_ARG_VALUE among them — is kept as it is.
+async function runWith(table, dkimSelectors) {
+  TABLE = table;
+  const result = await dnsSec.run(ZONE, 0, { dkimSelectors });
+  return { result, notMeasured: result.details?.notMeasured ?? [] };
+}
+const gapRows = async (result) => {
+  const { shapeHostFindings } = await import('../utils/report_inputs.mjs');
+  return shapeHostFindings(ZONE, { results: [{ id: '060', name: 'DNS Security Auditor', result }] }).filter((r) => r.evidenceGap === true);
+};
+test('F-060 R1 (accept, first): a code-shaped code is kept as it is — ERR_INVALID_ARG_VALUE on DNSKEY, ESERVFAIL on SPF', async () => {
+  const { result, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ERR_INVALID_ARG_VALUE', [`DS ${ZONE}`]: 'ENODATA',
+    [`TXT ${ZONE}`]: 'ESERVFAIL' });
+  assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.code}`), ['spf:TXT:ESERVFAIL', 'dnssec:DNSKEY:ERR_INVALID_ARG_VALUE']);
+  assert.match(result.reason, /^resolver failure on SPF \(ESERVFAIL\) and DNSSEC \(ERR_INVALID_ARG_VALUE\): /);
+});
+test('F-060 R1: a codeless DKIM failure whose message BEGINS with a code-shaped token is ENOCODE — no message text anywhere in the result', async () => {
+  // The fixture's own shape: it begins with a code-shaped token and is not one, so only the END anchor refuses it.
+  assert.ok(/^E[A-Z0-9_]+/.test('ESERVFAIL zqremote reply text') && !/^E[A-Z0-9_]+$/.test('ESERVFAIL zqremote reply text'));
+  const { result, notMeasured } = await run({ ...PRESENT, [`TXT default._domainkey.${ZONE}`]: { raw: 'ESERVFAIL zqremote reply text' } });
+  assert.deepEqual(dkimEntries(notMeasured), [
+    { check: 'dkim', rrtype: 'TXT', name: `default._domainkey.${ZONE}`, code: 'ENOCODE', partial: true }]);
+  assert.ok(!JSON.stringify(result).includes('zqremote'), JSON.stringify(result.details.notMeasured));
+});
+test('F-060 R1: a codeless failure on any other check is ENOCODE too — the entry, the reason and the gap row carry no message text', async () => {
+  for (const [form, message] of [['message', 'resolver crashed zqremote'], ['raw', 'ETIMEOUT zqremote reply text']]) {
+    const { result, notMeasured } = await run({ ...PRESENT, [`CAA ${ZONE}`]: { [form]: message } });
+    assert.deepEqual(notMeasured, [{ check: 'caa', rrtype: 'CAA', name: ZONE, code: 'ENOCODE' }], message);
+    assert.ok(!result.reason.includes('zqremote'), result.reason);
+    assert.match(result.reason, /^resolver failure on CAA \(ENOCODE\): /, message);
+    const rows = await gapRows(result);
+    assert.deepEqual(rows.map((r) => r.title), ['Evidence gap: the CAA check was not measured — the CAA lookup for example.test failed (ENOCODE)'], message);
+  }
+});
+
+// R2: THE HOLD IS host|060 IN BOTH DIRECTIONS. A baseline that recorded one failed DKIM lookup beside a found selector holds
+// a row that APPEARS in a fully measured current run, as well as one that vanished: a NEW SPF exposure reads not comparable,
+// never new. This is a STATED LIMIT, pinned so a change to it is a decision: the repair is a hold keyed on the check (a
+// scan_delta.mjs rule, boarded beside 040's port-scoped hold).
+const SPF_PLUS_ALL_TITLE = 'SPF uses "+all" — permits ALL senders, completely defeats SPF purpose';
+test('F-060 STATED LIMIT (the other direction): a baseline with one failed DKIM lookup beside a found selector — a NEW SPF row in a fully measured run reads NOT COMPARABLE, held by the baseline\'s gap, never new', async () => {
+  const d = await since060({ ...DKIM_BASE, [`TXT google._domainkey.${ZONE}`]: 'ESERVFAIL' }, { ...DKIM_BASE, [`TXT ${ZONE}`]: [['v=spf1 +all']] });
+  assert.equal(d.n.new, 0, d.stdout);
+  assert.deepEqual(d.change(SPF_PLUS_ALL_TITLE), ['not-comparable'], d.stdout);
+  const held = d.stdout.split('\n').find((l) => l.includes(`NOT COMPARABLE (appeared)  ${SPF_PLUS_ALL_TITLE} — evidence-gap: `));
+  assert.ok(held, d.stdout);
+  assert.match(held, /recorded an evidence gap on .*: Evidence gap: the DKIM check was not fully measured — the TXT lookup for google\._domainkey\.example\.test failed \(ESERVFAIL\)/);
+  // The google row appears too, and its hold is the gap doing its job: the baseline could not read that selector.
+  assert.deepEqual(d.change(WEAK_TITLE), ['not-comparable'], d.stdout);
+});
+
+// R3: ONE synthesised gap row PER CHECK, naming every failed lookup with its code; `details.notMeasured` stays one entry per
+// lookup. With the resolver down and 18 selectors configured the md listed 18 DKIM lines with one cause, burying the other
+// checks' gaps, and Enterprise already writes one gap per check. A check with ONE entry keeps the one-lookup sentence byte
+// for byte (the SPF leg under "(report)" above and the red arm hold it). "Not fully" when every entry of the check is
+// partial, the rule the reason uses.
+test('F-060 R3: the resolver down with the default selectors — ONE DKIM gap row naming every failed lookup with its code; one gap row per check', async () => {
+  const dead = new Proxy({}, { has: () => true, get: () => 'ETIMEOUT' });
+  TABLE = dead;
+  const result = await dnsSec.run(ZONE, 0, {});
+  const nm = result.details.notMeasured;
+  const dk = dkimEntries(nm);
+  assert.equal(dk.length, 18, 'premise: the default selector list is 18 names and every lookup failed');
+  const rows = await gapRows(result);
+  assert.equal(rows.length, new Set(nm.map((e) => e.check)).size, rows.map((r) => r.title).join('\n'));
+  const dkimRows = rows.filter((r) => r.title.startsWith('Evidence gap: the DKIM check '));
+  const whole = `Evidence gap: the DKIM check was not measured — 18 TXT lookups failed: ${dk.map((e) => `${e.name} (ETIMEOUT)`).join(', ')}`;
+  // The md and executive listings print coverageGapText, which recovers the whole text from the row's detail; the TITLE is the
+  // row's identity and takes the shared 160-character cut, as every long title does.
+  const { coverageGapText } = await import('../utils/report_inputs.mjs');
+  const { cutAtWord } = await import('../utils/cloud_finding_summary.mjs');
+  assert.deepEqual(dkimRows.map((r) => coverageGapText(r)), [whole]);
+  assert.deepEqual(dkimRows.map((r) => r.title), [cutAtWord(whole)]);
+});
+test('F-060 R3: a partial check and a fully unmeasured check in one run — two rows, each in its own words, in check order', async () => {
+  const { result } = await runWith({ ...PRESENT, [`TXT google._domainkey.${ZONE}`]: WEAK_DKIM, [`TXT default._domainkey.${ZONE}`]: 'ETIMEOUT',
+    [`TXT s1._domainkey.${ZONE}`]: 'ESERVFAIL', [`TXT ${ZONE}`]: 'ETIMEOUT' }, 'google,default,s1');
+  assert.deepEqual((await gapRows(result)).map((r) => r.title), [
+    'Evidence gap: the SPF check was not measured — the TXT lookup for example.test failed (ETIMEOUT)',
+    'Evidence gap: the DKIM check was not fully measured — 2 TXT lookups failed: default._domainkey.example.test (ETIMEOUT), '
+      + 's1._domainkey.example.test (ESERVFAIL)']);
+  assert.equal(dkimEntries(result.details.notMeasured).length, 2, 'notMeasured stays one entry per lookup');
+});
+test('F-060 R3: lookups of different record types in one check — one row, each lookup named with its type', async () => {
+  const { result } = await run({ ...PRESENT, [`A ns1.${ZONE}`]: 'ETIMEOUT', [`A ns2.${ZONE}`]: 'ENODATA', [`AAAA ns2.${ZONE}`]: 'ESERVFAIL' });
+  assert.deepEqual((await gapRows(result)).map((r) => r.title),
+    ['Evidence gap: the NS check was not measured — 2 lookups failed: A ns1.example.test (ETIMEOUT), AAAA ns2.example.test (ESERVFAIL)']);
+});
+// The loader reads `details.notMeasured` on ANY result, so its rule is pinned on a hand-built list: 060 never mixes the flag
+// within a check today (`partial` is set from one per-run fact), which is why no producer-driven leg can tell "every" from
+// "some". A check with one full entry beside a partial one reads "not measured", as 060's reason does.
+test('F-060 R3: "not fully" only when EVERY entry of the check is partial — a partial entry beside a full one reads "not measured"', async () => {
+  const nm = [{ check: 'dkim', rrtype: 'TXT', name: `a._domainkey.${ZONE}`, code: 'ETIMEOUT', partial: true },
+    { check: 'dkim', rrtype: 'TXT', name: `b._domainkey.${ZONE}`, code: 'ESERVFAIL' }];
+  assert.deepEqual((await gapRows({ details: { notMeasured: nm } })).map((r) => r.title),
+    ['Evidence gap: the DKIM check was not measured — 2 TXT lookups failed: a._domainkey.example.test (ETIMEOUT), b._domainkey.example.test (ESERVFAIL)']);
+  assert.deepEqual((await gapRows({ details: { notMeasured: nm.map((e) => ({ ...e, partial: true })) } })).map((r) => r.title),
+    ['Evidence gap: the DKIM check was not fully measured — 2 TXT lookups failed: a._domainkey.example.test (ETIMEOUT), b._domainkey.example.test (ESERVFAIL)']);
 });

@@ -83,6 +83,12 @@ const ABSENCE_CODES = new Set(["ENODATA", "ENOTFOUND"]);
 const isAbsence = (error) => ABSENCE_CODES.has(error);
 const failedToMeasure = (error) => Boolean(error) && !isAbsence(error);
 
+// A not-measured entry carries an error CODE only (G-71 F-060; for every check since VERDICT-v403 R1). `safeResolve` falls
+// back to the error's MESSAGE when it has no code, and the entry reaches the reason and a gap row that the md report (and
+// MCP scan_host) prints, so anything not code-shaped — a message that only BEGINS with one included — is ENOCODE. Applied
+// to every entry at the sort below, the one place they all pass.
+const codeOnly = (error) => (typeof error === "string" && /^E[A-Z0-9_]+$/.test(error) ? error : "ENOCODE");
+
 // The checks in the order the result lists them, and their names in the reason a not-measured run carries.
 const CHECK_LABELS = [
   ["cname", "CNAME"], ["spf", "SPF"], ["dmarc", "DMARC"], ["dkim", "DKIM"], ["ns", "NS"],
@@ -504,11 +510,6 @@ async function analyzeDMARC(host, notMeasured) {
 
 // ── Module 5: DKIM Discovery ─────────────────────────────────────────────────
 
-// G-71 F-060 (EE Z-1, architect RULINGS-v402): a DKIM not-measured entry carries an error CODE only. `safeResolve` falls
-// back to the error's MESSAGE when it has no code, and the entry reaches a gap row that the md report (and MCP scan_host)
-// prints, so anything not code-shaped is recorded as ENOCODE.
-const codeOnly = (error) => (typeof error === "string" && /^E[A-Z0-9_]+$/.test(error) ? error : "ENOCODE");
-
 async function discoverDKIM(host, selectors, notMeasured) {
   const issues = [];
   const found = [];
@@ -517,7 +518,7 @@ async function discoverDKIM(host, selectors, notMeasured) {
   for (const selector of selectors) {
     const name = `${selector}._domainkey.${host}`;
     const { records, error } = await resolveTxtFlat(name);
-    if (failedToMeasure(error)) failures.push({ name, code: codeOnly(error) });
+    if (failedToMeasure(error)) failures.push({ name, code: error });
     if (records.length === 0) continue;
 
     const record = records.join("");
@@ -1128,6 +1129,7 @@ export default {
     const axfr = await checkZoneTransfer(host, nsCheck.nameservers, config, notMeasured);
     const checkOrder = new Map(CHECK_LABELS.map(([check], i) => [check, i]));
     notMeasured.sort((x, y) => checkOrder.get(x.check) - checkOrder.get(y.check));
+    for (const e of notMeasured) e.code = codeOnly(e.code);
     const ran = new Set(CHECK_LABELS.map(([check]) => check).filter((check) => check !== "axfr" || config.checkAxfr));
 
     // Aggregate all issues
