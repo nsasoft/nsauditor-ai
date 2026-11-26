@@ -672,3 +672,51 @@ test('F-060 R3: "not fully" only when EVERY entry of the check is partial — a 
   assert.deepEqual((await gapRows({ details: { notMeasured: nm.map((e) => ({ ...e, partial: true })) } })).map((r) => r.title),
     ['Evidence gap: the DKIM check was not fully measured — 2 TXT lookups failed: a._domainkey.example.test (ETIMEOUT), b._domainkey.example.test (ESERVFAIL)']);
 });
+
+// R4 (VERDICT-v404): codeOnly's START anchor is load-bearing too. A codeless error whose message ENDS with a code-shaped run
+// ("lookup failed: ESERVFAIL", "resolver said TIMEOUT" — whose tail "EOUT" is one) is still a message: the entry, the
+// reason and the gap row read ENOCODE and carry none of its text. The architect's mutant B2 (the start anchor dropped)
+// survived every leg before this one.
+test('F-060 R4: a codeless failure whose message ENDS with a code-shaped run is ENOCODE — the entry, the reason and the gap row', async () => {
+  for (const message of ['lookup failed: ESERVFAIL', 'resolver said TIMEOUT']) {
+    // The fixture's own shape: a code-shaped run at its END and not one whole, so only the START anchor refuses it.
+    assert.ok(/E[A-Z0-9_]+$/.test(message) && !/^E[A-Z0-9_]+$/.test(message), message);
+    const { result, notMeasured } = await run({ ...PRESENT, [`CAA ${ZONE}`]: { raw: message } });
+    assert.deepEqual(notMeasured, [{ check: 'caa', rrtype: 'CAA', name: ZONE, code: 'ENOCODE' }], message);
+    assert.match(result.reason, /^resolver failure on CAA \(ENOCODE\): /, message);
+    const rows = await gapRows(result);
+    assert.deepEqual(rows.map((r) => r.title), ['Evidence gap: the CAA check was not measured — the CAA lookup for example.test failed (ENOCODE)'], message);
+    // The whole message and its code-shaped tail reach nothing ("lookup", "failed" and "resolver" are the product's own words).
+    for (const w of [message, message.split(' ').at(-1)]) assert.ok(!JSON.stringify({ result, rows }).includes(w), `"${w}" reached the result or a row`);
+  }
+});
+
+// R3's whole text on a WRITTEN artifact (VERDICT-v404 §3): the executive page's coverage-gap listing prints coverageGapText,
+// escaped. The row is written by the real scan path and the page by the real `report`; the test writes neither.
+test('F-060 R3 (artifact): the written executive page lists the 18-name DKIM line whole', async () => {
+  const { runReport } = await import('../cli.mjs');
+  const { resolveCapabilities } = await import('../utils/capabilities.mjs');
+  const { newRunId, writeRunStart, finalizeRunRecord } = await import('../utils/run_record.mjs');
+  const { sealRunRecord } = await import('../utils/run_chain.mjs');
+  const { escapeHtml } = await import('../utils/brand.mjs');
+  TABLE = new Proxy({}, { has: () => true, get: () => 'ETIMEOUT' });
+  const result = await dnsSec.run(ZONE, 0, {});
+  const dk = dkimEntries(result.details.notMeasured);
+  assert.equal(dk.length, 18, 'premise: the default selector list is 18 names and every lookup failed');
+  const whole = `Evidence gap: the DKIM check was not measured — 18 TXT lookups failed: ${dk.map((e) => `${e.name} (ETIMEOUT)`).join(', ')}`;
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-dkim-exec-'));
+  const runId = newRunId();
+  const at = '2026-09-01T10:00:00.000Z';
+  await writeRunStart(outRoot, { runId, startedAt: at, hostsRequested: [SINCE_HOST_060], pluginsRequested: ['060'], portsRequested: '',
+    tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
+  await scanWritten060(outRoot, result, runId);
+  await finalizeRunRecord(outRoot, runId, { finishedAt: at });
+  await sealRunRecord(outRoot, runId);
+  const out = path.join(outRoot, 'exec.html');
+  const rep = await runReport({ from: outRoot, format: 'executive', run: runId, out }, resolveCapabilities('pro'));
+  assert.equal(rep.code, 0, rep.stderr);
+  const page = fs.readFileSync(out, 'utf8');
+  const cells = (page.match(/<tr data-coverage-gap="true">[\s\S]*?<\/tr>/g) ?? [])
+    .map((tr) => (tr.match(/<td>([\s\S]*?)<\/td>/g) ?? []).at(-1)?.replace(/^<td>|<\/td>$/g, ''));
+  assert.equal(cells.filter((c) => c === escapeHtml(whole)).length, 1, cells.join('\n'));
+});
