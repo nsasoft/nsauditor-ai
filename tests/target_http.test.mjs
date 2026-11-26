@@ -15,6 +15,9 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import zlib from 'node:zlib';
 import fs from 'node:fs';
+import os from 'node:os';
+import tls from 'node:tls';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -250,6 +253,42 @@ test('accept (pin): unpinned, `localhost` reaches the loopback receiver; pinned 
     );
     assert.equal(s.state.connections, before, 'pinned to 203.0.113.10, no connection reached the loopback receiver');
   } finally { await s.close(); }
+});
+
+test('pin (C-3): a name that does not resolve reaches nothing unpinned; pinned, it reaches the checked address with the name as Host', { timeout: 10000 }, async () => {
+  const s = await rawServer(replyOnce(200, [], 'ok'));
+  const NAME = 'z1-pin-host.test';   // RFC 6761: .test never resolves
+  try {
+    const unpinned = await requestTarget(`http://${NAME}:${s.port}/`, { timeoutMs: 3000 }).then(() => null, (e) => e);
+    assert.ok(unpinned, 'fourth quadrant: unpinned, the name does not resolve');
+    assert.equal(s.state.connections, 0);
+    const out = await runPinned({ [NAME]: [{ address: '127.0.0.1', family: 4 }] }, () => requestTarget(`http://${NAME}:${s.port}/`, { timeoutMs: 3000 }));
+    assert.equal(out.status, 200, 'pinned: the request reached the checked address');
+    assert.equal(s.state.requests[0].headers.host, `${NAME}:${s.port}`, 'the name rides as the Host header');
+  } finally { await s.close(); }
+});
+
+test('pin (C-3): over TLS the pinned name is the SNI, and certificate verification stays on (no caller can turn it off)', { timeout: 10000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-z1-'));
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(dir, 'key.pem'),
+    '-out', path.join(dir, 'cert.pem'), '-days', '1', '-subj', '/CN=z1-pin-sni.test'], { stdio: 'ignore', env: { PATH: process.env.PATH } });
+  const ctx = tls.createSecureContext({ key: fs.readFileSync(path.join(dir, 'key.pem')), cert: fs.readFileSync(path.join(dir, 'cert.pem')) });
+  const sni = [];
+  let handshakes = 0;
+  const srv = tls.createServer({ SNICallback: (name, cb) => { sni.push(name); cb(null, ctx); } }, (sock) => { handshakes++; sock.destroy(); });
+  srv.on('tlsClientError', () => {});
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const NAME = 'z1-pin-sni.test';
+  try {
+    const err = await runPinned({ [NAME]: [{ address: '127.0.0.1', family: 4 }] },
+      () => requestTarget(`https://${NAME}:${port}/`, { timeoutMs: 3000 })).then(() => null, (e) => e);
+    assert.deepEqual(sni, [NAME], 'the pinned connect carried the name as SNI');
+    assert.ok(err, 'a self-signed certificate is refused: verification is on');
+    assert.equal(err.name, 'TargetHttpError');
+    assert.match(err.code, /SELF_SIGNED|UNABLE_TO_VERIFY|CERT/, `a certificate error code (${err.code})`);
+    assert.ok(!String(err.message).includes(NAME), 'the error message quotes no certificate name');
+  } finally { await new Promise((r) => srv.close(r)); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 // ══ NOT-READ LEGS (C-1 / C-2) ═══════════════════════════════════════════════════════════════════════════════════════
