@@ -72,9 +72,12 @@ const THIRD_PARTY = {
 // first and ate live code in 13 of the 94 shipped files — non-whitespace characters missing against the comment ranges of
 // Node's bundled acorn; 180 lines of http_probe, 517 of mcp_server — so every leg here was blind there. 12 of the 13 then
 // failed node --check; the 13th, utils/raw_report_html.mjs, lost 23 characters and still parsed (the W-1 fold, architect
-// v385; re-derived under v386). A block comment keeps its newlines. Regular-expression literals are not parsed: the stated
-// limit in W-1's header, whose live occupants (w1-k) holds by equality in STRIPPED_OPENERS.
-const COMMENT_OR_STRING = /(?<!\\)\/\*[\s\S]*?\*\/|(?<![:\\])\/\/[^\n]*|'(?:\\[\s\S]|[^'\\\n])*'|"(?:\\[\s\S]|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`/g;
+// v385; re-derived under v386). A block comment keeps its newlines. A regular-expression literal is read only after one of
+// `= ( , : ; ! & | ? { [`, where a `/` cannot be a division (v387 R-7): there it is kept as code, so a `/*`, quote or
+// backtick inside it opens nothing. Measured against the comment ranges of Node's bundled acorn: identical on 94 of the 94
+// shipped files (it was 91 without the branch). Elsewhere — after `return`, `=>` or `)`, or at a line start — a regex is
+// read as text: the stated limit in W-1's header, which (w1-k) watches.
+const COMMENT_OR_STRING = /(?<!\\)\/\*[\s\S]*?\*\/|(?<![:\\])\/\/[^\n]*|(?<=[=(,:;!&|?{\[][ \t]*)\/(?![*\/])(?:\\[^\n]|\[(?:\\[^\n]|[^\]\\\n])*\]|[^\/\\\n\[])+\/[a-z]*|'(?:\\[\s\S]|[^'\\\n])*'|"(?:\\[\s\S]|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`/g;
 const stripComments = (src) => src.replace(COMMENT_OR_STRING, (m) => (m.startsWith('/*') ? m.replace(/[^\n]/g, '') : m.startsWith('//') ? '' : m));
 const importOf = (mod) => new RegExp(String.raw`(?:from|import\(|require\()\s*['"\`](?:node:)?${mod}['"\`]`);
 const CHILD_PROCESS = importOf('child_process');
@@ -320,19 +323,25 @@ test('(c7) only utils/scan_pin.mjs converts a host name to its ASCII form — ev
 // request call through a name the count cannot bind (a method held in a variable, Reflect.apply, a request function
 // passed in) moves no count — for an http, https or http2 importer the whole-word counts of `request`, `get` and
 // `ClientRequest` (comments and strings included) then catch a site written with one of those words, and one written
-// with none moves nothing; imports it cannot see: a computed or concatenated specifier (`import(name)`,
+// with none moves nothing; imports it cannot see (each of v387's five pinned in (w1-o)): a loader that is one arm of a
+// conditional or logical expression (`c ? require : x`, `a ?? createRequire(u)`, `a || require`), a loader reached through a
+// computed member (`process['getBuiltinModule']`), a parenthesised or comma-expression callee (`(0, require)('net')`), a
+// computed or concatenated specifier (`import(name)`,
 // `require('node:' + m)`), a loader passed through a parameter or an object property (`deps.load('net')`), a loader
 // invoked through `.call`, `.apply` or Reflect.apply, a specifier pre-bound by `.bind(thisArg, 'net')` (the bound name
 // IS a loader; its call carries no specifier), `module.constructor._load`, `process.binding`; the shipped set is read from
 // package.json `files` without .npmignore, which can only REMOVE a file (an over-declared row: noise, not silence).
-// stripComments does not parse regular-expression literals: a quote or a backtick inside one flips its string parity.
-// Today that KEEPS comments as code in three shipped files — utils/executive_report.mjs, utils/jira_export.mjs and
-// utils/report_md.mjs (against Node's bundled acorn at CE ec17d92: 145, 42 and 27 lines kept, 0 lines of code eaten) —
-// the noise direction. The silence direction is one edit away: after a parity flip a real template's text is read as
-// code, and a `/*` inside it eats to the next `*/`. (w1-k) holds by equality the set of shipped files whose stripped text
-// still has a line beginning with a comment opener. A parse oracle (each shipped file, stripped, through node --check:
-// 94 of 94 parse; the replaced two-regex form left 12 unparseable) sees code EATEN, never a comment KEPT — a kept comment
-// parses.
+// stripComments reads a regular-expression literal only after `= ( , : ; ! & | ? { [`; one after `return`, `=>` or `)`, or
+// at a line start, is read as text, and a quote or backtick inside it flips the string parity. That KEEPS the comments
+// after it as code (the noise direction), and the silence direction is one edit further: after a flip a real template's
+// text is read as code, and a `/*` inside it eats to the next `*/`. Today no shipped file is affected — identical to
+// Node's bundled acorn on 94 of 94; the three files a regex used to affect (executive_report, jira_export, report_md) are
+// read correctly by the branch. (w1-k) holds by equality the shipped files whose stripped text still has a line beginning
+// with a comment opener, AND each one's count of such lines (two today, both `//` lines inside template literals — strings,
+// correctly kept). A parse oracle (each shipped file, stripped, through node --check: 94 of 94 parse; the replaced
+// two-regex form left 12 unparseable) sees code EATEN, never a comment KEPT — a kept comment parses. A `net` binding beyond
+// isIP is held by a zero-count witness on each row that says so (v387 R-8; limit: a destructured member). An HTTP/1.x
+// request line written by hand is held by (w1-h) (v387 R-9; limits: a request line assembled from pieces, HTTP/2).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const NET_SPEC = String.raw`(?<q>['"\`])(?:node:)?(?<mod>http2|https|http|net|tls|dgram)\k<q>`;
@@ -438,6 +447,12 @@ test('(w1-s, first) stripComments removes comments and nothing else — a `/*` o
   assert.match(stripComments('u = "http://x//y"; run("ping");'), /"http:\/\/x\/\/y"; run\("ping"\)/, 'a // inside a string is not a comment');
   assert.match(stripComments('t = `a // b /* c`; go();'), /`a \/\/ b \/\* c`; go\(\)/, 'a template literal');
   assert.match(stripComments('const re = /a\\/*b/; keep();'), /keep\(\)/, 'an escaped slash before * opens no block');
+  // A regular-expression literal after `= ( , : ; ! & | ? { [` (where a `/` cannot be a division) is read as code (v387 R-7):
+  // a `/*` in its class opens no block, and a quote or backtick in it flips no string parity.
+  const kept = stripComments("x = /[/*]/; y();\nw(); /* end */ z();");
+  assert.match(kept, /y\(\);\nw\(\);/, 'a /* inside a regex class opens no block'); assert.doesNotMatch(kept, /end/, 'the real comment after it still goes');
+  assert.equal(stripComments("ok = s.match(/[`'\"]/); // gone\nt = `a`;"), "ok = s.match(/[`'\"]/); \nt = `a`;", 'a quote or backtick in a regex flips nothing');
+  assert.equal(stripComments('a = b / c; // d\ne = f / g; h();'), 'a = b / c; \ne = f / g; h();', 'a division is not a regex');
   // The veto: real comments go, and a block comment keeps its newlines so line structure survives.
   assert.equal(stripComments('a(); // agent: false\nb(); /* lookup:\n x */ c();'), 'a(); \nb(); \n c();');
   assert.equal(stripComments('x(); // see https://example.test/a\ny();'), 'x(); \ny();', 'a URL inside a line comment goes with it');
@@ -487,7 +502,16 @@ test('(w1-o, first) a loader called optionally (`?.(`) or bound (`.bind(`) is a 
   // The veto.
   assert.deepEqual(netModulesIn("const v = require.resolve.bind(null); v('net'); const n = x.getBuiltinModuleNames.bind(o); n('tls'); maybe?.('dgram')"), [],
     'a bound require.resolve, a bound longer method name, an optional call of a non-loader');
-  assert.deepEqual(netModulesIn("const pick = flag ? require : other; pick('net')"), [], 'a ternary on a loader is not an assignment of it');
+  // INVISIBLE — stated limits, pinned so that a fix flips them (v387 L1–L5; no shipped CE file uses these spellings today).
+  // If one goes red the limit closed: update the header's "imports it cannot see" and this list.
+  const INVISIBLE = [
+    ["const l = typeof _require === 'function' ? _require : null; l('node:net')", 'L1: a loader as an arm of a conditional'],
+    ["const l = globalThis.require ?? createRequire(import.meta.url); l('node:tls')", 'L2: a loader as an arm of ??'],
+    ["process['getBuiltinModule']('node:net')", 'L3: a loader reached through a computed member'],
+    ["(0, _require)('node:dgram')", 'L4: a comma-expression callee'],
+    ["const l = globalThis.x || _require; l('node:http').request({ host })", 'L5: a loader as an arm of ||'],
+  ];
+  for (const [src, why] of INVISIBLE) assert.deepEqual(netModulesIn(src), [], `${why} — INVISIBLE, a stated limit`);
 });
 
 test('(w1-w, first) the request WORDS of an http importer — whole-word `request`, `get` and `ClientRequest`, comments and strings included — architect v386 G, H, I', () => {
@@ -531,9 +555,14 @@ const RESOLVES = 'absent — a host NAME resolves through node:dns lookup at con
 const NET_CC = 'net.createConnection — the TCP connect FUNCTION, not the http.request option';
 const GLOBAL_HTTP = 'absent = global pool — `agent: undefined` reaches http.globalAgent, keep-alive on (measured on Node 24.22.3, the engines floor)';
 const PER_REQUEST_HTTPS = 'custom, keep-alive off — a new https.Agent per request (rejectUnauthorized: !allowInsecure), whose default keepAlive is false';
+// v387 R-8: a row saying `net` serves only isIP (and BlockList) holds it by a ZERO-count witness over its code — any other
+// member of a `net` binding is red. Limit, stated: a destructured member (`const { connect } = net`, `import { connect }`).
+const NET_BEYOND_ISIP = /(?<![\w$.])net\s*\.\s*(?!isIP(?:v4|v6)?\b)[\w$]+/g;
+const NET_BEYOND_ISIP_AND_BLOCKLIST = /(?<![\w$.])net\s*\.\s*(?!isIP(?:v4|v6)?\b|BlockList\b)[\w$]+/g;
 const NET_IMPORTERS = {
   'plugins/040_tls_cert_auditor.mjs': { modules: ['net', 'tls'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'tls.connect to the target for its certificate chain; net only for isIP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_BEYOND_ISIP, 0]],
+    why: 'tls.connect to the target for its certificate chain; net only for isIP (a named import, so its witness holds only a namespace use)' },
   'plugins/060_dns_sec_auditor.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET,
     lookup: 'absent — every `lookup` token is prose; it speaks the DNS protocol (resolve*), and its zone transfer connects to an ADDRESS from resolve4, outside the pin (declared in DECLARED above)',
     createConnection: `${NET_CC} — the opt-in zone transfer to a nameserver address`,
@@ -550,7 +579,7 @@ const NET_IMPORTERS = {
     agent: { http: `${GLOBAL_HTTP}; G-18, unchanged here`, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose); its curl leg is pinned through --resolve',
     createConnection: 'absent', tokens: { lookup: 1, agent: 5, createConnection: 0, Agent: 4, globalAgent: 0, keepAlive: 0 }, calls: { request: 2, get: 0 }, words: { request: 2, get: 1, ClientRequest: 0 },
-    witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 2]],
+    witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 2], [NET_BEYOND_ISIP, 0]],
     why: 'the target\'s HTTP banner and headers over node:http(s), decoding nothing (G-18); net only for isIP' },
   'plugins/llmnr_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
     lookup: 'absent — it sends to the LLMNR multicast group 224.0.0.252, an address: nothing resolves', createConnection: 'absent',
@@ -561,8 +590,10 @@ const NET_IMPORTERS = {
     witness: [[/const agent = isHttps \? new https\.Agent\(\{ rejectUnauthorized: !allowInsecure \}\) : undefined;/g, 1],
       [/mod\.request\(\{ host, port, method, path, headers: reqHeaders, agent \}/g, 1]],
     why: 'MCP endpoints on the target over node:http(s), decoding nothing — the same shape as http_probe (G-19)' },
-  'plugins/mdns_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — one probe of port 7547 on the answering device`,
-    tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'mDNS discovery through its third-party packages, plus one TCP probe' },
+  'plugins/mdns_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES,
+    createConnection: `${NET_CC} — probeTr069: port 7547 on the answering device, a hand-written GET / HTTP/1.1 with Connection: close; it reads the Server: header and 512 characters of the reply into the scan record`,
+    tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 },
+    why: 'mDNS discovery through its third-party packages, plus one TCP probe that SPEAKS HTTP/1.1 — a scanned-host HTTP reader with no http import, not on the waist (G-22)' },
   'plugins/netbios_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — SMB on 445 and one more TCP probe`,
     tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'NetBIOS name queries over UDP, an mDNS query to 224.0.0.251, and TCP probes of the target' },
   'plugins/opensearch_scanner.mjs': { modules: ['https'],
@@ -586,10 +617,12 @@ const NET_IMPORTERS = {
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'WS-Discovery multicast on the local link' },
   'utils/net_validation.mjs': { modules: ['net'], agent: RAW_SOCKET,
     lookup: 'its own dns.lookup(all, verbatim) — the CHECK whose answers the scan is pinned to', createConnection: 'absent',
-    tokens: { lookup: 10, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'net only for isIP and BlockList; it opens no socket' },
+    tokens: { lookup: 10, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_BEYOND_ISIP_AND_BLOCKLIST, 0]],
+    why: 'net only for isIP and BlockList; it opens no socket' },
   'utils/scan_pin.mjs': { modules: ['net'], agent: RAW_SOCKET,
     lookup: 'it IS the pin: it replaces node:dns lookup and dns/promises lookup inside a scan', createConnection: 'absent',
-    tokens: { lookup: 20, agent: 1, createConnection: 0, Agent: 1, globalAgent: 0, keepAlive: 0 }, why: 'net only for isIP; it opens no socket (its one `agent` token is prose)' },
+    tokens: { lookup: 20, agent: 1, createConnection: 0, Agent: 1, globalAgent: 0, keepAlive: 0 }, witness: [[NET_BEYOND_ISIP, 0]],
+    why: 'net only for isIP; it opens no socket (its one `agent` token is prose)' },
   'utils/target_http.mjs': { modules: ['http', 'https'], agent: 'false — one connection per request, never pooled',
     lookup: 'absent — node:dns lookup, which the pin patches inside a scan (its two `lookup` tokens are prose)', createConnection: 'absent',
     tokens: { lookup: 2, agent: 6, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 }, words: { request: 10, get: 0, ClientRequest: 0 },
@@ -600,7 +633,7 @@ const NET_IMPORTERS = {
     lookup: 'custom — pinnedLookup(target) answers the address its own SSRF check resolved (not the scan pin); in production a null target is refused before any request, so the lookup is absent only under the _setWebhookSafeChecker test seam',
     createConnection: 'absent', tokens: { lookup: 3, agent: 4, createConnection: 0, Agent: 1, globalAgent: 1, keepAlive: 1 }, calls: { request: 1, get: 0 }, words: { request: 8, get: 0, ClientRequest: 0 },
     witness: [[/\.\.\.\(target \? \{ lookup: pinnedLookup\(target\) \} : \{\}\)/g, 1],
-      [/agent: new transport\.Agent\(\{ \.\.\.transport\.globalAgent\.options, keepAlive: false \}\)/g, 1]],
+      [/agent: new transport\.Agent\(\{ \.\.\.transport\.globalAgent\.options, keepAlive: false \}\)/g, 1], [NET_BEYOND_ISIP, 0]],
     why: 'the operator\'s webhook delivery — never a scanned host; net only for isIP' },
 };
 const AGENT_GRAMMAR = /^(?:false|absent = global pool|custom, keep-alive (?:on|off)|n\/a)(?: —|$)/;
@@ -644,7 +677,11 @@ test('(w1-c) every row states agent, lookup, createConnection and a reason; a ro
       `${rel}: agent ${JSON.stringify(row.agent)} is not false | absent = global pool | custom, keep-alive on/off | n/a`);
     for (const k of ['lookup', 'createConnection', 'why']) assert.ok(typeof row[k] === 'string' && row[k].length > 0, `${rel}: the row states no ${k}`);
     const rawSocketOnly = agents.every((a) => a.startsWith('n/a'));
-    assert.equal(Array.isArray(row.witness) && row.witness.length > 0, !rawSocketOnly, `${rel}: a row with an HTTP agent carries a witness; a raw-socket row carries none`);
+    const positive = (row.witness ?? []).filter(([, n]) => n > 0);
+    assert.equal(positive.length > 0, !rawSocketOnly, `${rel}: a row with an HTTP agent carries a witness of its option site; a raw-socket row carries only zero-count witnesses`);
+    if (/net only for isIP/.test(row.why)) {
+      assert.ok((row.witness ?? []).some(([re, n]) => n === 0 && (re === NET_BEYOND_ISIP || re === NET_BEYOND_ISIP_AND_BLOCKLIST)), `${rel}: the row says net serves only isIP and carries no zero-count witness holding it`);
+    }
     const code = stripComments(found[rel]?.raw ?? '');
     for (const [re, n] of row.witness ?? []) {
       const hits = (code.match(re) ?? []).length;
@@ -681,34 +718,51 @@ test('(w1-e) the shipped walk reads package.json `files` RECURSIVELY, files and 
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
+/** v387 R-9 (G-22): every shipped file whose RAW text writes an HTTP/1.x request line by hand — a raw-socket HTTP reader has
+ * no http import, so the importer rows above cannot name it as one. */
+const RAW_HTTP_LINE = /HTTP\/1\.[01]/;
+const HAND_WRITTEN_HTTP = {
+  'plugins/mdns_scanner.mjs': 'probeTr069 — GET / HTTP/1.1 to port 7547 over net.createConnection; a scanned-host HTTP reader NOT on the waist (G-22)',
+};
+test('(w1-h) the shipped files that write an HTTP/1.x request line by hand are DECLARED, by equality — v387 G-22', () => {
+  // FOURTH QUADRANT FIRST — what the line test reads, and what it does not.
+  for (const t of ['GET / HTTP/1.1\r\n', "'HEAD / HTTP/1.0'", '`${m} ${p} HTTP/1.1`']) assert.match(t, RAW_HTTP_LINE, `a request line: ${t}`);
+  for (const t of ['HTTP/2', 'HTTPS/1.1', 'http/1.1', 'HTTP/1.2']) assert.doesNotMatch(t, RAW_HTTP_LINE, `not one: ${t}`);
+  // Stated limits: a request line assembled from pieces ('HTTP/' + v), and HTTP/2, move nothing.
+  const found = shippedSources().filter(({ raw }) => RAW_HTTP_LINE.test(raw)).map(({ rel }) => rel).sort();
+  assert.deepEqual(found, Object.keys(HAND_WRITTEN_HTTP).sort(), 'a shipped file writes an HTTP/1.x request line by hand (or a declared one stopped) — it reads a scanned host outside the waist; declare it and name it among the readers');
+  for (const rel of found) assert.match(NET_IMPORTERS[rel]?.why ?? '', /HTTP\/1\.1|not on the waist/, `${rel}: its importer row does not say it speaks HTTP`);
+});
+
 /**
  * The stripper's blind spot, declared: every shipped file in which a line of stripComments' output still BEGINS with a
- * comment opener. Two kinds today. KEPT: a regular-expression literal holding a quote or a backtick flips the stripper's
- * string parity, so the comments after it are read as code (measured against Node's bundled acorn at CE ec17d92: 0 lines of
- * code eaten, 145 + 42 + 27 lines of comment kept). IN A STRING: a `//` line of browser script inside a template literal,
- * which the stripper keeps correctly.
+ * comment opener, with the COUNT of such lines (v387 R-7: membership alone sees nothing more inside a member). Today both
+ * are IN A STRING — a `//` line of browser script inside a template literal, which the stripper keeps correctly. The three
+ * files whose comments a regex literal used to keep as code (executive_report, jira_export, report_md) closed when the
+ * stripper gained its regex-literal branch; a comment KEPT after a regex the branch does not read would land here.
  */
-const KEPT = 'comment KEPT as code — a regular-expression literal holding a quote or a backtick flips the stripper\'s string parity';
 const IN_A_STRING = 'a STRING, correctly kept — a `//` line of browser script inside a template literal';
 const STRIPPED_OPENERS = {
-  'utils/executive_report.mjs': `${KEPT}: the backtick in ATTR_RE`,
-  'utils/jira_export.mjs': `${KEPT}: the double quote in the CSV-escape test /[",\\n\\r]/`,
-  'utils/report_md.mjs': `${KEPT}: the backtick in MD_ACTIVE`,
-  'utils/raw_report_html.mjs': IN_A_STRING,
-  'utils/report_html.mjs': IN_A_STRING,
+  'utils/raw_report_html.mjs': { kind: IN_A_STRING, lines: 1 },
+  'utils/report_html.mjs': { kind: IN_A_STRING, lines: 2 },
 };
 const OPENER_LINE = /^[ \t]*(?:\/\/|\/\*|\*(?:[ \t/]|$))/m;
 
 test('(w1-k) the stripper\'s blind spot by equality: the shipped files in which a stripped line still begins with a comment opener', () => {
   // FOURTH QUADRANT FIRST — the limit is real and the line test reads what it names.
-  assert.match(stripComments('const re = /[`]/;\n// kept\nconst t = `x`;'), /\/\/ kept/, 'the stated limit, pinned: a backtick in a regex literal keeps the comment after it — if this goes red the limit closed; update the header and STRIPPED_OPENERS');
+  assert.match(stripComments('function f(s) { return /[`]/.test(s); }\n// kept\nconst t = `x`;'), /\/\/ kept/, 'the stated limit, pinned: a regex after `return` is not read, and its backtick keeps the comment after it — if this goes red the limit closed; update the header');
   for (const line of ['  // a', '\t/* b', ' * c', ' */', ' *']) assert.match(line, OPENER_LINE, `an opener line: ${JSON.stringify(line)}`);
   for (const line of ['a * b', '  *ptr', 'x(); // y', "s = '// z'"]) assert.doesNotMatch(line, OPENER_LINE, `not an opener line: ${JSON.stringify(line)}`);
   // The corpus, by equality: a new file fails (read it against a real parser, then declare it), and so does a fixed one.
-  const found = shippedSources().filter(({ raw }) => OPENER_LINE.test(stripComments(raw))).map(({ rel }) => rel).sort();
+  const openerLines = (raw) => stripComments(raw).split('\n').filter((l) => OPENER_LINE.test(l)).length;
+  const counted = Object.fromEntries(shippedSources().map(({ rel, raw }) => [rel, openerLines(raw)]).filter(([, n]) => n > 0));
+  const found = Object.keys(counted).sort();
   assert.deepEqual(found, Object.keys(STRIPPED_OPENERS).sort(),
     'the set of shipped files whose stripped text still has a line beginning with a comment opener moved — read each against a real parser, then re-declare STRIPPED_OPENERS');
-  for (const [rel, why] of Object.entries(STRIPPED_OPENERS)) assert.ok(why === IN_A_STRING || why.startsWith(KEPT), `${rel}: the declaration states neither kind`);
+  for (const [rel, row] of Object.entries(STRIPPED_OPENERS)) {
+    assert.equal(row.kind, IN_A_STRING, `${rel}: the declaration states no kind`);
+    assert.equal(counted[rel], row.lines, `${rel}: ${counted[rel]} stripped lines begin with a comment opener, declared ${row.lines} — a comment may be kept as code; read it against a real parser`);
+  }
 });
 
 test('(w1-f) node-upnp-utils pools in http.globalAgent itself — its row states it, and the INSTALLED version and request lines are pinned', () => {
