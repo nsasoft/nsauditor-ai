@@ -26,6 +26,7 @@ import {
   FORBIDDEN_METHODS,
   NOT_READ_REASONS,
   DEFAULT_MAX_BODY_BYTES,
+  MAX_TIMEOUT_MS,
 } from '../utils/target_http.mjs';
 import { runPinned } from '../utils/scan_pin.mjs';
 
@@ -219,6 +220,48 @@ test('accept: header names that shadow Object.prototype members are own string v
     assert.equal(Object.getPrototypeOf(out.headers), Object.prototype, 'the prototype is untouched');
     assert.equal({}.p1, undefined);
   } finally { await s.close(); }
+});
+
+test('accept (R-4): per allowed method, the server receives through the waist what it receives through fetch, except accept-encoding, connection and user-agent', async () => {
+  const OWNED = new Set(['accept-encoding', 'connection', 'user-agent']);
+  for (const method of ALLOWED_METHODS) {
+    const s = await rawServer(replyOnce(200, [], 'ok'));
+    try {
+      await (await fetch(s.base + '/p', { method })).arrayBuffer();
+      await requestTarget(s.base + '/p', { timeoutMs: 2000, method });
+      const [viaFetch, viaWaist] = s.state.requests;
+      const strip = (h) => Object.fromEntries(Object.entries(h).filter(([k]) => !OWNED.has(k)));
+      assert.equal(viaWaist.method, viaFetch.method);
+      assert.deepEqual(strip(viaWaist.headers), strip(viaFetch.headers), `${method}: request headers`);
+      assert.equal(viaWaist.headers['user-agent'], undefined, 'the waist sends no default user-agent: every site sends its own');
+    } finally { await s.close(); }
+  }
+});
+
+test('accept (R-5): a 204 or 304 is read as empty whatever coding it names — no body can exist there', async () => {
+  for (const status of [204, 304]) {
+    const s = await rawServer((sock) => sock.write(`HTTP/1.1 ${status} X\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n`));
+    try {
+      const out = await requestTarget(s.base + '/', { timeoutMs: 2000 });
+      assert.equal(out.status, status);
+      assert.equal(out.notRead, null, `${status} with a coding is not a not-read outcome`);
+      assert.equal(out.text, '');
+      assert.ok(await allClosed(s), 'the socket is closed');
+    } finally { await s.close(); }
+  }
+  const s = await rawServer((sock) => sock.write('HTTP/1.1 204 X\r\nConnection: close\r\n\r\nSTRAY-BYTES-AFTER-204'));
+  try {
+    const out = await requestTarget(s.base + '/', { timeoutMs: 2000 });
+    assert.equal(out.notRead, null);
+    assert.equal(out.text, '');
+    assert.ok(!JSON.stringify(out).includes('STRAY'), 'stray bytes after a 204 surface nowhere');
+  } finally { await s.close(); }
+  const s3 = await rawServer(replyOnce(302, ['Content-Encoding: gzip', 'Location: /x'], zlib.gzipSync('moved'), { end: false }));
+  try {
+    const out = await requestTarget(s3.base + '/', { timeoutMs: 2000 });
+    assert.deepEqual(out.notRead, { reason: 'encoded-body', encoding: ['gzip'] }, 'a 3xx can carry a body: a coded one stays not read');
+    assert.equal(out.headers.location, '/x');
+  } finally { await s3.close(); }
 });
 
 test('accept: text decoding matches global fetch text() (UTF-8, BOM stripped, bad bytes replaced)', async () => {
@@ -491,6 +534,8 @@ test('deny: unknown options, transport options, a caller accept-encoding, framin
       { timeoutMs: 1000, maxBodyBytes: 0 },
       { timeoutMs: 1000, maxBodyBytes: 1.5 },
       { timeoutMs: 0 },
+      { timeoutMs: MAX_TIMEOUT_MS + 1 },
+      { timeoutMs: 3_000_000_000 },
       {},
       ...FORBIDDEN_METHODS.map((method) => ({ timeoutMs: 1000, method })),
       { timeoutMs: 1000, method: 'POST' },
@@ -500,10 +545,26 @@ test('deny: unknown options, transport options, a caller accept-encoding, framin
       await assert.rejects(requestTarget(s.base + '/', opts), TypeError, JSON.stringify(opts, (k, v) => (typeof v === 'function' ? 'fn' : v)));
     }
     await assert.rejects(requestTarget('ftp://127.0.0.1/', { timeoutMs: 1000 }), TypeError);
+    // R-1: a URL carrying credentials would be SENT as an Authorization header by node:http; fetch throws on it.
+    for (const cred of ['user:secret@', 'user@', ':secret@']) {
+      await assert.rejects(requestTarget(`http://${cred}127.0.0.1:${s.port}/`, { timeoutMs: 1000 }), TypeError, cred);
+    }
     assert.equal(s.state.connections, 0, 'nothing connected');
   } finally { await s.close(); }
 });
 
+test('accept (R-2): the timeout ceiling itself is accepted, and it is below the 32-bit timer limit', async () => {
+  assert.ok(MAX_TIMEOUT_MS <= 120000 && MAX_TIMEOUT_MS < 2 ** 31);
+  const s = await rawServer(replyOnce(200, [], 'ok'));
+  try {
+    const out = await requestTarget(s.base + '/', { timeoutMs: MAX_TIMEOUT_MS });
+    assert.equal(out.status, 200);
+  } finally { await s.close(); }
+});
+
+// LIMIT, stated (architect v382 iii): this derives the method names that appear as STRING LITERALS in the four site files,
+// which is wider than the methods they send (050 compares `method === "TRACE"` too). Equality in both directions keeps
+// drift loud. At the site commit it re-points to the method values passed at the requestTarget call sites.
 test('deny: the method set is DERIVED from what the four sites send, less CONNECT/TRACE/TRACK', () => {
   const SITES = ['plugins/050_tribe_health.mjs', 'plugins/webapp_detector.mjs', 'plugins/upnp_scanner.mjs', 'plugins/opensearch_scanner.mjs'];
   const REGISTRY = /['"](GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|TRACK|PATCH)['"]/g;

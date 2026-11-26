@@ -22,9 +22,11 @@
 //   resolved: { url, status, headers, setCookie, text?, notRead }
 //     notRead === null      → `text` is the body, decoded as fetch's text() decodes it.
 //     notRead = { reason }  → reason is one of NOT_READ_REASONS; `text` is absent. For `encoded-body` it also carries
-//                             `encoding`, the reply's tokens mapped to the IANA content-coding registry, anything else
-//                             `other`, at most four. The target's own header text never appears in an outcome: the raw
-//                             Content-Encoding value is not in `headers` either.
+//                             `encoding`, the reply's coding tokens (Content-Encoding, and any transfer coding other than
+//                             chunked) mapped to the IANA content-coding registry, anything else `other`, at most four.
+//   The reply's Content-Encoding text appears nowhere in an outcome. EVERY OTHER HEADER IS THE TARGET'S OWN TEXT —
+//   `headers` and `setCookie` carry it as received, the raw Transfer-Encoding value included — and each site redacts
+//   what it prints. A 204 or 304 is read as empty whatever coding it names: no body can exist there.
 //   rejected (no response): TargetHttpError { code } — the code sanitized, the message fixed — or, at the deadline, an
 //     AbortError (code ETIMEDOUT), so a caller that reads `err.name === 'AbortError'` as a timeout keeps doing so. Node's
 //     own error messages are NOT passed on: a TLS name mismatch, for one, quotes the target's certificate names.
@@ -45,6 +47,9 @@ export const ALLOWED_METHODS = Object.freeze(['GET', 'OPTIONS', 'DELETE', 'PUT',
 export const FORBIDDEN_METHODS = Object.freeze(['CONNECT', 'TRACE', 'TRACK']);
 export const NOT_READ_REASONS = Object.freeze(['encoded-body', 'body-timeout', 'body-error', 'body-cap']);
 export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
+// A ceiling on timeoutMs: past 2^31-1 ms node clamps a timer to 1 ms, and a live host would read as one that never answered.
+export const MAX_TIMEOUT_MS = 120000;
+const BODILESS_STATUSES = new Set([204, 304]);
 
 const OPTION_KEYS = new Set(['method', 'headers', 'timeoutMs', 'maxBodyBytes']);
 // Headers the waist owns: the coding it asks for, and the framing of a one-shot request.
@@ -58,7 +63,8 @@ const CODING_REGISTRY = new Set([
   'aes128gcm', 'br', 'compress', 'dcb', 'dcz', 'deflate', 'exi', 'gzip', 'identity', 'pack200-gzip', 'x-compress', 'x-gzip', 'zstd',
 ]);
 const MAX_ENCODING_TOKENS = 4;
-// fetch's request defaults other than its accept-encoding and keep-alive (measured on Node 24.22.3).
+// fetch's request defaults other than its accept-encoding, keep-alive and `user-agent: node` (measured on Node 24.22.3;
+// tests/target_http.test.mjs holds the per-method parity). The waist sends no default user-agent: every site sends its own.
 const DEFAULT_HEADERS = Object.freeze({ accept: '*/*', 'accept-language': '*', 'sec-fetch-mode': 'cors' });
 
 export class TargetHttpError extends Error {
@@ -90,13 +96,17 @@ function validate(url, options) {
   let u;
   try { u = new URL(String(url)); } catch { throw new TypeError('requestTarget: url is not a URL'); }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new TypeError('requestTarget: only http and https');
+  // node:http would SEND these as an Authorization header (fetch throws on such a URL).
+  if (u.username || u.password) throw new TypeError('requestTarget: a URL carrying credentials is not accepted');
 
   const method = options.method ?? 'GET';
   if (typeof method !== 'string' || !ALLOWED_METHODS.includes(method)) {
     throw new TypeError(`requestTarget: method ${JSON.stringify(method)} is not accepted`);
   }
   const { timeoutMs } = options;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('requestTarget: timeoutMs must be a positive integer');
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new TypeError(`requestTarget: timeoutMs must be an integer in 1..${MAX_TIMEOUT_MS}`);
+  }
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   if (!Number.isInteger(maxBodyBytes) || maxBodyBytes <= 0 || maxBodyBytes > DEFAULT_MAX_BODY_BYTES) {
     throw new TypeError(`requestTarget: maxBodyBytes must be an integer in 1..${DEFAULT_MAX_BODY_BYTES}`);
@@ -178,6 +188,11 @@ export async function requestTarget(url, options = {}) {
       req = transport.request(u, { method, headers, agent: false }, (response) => {
         res = response;
         meta = readHeaders(response.rawHeaders);
+        if (BODILESS_STATUSES.has(response.statusCode)) {
+          // Settled here, before any listener: bytes a server sends after a 204/304 are not a body and surface nowhere.
+          settle(resolve, outcome({ text: '', notRead: null }));
+          return shut();
+        }
         if (meta.encoded) return notRead('encoded-body', { encoding: meta.encoding });
         const chunks = [];
         let size = 0;
