@@ -230,6 +230,16 @@ test('the CHANGELOG\'s cost (R12): a service on an unprobed port that does not s
   }
 });
 
+test('R13 (direct call, the code path, no socket): an unreachable answer on an unprobed port is a row; a refusal beside it is not', () => {
+  // VERDICT-v409 R12 names four failure kinds; this holds the unreachable one (VERDICT-v410 C1, mutant B9). No loopback
+  // socket answers EHOSTUNREACH, ENETUNREACH or ENETDOWN, so the failures are declared and the builder is called directly.
+  const failed = [{ port: 636, error: 'EHOSTUNREACH' }, { port: 853, error: 'ENETUNREACH' },
+    { port: 8883, error: 'ENETDOWN' }, { port: 9443, error: 'ECONNREFUSED' }];
+  assert.deepEqual(tlsUnprobedPortGaps(failed, ctxOf({ open: [], probed: [] })).map((r) => [r.port, r.details.gapClass, r.details.code]),
+    [[636, UNPROBED_PORT_GAP_CLASS, 'EHOSTUNREACH'], [853, UNPROBED_PORT_GAP_CLASS, 'ENETUNREACH'],
+      [8883, UNPROBED_PORT_GAP_CLASS, 'ENETDOWN']]);
+});
+
 // ── Written through the real scan path, read by the real report ────────────────────────────────────────────────────
 const conclusionFiles = (root) => fs.readdirSync(root, { recursive: true }).map(String).filter((f) => f.endsWith('scan_conclusion_raw.json'));
 /** One scan through the REAL manager and scanSingleHost. `lists` = 003's declared lists (null: 003 not requested);
@@ -431,20 +441,28 @@ test('L13: an input_gap row from an Enterprise queue reads exactly as at HEAD; a
   const queueGap = row(443, '[COVERAGE GAP] INPUT GAP — port 443 was not measured', { severity: 'INFO', evidenceGap: true, gapClass: INPUT_GAP_CLASS });
   const ceGap = row(8883, '[COVERAGE GAP] TLS certificate audit could not complete on 8883 (ECONNRESET)',
     { ...P040, severity: 'INFO', evidenceGap: true, gapClass: UNPROBED_PORT_GAP_CLASS });
-  assert.deepEqual([...portsNotMeasured([queueGap, ceGap]).keys()], [portGapKey(HOST, 443), portGapKey(HOST, 8883)]);
   const base = [row(443, 'weak cipher on 443'), row(22, 'weak kex on 22'), row(8883, 'expired cert', P040),
     row(443, 'expired cert on 443', P040), row(993, 'expired cert on 993', P040)];
   const delta = (b, c) => buildScanDelta({ baseline: { record: run('A'), findings: b, pluginStatus: [] },
     current: { record: run('B'), findings: c, pluginStatus: [] } });
   const sha = (d) => crypto.createHash('sha256').update(JSON.stringify(d)).digest('hex').slice(0, 16);
   const read = (a) => (a ?? []).map((f) => `${f.plugin}:${f.port}:${f.reason ?? ''}`).sort();
-  // (1) input_gap alone, both directions: the WHOLE delta hashes to what 7864383 gives the same input (DECLARED oracle).
+  // (1) input_gap alone, both directions. R14 (a): the six reading lists, in words, as r11_head_digest-output.txt prints
+  // them for 7864383 — stated BEFORE the digest, so a change of reading fails here by name and not first on the hash.
   const gapInCurrent = delta(base, [queueGap]);
   const gapInBaseline = delta([queueGap], base);
+  const held443 = [`040:443:${PROBE_NOT_MEASURED_REASON}`, `crypto_agent:443:${PROBE_NOT_MEASURED_REASON}`];
+  assert.deepEqual(read(gapInCurrent.notComparable), held443, 'gap in current, not comparable: the input_gap holds every producer\'s rows on 443, 040\'s included');
+  assert.deepEqual(read(gapInCurrent.resolved), ['040:8883:', '040:993:', 'crypto_agent:22:'], 'gap in current, resolved: every row off 443');
+  assert.deepEqual(read(gapInCurrent.newFindings), [], 'gap in current, new: none');
+  assert.deepEqual(read(gapInBaseline.notComparable), held443, 'gap in baseline, not comparable: the same two rows on 443');
+  assert.deepEqual(read(gapInBaseline.resolved), [], 'gap in baseline, resolved: none');
+  assert.deepEqual(read(gapInBaseline.newFindings), ['040:8883:', '040:993:', 'crypto_agent:22:'], 'gap in baseline, new: every row off 443');
+  // The WHOLE delta hashes to what 7864383 gives the same input (DECLARED oracle, made by Z/g71-r9r12-v350/r11_head_digest.mjs).
+  // R14 (b): these two digests move with ANY change to the delta's wording or shape, and 7864383 cannot give a new pair.
+  // Re-declare them only in a commit that leaves the six reading lists above untouched and says what moved the bytes.
   assert.deepEqual([sha(gapInCurrent), sha(gapInBaseline)], ['167cdf362c948665', '91431e8c1c538157'],
-    `the input_gap-only readings as at HEAD:\n${JSON.stringify(read(gapInCurrent.notComparable))}\n${JSON.stringify(read(gapInBaseline.notComparable))}`);
-  assert.deepEqual(read(gapInCurrent.notComparable), [`040:443:${PROBE_NOT_MEASURED_REASON}`, `crypto_agent:443:${PROBE_NOT_MEASURED_REASON}`],
-    'premise: the input_gap holds every producer\'s rows on 443, 040\'s included');
+    'the input_gap-only deltas, both directions, hash as at 7864383');
   // (2) with the new row: 8883 is held on its own port; 040's row on a MEASURED port (993) is not held by it and resolves.
   // At 7864383 the same input read 040:443, 040:8883 and 040:993 as evidence-gap (the whole producer held) — the record.
   const d = delta(base, [queueGap, ceGap]);
@@ -452,4 +470,6 @@ test('L13: an input_gap row from an Enterprise queue reads exactly as at HEAD; a
     `crypto_agent:443:${PROBE_NOT_MEASURED_REASON}`], JSON.stringify(d.notComparable));
   assert.deepEqual(read(d.resolved), ['040:993:', 'crypto_agent:22:'], 'a measured port still resolves beside both gaps, 040\'s own row included');
   assert.deepEqual(read(d.newFindings), []);
+  // The predicate under the readings: both gap rows key their own port.
+  assert.deepEqual([...portsNotMeasured([queueGap, ceGap]).keys()], [portGapKey(HOST, 443), portGapKey(HOST, 8883)]);
 });
