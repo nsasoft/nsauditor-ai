@@ -404,6 +404,16 @@ function updateContextFromResult(mod, result, ctx) {
     if (id === "003" || name.includes("port scanner")) {
       for (const p of arrayify(result?.tcpOpen)) ctx.tcpOpen.add(Number(p));
       for (const p of arrayify(result?.udpOpen)) ctx.udpOpen.add(Number(p));
+      // Which TCP ports 003 PROBED (G-71 F-040): its open ∪ closed ∪ filtered, so 040 can tell a port the scanner never
+      // probed from one it recorded closed or filtered. Set here only, and only from 003's three lists — never initialised
+      // in withBaseContext: ABSENCE IS A STATE, read by 040 as "no such evidence" (today's output).
+      if (Array.isArray(result?.tcpOpen) && Array.isArray(result?.tcpClosed) && Array.isArray(result?.tcpFiltered)) {
+        const probed = ctx.tcpProbed instanceof Set ? ctx.tcpProbed : new Set();
+        for (const p of [...result.tcpOpen, ...result.tcpClosed, ...result.tcpFiltered]) {
+          if (Number.isInteger(Number(p)) && Number(p) > 0) probed.add(Number(p));
+        }
+        ctx.tcpProbed = probed;
+      }
     }
 
     // Service-specific implicit opens

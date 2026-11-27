@@ -232,8 +232,9 @@ export function shapeFinding(host, f, plugin = null, pluginName = null) {
     // the marker alone cannot take a row out of a report's count; only this can, and only beside the marker (isGapOnly).
     // Exactly `true`. It is outside the delta's identity (id, contentDigest) and the delta does not read it.
     gapOnly: f?.details?.gapOnly === true,
-    // WHICH gap, when the producer names one (EE 1.1.0 build 9). The delta scopes an `input_gap` that
-    // carries a PORT to that port alone (`probe-not-measured`); every other gap stays producer-wide.
+    // WHICH gap, when the producer names one (EE 1.1.0 build 9). The delta scopes a gap of a port-scoped class that
+    // carries a PORT to that port alone (`probe-not-measured`): Enterprise's `input_gap`, and 040's `unprobed_port`, which
+    // reaches the delta through THIS read (G-71 F-040; `isPortScopedGap`). Every other gap stays producer-wide.
     gapClass: typeof f?.details?.gapClass === 'string' ? f.details.gapClass : null,
     // ⚠️ A DECLARED SCOPE BOUNDARY IS NOT A FINDING EITHER (EE 1.1.0 build 5, CFN-3's consumer-first
     // route). Seventeen plugins emit one INFO row stating what they do NOT examine, flagged

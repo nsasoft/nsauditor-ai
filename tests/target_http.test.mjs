@@ -604,8 +604,11 @@ test('safeCode (accept, first): ECONNRESET, HPE_INVALID_CONSTANT and ERR_TLS_CER
   for (const c of ['ECONNRESET', 'HPE_INVALID_CONSTANT', 'ERR_TLS_CERT_ALTNAME_INVALID']) assert.equal(safeCode(c), c);
   assert.equal(safeCode('E'.repeat(48)), 'E'.repeat(48), 'the 48-character boundary is kept');
 });
+// VERDICT-v406 R8 (rides F-040): the rule's `typeof` leg. An array holding a real code and an object whose toString answers
+// one each pass a regex that coerces its argument; neither is a string, so neither is a code.
 test('safeCode: a lowercase code, a space, 49 characters, a number, undefined and markup each come back EOTHER', () => {
-  for (const c of ['econnreset', 'ECONN RESET', 'E'.repeat(49), 5, undefined, '<img>', '_ECONNRESET', 'ECONNRESET\n']) {
+  for (const c of ['econnreset', 'ECONN RESET', 'E'.repeat(49), 5, undefined, '<img>', '_ECONNRESET', 'ECONNRESET\n',
+    ['ECONNRESET'], { toString: () => 'ECONNRESET' }]) {
     assert.equal(safeCode(c), 'EOTHER', JSON.stringify(c));
   }
 });

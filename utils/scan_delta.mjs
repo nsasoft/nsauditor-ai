@@ -291,6 +291,10 @@ export function vulnerabilityDataSource(nvdCache) {
 // The gap class Enterprise's service-set input gap stamps (`evidence.raw.gapClass`). Spelled ONCE, here, on
 // the reading side: Enterprise imports it, so the producer and this reader cannot drift to two spellings.
 export const INPUT_GAP_CLASS = 'input_gap';
+// The gap class 040 stamps (`details.gapClass`) on a TLS port the port scanner did NOT probe whose handshake failed (G-71
+// F-040, architect VERDICT-v408 Q1). Its OWN class, never `input_gap`: Enterprise reads `input_gap` as "open per the port
+// scanner", and these ports were not probed at all. Spelled once, here; 040 imports it, as Enterprise does INPUT_GAP_CLASS.
+export const UNPROBED_PORT_GAP_CLASS = 'unprobed_port';
 
 // ⚠️ RUNS ARE NAMED ABSOLUTELY IN EVERY DETAIL (1.1.1 — the audit seat's T1-c fold 1). The executive page prefixes a
 // not-comparable row with its direction in absolute terms ("absent from this run" / "appeared in this run", this run =
@@ -743,13 +747,17 @@ import { PROVIDER_SCOPE_UNIT, canonicalHost, hostKey } from './cloud_providers.m
 // Written as plain `f.` reads so the boundary contract's derivation SEES them (it reads `f.<field>`; an
 // optional chain is invisible to it, and `gapClass` would read as consumed-but-undeclared).
 export const isPortInputGap = (f) => f != null && f.evidenceGap === true && f.gapClass === INPUT_GAP_CLASS && Number(f.port) > 0;
+/** A port-scoped gap: Enterprise's input gap, or 040's gap on a port the port scanner did not probe (G-71 F-040). Both are
+ *  held on their port alone; read where the delta builds `portGaps` and where it sets port gaps aside from the producer leg. */
+export const isPortScopedGap = (f) => f != null && f.evidenceGap === true
+  && (f.gapClass === INPUT_GAP_CLASS || f.gapClass === UNPROBED_PORT_GAP_CLASS) && Number(f.port) > 0;
 /** The key a port gap is looked up by — `hostKey`, so a host typed in two cases is one host. */
 export const portGapKey = (host, port) => `${hostKey(host)}|${Number(port)}`;
 /** Every port a run could not measure: `portGapKey` → the gap's title (what the reader is told). */
 export function portsNotMeasured(findings) {
   const out = new Map();
   for (const f of Array.isArray(findings) ? findings : []) {
-    if (!isPortInputGap(f)) continue;
+    if (!isPortScopedGap(f)) continue;
     const k = portGapKey(f.host, f.port);
     if (!out.has(k)) out.set(k, f.title ?? 'an input gap was recorded on this port');
   }
@@ -884,12 +892,13 @@ const scopeOf = (side) => {
   const plugins = new Set(rec.pluginsRequested ?? []);
   const gaps = new Map();
   // Gaps as the PRODUCER records them — on the finding, where they already ride.
-  // ⚠️ EXCEPT A PORT-SCOPED INPUT GAP (EE 1.1.0 build 9). Enterprise emits one per analysis agent for each
-  // port a probe could not measure, so keyed here by PRODUCER it would set aside that agent's rows on EVERY
-  // port of the host, and a genuine fix on a port that WAS measured would stop reading resolved. It is
-  // scoped to its port, in `portGaps`, and nowhere else.
+  // ⚠️ EXCEPT A PORT-SCOPED GAP. Enterprise emits an input gap per analysis agent for each port a probe could not
+  // measure (EE 1.1.0 build 9), and Community's 040 one per TLS port the port scanner did not probe whose handshake
+  // failed (G-71 F-040). Keyed here by PRODUCER either would set aside that producer's rows on EVERY port of the host,
+  // and a genuine fix on a port that WAS measured would stop reading resolved. Each is scoped to its port, in
+  // `portGaps`, and nowhere else.
   for (const fi of side?.findings ?? []) {
-    if (fi?.evidenceGap === true && fi.plugin != null && !isPortInputGap(fi)) {
+    if (fi?.evidenceGap === true && fi.plugin != null && !isPortScopedGap(fi)) {
       gaps.set(`${keyHost(fi.host)}|${fi.plugin}`,
         { kind: 'recorded-gap', reason: fi.title ?? fi.detail ?? 'an evidence gap was recorded' });
     }

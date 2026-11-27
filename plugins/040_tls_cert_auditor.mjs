@@ -24,6 +24,8 @@
 import tls from "node:tls";
 import { isIP } from "node:net";
 import { X509Certificate } from "node:crypto";
+import { safeCode } from "../utils/target_http.mjs";
+import { UNPROBED_PORT_GAP_CLASS } from "../utils/scan_delta.mjs";
 
 // ── Severity ─────────────────────────────────────────────────────────────────
 
@@ -366,7 +368,7 @@ function probeTLS(host, port, config, { ciphers = null } = {}) {
 
     socket.setTimeout(config.timeoutMs, () => {
       socket.destroy();
-      resolve({ up: false, error: "TLS handshake timeout", latencyMs: Date.now() - startTime });
+      resolve({ up: false, error: TLS_HANDSHAKE_TIMEOUT, latencyMs: Date.now() - startTime });
     });
 
     socket.on("error", (err) => {
@@ -707,6 +709,16 @@ async function auditPort(host, port, config) {
   };
 }
 
+// ── The one spelling 040 resolves its own handshake timer with, and the code a gap row prints for it ────
+// A failed port's `error` is err.code, else err.message (TEXT FROM OUTSIDE THE PROCESS), else this fixed string — never
+// a code by construction. A row built for a port the port scanner did not probe (below) prints a CODE ONLY, through the
+// waist's one rule (`safeCode`, utils/target_http.mjs); this string is the one declared case, read as the code the HTTP
+// waist gives its own timer, ETIMEDOUT (architect VERDICT-v408 Q4). Today's row and `failedPorts` keep `error` as it is.
+export const TLS_HANDSHAKE_TIMEOUT = "TLS handshake timeout";
+export function tlsFailureCode(error) {
+  return error === TLS_HANDSHAKE_TIMEOUT ? "ETIMEDOUT" : safeCode(error);
+}
+
 // ── A certificate audit that did not happen is SAID, where the reader looks ────
 // Through CE 0.2.55 a failed handshake reached only the INFO `tls-not-responding` service row,
 // which the report loader never shapes. EE 1.1.0 build 6's Gate-2 run had 443 OPEN per the port
@@ -754,6 +766,51 @@ export function tlsCoverageGap(failedPorts, context, namedPort) {
       failedPorts: gaps,
     },
   };
+}
+
+// ── A TLS PORT THE PORT SCANNER DID NOT PROBE has no port-scanner evidence (G-71 F-040; RULINGS-v402 §4 (b)/(c),
+// VERDICT-v408 §4) ────
+// 040 probes 636, 853, 8883 and 9443, which the default sweep never does. With 003 ran, tlsCoverageGap asks only whether
+// the port was in ctx.tcpOpen, so a reset or a timeout on such a port wrote nothing and `report --since` read the port's
+// baseline rows as RESOLVED (measured: a real iptables drop on 8883, 3 RESOLVED). The rule, in C1's order:
+//   1. the port is in ctx.tcpOpen                        -> tlsCoverageGap's rule and row, unchanged (any producer may
+//                                                           have put it there, so tcpOpen is asked FIRST);
+//   2. else not in ctx.tcpProbed, 003 ran, not REFUSED   -> ONE row for that port (this function);
+//   3. else                                              -> no gap (a port 003 probed and recorded closed or filtered —
+//                                                           the estate's ENETDOWN 993/995 — is not one).
+// ctx.tcpProbed is 003's open ∪ closed ∪ filtered, set by the manager where it takes 003's lists. ABSENCE IS A STATE: no
+// Set (or 003 not "ran", or no tcpOpen Set) returns no row, and run() writes today's output. A refusal is 040's own
+// measurement that nothing listens (RULINGS-v402 Q2), so it stays RESOLVED. Each row is PORT-SCOPED by its class
+// (`isPortScopedGap` in scan_delta.mjs holds rows on that port only) and prints the port and a code — never err.message.
+// Stated limit (VERDICT-v408 Q3): the port key holds every producer's rows on that port, either transport.
+export function tlsUnprobedPortGaps(failedPorts, context) {
+  const failed = Array.isArray(failedPorts) ? failedPorts : [];
+  const tcpOpen = context?.tcpOpen instanceof Set ? context.tcpOpen : null;
+  const tcpProbed = context?.tcpProbed instanceof Set ? context.tcpProbed : null;
+  const scannerRan = context?.pluginRunStatus instanceof Map && context.pluginRunStatus.get("003") === "ran";
+  if (!scannerRan || tcpOpen === null || tcpProbed === null) return [];
+  return failed
+    .filter((f) => Number.isInteger(Number(f?.port)) && Number(f.port) > 0)
+    .filter((f) => !tcpOpen.has(Number(f.port)) && !tcpProbed.has(Number(f.port)) && f.error !== "ECONNREFUSED")
+    .map((f) => {
+      const port = Number(f.port);
+      const code = tlsFailureCode(f.error);
+      return {
+        severity: SEVERITY.INFO,
+        check: "tls_audit_incomplete",
+        title: `[COVERAGE GAP] TLS certificate audit could not complete on ${port} (${code})`,
+        detail: "The port scanner did not probe this port, and the TLS handshake did not complete there: the certificate, " +
+          "chain, cipher and protocol checks did not run. This is not a pass.",
+        port,
+        details: {
+          evidenceGap: true,
+          gapOnly: true,
+          gapClass: UNPROBED_PORT_GAP_CLASS,
+          openness: "not-probed-by-port-scanner",
+          code,
+        },
+      };
+    });
 }
 
 // ── Plugin Export ─────────────────────────────────────────────────────────────
@@ -829,6 +886,7 @@ export default {
     };
 
     const coverageGap = tlsCoverageGap(failedPorts, opts.context, port);
+    const gapRows = [...(coverageGap ? [coverageGap] : []), ...tlsUnprobedPortGaps(failedPorts, opts.context)];
 
     return {
       up: activeResults.length > 0,
@@ -839,7 +897,7 @@ export default {
       summary,
       portResults: activeResults,
       failedPorts,
-      ...(coverageGap ? { findings: [coverageGap] } : {}),
+      ...(gapRows.length > 0 ? { findings: gapRows } : {}),
     };
   },
 
