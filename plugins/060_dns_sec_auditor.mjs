@@ -735,11 +735,13 @@ async function analyzeNS(records, host, notMeasured) {
 // A SERVFAIL VETOES THE PASS (EE VERDICT-v418 C1). A validating resolver's SERVFAIL is the only sign of a bogus chain this
 // probe can see, since it validates no signature itself. So when any matched reply the probe read carried rcode 2 in its
 // header — a walk step, DNSKEY or DS, at any resolver, over UDP or TCP, with TC=1 or not, and whether or not the rest of
-// the reply parses — the dnssec_active cell writes NO row and ONE not-measured entry naming the first
-// such query (its rrtype and name, code ESERVFAIL), with both has* null. The three MEDIUM rows stand: they fail toward a
-// finding. Only rcode 2 vetoes — REFUSED, FORMERR, NOTIMP and a timeout do not. details.dnssec.servfail says whether any
-// reply was a SERVFAIL, on every return. Stated limit: a resolver later in the list is not asked once an earlier one
-// decides, so its SERVFAIL is never seen.
+// the reply parses — the dnssec_active cell writes NO row and ONE not-measured entry naming one SERVFAILed query (its
+// rrtype and name, code ESERVFAIL), with both has* null. Which query is a function of WHICH questions SERVFAILed, never of
+// which reply arrived first: SOA (the first walk step that SERVFAILed), else DNSKEY, else DS (EE VERDICT-v419 G2). The
+// three MEDIUM rows stand: they fail toward a finding. Only rcode 2 vetoes — REFUSED, FORMERR, NOTIMP and a timeout do
+// not. details.dnssec.servfail says whether any reply was a SERVFAIL, on every return. Stated limits: a resolver later in
+// the list is not asked once an earlier one decides, so its SERVFAIL is never seen; and a SERVFAIL that does not echo the
+// question (QDCOUNT 0, or another question) is not a matched reply — it is read as silence and does not veto.
 //
 // Stated limits of the reply reader (parseDnsAnswerTypes): an answer record's owner name and class are not compared with
 // the question, and a compression pointer's target is not checked to be a name boundary — only that it points before the
@@ -923,7 +925,7 @@ async function askResolvers(name, qtype, ctx, decide) {
     const r = server ? await askOneResolver(server, name, qtype, ctx) : { code: "EBADSERVER", skip: true };
     if (r.skip) ctx.skipped.set(entry, r.code);
     // EE VERDICT-v418 C1: the first question a matched reply SERVFAILed is kept — it vetoes dnssec_active (probeDNSSEC).
-    if (r.servfail) ctx.servfail ??= { rrtype: DNS_QTYPE_NAME[qtype], name };
+    if (r.servfail) ctx.servfail[DNS_QTYPE_NAME[qtype]] ??= name;
     const out = r.reply ? decide(r.reply) : { state: "unknown", code: r.code };
     if (out.state !== "unknown") {
       ctx.preferred = entry;
@@ -979,6 +981,14 @@ export function dnssecOutcome(dnskey, ds) {
   return { row, hasDNSKEY, hasDS, unknown };
 }
 
+/** The SERVFAIL the entry names: SOA, then DNSKEY, then DS — a function of WHICH questions SERVFAILed, never of which reply
+ *  arrived first (DNSKEY and DS are asked in parallel; EE VERDICT-v419 G2). The walk is sequential, so the SOA name kept is
+ *  the first step that SERVFAILed. → { rrtype, name } | null */
+function firstServfail(ctx) {
+  for (const rrtype of ["SOA", "DNSKEY", "DS"]) if (ctx.servfail[rrtype] !== undefined) return { rrtype, name: ctx.servfail[rrtype] };
+  return null;
+}
+
 /** The zone a row names, in fixed words around the target's own name and a suffix of it. */
 function dnssecZoneWords(target, apex, alias) {
   const zone = apex === target ? `the zone ${apex}` : `the zone ${apex}, which holds ${target}`;
@@ -994,12 +1004,12 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
     skipped: new Map(),
     preferred: null,
     deciders: new Set(),
-    servfail: null, // { rrtype, name } of the first question a matched reply SERVFAILed (askResolvers)
+    servfail: {}, // rrtype → name of the first question of that type a matched reply SERVFAILed (askResolvers)
   };
   const walk = await findZoneApex(target, ctx);
   if (walk.notMeasured) {
     for (const e of walk.notMeasured) notMeasured.push({ check: "dnssec", rrtype: e.rrtype, name: e.name, code: e.code });
-    return { hasDNSKEY: null, hasDS: null, zone: null, alias: false, resolverCount: ctx.deciders.size, servfail: ctx.servfail !== null, issues };
+    return { hasDNSKEY: null, hasDS: null, zone: null, alias: false, resolverCount: ctx.deciders.size, servfail: firstServfail(ctx) !== null, issues };
   }
   const { apex, alias } = walk;
   const [dnskey, ds] = await Promise.all([
@@ -1007,9 +1017,10 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
     askResolvers(apex, DNS_QTYPE.DS, ctx, decideRecord(DNS_QTYPE.DS)),
   ]);
   const outcome = dnssecOutcome(dnskey, ds);
-  if (outcome.row === "dnssec_active" && ctx.servfail !== null) {
+  const servfail = firstServfail(ctx);
+  if (outcome.row === "dnssec_active" && servfail !== null) {
     // EE VERDICT-v418 C1: a PASS is never written over a SERVFAIL the probe read — no row, ONE entry naming that query.
-    notMeasured.push({ check: "dnssec", rrtype: ctx.servfail.rrtype, name: ctx.servfail.name, code: "ESERVFAIL" });
+    notMeasured.push({ check: "dnssec", rrtype: servfail.rrtype, name: servfail.name, code: "ESERVFAIL" });
     return { hasDNSKEY: null, hasDS: null, zone: apex, alias, resolverCount: ctx.deciders.size, servfail: true, issues };
   }
   for (const u of outcome.unknown) notMeasured.push({ check: "dnssec", rrtype: u.rrtype, name: apex, code: u.code });
@@ -1040,7 +1051,7 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
       detail: `DNSKEY and DS records present for ${where}, ${reported}`,
     });
   }
-  return { hasDNSKEY: outcome.hasDNSKEY, hasDS: outcome.hasDS, zone: apex, alias, resolverCount: ctx.deciders.size, servfail: ctx.servfail !== null, issues };
+  return { hasDNSKEY: outcome.hasDNSKEY, hasDS: outcome.hasDS, zone: apex, alias, resolverCount: ctx.deciders.size, servfail: servfail !== null, issues };
 }
 
 // ── Module 8: Zone Transfer Check (AXFR) ────────────────────────────────────

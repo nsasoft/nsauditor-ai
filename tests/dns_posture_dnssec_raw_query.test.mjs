@@ -154,7 +154,9 @@ for (const [what, reply] of L3B_VETO) {
 const byTransport = (udp, tcp) => (q, info) => (info.transport === 'udp' ? udp : tcp);
 test('L3c (accept): TC=1 with an empty answer, then TCP answers DNSKEY — TCP\'s answer is the one read', async () => {
   await withServer({ handler: zone({ [`${APEX} DNSKEY`]: byTransport({ tc: true, answers: [] }, KEYS) }) }, async (s) => {
-    MEASURED_ACTIVE(await runDnssec(APEX, [s.entry]));
+    const r = await runDnssec(APEX, [s.entry]);
+    MEASURED_ACTIVE(r);
+    assert.equal(r.dnssec.servfail, false, 'neither the TC=1 reply nor TCP\'s carried rcode 2 (EE VERDICT-v419 G1: the accept leg)');
     assert.ok(queriesOf(s).includes(`tcp DNSKEY ${APEX}`));
   });
 });
@@ -529,6 +531,59 @@ for (const [what, a] of [
     });
   });
 }
+// EE VERDICT-v419 G1: the TCP half of the header read. Each leg holds one guard no other leg holds (the architect's mutants
+// N1–N3 survived the (b2) legs: z1/architect-v419/mutants_n1_n4.out). L3c (above) is their accept leg: servfail false.
+// byTransport returns its spec as given, so a FUNCTION spec (a raw reply built from the query) is called here.
+const viaTcp = (tcpSpec) => ({ handler: zone({ [`${APEX} DNSKEY`]: (q, info) => (info.transport === 'udp' ? { tc: true, answers: [] }
+  : typeof tcpSpec === 'function' ? tcpSpec(q, info) : tcpSpec) }) });
+for (const [what, a, withB] of [
+  ['(a) A alone: TC=1 WITH rcode 2 over UDP, then TCP answers DNSKEY in full — the UDP SERVFAIL is not overwritten by TCP\'s rcode 0',
+    { handler: zone({ [`${APEX} DNSKEY`]: byTransport({ tc: true, answers: [], rcode: 2 }, KEYS) }) }, false],
+  ['(b) TC=1 rcode 0 over UDP, then TCP answers a whole, parseable SERVFAIL; B signed', viaTcp({ rcode: 2, answers: [] }), true],
+  ['(c) TC=1 rcode 0 over UDP, then TCP answers a SERVFAIL the parser rejects; B signed', viaTcp((q) => ({ raw: malformedServfail(q) })), true],
+]) {
+  test(`C1 G1 ${what} — no row, DNSKEY:<apex>:ESERVFAIL`, async () => {
+    await withServer(a, async (s) => {
+      await withServer({ handler: zone() }, async (b) => {
+        const r = await runDnssec(APEX, withB ? [s.entry, b.entry] : [s.entry]);
+        assert.ok(queriesOf(s).includes(`tcp DNSKEY ${APEX}`), 'TCP was asked after TC=1');
+        assert.deepEqual(r.rows, [], 'never a PASS over a matched SERVFAIL');
+        assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`DNSKEY:${APEX}:ESERVFAIL`]);
+        assert.equal(r.dnssec.servfail, true);
+      });
+    });
+  });
+}
+// EE VERDICT-v419 G2: the entry is a function of WHICH questions SERVFAILed — SOA, then DNSKEY, then DS — never of which
+// reply arrived first. Before, DNSKEY and DS both SERVFAILed at the apex wrote DS:… or DNSKEY:… by 80 ms of reply delay
+// (driven both ways: z1/architect-v419/drive_b2.out). A answers the walk; only the delays differ between the two legs.
+for (const [what, dk, ds] of [['DNSKEY\'s SERVFAIL late, DS\'s at once', 80, 0], ['DNSKEY\'s SERVFAIL at once, DS\'s late', 0, 80]]) {
+  test(`C1 G2: DNSKEY and DS both SERVFAIL at the apex, ${what} — the entry reads DNSKEY:<apex>:ESERVFAIL`, async () => {
+    const signed = zone();
+    const race = (q, info) => (q.type === T.DNSKEY ? { rcode: 2, delayMs: dk } : q.type === T.DS ? { rcode: 2, delayMs: ds } : signed(q, info));
+    await withServer({ handler: race }, async (a) => {
+      await withServer({ handler: zone() }, async (b) => {
+        const r = await runDnssec(APEX, [a.entry, b.entry]);
+        assert.ok(askedFor(a, T.DNSKEY) === 1 && askedFor(a, T.DS) === 1, 'both questions reached A');
+        assert.deepEqual(r.rows, []);
+        assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`DNSKEY:${APEX}:ESERVFAIL`]);
+      });
+    });
+  });
+}
+test('C1 G2: two walk steps SERVFAIL (one at each resolver) — the entry names the FIRST step, SOA:a.b.<apex>', async () => {
+  // Step 0 a.b: A SERVFAILs, B has no SOA (B preferred). Step 1 b: B SERVFAILs, A has no SOA (A preferred). Step 2: A
+  // answers the apex, DNSKEY and DS. The walk is sequential, so which SOA SERVFAIL came first is fixed.
+  const HOST = `a.b.${APEX}`;
+  await withServer({ handler: zone({ [`${HOST} SOA`]: { rcode: 2 } }) }, async (a) => {
+    await withServer({ handler: zone({ [`b.${APEX} SOA`]: { rcode: 2 } }) }, async (b) => {
+      const r = await runDnssec(HOST, [a.entry, b.entry]);
+      assert.deepEqual(r.rows, []);
+      assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`SOA:${HOST}:ESERVFAIL`]);
+      assert.ok(queriesOf(b).includes(`udp SOA b.${APEX}`) && askedFor(a, T.DNSKEY) === 1, 'the later SERVFAIL happened; A decided the apex');
+    });
+  });
+});
 test('C1 (iv) STATED LIMIT — PINNED, NOT ENDORSED: [B signed, A SERVFAIL] — B decides first, A is never asked, dnssec_active', async () => {
   await withServer({ handler: zone() }, async (b) => {
     await withServer(rcodeEverywhere(2), async (a) => {
