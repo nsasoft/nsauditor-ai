@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import tls from 'node:tls';
+import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import tlsCert, {
   tlsCoverageGap, tlsUnprobedPortGaps, tlsFailureCode, TLS_HANDSHAKE_TIMEOUT,
@@ -66,6 +67,11 @@ const MAKE = {
   reset: () => net.createServer((c) => { track(c); c.resetAndDestroy(); }), // accepts, then RST
   'reset-on-data': () => net.createServer((c) => { track(c); c.once('data', () => c.resetAndDestroy()); }), // RST on the ClientHello
   silent: () => net.createServer((c) => { track(c); }), // accepts and never answers: 040's own timer fires
+  // Services that do not speak TLS (VERDICT-v409 C4, measured by the architect): plain HTTP answering the ClientHello,
+  // a banner-first service, and a clean close (FIN).
+  http: () => net.createServer((c) => { track(c); c.once('data', () => c.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')); }),
+  banner: () => net.createServer((c) => { track(c); c.write('220 mail.example ESMTP\r\n'); c.on('data', () => {}); }),
+  fin: () => net.createServer((c) => { track(c); c.end(); }),
 };
 const listen = (srv, port) => new Promise((ok, no) => { srv.once('error', no); srv.listen(port, LOOP, () => ok(srv.address().port)); });
 async function freePort() { const s = net.createServer(); const p = await listen(s, 0); await new Promise((r) => s.close(r)); return p; }
@@ -130,6 +136,18 @@ test('L7 (C1): a port in ctx.tcpOpen through a NON-003 producer, absent from 003
   assert.equal(r.findings[0].details.openness, 'open-per-port-scanner');
 });
 
+test('R9 (C1, the non-refusal half): a port in ctx.tcpOpen through a NON-003 producer, absent from 003\'s lists, RESET — one row, today\'s', async () => {
+  // VERDICT-v409 C1: without the tcpOpen test in tlsUnprobedPortGaps (mutant A5) this state gave two rows that contradict
+  // each other — "the port scanner saw this port open" and "the port scanner did not probe this port".
+  const p = await freePort();
+  const ctx = ctxOf({ open: [p], probed: [] });
+  const r = await runOn([['reset', p]], ctx);
+  assert.equal(r.failedPorts[0]?.error, 'ECONNRESET', 'precondition: the handshake was reset, not refused');
+  assert.equal(r.findings?.length, 1, JSON.stringify(r.findings));
+  assert.deepEqual(r.findings[0], tlsCoverageGap(r.failedPorts, ctx, 0), 'today\'s row, byte-identical');
+  assert.deepEqual(tlsUnprobedPortGaps(r.failedPorts, ctx), [], 'rule 1 comes first: a port in tcpOpen never gets the new row');
+});
+
 // ── The new row ────────────────────────────────────────────────────────────────────────────────────────────────────
 test('an unprobed port that RESETS gets ONE gap-only row: its port, its own class, 040\'s head, the scanner did not probe it', async () => {
   const p = await freePort();
@@ -139,7 +157,10 @@ test('an unprobed port that RESETS gets ONE gap-only row: its port, its own clas
   assert.equal(row.severity, 'info', 'INFO, the severity today\'s row carries');
   assert.equal(row.title, `[COVERAGE GAP] TLS certificate audit could not complete on ${p} (ECONNRESET)`);
   assert.doesNotMatch(row.title, /INPUT GAP/);
-  assert.match(row.detail, /the port scanner did not probe this port/i);
+  // R10 (a): the detail is a fixed sentence with no variable part, so it is held by EQUALITY (a raw error appended to it
+  // is mutant A6, which a match let through).
+  assert.equal(row.detail, 'The port scanner did not probe this port, and the TLS handshake did not complete there: the certificate, ' +
+    'chain, cipher and protocol checks did not run. This is not a pass.');
   assert.equal(row.port, p);
   assert.deepEqual({ ...row.details }, { evidenceGap: true, gapOnly: true, gapClass: UNPROBED_PORT_GAP_CLASS,
     openness: 'not-probed-by-port-scanner', code: 'ECONNRESET' });
@@ -196,6 +217,17 @@ test('a REAL handshake timeout on an unprobed port (a listener that never answer
   assert.equal(r.findings?.length, 1);
   assert.equal(r.findings[0].title, `[COVERAGE GAP] TLS certificate audit could not complete on ${p} (ETIMEDOUT)`);
   assert.equal(r.findings[0].details.code, 'ETIMEDOUT');
+});
+
+test('the CHANGELOG\'s cost (R12): a service on an unprobed port that does not speak TLS, or closes cleanly, gets the row', async () => {
+  // One scan per service. "On every scan" in the CHANGELOG is an inference from the code: the failure is the service's
+  // own answer, not a transient, so it recurs while the service is there. This leg does not measure repetition.
+  for (const [kind, code] of [['http', 'ERR_SSL_WRONG_VERSION_NUMBER'], ['banner', 'ERR_SSL_WRONG_VERSION_NUMBER'], ['fin', 'ECONNRESET']]) {
+    const p = await freePort();
+    const r = await runOn([[kind, p]], ctxOf({ open: [], probed: [] }));
+    assert.equal(r.failedPorts[0]?.error, code, `${kind}: precondition, the handshake failed without a refusal`);
+    assert.deepEqual(r.findings?.map((f) => [f.port, f.details.gapClass, f.details.code]), [[p, UNPROBED_PORT_GAP_CLASS, code]], kind);
+  }
 });
 
 // ── Written through the real scan path, read by the real report ────────────────────────────────────────────────────
@@ -367,9 +399,12 @@ test('L11 (artifacts): the code rule on the WRITTEN executive page and markdown 
     // The markdown escapes the brackets and lists the row as gap-only, on its port.
     assert.ok(md.includes(`- ${HOST}:${port} — INFO — **gap only:** ${title.replace(/[[\]]/g, (c) => `\\${c}`)}`), `the markdown lists ${title}`);
   }
-  const gapLines = (s) => s.split('\n').filter((l) => /TLS certificate audit could not complete/.test(l)).join('\n');
-  for (const s of [gapLines(page), gapLines(md)]) {
-    assert.ok(!s.includes(MESSAGE) && !s.includes('read failed'), `no text from outside the process in a gap row:\n${s}`);
+  // R10 (b): no text from outside the process ANYWHERE in what is written for these rows — the whole executive page, the
+  // whole markdown, and the written 040 findings (the loader reads 040's `detail`, report_inputs.mjs, so a leak there
+  // reaches the shaped finding and every consumer of it). Reading only the title lines let mutant A6 through.
+  for (const [label, s] of [['exec.html', page], ['markdown', md], ['040 findings as written', JSON.stringify(res040(j).findings)]]) {
+    assert.ok(!s.includes(MESSAGE), `${label}: the message from outside the process is absent`);
+    assert.ok(!s.includes('read failed'), `${label}: "read failed" is absent`);
   }
 });
 
@@ -384,19 +419,37 @@ test('L13: the port-scoped predicate — the new class and input_gap are port-sc
 });
 
 test('L13: an input_gap row from an Enterprise queue reads exactly as at HEAD; a 040 row of the new class is held on its port alone', () => {
+  // R11 (VERDICT-v409 C3): the LOADER'S shape — a 040 row is producerKind 'plugin' (report_inputs.mjs) and the run record
+  // requests 040 — or the 8883 row reads plugin-not-run and the port leg is never reached. The model is carried VERBATIM
+  // from Z/g71-r9r12-v350/r11_head_digest.mjs, whose run at CE 7864383 (HEAD before F-040) gave the two digests below.
+  const P040 = { plugin: '040', pluginName: tlsCert.name, producerKind: 'plugin' };
   const run = (id) => ({ schema: 1, runId: id, startedAt: '2026-09-21T00:00:00Z', finishedAt: '2026-09-21T01:00:00Z', hostsRequested: [HOST],
-    hostsWritten: [{ host: HOST, dir: 'd' }], pluginsRequested: ['003'], portsRequested: null, tier: 'enterprise', ceVersion: '0.2.55',
+    hostsWritten: [{ host: HOST, dir: 'd' }], pluginsRequested: ['003', '040'], portsRequested: null, tier: 'enterprise', ceVersion: '0.2.55',
     eeVersion: '1.1.0', kevLoaded: false, kevSnapshot: null, epssLoaded: false, epssSnapshot: null });
   const row = (port, title, over = {}) => ({ host: HOST, port, plugin: 'crypto_agent', pluginName: 'crypto_agent', producerKind: 'agent',
     severity: 'HIGH', title, evidenceGap: false, gapClass: null, ...over });
   const queueGap = row(443, '[COVERAGE GAP] INPUT GAP — port 443 was not measured', { severity: 'INFO', evidenceGap: true, gapClass: INPUT_GAP_CLASS });
   const ceGap = row(8883, '[COVERAGE GAP] TLS certificate audit could not complete on 8883 (ECONNRESET)',
-    { plugin: '040', pluginName: tlsCert.name, producerKind: 'plugin', severity: 'INFO', evidenceGap: true, gapClass: UNPROBED_PORT_GAP_CLASS });
+    { ...P040, severity: 'INFO', evidenceGap: true, gapClass: UNPROBED_PORT_GAP_CLASS });
   assert.deepEqual([...portsNotMeasured([queueGap, ceGap]).keys()], [portGapKey(HOST, 443), portGapKey(HOST, 8883)]);
-  const base = [row(443, 'weak cipher on 443'), row(22, 'weak kex on 22'), row(8883, 'expired cert', { plugin: '040', pluginName: tlsCert.name })];
-  const d = buildScanDelta({ baseline: { record: run('A'), findings: base, pluginStatus: [] },
-    current: { record: run('B'), findings: [queueGap, ceGap], pluginStatus: [] } });
-  const nc = (d.notComparable ?? []).map((f) => `${f.port}:${f.reason}`).sort();
-  assert.deepEqual(nc, [`443:${PROBE_NOT_MEASURED_REASON}`, `8883:${PROBE_NOT_MEASURED_REASON}`], JSON.stringify(d.notComparable));
-  assert.deepEqual((d.resolved ?? []).map((f) => f.port), [22], 'a measured port still resolves beside both gaps');
+  const base = [row(443, 'weak cipher on 443'), row(22, 'weak kex on 22'), row(8883, 'expired cert', P040),
+    row(443, 'expired cert on 443', P040), row(993, 'expired cert on 993', P040)];
+  const delta = (b, c) => buildScanDelta({ baseline: { record: run('A'), findings: b, pluginStatus: [] },
+    current: { record: run('B'), findings: c, pluginStatus: [] } });
+  const sha = (d) => crypto.createHash('sha256').update(JSON.stringify(d)).digest('hex').slice(0, 16);
+  const read = (a) => (a ?? []).map((f) => `${f.plugin}:${f.port}:${f.reason ?? ''}`).sort();
+  // (1) input_gap alone, both directions: the WHOLE delta hashes to what 7864383 gives the same input (DECLARED oracle).
+  const gapInCurrent = delta(base, [queueGap]);
+  const gapInBaseline = delta([queueGap], base);
+  assert.deepEqual([sha(gapInCurrent), sha(gapInBaseline)], ['167cdf362c948665', '91431e8c1c538157'],
+    `the input_gap-only readings as at HEAD:\n${JSON.stringify(read(gapInCurrent.notComparable))}\n${JSON.stringify(read(gapInBaseline.notComparable))}`);
+  assert.deepEqual(read(gapInCurrent.notComparable), [`040:443:${PROBE_NOT_MEASURED_REASON}`, `crypto_agent:443:${PROBE_NOT_MEASURED_REASON}`],
+    'premise: the input_gap holds every producer\'s rows on 443, 040\'s included');
+  // (2) with the new row: 8883 is held on its own port; 040's row on a MEASURED port (993) is not held by it and resolves.
+  // At 7864383 the same input read 040:443, 040:8883 and 040:993 as evidence-gap (the whole producer held) — the record.
+  const d = delta(base, [queueGap, ceGap]);
+  assert.deepEqual(read(d.notComparable), [`040:443:${PROBE_NOT_MEASURED_REASON}`, `040:8883:${PROBE_NOT_MEASURED_REASON}`,
+    `crypto_agent:443:${PROBE_NOT_MEASURED_REASON}`], JSON.stringify(d.notComparable));
+  assert.deepEqual(read(d.resolved), ['040:993:', 'crypto_agent:22:'], 'a measured port still resolves beside both gaps, 040\'s own row included');
+  assert.deepEqual(read(d.newFindings), []);
 });
