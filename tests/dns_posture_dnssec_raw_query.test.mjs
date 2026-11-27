@@ -22,7 +22,10 @@ import dgram from 'node:dgram';
 import net from 'node:net';
 import dnsCallback from 'node:dns';
 import { calls, runDnssec, plugin, queriesOf } from './helpers/dnssec_harness.mjs';
-import { startFakeDns, zoneHandler, T, shortReply, pointerLoopReply, countOverflowReply } from './helpers/fake_dns_server.mjs';
+import {
+  startFakeDns, zoneHandler, T, buildReply, shortReply, pointerLoopReply, countOverflowReply,
+  labelThenPointerToOwnStartReply, labelThenPointerToQuestionReply,
+} from './helpers/fake_dns_server.mjs';
 
 const APEX = 'example.test';
 const KEYS = { answers: [{ type: 'DNSKEY' }, { type: 'DNSKEY' }] };
@@ -217,9 +220,22 @@ for (const [what, over, entry] of L3D) {
 }
 
 // ── L3e: a hostile reply ends in an error within a bound, and the scan finishes ─────────────────
+// EE VERDICT-v418 C2, accept FIRST: an owner written as a label, then a pointer to an EARLIER name (`03 77 77 77 C0 0C`,
+// www + the question's name) is the commonest compressed owner a real server sends, and it still decides. The owner name is
+// not compared with the question (a stated limit in 060's header), so this reply reads as the DNSKEY it carries.
+test('L3e (accept): an owner that is a label, then a pointer to the question name at offset 12, parses and decides', async () => {
+  await withServer({ handler: zone({ [`${APEX} DNSKEY`]: (q) => ({ raw: labelThenPointerToQuestionReply(q) }) }) }, async (s) => {
+    MEASURED_ACTIVE(await runDnssec(APEX, [s.entry]));
+  });
+  const q = { id: 7, flags: 0x0100, name: APEX, type: T.DNSKEY, cls: 1 };
+  assert.deepEqual(plugin.parseDnsAnswerTypes(labelThenPointerToQuestionReply(q)), { rcode: 0, types: ['48'] });
+});
 const L3E = [
   ['a reply under 12 bytes (cannot match)', (q) => ({ raw: shortReply(q) }), 'DNSKEY:ETIMEOUT'],
   ['a compression pointer to itself', (q) => ({ raw: pointerLoopReply(q) }), 'DNSKEY:EBADRESP'],
+  // EE VERDICT-v418 C2: the pointer is bounded at the START OF THE NAME it ends, not at the pointer. 6934439 read this owner
+  // as a DNSKEY and wrote dnssec_active (measured, EE audit-evidence-samples/ee-2.2.1/z1/architect-v418/drive_r2_pointer.out).
+  ['a label, then a pointer to the start of the same name', (q) => ({ raw: labelThenPointerToOwnStartReply(q) }), 'DNSKEY:EBADRESP'],
   ['ANCOUNT larger than the message', (q) => ({ raw: countOverflowReply(q) }), 'DNSKEY:EBADRESP'],
 ];
 for (const [what, reply, entry] of L3E) {
@@ -235,7 +251,7 @@ for (const [what, reply, entry] of L3E) {
 test('L3e: the REAL parseDnsAnswerTypes rejects each hostile shape within a bound', () => {
   assert.equal(typeof plugin.parseDnsAnswerTypes, 'function', '060 does not export its reply parser, so no leg can drive it');
   const q = { id: 7, flags: 0x0100, name: APEX, type: T.DNSKEY, cls: 1 };
-  for (const m of [shortReply(q), pointerLoopReply(q), countOverflowReply(q)]) {
+  for (const m of [shortReply(q), pointerLoopReply(q), labelThenPointerToOwnStartReply(q), countOverflowReply(q)]) {
     const t0 = Date.now();
     assert.throws(() => plugin.parseDnsAnswerTypes(m));
     assert.ok(Date.now() - t0 < 50);
@@ -390,6 +406,136 @@ test('Q3: the first decides the walk then falls silent; the second decides DNSKE
       const one = await runDnssec(APEX, [r2.entry]);
       assert.equal(one.dnssec.resolverCount, 1);
       assert.equal(r.result.findings.dnssec[0].detail, one.result.findings.dnssec[0].detail, 'the count stays out of the row\'s sentence');
+    });
+  });
+});
+
+// ── EE VERDICT-v418 C1: a SERVFAIL the probe held vetoes the PASS ──────────────────────────────────────────────────
+// A validating resolver's SERVFAIL is the only sign of a bogus chain this probe can see, since it validates no signature
+// itself. So when any matched reply the probe read carried rcode 2, the PASS row (dnssec_active) is NOT written: ONE
+// not-measured entry names the first such query, and both has* are null. The three MEDIUM rows stand — they fail toward a
+// finding. Only rcode 2 vetoes. Stated limit: a resolver later in the list is not asked once an earlier one decides, so its
+// SERVFAIL is never seen (leg (iv), pinned and not endorsed). Before the fix (CE 6934439) leg (i) read dnssec_active and
+// recorded nothing about the SERVFAIL (EE audit-evidence-samples/ee-2.2.1/z1/architect-v418/drive_r1_servfail.out).
+const rcodeEverywhere = (rcode) => ({ handler: () => ({ rcode }) });
+test('C1 (ii, fourth quadrant first): [A REFUSED, B signed] — dnssec_active stands, servfail false; details.dnssec carries servfail', async () => {
+  await withServer(rcodeEverywhere(5), async (a) => {
+    await withServer({ handler: zone() }, async (b) => {
+      const r = await runDnssec(APEX, [a.entry, b.entry]);
+      MEASURED_ACTIVE(r);
+      assert.equal(r.dnssec.servfail, false);
+      assert.equal(a.log.length, 1, 'A was asked and refused');
+      assert.deepEqual(Object.keys(r.dnssec).sort(), ['alias', 'hasDNSKEY', 'hasDS', 'resolverCount', 'servfail', 'zone']);
+    });
+  });
+});
+test('C1 (i): [A SERVFAIL, B signed] — no row, ONE entry SOA:<apex>:ESERVFAIL, has* null, up false, "DNSSEC not measured"', async () => {
+  await withServer(rcodeEverywhere(2), async (a) => {
+    await withServer({ handler: zone() }, async (b) => {
+      const r = await runDnssec(APEX, [a.entry, b.entry]);
+      assert.deepEqual(r.rows, [], 'never a PASS over a SERVFAIL the probe held');
+      assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`SOA:${APEX}:ESERVFAIL`]);
+      assert.equal(r.dnssec.hasDNSKEY, null);
+      assert.equal(r.dnssec.hasDS, null);
+      assert.equal(r.dnssec.servfail, true);
+      assert.equal(r.result.up, false);
+      assert.equal(r.line, 'DNSSEC not measured (ESERVFAIL)');
+      assert.ok(askedFor(b, T.DNSKEY) === 1 && askedFor(b, T.DS) === 1, 'B decided the apex, DNSKEY and DS');
+    });
+  });
+});
+test('C1 (iii): [A SERVFAIL, B unsigned] — no_dnssec stands (a MEDIUM row is never vetoed), servfail true', async () => {
+  await withServer(rcodeEverywhere(2), async (a) => {
+    await withServer({ handler: zoneHandler(UNSIGNED) }, async (b) => {
+      const r = await runDnssec(APEX, [a.entry, b.entry]);
+      assert.deepEqual(r.rows, ['no_dnssec']);
+      assert.deepEqual(r.nm, []);
+      assert.equal(r.dnssec.servfail, true);
+    });
+  });
+});
+test('C1: the entry names the query that was SENT — a SERVFAIL on DNSKEY alone reads DNSKEY:<apex>:ESERVFAIL', async () => {
+  await withServer({ handler: zone({ [`${APEX} DNSKEY`]: { rcode: 2 } }) }, async (a) => {
+    await withServer({ handler: zone() }, async (b) => {
+      const r = await runDnssec(APEX, [a.entry, b.entry]);
+      assert.deepEqual(r.rows, []);
+      assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`DNSKEY:${APEX}:ESERVFAIL`]);
+      assert.equal(r.dnssec.hasDNSKEY, null);
+      assert.equal(r.dnssec.hasDS, null);
+      assert.equal(askedFor(b, T.DNSKEY), 1, 'B answered the DNSKEY question A SERVFAILed');
+    });
+  });
+});
+test('C1: two SERVFAILs — the entry names the FIRST (a walk step below the apex), not the later DNSKEY one', async () => {
+  const HOST = `www.${APEX}`;
+  // A: SERVFAILs the walk at the target and DNSKEY at the apex; answers the apex SOA and DS. B: no SOA at the target,
+  // REFUSES the apex SOA (so A decides it and DNSKEY goes to A first), answers DNSKEY. Every step is sequential but the
+  // last two, so the order of the two SERVFAILs is fixed.
+  await withServer({ handler: zone({ [`${HOST} SOA`]: { rcode: 2 }, [`${APEX} DNSKEY`]: { rcode: 2 } }) }, async (a) => {
+    await withServer({ handler: zone({ [`${APEX} SOA`]: { rcode: 5 } }) }, async (b) => {
+      const r = await runDnssec(HOST, [a.entry, b.entry]);
+      assert.deepEqual(r.rows, []);
+      assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`SOA:${HOST}:ESERVFAIL`]);
+      assert.equal(askedFor(a, T.DNSKEY), 1, 'A SERVFAILed DNSKEY too — the later SERVFAIL exists and is not the one named');
+      assert.equal(askedFor(b, T.DNSKEY), 1);
+    });
+  });
+});
+test('C1: servfail is a boolean on a walk-gap return too — true for a SERVFAIL walk step, false for a silent resolver', async () => {
+  await withServer(rcodeEverywhere(2), async (a) => {
+    const r = await runDnssec(APEX, [a.entry]);
+    assertWalkGap(r, APEX, 'ESERVFAIL');
+    assert.equal(r.dnssec.servfail, true);
+  });
+  const r = await runDnssec(APEX, [`127.0.0.1:${await closedUdpPort()}`], { timeoutMs: 400 });
+  assertWalkGap(r, APEX, 'ETIMEOUT');
+  assert.equal(r.dnssec.servfail, false);
+});
+// A matched reply's rcode is read from its HEADER, whatever else the reply is: a TC=1 reply (which never decides) and a reply
+// the parser rejects (EBADRESP) are still matched replies, and a SERVFAIL among them vetoes the PASS. Found by the (b2)
+// fresh-reader review, driven: before this, each of the three shapes below read dnssec_active with servfail false.
+const tcpRefused = (spec) => ({ handler: zone({ [`${APEX} DNSKEY`]: spec }), tcp: false });
+test('C1 (accept, first): a TC=1 reply with rcode 0 (TCP refused), and an unparseable rcode-0 reply, do NOT veto — dnssec_active, servfail false', async () => {
+  for (const a of [tcpRefused({ answers: [], tc: true }), { handler: zone({ [`${APEX} DNSKEY`]: (q) => ({ raw: pointerLoopReply(q) }) }) }]) {
+    await withServer(a, async (s) => {
+      await withServer({ handler: zone() }, async (b) => {
+        const r = await runDnssec(APEX, [s.entry, b.entry]);
+        MEASURED_ACTIVE(r);
+        assert.equal(r.dnssec.servfail, false);
+        assert.equal(askedFor(b, T.DNSKEY), 1, 'A did not decide DNSKEY; B did');
+      });
+    });
+  }
+});
+/** A matched SERVFAIL whose ANCOUNT says one record and which carries none: the parser rejects it (EBADRESP). */
+function malformedServfail(q) {
+  const m = buildReply(q, { rcode: 2, answers: [] });
+  m.writeUInt16BE(1, 6);
+  return m;
+}
+for (const [what, a] of [
+  ['A1: TC=1 with rcode 2, then TCP refused', tcpRefused({ answers: [], tc: true, rcode: 2 })],
+  ['A2: TC=1, then TCP truncated again with rcode 2', { handler: zone({ [`${APEX} DNSKEY`]: (q, info) => ({ answers: [], tc: true, ...(info.transport === 'tcp' ? { rcode: 2 } : {}) }) }) }],
+  ['A3: a SERVFAIL the parser rejects (ANCOUNT 1, no record)', { handler: zone({ [`${APEX} DNSKEY`]: (q) => ({ raw: malformedServfail(q) }) }) }],
+]) {
+  test(`C1: ${what} — the SERVFAIL is read from the header and vetoes the PASS: DNSKEY:<apex>:ESERVFAIL`, async () => {
+    await withServer(a, async (s) => {
+      await withServer({ handler: zone() }, async (b) => {
+        const r = await runDnssec(APEX, [s.entry, b.entry]);
+        assert.deepEqual(r.rows, [], 'never a PASS over a matched SERVFAIL');
+        assert.deepEqual(r.nmRaw.map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`DNSKEY:${APEX}:ESERVFAIL`]);
+        assert.equal(r.dnssec.servfail, true);
+      });
+    });
+  });
+}
+test('C1 (iv) STATED LIMIT — PINNED, NOT ENDORSED: [B signed, A SERVFAIL] — B decides first, A is never asked, dnssec_active', async () => {
+  await withServer({ handler: zone() }, async (b) => {
+    await withServer(rcodeEverywhere(2), async (a) => {
+      const r = await runDnssec(APEX, [b.entry, a.entry]);
+      MEASURED_ACTIVE(r);
+      assert.equal(r.dnssec.servfail, false);
+      assert.equal(a.log.length, 0, 'a resolver later in the list is not asked once an earlier one decides — its SERVFAIL is never seen');
     });
   });
 });

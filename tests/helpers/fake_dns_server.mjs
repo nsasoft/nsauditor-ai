@@ -132,6 +132,21 @@ export function pointerLoopReply(q) {
   fixed.writeUInt16BE(1, 2);
   return Buffer.concat([head, ptr, fixed]);
 }
+/** One answer of the queried type (RDATA empty) whose owner name is `ownerAt(at)`'s bytes, `at` being the owner's own
+ *  offset (EE VERDICT-v418 C2). */
+export function ownerNameReply(q, ownerAt) {
+  const head = buildReply(q, { answers: [] });
+  head.writeUInt16BE(1, 6);
+  const fixed = Buffer.alloc(10);
+  fixed.writeUInt16BE(q.type, 0);
+  fixed.writeUInt16BE(1, 2);
+  return Buffer.concat([head, Buffer.from(ownerAt(head.length)), fixed]);
+}
+/** The owner is a label, then a pointer to the START OF ITS OWN NAME — "strictly backwards" from the pointer, and a loop. */
+export const labelThenPointerToOwnStartReply = (q) => ownerNameReply(q, (at) => [1, 0x61, 0xc0 | (at >> 8), at & 0xff]);
+/** The owner is `www`, then a pointer to the question's name at offset 12 — the commonest compressed owner a real server
+ *  sends. It must parse. */
+export const labelThenPointerToQuestionReply = (q) => ownerNameReply(q, () => [3, 0x77, 0x77, 0x77, 0xc0, 0x0c]);
 /** ANCOUNT far larger than the records the message carries. */
 export function countOverflowReply(q) {
   const m = buildReply(q, { answers: [{ type: q.type }] });

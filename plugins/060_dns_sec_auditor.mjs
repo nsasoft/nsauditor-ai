@@ -731,8 +731,23 @@ async function analyzeNS(records, host, notMeasured) {
 //   absent DNSKEY,  present DS → dnssec_ds_without_dnskey  (MEDIUM)
 //   present DNSKEY, present DS → dnssec_active             (PASS)
 // and an unknown on either side is one not-measured entry per unknown type and NO row; that side's has* is null.
+//
+// A SERVFAIL VETOES THE PASS (EE VERDICT-v418 C1). A validating resolver's SERVFAIL is the only sign of a bogus chain this
+// probe can see, since it validates no signature itself. So when any matched reply the probe read carried rcode 2 in its
+// header — a walk step, DNSKEY or DS, at any resolver, over UDP or TCP, with TC=1 or not, and whether or not the rest of
+// the reply parses — the dnssec_active cell writes NO row and ONE not-measured entry naming the first
+// such query (its rrtype and name, code ESERVFAIL), with both has* null. The three MEDIUM rows stand: they fail toward a
+// finding. Only rcode 2 vetoes — REFUSED, FORMERR, NOTIMP and a timeout do not. details.dnssec.servfail says whether any
+// reply was a SERVFAIL, on every return. Stated limit: a resolver later in the list is not asked once an earlier one
+// decides, so its SERVFAIL is never seen.
+//
+// Stated limits of the reply reader (parseDnsAnswerTypes): an answer record's owner name and class are not compared with
+// the question, and a compression pointer's target is not checked to be a name boundary — only that it points before the
+// start of the name it ends. The reader never follows a pointer and skips RDATA, so a loop that runs through an earlier
+// record's RDATA (that RDATA pointing forward to a later owner which points back into it) is not seen.
 
 const DNS_QTYPE = Object.freeze({ SOA: 6, DS: 43, DNSKEY: 48 });
+const DNS_QTYPE_NAME = Object.freeze(Object.fromEntries(Object.entries(DNS_QTYPE).map(([k, v]) => [v, k])));
 const DNS_RCODE_CODE = Object.freeze({ 1: "EFORMERR", 2: "ESERVFAIL", 4: "ENOTIMP", 5: "EREFUSED" });
 const ALIAS_TYPES = new Set(["CNAME", "39"]); // 39 = DNAME (parseDnsAnswerTypes names types it does not know by number)
 // One UDP or TCP attempt waits min(1999, max(100, floor(timeoutMs / 4))) ms and never past the shared deadline; a reply after
@@ -879,14 +894,19 @@ async function askOneResolver(server, name, qtype, ctx) {
     if (udp.m || udp.code !== "ETIMEOUT") break; // a send or socket error is not a lost datagram: no retry
   }
   if (!udp.m) return { code: udp.code, skip: true };
+  // EE VERDICT-v418 C1: a matched message's rcode is read from its HEADER, whatever else it is — a TC=1 reply (which never
+  // decides) and one the parser rejects are still matched replies, and a SERVFAIL among them is kept (`servfail`).
+  let servfail = (udp.m[3] & 0x0f) === 2;
+  const out = (r) => (servfail ? { ...r, servfail } : r);
   const reply = readReply(udp.m);
-  if (reply.code || !reply.tc) return reply.code ? { code: reply.code } : { reply };
+  if (reply.code || !reply.tc) return out(reply.code ? { code: reply.code } : { reply });
   // A TC=1 reply never decides, whatever it carries; TCP's reply, matched the same way, is the one read.
   const tcp = await tcpAttempt(server, query, matches, ctx);
-  if (!tcp.m) return { code: tcp.code };
+  if (!tcp.m) return out({ code: tcp.code });
+  servfail ||= (tcp.m[3] & 0x0f) === 2;
   const again = readReply(tcp.m);
-  if (again.code) return { code: again.code };
-  return again.tc ? { code: "ETRUNCATED" } : { reply: again };
+  if (again.code) return out({ code: again.code });
+  return out(again.tc ? { code: "ETRUNCATED" } : { reply: again });
 }
 
 /** Asks the configured resolvers — the preferred one first, then getServers() order; `decide(reply)` → { state, code? }.
@@ -902,6 +922,8 @@ async function askResolvers(name, qtype, ctx, decide) {
     const server = parseResolverEntry(entry);
     const r = server ? await askOneResolver(server, name, qtype, ctx) : { code: "EBADSERVER", skip: true };
     if (r.skip) ctx.skipped.set(entry, r.code);
+    // EE VERDICT-v418 C1: the first question a matched reply SERVFAILed is kept — it vetoes dnssec_active (probeDNSSEC).
+    if (r.servfail) ctx.servfail ??= { rrtype: DNS_QTYPE_NAME[qtype], name };
     const out = r.reply ? decide(r.reply) : { state: "unknown", code: r.code };
     if (out.state !== "unknown") {
       ctx.preferred = entry;
@@ -972,11 +994,12 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
     skipped: new Map(),
     preferred: null,
     deciders: new Set(),
+    servfail: null, // { rrtype, name } of the first question a matched reply SERVFAILed (askResolvers)
   };
   const walk = await findZoneApex(target, ctx);
   if (walk.notMeasured) {
     for (const e of walk.notMeasured) notMeasured.push({ check: "dnssec", rrtype: e.rrtype, name: e.name, code: e.code });
-    return { hasDNSKEY: null, hasDS: null, zone: null, alias: false, resolverCount: ctx.deciders.size, issues };
+    return { hasDNSKEY: null, hasDS: null, zone: null, alias: false, resolverCount: ctx.deciders.size, servfail: ctx.servfail !== null, issues };
   }
   const { apex, alias } = walk;
   const [dnskey, ds] = await Promise.all([
@@ -984,6 +1007,11 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
     askResolvers(apex, DNS_QTYPE.DS, ctx, decideRecord(DNS_QTYPE.DS)),
   ]);
   const outcome = dnssecOutcome(dnskey, ds);
+  if (outcome.row === "dnssec_active" && ctx.servfail !== null) {
+    // EE VERDICT-v418 C1: a PASS is never written over a SERVFAIL the probe read — no row, ONE entry naming that query.
+    notMeasured.push({ check: "dnssec", rrtype: ctx.servfail.rrtype, name: ctx.servfail.name, code: "ESERVFAIL" });
+    return { hasDNSKEY: null, hasDS: null, zone: apex, alias, resolverCount: ctx.deciders.size, servfail: true, issues };
+  }
   for (const u of outcome.unknown) notMeasured.push({ check: "dnssec", rrtype: u.rrtype, name: apex, code: u.code });
   const where = dnssecZoneWords(target, apex, alias);
   const reported = "as reported by the configured resolver; signatures not validated";
@@ -1012,7 +1040,7 @@ export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
       detail: `DNSKEY and DS records present for ${where}, ${reported}`,
     });
   }
-  return { hasDNSKEY: outcome.hasDNSKEY, hasDS: outcome.hasDS, zone: apex, alias, resolverCount: ctx.deciders.size, issues };
+  return { hasDNSKEY: outcome.hasDNSKEY, hasDS: outcome.hasDS, zone: apex, alias, resolverCount: ctx.deciders.size, servfail: ctx.servfail !== null, issues };
 }
 
 // ── Module 8: Zone Transfer Check (AXFR) ────────────────────────────────────
@@ -1088,7 +1116,9 @@ async function checkZoneTransfer(host, nameservers, config, notMeasured) {
 const RR_TYPE_NAME = { 1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT", 28: "AAAA", 33: "SRV", 257: "CAA" };
 /** The RCODE and the answer records' types, in order, of one DNS message (no TCP length prefix). Throws on a malformed one.
  *  It never follows a compression pointer (a pointer ends a name), so a pointer loop cannot hold it. Since G-75 it also reads
- *  replies from the configured resolver, not only from a nameserver the operator opted in to. */
+ *  replies from the configured resolver, not only from a nameserver the operator opted in to. Stated limits: an answer
+ *  record's owner name and class are not compared with the question, and a pointer's target is not checked to be a name
+ *  boundary. */
 export function parseDnsAnswerTypes(m) {
   if (m.length < 12) throw new Error("short header");
   const rcode = m.readUInt8(3) & 0x0f;
@@ -1101,10 +1131,12 @@ export function parseDnsAnswerTypes(m) {
       if (len === 0) return o + 1;
       if ((len & 0xc0) === 0xc0) {
         if (o + 2 > m.length) throw new Error("pointer past end");
-        // A pointer names an EARLIER occurrence (RFC 1035 4.1.4): one that points at itself or forward is a loop or a
-        // forgery, even though this reader never follows it.
+        // A pointer names an EARLIER occurrence (RFC 1035 4.1.4): it must point before the start of the name it ends.
+        // One that points at that start, inside the name (a label, then a pointer back to the label) or forward is a loop
+        // or a forgery, even though this reader never follows it (EE VERDICT-v418 C2: bounding it at the pointer instead
+        // let `01 61 C0 <start of this name>` through). Stated limit: the target is not checked to be a name boundary.
         const target = ((len & 0x3f) << 8) | m.readUInt8(o + 1);
-        if (target < 12 || target >= o) throw new Error("pointer not backwards");
+        if (target < 12 || target >= at) throw new Error("pointer not before the name");
         return o + 2;
       }
       if ((len & 0xc0) !== 0) throw new Error("reserved label type");
@@ -1503,7 +1535,7 @@ export default {
         dkimSelectors: dkim.selectors,
         nameservers: nsCheck.nameservers,
         mxRecords: mx.mxRecords,
-        dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS, zone: dnssec.zone, alias: dnssec.alias, resolverCount: dnssec.resolverCount },
+        dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS, zone: dnssec.zone, alias: dnssec.alias, resolverCount: dnssec.resolverCount, servfail: dnssec.servfail },
         // The zone-transfer check: true when it ran, else why it did not ('opt-in-off', 'no-nameservers').
         axfrTested: axfr.tested,
         notMeasured,

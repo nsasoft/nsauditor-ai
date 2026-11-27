@@ -166,6 +166,35 @@ test('(accept) the same builder with every pointer at offset 12 is the complete 
   assert.deepEqual(checks, ['axfr_open:critical']);
   assert.equal(ns(NS1).outcome, 'transferred');
 });
+// EE VERDICT-v418 C2: the bound is the START OF THE NAME the pointer ends, not the pointer. `01 61 C0 <start of this name>`
+// points "strictly backwards" from the pointer and is a loop; CE 6934439 still graded such a reply transferred → axfr_open
+// CRITICAL, the T2 defect with one more label in front (measured on the parser: EE
+// audit-evidence-samples/ee-2.2.1/z1/architect-v418/drive_r2_pointer.out).
+/** One TCP-framed RCODE-0 reply, answers SOA A SOA, each owner name the bytes `owner(offset of that owner)`. */
+function ownerReply(owner) {
+  const hdr = Buffer.alloc(12);
+  hdr.writeUInt16BE(0x1234, 0); hdr.writeUInt16BE(0x8400, 2); hdr.writeUInt16BE(1, 4); hdr.writeUInt16BE(3, 6);
+  const parts = [hdr, qname(ZONE), u16(252), u16(1)];
+  let o = 12 + qname(ZONE).length + 4;
+  for (const t of ['SOA', 'A', 'SOA']) {
+    const name = Buffer.from(owner(o));
+    parts.push(name, u16(TYPE[t]), u16(1), Buffer.from([0, 0, 1, 44]), u16(4), Buffer.from([192, 0, 2, 1]));
+    o += name.length + 14;
+  }
+  const body = Buffer.concat(parts);
+  return Buffer.concat([u16(body.length), body]);
+}
+test('(accept, first) owners written as a label, then a pointer to the question name at offset 12, are still the complete transfer', async () => {
+  const { checks, ns } = await axfr({ chunks: [ownerReply(() => [3, 0x77, 0x77, 0x77, 0xc0, 0x0c])] });
+  assert.deepEqual(checks, ['axfr_open:critical'], 'the commonest compressed owner a real server sends must parse');
+  assert.equal(ns(NS1).outcome, 'transferred');
+});
+test('a transfer whose owners are a label, then a pointer to the start of the same name, is unparseable: no finding, no-answer EBADRESP, not measured', async () => {
+  const { checks, ns, result } = await axfr({ chunks: [ownerReply((o) => [1, 0x61, 0xc0 | (o >> 8), o & 0xff])] });
+  assert.deepEqual(checks, [], 'never axfr_open from a pointer loop');
+  assert.deepEqual(ns(NS1), { attempted: true, address: '192.0.2.53', outcome: 'no-answer', code: 'EBADRESP' });
+  assert.deepEqual(result.details.notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.name}:${e.code}`), [`axfr:AXFR:${NS1}:EBADRESP`]);
+});
 
 // ── ANSWERED, NOT TRANSFERRED ──────────────────────────────────────────────────────────────────────────────────────────
 test('an SOA alone is answered-not-transferred — LOW, never axfr_open', async () => {
