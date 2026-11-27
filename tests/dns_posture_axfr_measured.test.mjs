@@ -26,6 +26,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -85,11 +86,17 @@ net.createConnection = (opts, onConnect) => {
   return s;
 };
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same table, or this file sends real UDP to the machine's resolver.
+await serveTable(answer);
+// Every zone has an SOA at its apex. Since G-75 (b) the DNSSEC check walks up to it by raw DNS; a table with NS records
+// and no SOA reads ENOAPEX (DNSSEC not measured), which is not this file's subject — so each table carries one.
+const APEX_SOA = { [`SOA ${ZONE}`]: { nsname: `ns1.${ZONE}`, hostmaster: `hostmaster.${ZONE}`, serial: 1 } };
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 const NS1 = `ns1.${ZONE}`;
 async function axfr(plan, { nsExtra = {}, opts = {} } = {}) {
-  TABLE = { [`NS ${ZONE}`]: [NS1, ...Object.keys(nsExtra)], [`A ${NS1}`]: ['192.0.2.53'], ...Object.fromEntries(
+  TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: [NS1, ...Object.keys(nsExtra)], [`A ${NS1}`]: ['192.0.2.53'], ...Object.fromEntries(
     Object.entries(nsExtra).flatMap(([n, v]) => Object.entries(v).map(([t, a]) => [`${t} ${n}`, a]))) };
   SERVERS = { '192.0.2.53': plan };
   const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 80, ...opts });
@@ -122,6 +129,44 @@ test('a transfer the server ends WITHOUT its closing SOA is still transferred �
   assert.deepEqual([result.findings.axfr[0].records, result.findings.axfr[0].complete], [3, false], 'the cut is named on the finding');
 });
 
+// ── A REPLY WHOSE POINTER DOES NOT POINT BACKWARDS IS UNPARSEABLE (G-75 (b); EE VERDICT-v417 T2) ──────────────────────
+// RFC 1035 4.1.4: a compression pointer names a PRIOR occurrence. Community 1.2.0 never checked where one points, so it read
+// the record types behind a pointer to itself, forward, or into the header, and graded such a reply a complete transfer —
+// axfr_open CRITICAL — from bytes no conforming server sends (measured on the 1.2.0 tarball: EE
+// audit-evidence-samples/ee-2.2.1/z1/g75-t2-v355). Now the reply is unparseable: no finding, outcome no-answer EBADRESP,
+// the AXFR check recorded not measured. The well-formed reply (pointer to the question name, offset 12) is the (first) leg.
+/** One TCP-framed RCODE-0 reply, answers SOA A SOA, each owner name a pointer to `target(offset of that pointer)`. */
+function pointerReply(target) {
+  const hdr = Buffer.alloc(12);
+  hdr.writeUInt16BE(0x1234, 0); hdr.writeUInt16BE(0x8400, 2); hdr.writeUInt16BE(1, 4); hdr.writeUInt16BE(3, 6);
+  const parts = [hdr, qname(ZONE), u16(252), u16(1)];
+  let o = 12 + qname(ZONE).length + 4;
+  for (const t of ['SOA', 'A', 'SOA']) {
+    const to = target(o);
+    parts.push(Buffer.from([0xc0 | (to >> 8), to & 0xff]), u16(TYPE[t]), u16(1), Buffer.from([0, 0, 1, 44]), u16(4), Buffer.from([192, 0, 2, 1]));
+    o += 16;
+  }
+  const body = Buffer.concat(parts);
+  return Buffer.concat([u16(body.length), body]);
+}
+for (const [label, target] of [
+  ['points at itself', (o) => o],
+  ['points forward', (o) => o + 2],
+  ['points into the header', () => 4],
+]) {
+  test(`a transfer whose owner-name pointer ${label} is unparseable: no finding, no-answer EBADRESP, the AXFR check not measured`, async () => {
+    const { checks, ns, result } = await axfr({ chunks: [pointerReply(target)] });
+    assert.deepEqual(checks, [], 'never axfr_open from a malformed reply');
+    assert.deepEqual(ns(NS1), { attempted: true, address: '192.0.2.53', outcome: 'no-answer', code: 'EBADRESP' });
+    assert.deepEqual(result.details.notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.name}:${e.code}`), [`axfr:AXFR:${NS1}:EBADRESP`]);
+  });
+}
+test('(accept) the same builder with every pointer at offset 12 is the complete transfer — the builder is not what refuses', async () => {
+  const { checks, ns } = await axfr({ chunks: [pointerReply(() => 12)] });
+  assert.deepEqual(checks, ['axfr_open:critical']);
+  assert.equal(ns(NS1).outcome, 'transferred');
+});
+
 // ── ANSWERED, NOT TRANSFERRED ──────────────────────────────────────────────────────────────────────────────────────────
 test('an SOA alone is answered-not-transferred — LOW, never axfr_open', async () => {
   const { checks, ns, result } = await axfr(full({ types: ['SOA'] }));
@@ -148,7 +193,7 @@ async function identityOf(issue) {
   return [s.title, s.contentDigest];
 }
 test('(first) the detail still names its nameserver — two open nameservers are two findings, never one', async () => {
-  TABLE = { [`NS ${ZONE}`]: [NS1, `ns2.${ZONE}`], [`A ${NS1}`]: ['192.0.2.53'], [`A ns2.${ZONE}`]: ['192.0.2.54'] };
+  TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: [NS1, `ns2.${ZONE}`], [`A ${NS1}`]: ['192.0.2.53'], [`A ns2.${ZONE}`]: ['192.0.2.54'] };
   SERVERS = { '192.0.2.53': full({ types: ['SOA', 'A', 'SOA'] }), '192.0.2.54': full({ types: ['SOA', 'A', 'SOA'] }) };
   const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 80 });
   const open = result.findings.axfr.filter((i) => i.check === 'axfr_open');
@@ -182,7 +227,7 @@ test('axfr_answered_not_transferred: what came back is on the finding, and its w
 // arrive in.
 test('(first) answers that arrive out of order are each attributed to their own nameserver, findings in nameserver order', async () => {
   const [NS2, NS3] = [`ns2.${ZONE}`, `ns3.${ZONE}`];
-  TABLE = { [`NS ${ZONE}`]: [NS1, NS2, NS3], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'], [`A ${NS3}`]: ['192.0.2.55'] };
+  TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: [NS1, NS2, NS3], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'], [`A ${NS3}`]: ['192.0.2.55'] };
   SERVERS = { '192.0.2.53': { ...full({ types: ['SOA', 'A', 'SOA'] }), delayMs: 40 }, '192.0.2.54': full({ rcode: 5, types: [] }),
     '192.0.2.55': { ...full({ types: ['SOA'] }), delayMs: 15 } };
   const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 400 });
@@ -194,7 +239,7 @@ test('(first) answers that arrive out of order are each attributed to their own 
 });
 test('six silent nameservers are six attempts in flight at once — each its own no-answer, in nameserver order', async () => {
   const names = [1, 2, 3, 4, 5, 6].map((i) => `ns${i}.${ZONE}`);
-  TABLE = { [`NS ${ZONE}`]: names, ...Object.fromEntries(names.map((n, i) => [`A ${n}`, [`192.0.2.${60 + i}`]])) };
+  TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: names, ...Object.fromEntries(names.map((n, i) => [`A ${n}`, [`192.0.2.${60 + i}`]])) };
   SERVERS = Object.fromEntries(names.map((_, i) => [`192.0.2.${60 + i}`, { silent: true }]));
   MAX_OPEN = 0;
   const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 80 });
@@ -206,7 +251,7 @@ test('six silent nameservers are six attempts in flight at once — each its own
 
 test('an attempt that throws while an earlier one is still waiting fails the run as before — never an unhandled rejection', async () => {
   const NS2 = `ns2.${ZONE}`;
-  TABLE = { [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'] };
+  TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['192.0.2.54'] };
   SERVERS = { '192.0.2.53': { ...full({ types: ['SOA', 'A', 'SOA'] }), delayMs: 40 }, '192.0.2.54': { throwSync: 'EINVAL' } };
   const unhandled = [];
   const onUnhandled = (reason) => unhandled.push(reason);
@@ -317,7 +362,7 @@ test('(delta) the transfer moves from ns1 to ns2 between two runs: cleared on ns
     import('../plugins/result_concluder.mjs'), import('../utils/scan_history.mjs'), import('../utils/report_inputs.mjs')]);
   const NS2 = `ns2.${ZONE}`;
   const line = async (one, two) => {
-    TABLE = { [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['198.51.100.53'] };
+    TABLE = { ...APEX_SOA, [`NS ${ZONE}`]: [NS1, NS2], [`A ${NS1}`]: ['192.0.2.53'], [`A ${NS2}`]: ['198.51.100.53'] };
     SERVERS = { '192.0.2.53': one, '198.51.100.53': two };
     const result = await dnsSec.run(ZONE, 0, { checkAxfr: true, timeoutMs: 200 });
     const c = await concluder.run([{ id: '060', name: 'DNS Security Auditor', result }]);

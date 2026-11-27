@@ -20,6 +20,7 @@ import './helpers/no_operator_home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -37,10 +38,14 @@ for (const [k, t] of Object.entries({ resolve4: 'A', resolve6: 'AAAA', resolveCn
 dnsP.resolve = async (n, t = 'A') => answer(t, n);
 net.createConnection = () => { throw new Error('no connection expected'); };
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same table, or this file sends real UDP to the machine's resolver.
+await serveTable(answer);
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 async function ns(table) {
-  TABLE = { [`NS ${ZONE}`]: Object.keys(table.ns), ...table.extra };
+  // Every zone has an SOA at its apex (G-75 (b): without one the DNSSEC walk reads ENOAPEX, not this file's subject).
+  TABLE = { [`SOA ${ZONE}`]: { nsname: `ns1.${ZONE}`, hostmaster: `hostmaster.${ZONE}`, serial: 1 }, [`NS ${ZONE}`]: Object.keys(table.ns), ...table.extra };
   for (const [name, { a, aaaa }] of Object.entries(table.ns)) {
     if (a !== undefined) TABLE[`A ${name}`] = a;
     if (aaaa !== undefined) TABLE[`AAAA ${name}`] = aaaa;

@@ -23,6 +23,7 @@
 import dns from "node:dns/promises";
 import dgram from "node:dgram";
 import net from "node:net";
+import { randomInt } from "node:crypto";
 import { classifyAddress, allowAllHosts, isBlockedIp } from "../utils/net_validation.mjs";
 
 // ── Severity ─────────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ export const CHECK_IDS_BY_CATEGORY = Object.freeze({
     "dmarc_relaxed_alignment"),
   dkim: frozenIds("dkim_weak_key", "dkim_short_key", "dkim_testing_mode", "dkim_none_found"),
   ns: frozenIds("no_ns_records", "single_ns", "ns_private_ip", "ns_lame_delegation", "ns_same_subnet"),
-  dnssec: frozenIds("no_dnssec", "dnssec_partial", "dnssec_active"),
+  dnssec: frozenIds("no_dnssec", "dnssec_partial", "dnssec_ds_without_dnskey", "dnssec_active"),
   axfr: frozenIds("axfr_open", "axfr_answered_not_transferred"),
   mx: frozenIds("no_mx_a_fallback", "no_mx", "null_mx", "mx_is_ip", "mx_is_cname"),
   caa: frozenIds("no_caa", "caa_present", "caa_no_iodef"),
@@ -684,65 +685,334 @@ async function analyzeNS(records, host, notMeasured) {
 
 
 // ── Module 7: DNSSEC Probe ───────────────────────────────────────────────────
-// Node.js dns module doesn't natively support DNSSEC validation.
-// We check for DNSKEY and DS records as indicators of DNSSEC deployment.
+// G-75 (D1). Node's resolver refuses the DNSKEY and DS record types (asked for either, it throws ERR_INVALID_ARG_VALUE
+// synchronously), so from Community 1.1.0 to 1.2.0 this check measured no domain at all. It now asks by RAW DNS message.
+//
+// WHERE IT SENDS: only to the configured resolvers, the entries dns.getServers() returns, in that order — the operator's own
+// resolver configuration, and the same servers every resolve* call in this file already uses. A resolver address is
+// infrastructure, not scan input: it never comes from the scan target or from any reply. So it does NOT pass the zone
+// transfer's address-class gate (classifyAddress, which would refuse the usual resolvers: a private router address, a
+// loopback stub resolver), and isBlockedIp is not consulted for it; the scan pin covers dns.lookup for the target's NAME
+// only, and a socket to a literal resolver address never calls lookup. Each socket is created inside the run, never at
+// module scope. UDP from an UNCONNECTED socket, matched on the reply's source address AND port; TCP only after a reply
+// with TC=1. Every socket carries an 'error' listener before its first send and is closed on every path.
+//
+// WHAT IT READS: presence AS THE CONFIGURED RESOLVER REPORTS IT — RD=1, no EDNS0, no DO bit, the AD bit not read — so no
+// signature is validated, and no reply text (an owner name, an error message) reaches a row: rows carry fixed words, the
+// target's own name and a suffix of it. A record type is in one state:
+//   present = a matched reply, TC=0, NOERROR, an answer record OF THE QUERIED TYPE, and no alias (CNAME/DNAME) in the answer
+//   absent  = a matched reply, TC=0, and NXDOMAIN, or NOERROR with no answer record of the queried type and no alias
+//   unknown = anything else, with a code: TC=1 with TCP failing (or truncated again), SERVFAIL, REFUSED, FORMERR, NOTIMP,
+//             an alias in the answer (ECNAME), no matched reply by the deadline (ETIMEOUT), a reply the parser rejects
+//             (EBADRESP), no resolver configured (ENOSERVER) or one whose entry cannot be read (EBADSERVER).
+// A reply matches only when its id (crypto randomInt), QR=1, opcode 0 and its ONE question — the name compared
+// case-insensitively, the type, the class — echo the query; anything else is ignored and the socket keeps listening.
+// Several resolvers: asked in getServers() order, except that the resolver whose reply last DECIDED a query (a walk step
+// classified, or a record present or absent) is asked first — so the apex, DNSKEY and DS come from one resolver unless it
+// stops answering (then the next is asked, and the probe records how many resolvers decided: details.dnssec.resolverCount,
+// never printed in a row). An unknown reply never makes a resolver preferred, and moves the question to the next resolver.
+// One UDP attempt with no matched reply is retried ONCE, under a new id, on a new socket (a reply to the first id is not
+// read); a resolver whose two attempts both go unanswered, or whose send or socket fails, is skipped for the rest of the
+// probe, and the code it failed with is what an all-skipped question reports (the first skipped resolver's). TCP after
+// TC=1 is not retried, and its failure does not skip the resolver: that resolver did answer, over UDP.
+//
+// WHICH ZONE: DNSKEY and DS are asked at the zone APEX, found by a raw SOA walk up the target's labels — the target, then
+// each parent, never a single label and never the root, all within ONE deadline shared with the DNSKEY and DS queries
+// (DNS_AUDIT_TIMEOUT_MS). A step whose answer holds a CNAME or DNAME is an alias and the walk steps up; an SOA answer with
+// no alias is the apex; NOERROR with no answer steps up; NXDOMAIN AT THE TARGET means the check is not measured (one
+// ENOTFOUND entry per record type, no row, no walk to the parent — an NXDOMAIN name is not a zone, and the six other checks
+// still report absence there, unchanged here); any other outcome is not measured, with its code. A walk that would reach a
+// single label — or a single-label target — is not measured, ENOAPEX. Stated limit: a multi-label public suffix is a
+// zone and is not caught. An alias's verdict is the zone that holds the alias; the zone it points into is not checked.
+//
+// Four rows, one per measured cell:
+//   absent DNSKEY,  absent DS  → no_dnssec                 (MEDIUM)
+//   present DNSKEY, absent DS  → dnssec_partial            (MEDIUM)
+//   absent DNSKEY,  present DS → dnssec_ds_without_dnskey  (MEDIUM)
+//   present DNSKEY, present DS → dnssec_active             (PASS)
+// and an unknown on either side is one not-measured entry per unknown type and NO row; that side's has* is null.
 
-async function probeDNSSEC(host, notMeasured) {
-  const issues = [];
+const DNS_QTYPE = Object.freeze({ SOA: 6, DS: 43, DNSKEY: 48 });
+const DNS_RCODE_CODE = Object.freeze({ 1: "EFORMERR", 2: "ESERVFAIL", 4: "ENOTIMP", 5: "EREFUSED" });
+const ALIAS_TYPES = new Set(["CNAME", "39"]); // 39 = DNAME (parseDnsAnswerTypes names types it does not know by number)
+// One UDP or TCP attempt waits min(1999, max(100, floor(timeoutMs / 4))) ms and never past the shared deadline; a reply after
+// its window is not read. At most two UDP attempts per resolver per question, so at the default 5000 ms two silent resolvers
+// use the whole deadline and a third is never asked (ETIMEOUT).
+export function dnsAttemptMs(timeoutMs) {
+  return Math.min(1999, Math.max(100, Math.floor(timeoutMs / 4)));
+}
+const typeNameOf = (qtype) => RR_TYPE_NAME[qtype] ?? String(qtype);
 
-  // Primary: direct DNSKEY and DS queries
-  const [dnskeyResult, dsResult] = await Promise.all([
-    safeResolve(dns.resolve, host, "DNSKEY"),
-    safeResolve(dns.resolve, host, "DS"),
-  ]);
+/** One dns.getServers() entry → { family, address, port }, or null. Reads "a.b.c.d", "a.b.c.d:port", "v6" and "[v6]:port". */
+export function parseResolverEntry(entry) {
+  const s = String(entry ?? "").trim();
+  const bracketed = /^\[([^\]]+)\]:(\d+)$/.exec(s);
+  const v4WithPort = /^([^:]+):(\d+)$/.exec(s);
+  let address;
+  let port = 53;
+  if (bracketed) { address = bracketed[1]; port = Number(bracketed[2]); }
+  else if (net.isIP(s) !== 0) address = s;
+  else if (v4WithPort && net.isIP(v4WithPort[1]) === 4) { address = v4WithPort[1]; port = Number(v4WithPort[2]); }
+  else return null;
+  const family = net.isIP(address);
+  if (family === 0 || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { family, address, port };
+}
 
-  let hasDNSKEY = !dnskeyResult?.error && Array.isArray(dnskeyResult) && dnskeyResult.length > 0;
-  let hasDS = !dsResult?.error && Array.isArray(dsResult) && dsResult.length > 0;
+/** A query for one question, RD=1, no EDNS0; null for a name that cannot be written as labels. */
+function buildDnsQuery(name, qtype, id) {
+  const labels = name.split(".");
+  if (name.length > 253 || labels.some((l) => !/^[\x21-\x7e]{1,63}$/.test(l))) return null;
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(id, 0);
+  header.writeUInt16BE(0x0100, 2);
+  header.writeUInt16BE(1, 4);
+  const tail = Buffer.alloc(5);
+  tail.writeUInt16BE(qtype, 1);
+  tail.writeUInt16BE(1, 3);
+  return Buffer.concat([header, ...labels.map((l) => Buffer.concat([Buffer.from([l.length]), Buffer.from(l, "ascii")])), tail]);
+}
 
-  // Fallback: resolveAny() can surface DNSKEY/DS on resolvers that support it.
-  // Some resolvers (e.g. Cloudflare) REFUSE ANY queries, so this is best-effort — and a refused ANY measures nothing
-  // either way: only the primary DNSKEY and DS queries decide whether an absence was measured.
-  if (!hasDNSKEY && !hasDS) {
-    const anyResult = await safeResolve(dns.resolveAny, host);
-    if (!anyResult?.error && Array.isArray(anyResult)) {
-      if (anyResult.some((r) => r.type === "DNSKEY")) hasDNSKEY = true;
-      if (anyResult.some((r) => r.type === "DS")) hasDS = true;
+/** Whether a message answers exactly this query: id, QR=1, opcode 0, one question echoing name (any case), type and class. */
+function matchesQuery(m, id, name, qtype) {
+  if (m.length < 12 || m.readUInt16BE(0) !== id || (m[2] & 0x80) === 0 || ((m[2] >> 3) & 0x0f) !== 0 || m.readUInt16BE(4) !== 1) return false;
+  const labels = [];
+  let o = 12;
+  for (;;) {
+    if (o >= m.length) return false;
+    const len = m[o];
+    if (len === 0) { o += 1; break; }
+    if (len > 63 || o + 1 + len > m.length) return false; // a compression pointer in the echoed question is not an echo
+    labels.push(m.toString("latin1", o + 1, o + 1 + len).toLowerCase());
+    o += 1 + len;
+  }
+  return o + 4 <= m.length && labels.join(".") === name.toLowerCase() && m.readUInt16BE(o) === qtype && m.readUInt16BE(o + 2) === 1;
+}
+
+function udpAttempt(server, query, matches, ctx) {
+  const ms = Math.min(ctx.attemptMs, ctx.deadline - Date.now());
+  if (ms <= 0) return Promise.resolve({ code: "ETIMEOUT" });
+  return new Promise((resolve) => {
+    let sock = null;
+    let done = false;
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { sock?.close(); } catch { /* already closed */ }
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish({ code: "ETIMEOUT" }), ms);
+    try {
+      sock = dgram.createSocket(server.family === 6 ? "udp6" : "udp4");
+      sock.on("error", (err) => finish({ code: err?.code }));
+      sock.on("message", (m, rinfo) => {
+        if (rinfo.address === server.address && rinfo.port === server.port && matches(m)) finish({ m });
+      });
+      sock.send(query, server.port, server.address, (err) => { if (err) finish({ code: err.code }); });
+    } catch (err) {
+      finish({ code: err?.code });
     }
-  }
+  });
+}
 
-  // A record type not found whose query failed to measure is unknown, not absent.
-  const dnskeyUnknown = !hasDNSKEY && failedToMeasure(dnskeyResult?.error);
-  const dsUnknown = !hasDS && failedToMeasure(dsResult?.error);
-  const unknown = (rrtype, code) => {
-    notMeasured.push({ check: "dnssec", rrtype, name: host, code });
-    return { hasDNSKEY: hasDNSKEY || (dnskeyUnknown ? null : false), hasDS: hasDS || (dsUnknown ? null : false), issues };
+function tcpAttempt(server, query, matches, ctx) {
+  const ms = Math.min(ctx.attemptMs, ctx.deadline - Date.now());
+  if (ms <= 0) return Promise.resolve({ code: "ETIMEOUT" });
+  return new Promise((resolve) => {
+    let sock = null;
+    let done = false;
+    let buf = Buffer.alloc(0);
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      sock?.destroy();
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish({ code: "ETIMEOUT" }), ms);
+    try {
+      sock = net.createConnection({ host: server.address, port: server.port });
+      sock.on("error", (err) => finish({ code: err?.code }));
+      sock.on("close", () => finish({ code: "ECONNRESET" }));
+      sock.on("connect", () => {
+        const len = Buffer.alloc(2);
+        len.writeUInt16BE(query.length);
+        sock.write(Buffer.concat([len, query]));
+      });
+      sock.on("data", (d) => {
+        buf = Buffer.concat([buf, d]);
+        while (buf.length >= 2 && buf.length >= 2 + buf.readUInt16BE(0)) {
+          const m = buf.subarray(2, 2 + buf.readUInt16BE(0));
+          buf = buf.subarray(2 + m.length);
+          if (matches(m)) { finish({ m }); return; }
+        }
+      });
+    } catch (err) {
+      finish({ code: err?.code });
+    }
+  });
+}
+
+/** rcode, TC and answer types of a matched reply, or { code: "EBADRESP" } when the parser rejects it. */
+function readReply(m) {
+  try {
+    const { rcode, types } = parseDnsAnswerTypes(m);
+    return { tc: (m[2] & 0x02) !== 0, rcode, types };
+  } catch {
+    return { code: "EBADRESP" };
+  }
+}
+
+/** One question to one resolver: UDP (retried once, under a new id, when no matched reply came back), then TCP iff the UDP
+ *  reply has TC=1. → { reply } | { code, skip? } — `skip`: this resolver is skipped for the rest of the probe. */
+async function askOneResolver(server, name, qtype, ctx) {
+  let udp = null;
+  let query = null;
+  let matches = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const id = randomInt(0, 0x10000);
+    query = buildDnsQuery(name, qtype, id);
+    if (!query) return { code: "EBADNAME" };
+    matches = (m) => matchesQuery(m, id, name, qtype);
+    udp = await udpAttempt(server, query, matches, ctx);
+    if (udp.m || udp.code !== "ETIMEOUT") break; // a send or socket error is not a lost datagram: no retry
+  }
+  if (!udp.m) return { code: udp.code, skip: true };
+  const reply = readReply(udp.m);
+  if (reply.code || !reply.tc) return reply.code ? { code: reply.code } : { reply };
+  // A TC=1 reply never decides, whatever it carries; TCP's reply, matched the same way, is the one read.
+  const tcp = await tcpAttempt(server, query, matches, ctx);
+  if (!tcp.m) return { code: tcp.code };
+  const again = readReply(tcp.m);
+  if (again.code) return { code: again.code };
+  return again.tc ? { code: "ETRUNCATED" } : { reply: again };
+}
+
+/** Asks the configured resolvers — the preferred one first, then getServers() order; `decide(reply)` → { state, code? }.
+ *  An unknown moves to the next resolver; the first decision returns, and makes its resolver the preferred one. */
+async function askResolvers(name, qtype, ctx, decide) {
+  const configured = dns.getServers();
+  if (configured.length === 0) return { state: "unknown", code: "ENOSERVER" };
+  const entries = ctx.preferred && configured.includes(ctx.preferred)
+    ? [ctx.preferred, ...configured.filter((e) => e !== ctx.preferred)] : configured;
+  let first = null;
+  for (const entry of entries) {
+    if (ctx.skipped.has(entry)) { first ??= { state: "unknown", code: ctx.skipped.get(entry) }; continue; }
+    const server = parseResolverEntry(entry);
+    const r = server ? await askOneResolver(server, name, qtype, ctx) : { code: "EBADSERVER", skip: true };
+    if (r.skip) ctx.skipped.set(entry, r.code);
+    const out = r.reply ? decide(r.reply) : { state: "unknown", code: r.code };
+    if (out.state !== "unknown") {
+      ctx.preferred = entry;
+      ctx.deciders.add(entry);
+      return out;
+    }
+    first ??= out;
+  }
+  return first;
+}
+
+const decideRecord = (qtype) => ({ rcode, types }) => {
+  if (rcode === 3) return { state: "absent" };
+  if (rcode !== 0) return { state: "unknown", code: DNS_RCODE_CODE[rcode] ?? `ERCODE${rcode}` };
+  if (types.some((t) => ALIAS_TYPES.has(t))) return { state: "unknown", code: "ECNAME" };
+  return { state: types.includes(typeNameOf(qtype)) ? "present" : "absent" };
+};
+const decideWalkStep = ({ rcode, types }) => {
+  if (rcode === 3) return { state: "nxdomain" };
+  if (rcode !== 0) return { state: "unknown", code: DNS_RCODE_CODE[rcode] ?? `ERCODE${rcode}` };
+  if (types.some((t) => ALIAS_TYPES.has(t))) return { state: "alias" };
+  if (types.includes("SOA")) return { state: "apex" };
+  return types.length === 0 ? { state: "nodata" } : { state: "unknown", code: "EBADRESP" };
+};
+
+/** The raw SOA walk. → { apex, alias } | { notMeasured: [{ rrtype, name, code }] } */
+async function findZoneApex(target, ctx) {
+  const labels = target.split(".");
+  // A single-label target asks nothing: the loop below never runs and the walk ends in ENOAPEX (W5).
+  let alias = false;
+  for (let i = 0; i < labels.length - 1; i++) {
+    const name = labels.slice(i).join(".");
+    const step = await askResolvers(name, DNS_QTYPE.SOA, ctx, decideWalkStep);
+    if (step.state === "apex") return { apex: name, alias };
+    if (step.state === "alias" || step.state === "nodata") { if (i === 0) alias = step.state === "alias"; continue; }
+    if (step.state === "nxdomain" && i === 0) {
+      // NXDOMAIN at the target: not measured, by its own code. Never through isAbsence — an NXDOMAIN name is not a zone.
+      return { notMeasured: ["DNSKEY", "DS"].map((rrtype) => ({ rrtype, name: target, code: "ENOTFOUND" })) };
+    }
+    return { notMeasured: [{ rrtype: "SOA", name, code: step.state === "nxdomain" ? "ENOTFOUND" : step.code }] };
+  }
+  return { notMeasured: [{ rrtype: "SOA", name: target, code: "ENOAPEX" }] };
+}
+
+/** The decision over both record types' states — all nine cells. → { row, hasDNSKEY, hasDS, unknown: [{ rrtype, code }] } */
+export function dnssecOutcome(dnskey, ds) {
+  const has = (s) => (s.state === "present" ? true : s.state === "absent" ? false : null);
+  const hasDNSKEY = has(dnskey);
+  const hasDS = has(ds);
+  const unknown = [["DNSKEY", dnskey], ["DS", ds]].filter(([, s]) => has(s) === null).map(([rrtype, s]) => ({ rrtype, code: s.code }));
+  if (unknown.length > 0) return { row: null, hasDNSKEY, hasDS, unknown };
+  const row = hasDNSKEY ? (hasDS ? "dnssec_active" : "dnssec_partial") : (hasDS ? "dnssec_ds_without_dnskey" : "no_dnssec");
+  return { row, hasDNSKEY, hasDS, unknown };
+}
+
+/** The zone a row names, in fixed words around the target's own name and a suffix of it. */
+function dnssecZoneWords(target, apex, alias) {
+  const zone = apex === target ? `the zone ${apex}` : `the zone ${apex}, which holds ${target}`;
+  return alias ? `${zone} (${target} is an alias (CNAME); the zone it points into was not checked)` : zone;
+}
+
+export async function probeDNSSEC(host, notMeasured, config = loadConfig()) {
+  const issues = [];
+  const target = String(host).replace(/\.$/, "").toLowerCase();
+  const ctx = {
+    deadline: Date.now() + config.timeoutMs,
+    attemptMs: dnsAttemptMs(config.timeoutMs),
+    skipped: new Map(),
+    preferred: null,
+    deciders: new Set(),
   };
-  if (!hasDNSKEY && !hasDS && (dnskeyUnknown || dsUnknown)) {
-    return dnskeyUnknown ? unknown("DNSKEY", dnskeyResult.error) : unknown("DS", dsResult.error);
+  const walk = await findZoneApex(target, ctx);
+  if (walk.notMeasured) {
+    for (const e of walk.notMeasured) notMeasured.push({ check: "dnssec", rrtype: e.rrtype, name: e.name, code: e.code });
+    return { hasDNSKEY: null, hasDS: null, zone: null, alias: false, resolverCount: ctx.deciders.size, issues };
   }
-  if (hasDNSKEY && dsUnknown) return unknown("DS", dsResult.error);
-
-  if (!hasDNSKEY && !hasDS) {
+  const { apex, alias } = walk;
+  const [dnskey, ds] = await Promise.all([
+    askResolvers(apex, DNS_QTYPE.DNSKEY, ctx, decideRecord(DNS_QTYPE.DNSKEY)),
+    askResolvers(apex, DNS_QTYPE.DS, ctx, decideRecord(DNS_QTYPE.DS)),
+  ]);
+  const outcome = dnssecOutcome(dnskey, ds);
+  for (const u of outcome.unknown) notMeasured.push({ check: "dnssec", rrtype: u.rrtype, name: apex, code: u.code });
+  const where = dnssecZoneWords(target, apex, alias);
+  const reported = "as reported by the configured resolver; signatures not validated";
+  if (outcome.row === "no_dnssec") {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "no_dnssec",
-      detail: "No DNSSEC deployment detected (no DNSKEY or DS records) — DNS responses can be spoofed",
+      detail: `No DNSKEY or DS records for ${where}, ${reported} — DNS responses for this zone are not signed and can be spoofed`,
     });
-  } else if (hasDNSKEY && !hasDS) {
+  } else if (outcome.row === "dnssec_partial") {
     issues.push({
       severity: SEVERITY.MEDIUM,
       check: "dnssec_partial",
-      detail: "DNSKEY present but no DS record in parent — DNSSEC chain of trust is broken",
+      detail: `DNSKEY records but no DS record for ${where}, ${reported} — the chain of trust is not established`,
     });
-  } else if (hasDNSKEY && hasDS) {
+  } else if (outcome.row === "dnssec_ds_without_dnskey") {
+    issues.push({
+      severity: SEVERITY.MEDIUM,
+      check: "dnssec_ds_without_dnskey",
+      detail: `A DS record but no DNSKEY records for ${where}, ${reported} — the parent zone points at keys this zone does not publish`,
+    });
+  } else if (outcome.row === "dnssec_active") {
     issues.push({
       severity: SEVERITY.PASS,
       check: "dnssec_active",
-      detail: "DNSSEC is deployed (DNSKEY + DS records present)",
+      detail: `DNSKEY and DS records present for ${where}, ${reported}`,
     });
   }
-
-  return { hasDNSKEY, hasDS, issues };
+  return { hasDNSKEY: outcome.hasDNSKEY, hasDS: outcome.hasDS, zone: apex, alias, resolverCount: ctx.deciders.size, issues };
 }
 
 // ── Module 8: Zone Transfer Check (AXFR) ────────────────────────────────────
@@ -816,8 +1086,10 @@ async function checkZoneTransfer(host, nameservers, config, notMeasured) {
 
 // DNS record types the zone-transfer verdict names.
 const RR_TYPE_NAME = { 1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT", 28: "AAAA", 33: "SRV", 257: "CAA" };
-/** The RCODE and the answer records' types, in order, of one DNS message (no TCP length prefix). Throws on a malformed one. */
-function parseDnsAnswerTypes(m) {
+/** The RCODE and the answer records' types, in order, of one DNS message (no TCP length prefix). Throws on a malformed one.
+ *  It never follows a compression pointer (a pointer ends a name), so a pointer loop cannot hold it. Since G-75 it also reads
+ *  replies from the configured resolver, not only from a nameserver the operator opted in to. */
+export function parseDnsAnswerTypes(m) {
   if (m.length < 12) throw new Error("short header");
   const rcode = m.readUInt8(3) & 0x0f;
   const qd = m.readUInt16BE(4);
@@ -827,7 +1099,15 @@ function parseDnsAnswerTypes(m) {
       if (o >= m.length) throw new Error("name past end");
       const len = m.readUInt8(o);
       if (len === 0) return o + 1;
-      if ((len & 0xc0) === 0xc0) { if (o + 2 > m.length) throw new Error("pointer past end"); return o + 2; }
+      if ((len & 0xc0) === 0xc0) {
+        if (o + 2 > m.length) throw new Error("pointer past end");
+        // A pointer names an EARLIER occurrence (RFC 1035 4.1.4): one that points at itself or forward is a loop or a
+        // forgery, even though this reader never follows it.
+        const target = ((len & 0x3f) << 8) | m.readUInt8(o + 1);
+        if (target < 12 || target >= o) throw new Error("pointer not backwards");
+        return o + 2;
+      }
+      if ((len & 0xc0) !== 0) throw new Error("reserved label type");
       o += 1 + len;
     }
   };
@@ -1079,6 +1359,18 @@ async function checkWildcard(host, notMeasured) {
 
 // ── Plugin Export ─────────────────────────────────────────────────────────────
 
+// The conclude line's DNSSEC words, one per row (G-75 G4, G12): fixed words, the measured zone, the alias note.
+const DNSSEC_CONCLUDE_WORDS = Object.freeze({
+  dnssec_active: "DNSSEC active", dnssec_partial: "DNSSEC partial: DNSKEY without DS",
+  dnssec_ds_without_dnskey: "DNSSEC: DS without DNSKEY", no_dnssec: "no DNSSEC",
+});
+function dnssecConcludeWords(result) {
+  const row = (result.findings?.dnssec ?? []).find((i) => Object.hasOwn(DNSSEC_CONCLUDE_WORDS, i.check))?.check;
+  const { zone, alias } = result.details?.dnssec ?? {};
+  if (!row) return "DNSSEC not measured";
+  return `${DNSSEC_CONCLUDE_WORDS[row]} (zone ${zone}${alias ? "; the name is an alias (CNAME), the zone it points into was not checked" : ""})`;
+}
+
 export default {
   id: "060",
   name: "DNS Security Auditor",
@@ -1120,7 +1412,7 @@ export default {
       analyzeDMARC(host, notMeasured),
       discoverDKIM(host, config.dkimSelectors, notMeasured),
       analyzeNS(records, host, notMeasured),
-      probeDNSSEC(host, notMeasured),
+      probeDNSSEC(host, notMeasured, config),
       analyzeMX(records, host, notMeasured),
       Promise.resolve(analyzeCAA(records, host, notMeasured)),
       checkWildcard(host, notMeasured),
@@ -1211,7 +1503,7 @@ export default {
         dkimSelectors: dkim.selectors,
         nameservers: nsCheck.nameservers,
         mxRecords: mx.mxRecords,
-        dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS },
+        dnssec: { hasDNSKEY: dnssec.hasDNSKEY, hasDS: dnssec.hasDS, zone: dnssec.zone, alias: dnssec.alias, resolverCount: dnssec.resolverCount },
         // The zone-transfer check: true when it ran, else why it did not ('opt-in-off', 'no-nameservers').
         axfrTested: axfr.tested,
         notMeasured,
@@ -1267,7 +1559,8 @@ export default {
         said("dkim", "DKIM", result.details.dkimSelectors.length > 0
           ? `DKIM: ${result.details.dkimSelectors.length} selector(s)`
           : "DKIM: none found"),
-        said("dnssec", "DNSSEC", result.details.dnssec.hasDNSKEY ? "DNSSEC active" : "no DNSSEC"),
+        // G-75 (G4): the line reads the ROW — "DNSSEC active" only for dnssec_active — and names the zone it measured.
+        said("dnssec", "DNSSEC", dnssecConcludeWords(result)),
       ].join(" | "),
       source: "dns-sec-auditor",
       authoritative: false,

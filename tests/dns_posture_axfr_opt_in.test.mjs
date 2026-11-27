@@ -20,6 +20,7 @@ import { test, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -52,6 +53,9 @@ after(() => {
   if (savedEnv === undefined) delete process.env.DNS_AUDIT_AXFR_CHECK; else process.env.DNS_AUDIT_AXFR_CHECK = savedEnv;
 });
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same answer (ENODATA everywhere), or this file sends real UDP to the machine's resolver.
+await serveTable(() => { throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' }); });
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 const { PluginManager } = await import('../plugin_manager.mjs');
 const ATTEMPT = [`${NS_IP}:53`];

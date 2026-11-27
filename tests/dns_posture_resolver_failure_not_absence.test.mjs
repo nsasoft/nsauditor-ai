@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -62,6 +63,9 @@ dnsP.resolveAny = async (n) => answer('ANY', n);
 dnsP.resolve = async (n, t = 'A') => answer(t, n);
 net.createConnection = () => { throw new Error('060 opened a connection; the zone-transfer attempt is not opted in here'); };
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same table, or this file sends real UDP to the machine's resolver.
+await serveTable(answer);
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 // A zone where every check is measured and answered — and nothing in it is actionable.
@@ -82,9 +86,9 @@ const PRESENT = Object.freeze({
   [WILDCARD]: 'ENOTFOUND',
 });
 
-async function run(table) {
+async function run(table, opts = {}) {
   TABLE = table;
-  const result = await dnsSec.run(ZONE, 0, { dkimSelectors: 'google,default' });
+  const result = await dnsSec.run(ZONE, 0, { dkimSelectors: 'google,default', ...opts });
   const [record] = dnsSec.conclude({ result, host: ZONE });
   const graded = Object.entries(result.findings)
     .flatMap(([category, issues]) => issues.map((i) => `${category}:${i.check}:${i.severity}`)).sort();
@@ -109,16 +113,29 @@ test('(1, first) a fully answered zone: every check measured, no record of a fai
   assert.equal(record.dnsSecurity.status, 'hardened');
 });
 
-for (const code of ['ENODATA', 'ENOTFOUND']) {
-  test(`(2, first) a genuinely empty zone (${code} everywhere) grades the seven absence findings, measured, up`, async () => {
-    const empty = new Proxy({}, { has: () => true, get: () => code });
-    const { result, record, graded, notMeasured } = await run(empty);
-    assert.deepEqual(graded, ABSENCE_SET);
-    assert.equal(result.up, true);
-    assert.deepEqual(notMeasured, []);
-    assert.equal(record.dnsSecurity.status, 'action_required');
-  });
-}
+// A genuinely empty zone still has its SOA at the apex: that record is what makes it a zone. Since G-75 (b) the DNSSEC check
+// walks up to it by raw DNS, so the empty zone carries its SOA and answers ENODATA for every other name.
+test('(2, first) a genuinely empty zone (its apex SOA, ENODATA for everything else) grades the seven absence findings, measured, up', async () => {
+  const empty = new Proxy({}, { has: () => true, get: (_, k) => (k === `SOA ${ZONE}` ? PRESENT[`SOA ${ZONE}`] : 'ENODATA') });
+  const { result, record, graded, notMeasured } = await run(empty);
+  assert.deepEqual(graded, ABSENCE_SET);
+  assert.equal(result.up, true);
+  assert.deepEqual(notMeasured, []);
+  assert.equal(record.dnsSecurity.status, 'action_required');
+});
+// A name the resolver says does not exist (NXDOMAIN everywhere) is NOT a zone (EE VERDICT-v412 W2', v414 ruling (a)): DNSSEC
+// is not measured — a DNSKEY and a DS entry, each ENOTFOUND for the target (NXDOMAIN is a fact about the name for every type,
+// v416 Q1), both has* null, no dnssec row — and the walk does not climb to the parent.
+// Until G-75 (b) this arm graded no_dnssec MEDIUM. The six other checks still read NXDOMAIN as an absence; that is a boarded
+// sibling defect (v414 H2), and this leg does not pin their rows, because a pin would hold it in place.
+test('(2) a name that does not exist (ENOTFOUND everywhere): DNSKEY and DS not measured with ENOTFOUND, both has* null, never no_dnssec', async () => {
+  const gone = new Proxy({}, { has: () => true, get: () => 'ENOTFOUND' });
+  const { result, graded, notMeasured } = await run(gone);
+  assert.deepEqual(notMeasured.filter((e) => e.check === 'dnssec').map((e) => `${e.rrtype}:${e.name}:${e.code}`), [`DNSKEY:${ZONE}:ENOTFOUND`, `DS:${ZONE}:ENOTFOUND`]);
+  assert.ok(!graded.some((g) => g.startsWith('dnssec:')), graded.join(' '));
+  assert.deepEqual([result.details.dnssec.hasDNSKEY, result.details.dnssec.hasDS], [null, null]);
+  assert.equal(result.up, false, 'a check left unmeasured');
+});
 
 // ── A RESOLVER THAT ANSWERED NOTHING USABLE ────────────────────────────────────────────────────────────────────────────
 test('every lookup times out: nothing is graded missing, every check is recorded not measured, up is false', async () => {
@@ -222,21 +239,27 @@ test('DKIM: no selector found and every lookup an absence is the measured dkim_n
   assert.ok(graded.includes('dkim:dkim_none_found:medium'));
   assert.deepEqual(notMeasured, []);
 });
-test('DNSSEC: timed-out DNSKEY and DS, but the ANY fallback shows both — measured, active', async () => {
-  const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ETIMEOUT', [`DS ${ZONE}`]: 'ETIMEOUT',
-    [`ANY ${ZONE}`]: [{ type: 'DNSKEY' }, { type: 'DS' }] });
-  assert.deepEqual(notMeasured, []);
-  assert.ok(graded.includes('dnssec:dnssec_active:pass'));
+// Until G-75 (b), a timed-out DNSKEY or DS fell back to an ANY query. That fallback is gone: DNSKEY and DS are asked by raw
+// DNS of the configured resolvers, and an ANY answer (which most resolvers refuse, RFC 8482) is never read for them.
+test('DNSSEC: timed-out DNSKEY and DS — both recorded not measured, never active; resolveAny is never asked (the ANY fallback is gone)', async () => {
+  let anyCalls = 0;
+  const realAny = dnsP.resolveAny;
+  dnsP.resolveAny = async (n) => { anyCalls += 1; return realAny(n); };
+  try {
+    const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ETIMEOUT', [`DS ${ZONE}`]: 'ETIMEOUT',
+      [`ANY ${ZONE}`]: [{ type: 'DNSKEY' }, { type: 'DS' }] }, { timeoutMs: 1000 });
+    assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.code}`), ['dnssec:DNSKEY:ETIMEOUT', 'dnssec:DS:ETIMEOUT']);
+    assert.ok(!graded.some((g) => g.startsWith('dnssec:')), graded.join(' '));
+    assert.equal(anyCalls, 0, 'an ANY answer that shows both is not read');
+  } finally { dnsP.resolveAny = realAny; }
 });
-test('DNSSEC: a timed-out DNSKEY beside an absent DS, the ANY fallback refused — not measured, never no_dnssec', async () => {
-  const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ETIMEOUT', [`DS ${ZONE}`]: 'ENODATA',
-    [`ANY ${ZONE}`]: 'EREFUSED' });
+test('DNSSEC: a timed-out DNSKEY beside an absent DS — not measured, never no_dnssec', async () => {
+  const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ETIMEOUT', [`DS ${ZONE}`]: 'ENODATA' }, { timeoutMs: 1000 });
   assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.code}`), ['dnssec:DNSKEY:ETIMEOUT']);
   assert.ok(!graded.some((g) => g.startsWith('dnssec:')));
 });
-test('DNSSEC: both absent and the ANY fallback refused is the measured no_dnssec (a refused ANY is expected)', async () => {
-  const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ENODATA', [`DS ${ZONE}`]: 'ENODATA',
-    [`ANY ${ZONE}`]: 'EREFUSED' });
+test('DNSSEC: both absent is the measured no_dnssec', async () => {
+  const { graded, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ENODATA', [`DS ${ZONE}`]: 'ENODATA' });
   assert.ok(graded.includes('dnssec:no_dnssec:medium'));
   assert.deepEqual(notMeasured, []);
 });
@@ -583,11 +606,14 @@ const gapRows = async (result) => {
   const { shapeHostFindings } = await import('../utils/report_inputs.mjs');
   return shapeHostFindings(ZONE, { results: [{ id: '060', name: 'DNS Security Auditor', result }] }).filter((r) => r.evidenceGap === true);
 };
-test('F-060 R1 (accept, first): a code-shaped code is kept as it is — ERR_INVALID_ARG_VALUE on DNSKEY, ESERVFAIL on SPF', async () => {
-  const { result, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ERR_INVALID_ARG_VALUE', [`DS ${ZONE}`]: 'ENODATA',
-    [`TXT ${ZONE}`]: 'ESERVFAIL' });
-  assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.code}`), ['spf:TXT:ESERVFAIL', 'dnssec:DNSKEY:ERR_INVALID_ARG_VALUE']);
-  assert.match(result.reason, /^resolver failure on SPF \(ESERVFAIL\) and DNSSEC \(ERR_INVALID_ARG_VALUE\): /);
+// The ERR_-prefixed form sat on DNSKEY until G-75 (b), when Node refused that type synchronously. DNSKEY now goes by raw DNS
+// and cannot carry a Node argument error, so the form moves to CAA (still a c-ares lookup); DNSKEY carries a wire refusal.
+test('F-060 R1 (accept, first): a code-shaped code is kept as it is — ERR_INVALID_ARG_VALUE on CAA, ESERVFAIL on SPF, EREFUSED on DNSKEY', async () => {
+  const { result, notMeasured } = await run({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'EREFUSED', [`DS ${ZONE}`]: 'ENODATA',
+    [`TXT ${ZONE}`]: 'ESERVFAIL', [`CAA ${ZONE}`]: 'ERR_INVALID_ARG_VALUE' });
+  assert.deepEqual(notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.code}`),
+    ['spf:TXT:ESERVFAIL', 'dnssec:DNSKEY:EREFUSED', 'caa:CAA:ERR_INVALID_ARG_VALUE']);
+  assert.match(result.reason, /^resolver failure on SPF \(ESERVFAIL\), DNSSEC \(EREFUSED\) and CAA \(ERR_INVALID_ARG_VALUE\): /);
 });
 test('F-060 R1: a codeless DKIM failure whose message BEGINS with a code-shaped token is ENOCODE — no message text anywhere in the result', async () => {
   // The fixture's own shape: it begins with a code-shaped token and is not one, so only the END anchor refuses it.

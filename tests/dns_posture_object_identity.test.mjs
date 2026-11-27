@@ -24,6 +24,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -41,6 +42,9 @@ for (const [k, t] of Object.entries({ resolve4: 'A', resolve6: 'AAAA', resolveCn
 dnsP.resolve = async (n, t = 'A') => answer(t, n);
 
 const SRC = fs.readFileSync(new URL('../plugins/060_dns_sec_auditor.mjs', import.meta.url), 'utf8');
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same table, or this file sends real UDP to the machine's resolver.
+await serveTable(answer);
 const { default: dnsSec, CHECK_OBJECT_FIELD, CHECK_IDS_BY_CATEGORY } = await import('../plugins/060_dns_sec_auditor.mjs');
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 const { historyServiceEntry, historyHostEntry, computeDiff } = await import('../utils/scan_history.mjs');

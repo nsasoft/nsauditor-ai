@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -22,6 +23,9 @@ for (const k of ['resolve', 'resolve4', 'resolve6', 'resolveTxt', 'resolveCname'
   'resolveCaa', 'resolveAny']) dnsP[k] = nodata;
 
 const SRC = fs.readFileSync(new URL('../plugins/060_dns_sec_auditor.mjs', import.meta.url), 'utf8');
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same answer (ENODATA everywhere), or this file sends real UDP to the machine's resolver.
+await serveTable(() => { throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' }); });
 const { default: dnsSec, CHECK_IDS_BY_CATEGORY } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 // The function that implements each check — the oracle, declared.
@@ -29,9 +33,10 @@ const FUNCTION_OF_CHECK = Object.freeze({
   cname: 'checkDanglingCname', spf: 'analyzeSPF', dmarc: 'analyzeDMARC', dkim: 'discoverDKIM', ns: 'analyzeNS',
   dnssec: 'probeDNSSEC', axfr: 'checkZoneTransfer', mx: 'analyzeMX', caa: 'analyzeCAA', wildcard: 'checkWildcard',
 });
-/** Each top-level function's source text, from its declaration to the next one (or the plugin export). */
+/** Each top-level function's source text, from its declaration to the next one (or the plugin export). An `export`ed
+ *  function is a top-level function too: G-75 (b) exports probeDNSSEC and the raw-DNS helpers for their legs. */
 function functionBodies() {
-  const starts = [...SRC.matchAll(/^(?:async )?function (\w+)\(/gm)].map((m) => [m.index, m[1]]);
+  const starts = [...SRC.matchAll(/^(?:export )?(?:async )?function (\w+)\(/gm)].map((m) => [m.index, m[1]]);
   starts.push([SRC.indexOf('export default {'), null]);
   starts.sort((a, b) => a[0] - b[0]);
   return new Map(starts.slice(0, -1).map(([at, name], i) => [name, SRC.slice(at, starts[i + 1][0])]));

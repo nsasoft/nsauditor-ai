@@ -17,6 +17,7 @@ import './helpers/no_operator_home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -30,6 +31,9 @@ for (const k of ['resolve', 'resolve4', 'resolve6', 'resolveTxt', 'resolveCname'
 dnsP.resolveCaa = async (name) => (name === ZONE ? CAA : nodata(name));
 net.createConnection = () => { throw new Error('no connection expected'); };
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same answer (ENODATA everywhere), or this file sends real UDP to the machine's resolver.
+await serveTable(() => { throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' }); });
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 async function caaFindings(records) {

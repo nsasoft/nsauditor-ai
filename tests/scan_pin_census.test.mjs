@@ -41,7 +41,7 @@ const DECLARED = {
   'plugins/arp_scanner.mjs': { commands: { arp: PINNED } },
   'plugins/syn_scanner.mjs': { commands: { nmap: PINNED, where: NOT_A_CONNECT, command: NOT_A_CONNECT } },
   'plugins/tls_scanner.mjs': { dnsProtocol: 'a PTR lookup (reverse) of an address the scan already holds — never a connect' },
-  'plugins/060_dns_sec_auditor.mjs': { dnsProtocol: 'DNS posture of the DOMAIN (resolve*) — it never connects to the target; its zone-transfer attempt (opt-in, DNS_AUDIT_AXFR_CHECK) connects to the nameservers\' resolve4 answers, which it classifies itself (outside the pin)' },
+  'plugins/060_dns_sec_auditor.mjs': { dnsProtocol: 'DNS posture of the DOMAIN (resolve*, and since G-75 (b) raw DNS over UDP and TCP for DNSSEC to the configured resolvers, dns.getServers(): never to the target, never to an address taken from a reply) — it never connects to the target; its zone-transfer attempt (opt-in, DNS_AUDIT_AXFR_CHECK) connects to the nameservers\' resolve4 answers, which it classifies itself (outside the pin)' },
   'utils/keychain.mjs': {
     unbound: { cmd: 'the parameter of its own exec(cmd, args) wrapper; every caller passes the literal security (the macOS Keychain — never the network)' },
   },
@@ -389,6 +389,13 @@ export function connectionTokensIn(raw) {
   const count = (t) => (raw.match(new RegExp(String.raw`(?<![\w$])${t}(?![\w$])`, 'g')) ?? []).length;
   return Object.fromEntries(COUNTED_TOKENS.map((t) => [t, count(t)]));
 }
+/** E2: a dgram importer's UDP sites over the RAW text (comments included): whole-word `createSocket`, and `.send(`. */
+export function dgramCallsIn(raw) {
+  return {
+    createSocket: (raw.match(/(?<![\w$])createSocket(?![\w$])/g) ?? []).length,
+    send: (raw.match(/\.send\s*\(/g) ?? []).length,
+  };
+}
 /**
  * The request calls of an http, https or http2 importer, over the RAW text: every `.request(` and `.get(`, plus a call of
  * a name bound to request or get by a named import or a destructured require/import/getBuiltinModule, under any alias.
@@ -438,6 +445,17 @@ test('(w1, first) the importer derivation reads every import shape, comments inc
   assert.deepEqual(connectionTokensIn('opts.lookup; { lookup }; net.createConnection(p, h); headers["user-agent"]'), { ...Z, lookup: 2, agent: 1, createConnection: 1 }, 'a member, a shorthand, a call, a hyphenated header');
   assert.deepEqual(connectionTokensIn('new https.Agent({ keepAlive: true }); http.globalAgent.destroy(); // a globalAgent'), { ...Z, Agent: 1, globalAgent: 2, keepAlive: 1 }, 'the agent forms, comments included');
   assert.deepEqual(connectionTokensIn('userAgent agentName lookupAll createConnectionFor $agent agent$ _lookup AgentX myglobalAgent keepAliveMsecs'), Z, 'a longer identifier, and $ and _ joined, are not the tokens');
+});
+
+// E2 (EE VERDICT-v413): a dgram importer's census counts its UDP SEND SITES the way the row counts createConnection, so a
+// new UDP egress site (G-75 (b) made 060 send raw DNS) moves a pinned number instead of reading clean. Counted over the
+// RAW text, comments included, like the six tokens: whole-word `createSocket`, and `.send(` (a member call named send).
+test('(first) E2: dgramCallsIn counts whole-word createSocket and every .send( — comments included; a longer name is not one', () => {
+  assert.deepEqual(dgramCallsIn('const s = dgram.createSocket("udp4"); s.send(b, 53, a); sock.send (q, p, h); // createSocket, then .send(it)'),
+    { createSocket: 2, send: 3 }, 'a call, a spaced call, and the comment\'s two');
+  assert.deepEqual(dgramCallsIn('createSocketFor(); $createSocket; createSocket$; s.sendTo(x); s.resend(y); send(z); s.send; "send("'),
+    { createSocket: 0, send: 0 }, 'a longer identifier, $-joined, sendTo, resend, a bare send( and a .send with no call are not counted');
+  assert.deepEqual(dgramCallsIn(''), { createSocket: 0, send: 0 });
 });
 
 test('(w1-s, first) stripComments removes comments and nothing else — a `/*` or `//` inside a string, or a `/*` inside a line comment, opens nothing', () => {
@@ -546,6 +564,7 @@ function netCensus() {
     if (modules.length === 0) continue;
     found[rel] = { modules, tokens: connectionTokensIn(raw), raw };
     if (modules.some((m) => m.startsWith('http'))) Object.assign(found[rel], { calls: httpCallsIn(raw), words: httpWordsIn(raw) });
+    if (modules.includes('dgram')) found[rel].dgram = dgramCallsIn(raw);
   }
   return found;
 }
@@ -574,17 +593,18 @@ const NET_IMPORTERS = {
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_NAMED_BEYOND_ISIP, 0]],
     why: 'tls.connect to the target for its certificate chain; net only for isIP (a named import, held by the named-import witness, v389 R-10)' },
   'plugins/060_dns_sec_auditor.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET,
-    lookup: 'absent — every `lookup` token is prose; it speaks the DNS protocol (resolve*), and its zone transfer connects to an ADDRESS from resolve4, outside the pin (declared in DECLARED above)',
-    createConnection: `${NET_CC} — the opt-in zone transfer to a nameserver address`,
-    tokens: { lookup: 14, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'DNS posture of the domain; dgram is imported and never used' },
+    lookup: 'absent — every `lookup` token is prose; it speaks the DNS protocol: resolve* for six checks, and since G-75 (b) raw DNS for DNSSEC (SOA, DNSKEY, DS) to the configured resolvers, the ADDRESSES dns.getServers() returns, so nothing resolves; its zone transfer connects to an ADDRESS from resolve4, outside the pin (declared in DECLARED above)',
+    createConnection: `${NET_CC} — two sites: DNSSEC's raw DNS over TCP to a configured resolver after a UDP reply with TC=1, and the opt-in zone transfer to a nameserver address`,
+    tokens: { lookup: 16, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 },
+    why: 'DNS posture of the domain; DNSSEC asks SOA, DNSKEY and DS by raw DNS over UDP (an unconnected socket, the reply matched on source address AND port) and TCP to the configured resolvers (dns.getServers()) — never to the target, never to an address taken from a reply (held by dns_posture_dnssec_raw_query L9)' },
   'plugins/db_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'a net.Socket connect to the target\'s database ports' },
   'plugins/dns_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — DNS over TCP to the target`,
-    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'DNS queries to the target over UDP and TCP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'DNS queries to the target over UDP and TCP' },
   'plugins/ftp_banner_check.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'reads the target\'s FTP banner over a net.Socket' },
   'plugins/host_up_check.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'TCP and UDP reachability probes to the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'TCP and UDP reachability probes to the target' },
   'plugins/http_probe.mjs': { modules: ['http', 'https', 'net'],
     agent: { http: `${GLOBAL_HTTP}; G-18, unchanged here`, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose); its curl leg is pinned through --resolve',
@@ -593,7 +613,7 @@ const NET_IMPORTERS = {
     why: 'the target\'s HTTP banner and headers over node:http(s), decoding nothing (G-18); net only for isIP' },
   'plugins/llmnr_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
     lookup: 'absent — it sends to the LLMNR multicast group 224.0.0.252, an address: nothing resolves', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'LLMNR multicast discovery on the local link' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'LLMNR multicast discovery on the local link' },
   'plugins/mcp_scanner.mjs': { modules: ['http', 'https'], agent: { http: GLOBAL_HTTP, https: PER_REQUEST_HTTPS },
     lookup: 'absent — node:dns lookup, which the pin patches (its one `lookup` token is prose)', createConnection: 'absent',
     tokens: { lookup: 1, agent: 3, createConnection: 0, Agent: 2, globalAgent: 0, keepAlive: 0 }, calls: { request: 1, get: 0 }, words: { request: 3, get: 0, ClientRequest: 0 },
@@ -605,7 +625,7 @@ const NET_IMPORTERS = {
     tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 },
     why: 'mDNS discovery through its third-party packages, plus one TCP probe that SPEAKS HTTP/1.1 — a scanned-host HTTP reader with no http import, not on the waist (G-22)' },
   'plugins/netbios_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — SMB on 445 and one more TCP probe`,
-    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'NetBIOS name queries over UDP, an mDNS query to 224.0.0.251, and TCP probes of the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 2, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 2, send: 2 }, why: 'NetBIOS name queries over UDP, an mDNS query to 224.0.0.251, and TCP probes of the target' },
   'plugins/opensearch_scanner.mjs': { modules: ['https'],
     agent: 'absent = global pool — undici\'s global dispatcher, keep-alive on: global fetch IGNORES the https.Agent (rejectUnauthorized: false) the file builds under OPENSEARCH_SCANNER_INSECURE_TLS and hands it (Q3, a no-op), until C-7 moves the site onto the waist',
     lookup: 'absent — undici resolves through node:dns lookup, which the pin patches', createConnection: 'absent',
@@ -615,16 +635,16 @@ const NET_IMPORTERS = {
   'plugins/ping_checker.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
     tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'a TCP connect beside its pinned ping, nping, hping3 and arp subprocesses' },
   'plugins/port_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'TCP connect and UDP probes of the target' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'TCP connect and UDP probes of the target' },
   'plugins/ssh_scanner.mjs': { modules: ['net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: `${NET_CC} — the SSH banner`,
     tokens: { lookup: 0, agent: 0, createConnection: 1, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'reads the target\'s SSH banner' },
   'plugins/sunrpc_scanner.mjs': { modules: ['dgram', 'net'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'portmapper queries to the target over UDP and TCP' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'portmapper queries to the target over UDP and TCP' },
   'plugins/tls_scanner.mjs': { modules: ['tls'], agent: RAW_SOCKET, lookup: RESOLVES, createConnection: 'absent',
     tokens: { lookup: 0, agent: 1, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'tls.connect (or its test seam\'s connect) for protocol and cipher probes; its one `agent` token is prose' },
   'plugins/wsd_scanner.mjs': { modules: ['dgram'], agent: RAW_SOCKET,
     lookup: 'absent — it sends to the WS-Discovery multicast group 239.255.255.250, an address: nothing resolves', createConnection: 'absent',
-    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, why: 'WS-Discovery multicast on the local link' },
+    tokens: { lookup: 0, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, dgram: { createSocket: 1, send: 1 }, why: 'WS-Discovery multicast on the local link' },
   'utils/net_validation.mjs': { modules: ['net'], agent: RAW_SOCKET,
     lookup: 'its own dns.lookup(all, verbatim) — the CHECK whose answers the scan is pinned to', createConnection: 'absent',
     tokens: { lookup: 10, agent: 0, createConnection: 0, Agent: 0, globalAgent: 0, keepAlive: 0 }, witness: [[NET_BEYOND_ISIP_AND_BLOCKLIST, 0]],
@@ -669,6 +689,11 @@ test('(w1-b) each row pins the COUNT of its six tokens and, for an http/https/ht
     for (const call of Object.keys(f.calls ?? {})) {
       assert.equal(f.calls[call], NET_IMPORTERS[rel].calls[call],
         `${rel}: ${f.calls[call]} \`${call}\` calls, declared ${NET_IMPORTERS[rel].calls[call]} — a request site moved; re-read its agent row`);
+    }
+    assert.equal(Boolean(f.dgram), Boolean(NET_IMPORTERS[rel].dgram), `${rel}: a dgram importer declares its dgram calls; no other row does`);
+    for (const site of Object.keys(f.dgram ?? {})) {
+      assert.equal(f.dgram[site], NET_IMPORTERS[rel].dgram[site],
+        `${rel}: the dgram site \`${site}\` occurs ${f.dgram[site]} times, declared ${NET_IMPORTERS[rel].dgram[site]} — a UDP egress site moved; re-read its row`);
     }
     assert.equal(Boolean(f.words), Boolean(NET_IMPORTERS[rel].words), `${rel}: an http, https or http2 importer declares its request words; no other row does`);
     for (const word of HTTP_WORDS.filter(() => f.words)) {

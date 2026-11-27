@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
 const dnsP = require('node:dns').promises;
@@ -36,6 +37,10 @@ for (const k of ['resolve', 'resolve4', 'resolve6', 'resolveTxt', 'resolveCname'
   'resolveCaa', 'resolveAny']) dnsP[k] = nodata;
 dnsP.resolveNs = async (name) => (name === ZONE ? NS_NAMES : nodata(name));
 dnsP.resolve4 = async (name) => (Object.hasOwn(A, name) ? A[name] : nodata(name));
+// Every zone has an SOA at its apex (G-75 (b): the DNSSEC check walks up to it by raw DNS; without one it reads ENOAPEX,
+// DNSSEC not measured, which is not this file's subject). The c-ares stub and the raw-DNS server answer the same one.
+const APEX_SOA = { nsname: `ns1.${ZONE}`, hostmaster: `hostmaster.${ZONE}`, serial: 1 };
+dnsP.resolveSoa = async (name) => (name === ZONE ? APEX_SOA : nodata(name));
 
 let connects = [];
 const realCreateConnection = net.createConnection;
@@ -57,6 +62,12 @@ after(() => {
   restore('NSA_ALLOW_ALL_HOSTS', saved.all);
 });
 
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same zone (its apex SOA, ENODATA for everything else), or this file sends real UDP to the machine's resolver.
+await serveTable((type, name) => {
+  if (type === 'SOA' && name === ZONE) return APEX_SOA;
+  throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+});
 const { default: dnsSec } = await import('../plugins/060_dns_sec_auditor.mjs');
 
 /** One zone: `ns` maps nameserver name → its A answers. Runs 060 opted in unless `optIn` is false. */

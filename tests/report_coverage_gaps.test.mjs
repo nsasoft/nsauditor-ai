@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { serveTable } from './helpers/table_dns_server.mjs';
 
 // 060's resolver, patched BEFORE 060 loads (as tests/dns_posture_resolver_failure_not_absence.test.mjs does). The resolve*
 // family only: 040 and 050 need real loopback sockets, and 060 opens none without the zone-transfer opt-in.
@@ -47,6 +48,9 @@ dnsP.resolve = async (n, t = 'A') => answer(t, n);
 
 const { default: p040 } = await import('../plugins/040_tls_cert_auditor.mjs');
 const { default: p050 } = await import('../plugins/050_tribe_health.mjs');
+// G-75 (b): 060 asks SOA, DNSKEY and DS by raw DNS to dns.getServers(). Point it at a localhost server answering from
+// the same table, or this file sends real UDP to the machine's resolver.
+await serveTable(answer);
 const { default: p060 } = await import('../plugins/060_dns_sec_auditor.mjs');
 const { default: concluder } = await import('../plugins/result_concluder.mjs');
 const { buildMarkdownReport } = await import('../utils/report_md.mjs');
@@ -92,7 +96,9 @@ async function run050({ pin = false } = {}) {
   try { const r = await p050.run('127.0.0.1', port, { timeoutMs: 3000 }); return pin ? pinPorts(r, [port]) : r; } finally { srv.close(); srv.closeAllConnections?.(); }
 }
 async function run060() {
-  TABLE = { [`A ${ZONE}`]: ['192.0.2.10'], [`TXT ${ZONE}`]: [['v=spf1 -all']], [`TXT _dmarc.${ZONE}`]: 'ETIMEOUT', [`A *.${ZONE}`]: 'ENOTFOUND' };
+  // The zone's apex SOA: since G-75 (b) the DNSSEC check walks up to it by raw DNS, and a zone without one reads ENOAPEX — a
+  // second 060 gap row this file does not describe. With it, DNSSEC is the measured no_dnssec it was at every pinned capture.
+  TABLE = { [`SOA ${ZONE}`]: { nsname: `ns1.${ZONE}`, hostmaster: `hostmaster.${ZONE}`, serial: 1 }, [`A ${ZONE}`]: ['192.0.2.10'], [`TXT ${ZONE}`]: [['v=spf1 -all']], [`TXT _dmarc.${ZONE}`]: 'ETIMEOUT', [`A *.${ZONE}`]: 'ENOTFOUND' };
   return p060.run(ZONE, 0, { dkimSelectors: 'google' });
 }
 // v394 M2: a gap at MEDIUM, its shape copied from the Gate-2 aws run (plugin 1120, result.findings[], a replication
