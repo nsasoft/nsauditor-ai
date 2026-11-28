@@ -1,0 +1,198 @@
+{
+  "host": "www.signed.test",
+  "summary": "No evidence the host is up — No open services detected",
+  "results": [
+    {
+      "id": "060",
+      "name": "DNS Security Auditor",
+      "result": {
+        "up": false,
+        "reason": "resolver failure on DNSSEC (ERR_INVALID_ARG_VALUE): that check is not measured; CNAME, SPF, DMARC, DKIM, NS, MX, CAA and wildcard were measured and their findings are in the result",
+        "audit_type": "dns_security",
+        "host": "www.signed.test",
+        "overallSeverity": "high",
+        "duration_ms": 4,
+        "summary": {
+          "totalChecks": 6,
+          "actionable": 6,
+          "critical": 0,
+          "high": 3,
+          "medium": 1,
+          "low": 2,
+          "info": 0,
+          "pass": 0,
+          "notMeasured": 1
+        },
+        "records": {
+          "A": [
+            "192.0.2.1"
+          ],
+          "AAAA": null,
+          "CNAME": null,
+          "MX": null,
+          "NS": null,
+          "hasSOA": false,
+          "txtCount": 0,
+          "caaCount": 0
+        },
+        "findings": {
+          "cname": [],
+          "spf": [
+            {
+              "severity": "high",
+              "check": "missing_spf",
+              "detail": "No SPF record found — domain is vulnerable to email spoofing"
+            }
+          ],
+          "dmarc": [
+            {
+              "severity": "high",
+              "check": "missing_dmarc",
+              "detail": "No DMARC record found — no protection against email spoofing/phishing"
+            }
+          ],
+          "dkim": [
+            {
+              "severity": "medium",
+              "check": "dkim_none_found",
+              "detail": "No DKIM selectors found among 18 common selectors — DKIM may use custom selectors"
+            }
+          ],
+          "ns": [
+            {
+              "severity": "high",
+              "check": "no_ns_records",
+              "detail": "No NS records found — DNS resolution may be unreliable"
+            }
+          ],
+          "dnssec": [],
+          "axfr": [],
+          "mx": [
+            {
+              "severity": "low",
+              "check": "no_mx_a_fallback",
+              "detail": "No MX records — mail delivery will fall back to A/AAAA records (not recommended)"
+            }
+          ],
+          "caa": [
+            {
+              "severity": "low",
+              "check": "no_caa",
+              "detail": "No CAA records — any CA can issue certificates for this domain"
+            }
+          ],
+          "wildcard": []
+        },
+        "details": {
+          "spfRecord": null,
+          "dmarcRecord": null,
+          "dmarcTags": null,
+          "dkimSelectors": [],
+          "nameservers": [],
+          "mxRecords": [],
+          "dnssec": {
+            "hasDNSKEY": null,
+            "hasDS": null
+          },
+          "axfrTested": "opt-in-off",
+          "notMeasured": [
+            {
+              "check": "dnssec",
+              "rrtype": "DNSKEY",
+              "name": "www.signed.test",
+              "code": "ERR_INVALID_ARG_VALUE"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "conclusion": {
+    "id": "008",
+    "name": "Result Concluder",
+    "result": {
+      "summary": "No evidence the host is up — No open services detected",
+      "host": {
+        "up": false,
+        "os": null,
+        "osVersion": null,
+        "name": null
+      },
+      "services": [],
+      "evidence": [
+        {
+          "from": "dns-sec-auditor",
+          "protocol": "udp",
+          "port": 53,
+          "status": "unknown",
+          "info": "6 actionable findings | SPF missing | DMARC missing | DKIM: none found | DNSSEC not measured (ERR_INVALID_ARG_VALUE)",
+          "dnsSecurity": {
+            "status": "action_required",
+            "severity": "high",
+            "actionable": 6,
+            "findings": [
+              {
+                "severity": "high",
+                "category": "spf",
+                "check": "missing_spf",
+                "detail": "No SPF record found — domain is vulnerable to email spoofing"
+              },
+              {
+                "severity": "high",
+                "category": "dmarc",
+                "check": "missing_dmarc",
+                "detail": "No DMARC record found — no protection against email spoofing/phishing"
+              },
+              {
+                "severity": "medium",
+                "category": "dkim",
+                "check": "dkim_none_found",
+                "detail": "No DKIM selectors found among 18 common selectors — DKIM may use custom selectors"
+              },
+              {
+                "severity": "high",
+                "category": "ns",
+                "check": "no_ns_records",
+                "detail": "No NS records found — DNS resolution may be unreliable"
+              },
+              {
+                "severity": "low",
+                "category": "mx",
+                "check": "no_mx_a_fallback",
+                "detail": "No MX records — mail delivery will fall back to A/AAAA records (not recommended)"
+              },
+              {
+                "severity": "low",
+                "category": "caa",
+                "check": "no_caa",
+                "detail": "No CAA records — any CA can issue certificates for this domain"
+              }
+            ],
+            "notMeasured": [
+              {
+                "check": "dnssec",
+                "rrtype": "DNSKEY",
+                "name": "www.signed.test",
+                "code": "ERR_INVALID_ARG_VALUE"
+              }
+            ],
+            "axfrTested": "opt-in-off"
+          }
+        }
+      ],
+      "source_count": 1,
+      "os_source": null
+    }
+  },
+  "runId": "20261128T002519Z-ac369d",
+  "pluginStatus": [
+    {
+      "id": "060",
+      "name": "DNS Security Auditor",
+      "status": "ran",
+      "reason": null,
+      "duration_ms": 5,
+      "producedBy": "nsauditor-ai@1.2.0"
+    }
+  ]
+}

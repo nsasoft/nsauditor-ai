@@ -22,10 +22,14 @@
 // grading one.
 // ─────────────────────────────────────────────────────────────────────────────
 import './helpers/no_operator_home.mjs';
+import './helpers/no_operator_dotenv.mjs';   // the C3 leg below imports cli.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { serveTable } from './helpers/table_dns_server.mjs';
 
 const require = createRequire(import.meta.url);
@@ -404,4 +408,75 @@ test('(delta) the transfer moves from ns1 to ns2 between two runs: cleared on ns
   assert.ok(h, 'the swap is a change');
   assert.deepEqual(h.appeared.filter((id) => id.startsWith('dnsSecurity:axfr')), [`dnsSecurity:axfr_open@${NS2}`]);
   assert.deepEqual(h.cleared.filter((id) => id.startsWith('dnsSecurity:axfr')), [`dnsSecurity:axfr_open@${NS1}`]);
+});
+
+// ── G-75 (f) C3-LEG (EE VERDICT-v418 §4): axfr_open → AXFR not measured is NEVER a fix ───────────────────────────────────
+// Run 1: the nameserver transfers the zone (axfr_open CRITICAL). Run 2: its transfer is unparseable (EBADRESP), so the
+// AXFR check is not measured. `report --since` must not list axfr_open as resolved: the row is held NOT COMPARABLE by run
+// 2's gap. Each run is the REAL 060 result above, written by the REAL scanSingleHost and run-record writers and read by the
+// REAL runReport (the shape of the F-060 legs in dns_posture_resolver_failure_not_absence.test.mjs). The accept, FIRST:
+// a nameserver that now REFUSES the transfer is a measured refusal, so the same row DOES read resolved.
+async function sinceAxfr(planA, planB) {
+  const { scanSingleHost, runReport } = await import('../cli.mjs');
+  const { default: PluginManager } = await import('../plugin_manager.mjs');
+  const { default: concluder } = await import('../plugins/result_concluder.mjs');
+  const { resolveCapabilities } = await import('../utils/capabilities.mjs');
+  const { newRunId, writeRunStart, finalizeRunRecord } = await import('../utils/run_record.mjs');
+  const { sealRunRecord } = await import('../utils/run_chain.mjs');
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nsa-axfr-since-'));
+  const results = [];
+  const mk = async (startedAt, plan) => {
+    const { result } = await axfr(plan);
+    results.push(result);
+    const runId = newRunId();
+    await writeRunStart(outRoot, { runId, startedAt, hostsRequested: ['192.0.2.10'], pluginsRequested: ['060'], portsRequested: '',
+      tier: 'pro', ceVersion: '0.2.54', eeVersion: null, prevDigest: null });
+    const keep = { out: process.env.SCAN_OUT_PATH, lic: process.env.NSAUDITOR_LICENSE_KEY };
+    process.env.SCAN_OUT_PATH = outRoot; process.env.NSAUDITOR_LICENSE_KEY = 'not-a-licence';
+    try {
+      const pm = await PluginManager.create({ plugins: [{ ...dnsSec, requirements: {}, runStrategy: 'single', run: async () => result }, concluder] });
+      const absent = () => { throw Object.assign(new Error('not installed'), { code: 'MODULE_NOT_FOUND' }); };
+      await scanSingleHost(pm, '192.0.2.10', 'all', { resolveEE: absent, runId }, 'basic');
+    } finally {
+      for (const [k, v] of [['SCAN_OUT_PATH', keep.out], ['NSAUDITOR_LICENSE_KEY', keep.lic]]) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+    await finalizeRunRecord(outRoot, runId, { finishedAt: startedAt });
+    await sealRunRecord(outRoot, runId);
+    return runId;
+  };
+  const a = await mk('2026-09-01T10:00:00.000Z', planA); const b = await mk('2026-09-08T10:00:00.000Z', planB);
+  const rep = await runReport({ from: outRoot, format: 'executive', run: b, since: a, out: path.join(outRoot, 'exec.html') }, resolveCapabilities('pro'));
+  assert.equal(rep.code, 0, rep.stderr);
+  // Every row of the delta is on the written page ("Since Last Scan"); the stdout prints only the held ones.
+  const page = fs.readFileSync(path.join(outRoot, 'exec.html'), 'utf8');
+  fs.rmSync(outRoot, { recursive: true, force: true });
+  const at = page.indexOf('Since Last Scan');
+  const sect = at < 0 ? '' : page.slice(at, page.indexOf('</table>', at));
+  const strip = (x) => x.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  const rows = (sect.match(/<tr[\s\S]*?<\/tr>/g) ?? []).slice(1).map((tr) => (tr.match(/<td[\s\S]*?<\/td>/g) ?? []).map(strip));
+  const m = rep.stdout.match(/(\d+) new · (\d+) resolved · (\d+) changed · (\d+) not-comparable · (\d+) unchanged/);
+  assert.ok(m, `the delta line: ${rep.stdout.slice(0, 300)}`);
+  const open = results[0].findings.axfr.find((i) => i.check === 'axfr_open');
+  assert.ok(open, 'premise: run 1 graded axfr_open');
+  const held = rep.stdout.split('\n').filter((l) => l.includes('  NOT COMPARABLE') && l.includes(open.detail.slice(0, 40)));
+  const change = rows.filter((r) => (r[1] ?? '').startsWith(open.detail.slice(0, 40))).map((r) => r[0]);
+  return { stdout: rep.stdout, results, n: { new: +m[1], resolved: +m[2], notComparable: +m[4] }, held, change };
+}
+const TRANSFER = full({ types: ['SOA', 'NS', 'A', 'SOA'] });
+test('C3 (accept, first): axfr_open → the nameserver REFUSES the transfer (measured) — axfr_open reads RESOLVED', async () => {
+  const d = await sinceAxfr(TRANSFER, { chunks: [message({ rcode: 5 })] });
+  assert.deepEqual(d.results[1].details.notMeasured, [], 'premise: run 2 measured the refusal');
+  assert.deepEqual(d.change, ['resolved'], d.stdout);
+  assert.deepEqual([d.n.new, d.n.resolved, d.n.notComparable], [0, 1, 0], d.stdout);
+});
+test('C3: axfr_open → AXFR not measured (an unparseable transfer, EBADRESP) — axfr_open is NOT resolved: held NOT COMPARABLE by the gap', async () => {
+  const d = await sinceAxfr(TRANSFER, { chunks: [pointerReply((o) => o)] });
+  assert.deepEqual(d.results[1].details.notMeasured.map((e) => `${e.check}:${e.rrtype}:${e.name}:${e.code}`), [`axfr:AXFR:${NS1}:EBADRESP`],
+    'premise: run 2 recorded the AXFR check not measured');
+  assert.deepEqual([d.n.new, d.n.resolved], [0, 0], d.stdout);
+  assert.deepEqual(d.change, ['not-comparable'], d.stdout);
+  assert.equal(d.held.length, 1, d.stdout);
+  assert.match(d.held[0], /NOT COMPARABLE \(disappeared\) .* — evidence-gap: .*: Evidence gap: the AXFR check was not measured/);
 });

@@ -1,0 +1,202 @@
+{
+  "host": "signed.test",
+  "summary": "No evidence the host is up — No open services detected",
+  "results": [
+    {
+      "id": "060",
+      "name": "DNS Security Auditor",
+      "result": {
+        "up": false,
+        "reason": "resolver failure on DNSSEC (ERR_INVALID_ARG_VALUE): that check is not measured; CNAME, SPF, DMARC, DKIM, NS, MX, CAA and wildcard were measured and their findings are in the result",
+        "audit_type": "dns_security",
+        "host": "signed.test",
+        "overallSeverity": "high",
+        "duration_ms": 7,
+        "summary": {
+          "totalChecks": 6,
+          "actionable": 5,
+          "critical": 0,
+          "high": 1,
+          "medium": 2,
+          "low": 2,
+          "info": 0,
+          "pass": 1,
+          "notMeasured": 1
+        },
+        "records": {
+          "A": [
+            "192.0.2.1"
+          ],
+          "AAAA": null,
+          "CNAME": null,
+          "MX": null,
+          "NS": [
+            "target.signed.test"
+          ],
+          "hasSOA": true,
+          "txtCount": 1,
+          "caaCount": 0
+        },
+        "findings": {
+          "cname": [],
+          "spf": [
+            {
+              "severity": "pass",
+              "check": "spf_hardfail",
+              "detail": "SPF uses \"-all\" (hardfail) — good policy"
+            }
+          ],
+          "dmarc": [
+            {
+              "severity": "high",
+              "check": "missing_dmarc",
+              "detail": "No DMARC record found — no protection against email spoofing/phishing"
+            }
+          ],
+          "dkim": [
+            {
+              "severity": "medium",
+              "check": "dkim_none_found",
+              "detail": "No DKIM selectors found among 18 common selectors — DKIM may use custom selectors"
+            }
+          ],
+          "ns": [
+            {
+              "severity": "medium",
+              "check": "single_ns",
+              "detail": "Only one nameserver (target.signed.test) — no redundancy if it goes down"
+            }
+          ],
+          "dnssec": [],
+          "axfr": [],
+          "mx": [
+            {
+              "severity": "low",
+              "check": "no_mx_a_fallback",
+              "detail": "No MX records — mail delivery will fall back to A/AAAA records (not recommended)"
+            }
+          ],
+          "caa": [
+            {
+              "severity": "low",
+              "check": "no_caa",
+              "detail": "No CAA records — any CA can issue certificates for this domain"
+            }
+          ],
+          "wildcard": []
+        },
+        "details": {
+          "spfRecord": "v=spf1 -all",
+          "dmarcRecord": null,
+          "dmarcTags": null,
+          "dkimSelectors": [],
+          "nameservers": [
+            {
+              "nameserver": "target.signed.test",
+              "resolves": true,
+              "ips": [
+                "192.0.2.1"
+              ]
+            }
+          ],
+          "mxRecords": [],
+          "dnssec": {
+            "hasDNSKEY": null,
+            "hasDS": null
+          },
+          "axfrTested": "opt-in-off",
+          "notMeasured": [
+            {
+              "check": "dnssec",
+              "rrtype": "DNSKEY",
+              "name": "signed.test",
+              "code": "ERR_INVALID_ARG_VALUE"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "conclusion": {
+    "id": "008",
+    "name": "Result Concluder",
+    "result": {
+      "summary": "No evidence the host is up — No open services detected",
+      "host": {
+        "up": false,
+        "os": null,
+        "osVersion": null,
+        "name": null
+      },
+      "services": [],
+      "evidence": [
+        {
+          "from": "dns-sec-auditor",
+          "protocol": "udp",
+          "port": 53,
+          "status": "unknown",
+          "info": "5 actionable findings | SPF present | DMARC missing | DKIM: none found | DNSSEC not measured (ERR_INVALID_ARG_VALUE)",
+          "dnsSecurity": {
+            "status": "action_required",
+            "severity": "high",
+            "actionable": 5,
+            "findings": [
+              {
+                "severity": "high",
+                "category": "dmarc",
+                "check": "missing_dmarc",
+                "detail": "No DMARC record found — no protection against email spoofing/phishing"
+              },
+              {
+                "severity": "medium",
+                "category": "dkim",
+                "check": "dkim_none_found",
+                "detail": "No DKIM selectors found among 18 common selectors — DKIM may use custom selectors"
+              },
+              {
+                "severity": "medium",
+                "category": "ns",
+                "check": "single_ns",
+                "detail": "Only one nameserver (target.signed.test) — no redundancy if it goes down"
+              },
+              {
+                "severity": "low",
+                "category": "mx",
+                "check": "no_mx_a_fallback",
+                "detail": "No MX records — mail delivery will fall back to A/AAAA records (not recommended)"
+              },
+              {
+                "severity": "low",
+                "category": "caa",
+                "check": "no_caa",
+                "detail": "No CAA records — any CA can issue certificates for this domain"
+              }
+            ],
+            "notMeasured": [
+              {
+                "check": "dnssec",
+                "rrtype": "DNSKEY",
+                "name": "signed.test",
+                "code": "ERR_INVALID_ARG_VALUE"
+              }
+            ],
+            "axfrTested": "opt-in-off"
+          }
+        }
+      ],
+      "source_count": 1,
+      "os_source": null
+    }
+  },
+  "runId": "20261128T002519Z-6c8156",
+  "pluginStatus": [
+    {
+      "id": "060",
+      "name": "DNS Security Auditor",
+      "status": "ran",
+      "reason": null,
+      "duration_ms": 7,
+      "producedBy": "nsauditor-ai@1.2.0"
+    }
+  ]
+}

@@ -552,7 +552,7 @@ async function since060(beforeTable, afterTable) {
   assert.ok(m, `the delta line: ${rep.stdout.slice(0, 300)}`);
   const rows = pageRows060(fs.readFileSync(path.join(outRoot, 'exec.html'), 'utf8'));
   return { stdout: rep.stdout, n: { new: +m[1], resolved: +m[2], notComparable: +m[4], unchanged: +m[5] },
-    change: (title) => rows.filter((r) => r[1] === title).map((r) => r[0]) };
+    change: (title) => rows.filter((r) => r[1] === title).map((r) => r[0]), rows };
 }
 const DKIM_BASE = { ...PRESENT, [`TXT google._domainkey.${ZONE}`]: WEAK_DKIM, [`TXT default._domainkey.${ZONE}`]: SHORT_DKIM };
 const WEAK_TITLE = 'DKIM selector "google" has a weak key (~520 bits) — minimum 1024, recommended 2048';
@@ -648,6 +648,60 @@ test('F-060 STATED LIMIT (the other direction): a baseline with one failed DKIM 
   assert.match(held, /recorded an evidence gap on .*: Evidence gap: the DKIM check was not fully measured — the TXT lookup for google\._domainkey\.example\.test failed \(ESERVFAIL\)/);
   // The google row appears too, and its hold is the gap doing its job: the baseline could not read that selector.
   assert.deepEqual(d.change(WEAK_TITLE), ['not-comparable'], d.stdout);
+});
+
+// ── G-75 (f) C3-LEG (EE VERDICT-v418 §4, v419 §4): `report --since` across a DNSSEC movement that is NOT a fix ─────────
+// A run whose DNSSEC check was not measured resolves nothing and adds nothing: the baseline's DNSSEC row is held, never
+// read as fixed, and a not-measured entry is never a new finding. The accept is written FIRST: a measured fix still
+// resolves. The AXFR movement (axfr_open → AXFR not measured) is the C3 leg in dns_posture_axfr_measured.test.mjs, because
+// this file refuses every connection. Each run below is the REAL 060 over raw DNS to the localhost table server.
+const UNSIGNED = Object.freeze({ ...PRESENT, [`DNSKEY ${ZONE}`]: 'ENODATA', [`DS ${ZONE}`]: 'ENODATA' });
+async function dnssecOf(table) {
+  const { result } = await run(table);
+  return { rows: result.findings.dnssec.map((i) => [i.check, i.detail]),
+    entries: (result.details.notMeasured ?? []).filter((e) => e.check === 'dnssec').map((e) => `${e.rrtype}:${e.name}:${e.code}`) };
+}
+// The page and the stdout cut a long title at a fixed width and end it with "…", so a DNSSEC row (its detail runs past
+// that width) is found by the visible prefix of its detail. A visible title under 40 characters never matches.
+const changeOf = (d, detail) => d.rows.filter((r) => r[1].length >= 40 && detail.startsWith(r[1].replace(/…$/, ''))).map((r) => r[0]);
+const heldLine = (d, detail) => d.stdout.split('\n').find((l) => {
+  const m = /NOT COMPARABLE \(disappeared\) {2}(.+?) — evidence-gap: /.exec(l);
+  return m && m[1].length >= 40 && detail.startsWith(m[1].replace(/…$/, ''));
+});
+test('C3 (accept, first): no_dnssec → dnssec_active, both runs fully measured — the no_dnssec row reads RESOLVED', async () => {
+  const [before, after] = [await dnssecOf(UNSIGNED), await dnssecOf(PRESENT)];
+  assert.deepEqual([before.rows.map((r) => r[0]), before.entries], [['no_dnssec'], []], 'premise: run 1 measured no_dnssec');
+  assert.deepEqual([after.rows.map((r) => r[0]), after.entries], [['dnssec_active'], []], 'premise: run 2 measured dnssec_active');
+  const d = await since060(UNSIGNED, PRESENT);
+  assert.deepEqual(changeOf(d, before.rows[0][1]), ['resolved'], d.stdout);
+  // The PASS is a row of the delta (the not-measured legs below show it held), so the fix reads one NEW row too: the
+  // dnssec_active row, and nothing else.
+  assert.deepEqual(changeOf(d, after.rows[0][1]), ['new'], d.stdout);
+  assert.deepEqual([d.n.new, d.n.resolved, d.n.notComparable], [1, 1, 0], d.stdout);
+});
+test('C3: no_dnssec → DNSSEC not measured (the DNSKEY query REFUSED) — never resolved: held NOT COMPARABLE by the gap, nothing new', async () => {
+  const refused = { ...UNSIGNED, [`DNSKEY ${ZONE}`]: 'EREFUSED' };
+  const [before, after] = [await dnssecOf(UNSIGNED), await dnssecOf(refused)];
+  assert.deepEqual(before.rows.map((r) => r[0]), ['no_dnssec']);
+  assert.deepEqual([after.rows, after.entries], [[], [`DNSKEY:${ZONE}:EREFUSED`]], 'premise: run 2 wrote no DNSSEC row and one entry');
+  const d = await since060(UNSIGNED, refused);
+  assert.deepEqual([d.n.new, d.n.resolved], [0, 0], d.stdout);
+  assert.deepEqual(changeOf(d, before.rows[0][1]), ['not-comparable'], d.stdout);
+  const held = heldLine(d, before.rows[0][1]);
+  assert.ok(held, d.stdout);
+  assert.match(held, /: Evidence gap: the DNSSEC check was not measured — the DNSKEY lookup for example\.test failed \(EREFUSED\)$/);
+});
+test('C3: dnssec_active → DNSSEC not measured (the DNSKEY query SERVFAILs) — not a new finding, and the PASS is not resolved away', async () => {
+  const servfail = { ...PRESENT, [`DNSKEY ${ZONE}`]: 'ESERVFAIL' };
+  const [before, after] = [await dnssecOf(PRESENT), await dnssecOf(servfail)];
+  assert.deepEqual(before.rows.map((r) => r[0]), ['dnssec_active']);
+  assert.deepEqual([after.rows, after.entries], [[], [`DNSKEY:${ZONE}:ESERVFAIL`]], 'premise: run 2 wrote no DNSSEC row and one ESERVFAIL entry');
+  const d = await since060(PRESENT, servfail);
+  assert.deepEqual([d.n.new, d.n.resolved], [0, 0], d.stdout);
+  assert.deepEqual(changeOf(d, before.rows[0][1]), ['not-comparable'], `the PASS row is held by the gap, never resolved away\n${d.stdout}`);
+  const held = heldLine(d, before.rows[0][1]);
+  assert.ok(held, d.stdout);
+  assert.match(held, /: Evidence gap: the DNSSEC check was not measured — the DNSKEY lookup for example\.test failed \(ESERVFAIL\)$/);
 });
 
 // R3: ONE synthesised gap row PER CHECK, naming every failed lookup with its code; `details.notMeasured` stays one entry per

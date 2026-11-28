@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin Raw Report – www.signed.test</title>
+<style>
+:root{
+  --bg:#0b0f14; --card:#0f1622; --text:#e7eef7; --muted:#a9b6c6;
+  --border:#1f2937; --link:#60a5fa;
+  --open:#15a34a; --closed:#ef4444; --filtered:#f59e0b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
+.main{max-width:1100px;margin:24px auto;padding:24px;background:var(--card);border:1px solid var(--border);border-radius:14px}
+h1,h2{margin:1.2em 0 .6em}
+h1{font-size:26px} h2{font-size:18px}
+.meta{color:var(--muted);font-size:12px;margin-top:2px}
+.header{border-bottom:1px dashed var(--border);padding-bottom:12px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--border)}
+th,td{border:1px solid var(--border);padding:8px 10px;vertical-align:top}
+th{background:#0e1420;color:#cfe0ff;text-align:left}
+tbody tr:nth-child(odd){background:#0f1522}
+pre{margin:0;white-space:pre-wrap;word-break:break-word}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:600;border:1px solid transparent}
+.badge-open{background:rgba(21,163,74,.08);border-color:var(--open);color:#b9f6ca}
+.badge-closed{background:rgba(239,68,68,.08);border-color:var(--closed);color:#fecaca}
+.badge-filtered{background:rgba(245,158,11,.08);border-color:var(--filtered);color:#ffe4b5}
+.controls{display:flex;gap:16px;align-items:center;margin:8px 0 14px;color:var(--muted)}
+</style>
+<body>
+  <div class="main">
+    <div class="header">
+      <h1>Admin Raw Report – www.signed.test</h1>
+      <div class="meta">Generated: 2026-11-28T00:25:19.209Z</div>
+      <div class="meta">Summary: No evidence the host is up — No open services detected</div>
+    </div>
+
+    <h2>Open Services</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Port</th><th>Protocol</th><th>Service</th><th>Program</th><th>Version</th><th>Status</th><th>Info</th><th>Banner</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      </tbody>
+    </table>
+
+    <div class="controls">
+      <label><input type="checkbox" id="onlyOpen"> Show only OPEN in Evidence</label>
+    </div>
+
+    <h2>Evidence</h2>
+    <table id="ev">
+      <thead>
+        <tr>
+          <th>From</th><th>Protocol</th><th>Port</th><th>Status</th><th>Info</th><th>Banner</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-proto="udp" data-port="53" data-status="unknown">
+        <td>dns-sec-auditor</td>
+        <td>udp</td>
+        <td>53</td>
+        <td class="ev-status">unknown</td>
+        <td>6 actionable findings | SPF missing | DMARC missing | DKIM: none found | DNSSEC not measured (ERR_INVALID_ARG_VALUE)</td>
+        <td></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+(function(){
+  const onlyOpen = document.getElementById('onlyOpen');
+  const tbl = document.getElementById('ev');
+  if (!onlyOpen || !tbl) return;
+  function apply(){
+    const want = !!onlyOpen.checked;
+    tbl.querySelectorAll('tbody tr').forEach(tr=>{
+      const st = (tr.getAttribute('data-status')||'').toLowerCase();
+      tr.style.display = (want && st !== 'open') ? 'none' : '';
+      // badge styling in-place:
+      const cell = tr.querySelector('.ev-status');
+      if (!cell) return;
+      const v = (cell.textContent||'').trim().toLowerCase();
+      let cls = '';
+      if (v === 'open') cls = 'badge badge-open';
+      else if (v === 'closed') cls = 'badge badge-closed';
+      else if (v === 'filtered') cls = 'badge badge-filtered';
+      if (cls) cell.innerHTML = '<span class="'+cls+'">'+cell.textContent.trim()+'</span>';
+    });
+  }
+  onlyOpen.addEventListener('change', apply);
+  apply();
+})();
+</script>
+</body>
+</html>

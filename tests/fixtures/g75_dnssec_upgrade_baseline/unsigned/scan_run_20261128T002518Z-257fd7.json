@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "runId": "20261128T002518Z-257fd7",
+  "startedAt": "2026-11-28T00:25:18.802Z",
+  "finishedAt": "2026-11-28T00:25:18.829Z",
+  "hostsRequested": [
+    "unsigned.test"
+  ],
+  "hostsWritten": [
+    {
+      "host": "unsigned.test",
+      "dir": "unsigned.test_20261127_162518",
+      "digests": {
+        "scan_conclusion_raw.json": "83654d4c50e8a6943822c192427693ae7c91e7ba7bc4fff8482138aa6a853dd7",
+        "scan_finding_queue.json": null
+      }
+    }
+  ],
+  "pluginsRequested": [
+    "060"
+  ],
+  "portsRequested": null,
+  "tier": "ce",
+  "ceVersion": "1.2.0",
+  "eeVersion": null,
+  "prevDigest": null,
+  "kevLoaded": false,
+  "kevSnapshot": null,
+  "epssLoaded": false,
+  "epssSnapshot": null,
+  "nvdCache": null,
+  "status": "finished",
+  "abortReason": null
+}
