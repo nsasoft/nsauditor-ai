@@ -18,8 +18,9 @@
 //
 // L8's BASELINE is not written by this file: tests/fixtures/g75_dnssec_upgrade_baseline/<arm>/ is what Community
 // 7864383's own CLI wrote over these same zones (DNSSEC not measured, ERR_INVALID_ARG_VALUE: the refused
-// dns.resolve(host, "DNSKEY") of 1.1.0–1.2.0), copied unchanged; the generator and its transcript are sealed in the EE
-// evidence tree (z1/g75-f-l8-baseline-v357).
+// dns.resolve(host, "DNSKEY") of 1.1.0–1.2.0), copied unchanged except that each run's scan_history.jsonl is left out
+// (tests/public_repo_hygiene.test.mjs refuses a tracked .jsonl, and the report does not read it); the generator and its
+// transcript are sealed in the EE evidence tree (z1/g75-f-l8-baseline-v357).
 import { withNoDotenv } from './helpers/no_operator_dotenv.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
